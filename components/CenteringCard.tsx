@@ -120,7 +120,8 @@ export default function CenteringCard({ centering, onOpenTool }: CenteringCardPr
 
       <View style={styles.divider} />
 
-      <View style={styles.gradesContainer}>
+      <Text style={styles.requirementsTitle}>Grade 10 Requirements</Text>
+      <View style={styles.requirementsContainer}>
         {STANDARDS.map((standard) => {
           const result = getCenteringGradeForCompany(
             c.frontLeftRight,
@@ -134,14 +135,21 @@ export default function CenteringCard({ centering, onOpenTool }: CenteringCardPr
           );
 
           return (
-            <View key={standard.company} style={styles.gradeItem}>
-              <Text style={[styles.gradeCompany, { color: standard.color === "#FFFFFF" ? Colors.textSecondary : standard.color }]}>
-                {standard.company}
-              </Text>
-              <Text style={[styles.gradeValue, { color: gradeColor }]}>{result.grade}</Text>
-              <Text style={styles.gradeMaxLabel}>
-                {result.passes10 ? "10 eligible" : `max ${result.grade}`}
-              </Text>
+            <View key={standard.company} style={styles.requirementRow}>
+              <View style={styles.requirementLeft}>
+                <Text style={[styles.gradeCompany, { color: standard.color === "#FFFFFF" ? Colors.textSecondary : standard.color }]}>
+                  {standard.company}
+                </Text>
+                <Text style={styles.requirementDetail}>
+                  Front: {standard.front10}/{100 - standard.front10} | Back: {standard.back10}/{100 - standard.back10}
+                </Text>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: gradeColor + "18" }]}>
+                <View style={[styles.statusDot, { backgroundColor: gradeColor }]} />
+                <Text style={[styles.statusLabel, { color: gradeColor }]}>
+                  {result.passes10 ? "Pass" : `${result.grade}`}
+                </Text>
+              </View>
             </View>
           );
         })}
@@ -234,25 +242,54 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceBorder,
     marginVertical: 14,
   },
-  gradesContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
+  requirementsTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+    marginBottom: 10,
   },
-  gradeItem: {
+  requirementsContainer: {
+    gap: 8,
+  },
+  requirementRow: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  requirementLeft: {
+    flex: 1,
     gap: 2,
   },
   gradeCompany: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-  },
-  gradeValue: {
     fontFamily: "Inter_700Bold",
-    fontSize: 22,
+    fontSize: 13,
   },
-  gradeMaxLabel: {
+  requirementDetail: {
     fontFamily: "Inter_400Regular",
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.textMuted,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
   },
 });

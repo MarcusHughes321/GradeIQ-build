@@ -8,8 +8,6 @@ import {
   Dimensions,
   LayoutChangeEvent,
   Platform,
-  GestureResponderEvent,
-  PanResponderGestureState,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -79,7 +77,7 @@ function getCenteringColor(value: number): string {
   return "#EF4444";
 }
 
-const LINE_HIT_AREA = 30;
+const LINE_HIT_AREA = 44;
 
 interface DraggableLineProps {
   orientation: "horizontal" | "vertical";
@@ -102,24 +100,36 @@ function DraggableLine({
   minPos,
   maxPos,
 }: DraggableLineProps) {
+  const latestPosRef = useRef(position);
   const startPosRef = useRef(position);
+  const onDragRef = useRef(onDrag);
+  const minPosRef = useRef(minPos);
+  const maxPosRef = useRef(maxPos);
+
+  latestPosRef.current = position;
+  onDragRef.current = onDrag;
+  minPosRef.current = minPos;
+  maxPosRef.current = maxPos;
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gs) => Math.abs(orientation === "vertical" ? gs.dx : gs.dy) > 2,
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
-          startPosRef.current = position;
+          startPosRef.current = latestPosRef.current;
         },
-        onPanResponderMove: (_: GestureResponderEvent, gestureState: PanResponderGestureState) => {
-          const delta =
-            orientation === "vertical" ? gestureState.dx : gestureState.dy;
-          const newPos = Math.max(minPos, Math.min(maxPos, startPosRef.current + delta));
-          onDrag(newPos);
+        onPanResponderMove: (_, gestureState) => {
+          const delta = orientation === "vertical" ? gestureState.dx : gestureState.dy;
+          const newPos = Math.max(
+            minPosRef.current,
+            Math.min(maxPosRef.current, startPosRef.current + delta)
+          );
+          onDragRef.current(newPos);
         },
       }),
-    [orientation, position, onDrag, minPos, maxPos]
+    [orientation]
   );
 
   if (orientation === "vertical") {
@@ -209,37 +219,61 @@ export default function CenteringTool({
     return ratioToPositions(currentLR, currentTB, imageLayout.width, imageLayout.height);
   }, [currentLR, currentTB, imageLayout]);
 
-  const handleLineDrag = useCallback(
-    (line: "left" | "right" | "top" | "bottom", newPos: number) => {
-      if (!positions || imageLayout.width === 0) return;
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
 
-      const updatedPositions = { ...positions, [line]: newPos };
-      const result = positionsToRatio(
-        updatedPositions.left,
-        updatedPositions.right,
-        updatedPositions.top,
-        updatedPositions.bottom,
-        imageLayout.width,
-        imageLayout.height
-      );
+  const showFrontRef = useRef(showFront);
+  showFrontRef.current = showFront;
 
-      setLocalCentering((prev) => {
-        if (showFront) {
-          return { ...prev, frontLeftRight: result.lr, frontTopBottom: result.tb };
-        }
-        return { ...prev, backLeftRight: result.lr, backTopBottom: result.tb };
-      });
-    },
-    [positions, imageLayout, showFront]
-  );
+  const imageLayoutRef = useRef(imageLayout);
+  imageLayoutRef.current = imageLayout;
 
-  const handleSave = () => {
-    onSave(localCentering);
-  };
+  const handleLeftDrag = useCallback((newPos: number) => {
+    const pos = positionsRef.current;
+    const layout = imageLayoutRef.current;
+    if (!pos || layout.width === 0) return;
+    const result = positionsToRatio(newPos, pos.right, pos.top, pos.bottom, layout.width, layout.height);
+    setLocalCentering((prev) => {
+      if (showFrontRef.current) return { ...prev, frontLeftRight: result.lr, frontTopBottom: result.tb };
+      return { ...prev, backLeftRight: result.lr, backTopBottom: result.tb };
+    });
+  }, []);
 
-  const handleReset = () => {
-    setLocalCentering(centering);
-  };
+  const handleRightDrag = useCallback((newPos: number) => {
+    const pos = positionsRef.current;
+    const layout = imageLayoutRef.current;
+    if (!pos || layout.width === 0) return;
+    const result = positionsToRatio(pos.left, newPos, pos.top, pos.bottom, layout.width, layout.height);
+    setLocalCentering((prev) => {
+      if (showFrontRef.current) return { ...prev, frontLeftRight: result.lr, frontTopBottom: result.tb };
+      return { ...prev, backLeftRight: result.lr, backTopBottom: result.tb };
+    });
+  }, []);
+
+  const handleTopDrag = useCallback((newPos: number) => {
+    const pos = positionsRef.current;
+    const layout = imageLayoutRef.current;
+    if (!pos || layout.width === 0) return;
+    const result = positionsToRatio(pos.left, pos.right, newPos, pos.bottom, layout.width, layout.height);
+    setLocalCentering((prev) => {
+      if (showFrontRef.current) return { ...prev, frontLeftRight: result.lr, frontTopBottom: result.tb };
+      return { ...prev, backLeftRight: result.lr, backTopBottom: result.tb };
+    });
+  }, []);
+
+  const handleBottomDrag = useCallback((newPos: number) => {
+    const pos = positionsRef.current;
+    const layout = imageLayoutRef.current;
+    if (!pos || layout.width === 0) return;
+    const result = positionsToRatio(pos.left, pos.right, pos.top, newPos, layout.width, layout.height);
+    setLocalCentering((prev) => {
+      if (showFrontRef.current) return { ...prev, frontLeftRight: result.lr, frontTopBottom: result.tb };
+      return { ...prev, backLeftRight: result.lr, backTopBottom: result.tb };
+    });
+  }, []);
+
+  const handleSave = () => onSave(localCentering);
+  const handleReset = () => setLocalCentering(centering);
 
   const lrColor = getCenteringColor(currentLR);
   const tbColor = getCenteringColor(currentTB);
@@ -299,7 +333,7 @@ export default function CenteringTool({
                 imageSize={imageLayout}
                 color="#FF3C31"
                 label="L"
-                onDrag={(p) => handleLineDrag("left", p)}
+                onDrag={handleLeftDrag}
                 minPos={minBorderH}
                 maxPos={maxBorderH}
               />
@@ -309,7 +343,7 @@ export default function CenteringTool({
                 imageSize={imageLayout}
                 color="#3B82F6"
                 label="R"
-                onDrag={(p) => handleLineDrag("right", p)}
+                onDrag={handleRightDrag}
                 minPos={imageLayout.width - maxBorderH}
                 maxPos={imageLayout.width - minBorderH}
               />
@@ -319,7 +353,7 @@ export default function CenteringTool({
                 imageSize={imageLayout}
                 color="#F59E0B"
                 label="T"
-                onDrag={(p) => handleLineDrag("top", p)}
+                onDrag={handleTopDrag}
                 minPos={minBorderV}
                 maxPos={maxBorderV}
               />
@@ -329,7 +363,7 @@ export default function CenteringTool({
                 imageSize={imageLayout}
                 color="#10B981"
                 label="B"
-                onDrag={(p) => handleLineDrag("bottom", p)}
+                onDrag={handleBottomDrag}
                 minPos={imageLayout.height - maxBorderV}
                 maxPos={imageLayout.height - minBorderV}
               />
@@ -447,14 +481,14 @@ const lineStyles = StyleSheet.create({
   },
   verticalLine: {
     position: "absolute",
-    width: 2,
+    width: 2.5,
     height: "100%",
-    left: LINE_HIT_AREA / 2 - 1,
+    left: LINE_HIT_AREA / 2 - 1.25,
   },
   handle: {
-    width: 20,
-    height: 40,
-    borderRadius: 10,
+    width: 24,
+    height: 48,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     left: 0,
@@ -465,13 +499,13 @@ const lineStyles = StyleSheet.create({
     shadowRadius: 3,
   },
   handleDots: {
-    gap: 3,
+    gap: 4,
   },
   handleDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.8)",
+    backgroundColor: "rgba(255,255,255,0.9)",
   },
   horizontalContainer: {
     position: "absolute",
@@ -482,14 +516,14 @@ const lineStyles = StyleSheet.create({
   },
   horizontalLine: {
     position: "absolute",
-    height: 2,
+    height: 2.5,
     width: "100%",
-    top: LINE_HIT_AREA / 2 - 1,
+    top: LINE_HIT_AREA / 2 - 1.25,
   },
   handleH: {
-    width: 40,
-    height: 20,
-    borderRadius: 10,
+    width: 48,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     top: 0,
@@ -501,12 +535,12 @@ const lineStyles = StyleSheet.create({
   },
   handleDotsH: {
     flexDirection: "row",
-    gap: 3,
+    gap: 4,
   },
   lineLabel: {
     position: "absolute",
     fontFamily: "Inter_700Bold",
-    fontSize: 11,
+    fontSize: 12,
     textShadowColor: "rgba(0,0,0,0.8)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -514,7 +548,7 @@ const lineStyles = StyleSheet.create({
   lineLabelH: {
     position: "absolute",
     fontFamily: "Inter_700Bold",
-    fontSize: 11,
+    fontSize: 12,
     textShadowColor: "rgba(0,0,0,0.8)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -595,12 +629,13 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     borderRadius: 10,
-    overflow: "hidden",
+    overflow: "visible",
     backgroundColor: Colors.surfaceLight,
   },
   cardImage: {
     width: "100%",
     height: "100%",
+    borderRadius: 10,
   },
   linesOverlay: {
     position: "absolute",
@@ -608,6 +643,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    overflow: "visible",
   },
   borderShade: {
     position: "absolute",
