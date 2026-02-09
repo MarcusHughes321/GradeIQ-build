@@ -640,9 +640,9 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
               styles.imageContainer,
               {
                 transform: [
-                  { scale: zoomScale },
                   { translateX: panOffset.x },
                   { translateY: panOffset.y },
+                  { scale: zoomScale },
                 ],
               },
             ]}
