@@ -103,24 +103,33 @@ function DraggableLine({
   maxPos,
 }: DraggableLineProps) {
   const startPosRef = useRef(position);
+  const posRef = useRef(position);
+  const onDragRef = useRef(onDrag);
+  const minPosRef = useRef(minPos);
+  const maxPosRef = useRef(maxPos);
 
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          startPosRef.current = position;
-        },
-        onPanResponderMove: (_: GestureResponderEvent, gestureState: PanResponderGestureState) => {
-          const delta =
-            orientation === "vertical" ? gestureState.dx : gestureState.dy;
-          const newPos = Math.max(minPos, Math.min(maxPos, startPosRef.current + delta));
-          onDrag(newPos);
-        },
-      }),
-    [orientation, position, onDrag, minPos, maxPos]
-  );
+  posRef.current = position;
+  onDragRef.current = onDrag;
+  minPosRef.current = minPos;
+  maxPosRef.current = maxPos;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: (_, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
+      onPanResponderGrant: () => {
+        startPosRef.current = posRef.current;
+      },
+      onPanResponderMove: (_: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        const delta = orientation === "vertical" ? gestureState.dx : gestureState.dy;
+        const newPos = Math.max(minPosRef.current, Math.min(maxPosRef.current, startPosRef.current + delta));
+        onDragRef.current(newPos);
+      },
+      onPanResponderTerminationRequest: () => false,
+    })
+  ).current;
 
   if (orientation === "vertical") {
     return (
