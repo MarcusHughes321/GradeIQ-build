@@ -1,0 +1,48 @@
+export interface SubGrade {
+  grade: number;
+  notes: string;
+}
+
+export interface PSAGrade {
+  grade: number;
+  centering: string;
+  corners: string;
+  edges: string;
+  surface: string;
+  notes: string;
+}
+
+export interface BeckettGrade {
+  overallGrade: number;
+  centering: SubGrade;
+  corners: SubGrade;
+  edges: SubGrade;
+  surface: SubGrade;
+  notes: string;
+}
+
+export interface AceGrade {
+  overallGrade: number;
+  centering: SubGrade;
+  corners: SubGrade;
+  edges: SubGrade;
+  surface: SubGrade;
+  notes: string;
+}
+
+export interface GradingResult {
+  cardName: string;
+  setInfo: string;
+  overallCondition: string;
+  psa: PSAGrade;
+  beckett: BeckettGrade;
+  ace: AceGrade;
+}
+
+export interface SavedGrading {
+  id: string;
+  frontImage: string;
+  backImage: string;
+  result: GradingResult;
+  timestamp: number;
+}
