@@ -13,7 +13,6 @@ export function getApiUrl(): string {
   }
 
   let url = new URL(`https://${host}`);
-  url.port = "";
 
   return url.href;
 }

@@ -210,26 +210,6 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.overallGrades}>
-          <Text style={styles.overallGradesTitle}>Estimated Overall Grades</Text>
-          <View style={styles.overallGradesRow}>
-            <View style={styles.overallGradeItem}>
-              <GradeCircle grade={result.psa.grade} size={68} color={Colors.cardPSA} />
-              <Text style={[styles.overallGradeCompany, { color: Colors.cardPSA }]}>PSA</Text>
-            </View>
-            <View style={styles.overallGradeDivider} />
-            <View style={styles.overallGradeItem}>
-              <GradeCircle grade={result.beckett.overallGrade} size={68} color={Colors.cardBeckett} />
-              <Text style={[styles.overallGradeCompany, { color: Colors.cardBeckett }]}>BGS</Text>
-            </View>
-            <View style={styles.overallGradeDivider} />
-            <View style={styles.overallGradeItem}>
-              <GradeCircle grade={result.ace.overallGrade} size={68} color={Colors.cardAce} />
-              <Text style={[styles.overallGradeCompany, { color: Colors.cardAce }]}>ACE</Text>
-            </View>
-          </View>
-        </View>
-
         <CenteringCard
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
           onOpenTool={() => setCenteringToolVisible(true)}
@@ -544,40 +524,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 14,
     marginTop: 8,
-  },
-  overallGrades: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  overallGradesTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: Colors.textMuted,
-    textTransform: "uppercase" as const,
-    letterSpacing: 0.5,
-    textAlign: "center" as const,
-    marginBottom: 16,
-  },
-  overallGradesRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-evenly",
-  },
-  overallGradeItem: {
-    alignItems: "center",
-    gap: 8,
-  },
-  overallGradeCompany: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-  },
-  overallGradeDivider: {
-    width: 1,
-    height: 60,
-    backgroundColor: Colors.surfaceBorder,
   },
   imageRow: {
     flexDirection: "row",

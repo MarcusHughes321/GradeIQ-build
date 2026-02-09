@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   Pressable,
+  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -16,7 +17,6 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
-import AnalysisProgress from "@/components/AnalysisProgress";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
@@ -25,8 +25,6 @@ export default function GradeScreen() {
   const insets = useSafeAreaInsets();
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
-  const [frontBase64, setFrontBase64] = useState<string | null>(null);
-  const [backBase64, setBackBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -63,7 +61,7 @@ export default function GradeScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      quality: 0.4,
+      quality: 0.8,
       base64: true,
       allowsEditing: true,
       aspect: [63, 88],
@@ -71,20 +69,11 @@ export default function GradeScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      const uri = asset.uri;
       if (side === "front") {
-        setFrontImage(asset.uri);
-        if (asset.base64) {
-          setFrontBase64(`data:image/jpeg;base64,${asset.base64}`);
-        } else {
-          setFrontBase64(null);
-        }
+        setFrontImage(uri);
       } else {
-        setBackImage(asset.uri);
-        if (asset.base64) {
-          setBackBase64(`data:image/jpeg;base64,${asset.base64}`);
-        } else {
-          setBackBase64(null);
-        }
+        setBackImage(uri);
       }
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -101,7 +90,7 @@ export default function GradeScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.4,
+      quality: 0.8,
       base64: true,
       allowsEditing: true,
       aspect: [63, 88],
@@ -109,20 +98,11 @@ export default function GradeScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
+      const uri = asset.uri;
       if (side === "front") {
-        setFrontImage(asset.uri);
-        if (asset.base64) {
-          setFrontBase64(`data:image/jpeg;base64,${asset.base64}`);
-        } else {
-          setFrontBase64(null);
-        }
+        setFrontImage(uri);
       } else {
-        setBackImage(asset.uri);
-        if (asset.base64) {
-          setBackBase64(`data:image/jpeg;base64,${asset.base64}`);
-        } else {
-          setBackBase64(null);
-        }
+        setBackImage(uri);
       }
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -131,33 +111,36 @@ export default function GradeScreen() {
   };
 
   const getBase64FromUri = async (uri: string): Promise<string> => {
-    if (uri.startsWith("data:")) {
-      return uri;
+    if (Platform.OS === "web") {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } else {
+      const { File } = require("expo-file-system");
+      const { fetch: expoFetch } = require("expo/fetch");
+      const file = new File(uri);
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
     }
-
-    if (Platform.OS !== "web") {
-      try {
-        const FileSystem = require("expo-file-system");
-        const base64Data = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        return `data:image/jpeg;base64,${base64Data}`;
-      } catch (fsError) {
-        console.warn("expo-file-system read failed, falling back to fetch:", fsError);
-      }
-    }
-
-    const response = await globalThis.fetch(uri);
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        resolve(result);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
   };
 
   const handleGrade = async () => {
@@ -173,39 +156,15 @@ export default function GradeScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      console.log("Preparing images...");
-      const front = frontBase64 || await getBase64FromUri(frontImage);
-      const back = backBase64 || await getBase64FromUri(backImage);
-      console.log("Images ready. Front:", Math.round(front.length / 1024), "KB, Back:", Math.round(back.length / 1024), "KB");
+      const frontBase64 = await getBase64FromUri(frontImage);
+      const backBase64 = await getBase64FromUri(backImage);
 
-      console.log("Sending grading request...");
-      const { getApiUrl } = require("@/lib/query-client");
-      const baseUrl = getApiUrl();
-      const url = new URL("/api/grade-card", baseUrl);
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 90000);
-
-      const response = await globalThis.fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ frontImage: front, backImage: back }),
-        signal: controller.signal,
+      const response = await apiRequest("POST", "/api/grade-card", {
+        frontImage: frontBase64,
+        backImage: backBase64,
       });
-      clearTimeout(timeoutId);
-
-      console.log("Response received, status:", response.status);
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(errorBody || `Server error: ${response.status}`);
-      }
 
       const result: GradingResult = await response.json();
-
-      if ((result as any).error) {
-        throw new Error((result as any).error);
-      }
 
       const saved = await saveGrading(frontImage, backImage, result);
 
@@ -218,19 +177,8 @@ export default function GradeScreen() {
         params: { gradingId: saved.id },
       });
     } catch (error: any) {
-      console.error("Grading error:", error?.message || error);
-      let msg = "There was an error analyzing your card. Please try again.";
-      if (error?.name === "AbortError") {
-        msg = "Analysis timed out after 90 seconds. Please try again.";
-      } else if (error?.message) {
-        try {
-          const parsed = JSON.parse(error.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          if (error.message.length < 200) msg = error.message;
-        }
-      }
-      Alert.alert("Grading Failed", msg);
+      console.error("Grading error:", error);
+      Alert.alert("Grading Failed", "There was an error analyzing your card. Please try again.");
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
@@ -267,13 +215,13 @@ export default function GradeScreen() {
             label="Front"
             imageUri={frontImage}
             onCapture={() => pickImage("front")}
-            onRemove={() => { setFrontImage(null); setFrontBase64(null); }}
+            onRemove={() => setFrontImage(null)}
           />
           <ImageCapture
             label="Back"
             imageUri={backImage}
             onCapture={() => pickImage("back")}
-            onRemove={() => { setBackImage(null); setBackBase64(null); }}
+            onRemove={() => setBackImage(null)}
           />
         </View>
 
@@ -307,19 +255,29 @@ export default function GradeScreen() {
             { opacity: !canGrade ? 0.4 : pressed ? 0.9 : 1 },
           ]}
         >
-          <LinearGradient
-            colors={[Colors.gradientStart, Colors.gradientEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.gradientInner}
-          >
-            <Ionicons name="sparkles" size={20} color="#fff" />
-            <Text style={styles.analyzeText}>Analyze & Grade</Text>
-          </LinearGradient>
+          {loading ? (
+            <LinearGradient
+              colors={[Colors.gradientStart, Colors.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientInner}
+            >
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={styles.analyzeText}>Analyzing Card...</Text>
+            </LinearGradient>
+          ) : (
+            <LinearGradient
+              colors={[Colors.gradientStart, Colors.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientInner}
+            >
+              <Ionicons name="sparkles" size={20} color="#fff" />
+              <Text style={styles.analyzeText}>Analyze & Grade</Text>
+            </LinearGradient>
+          )}
         </Pressable>
       </View>
-
-      <AnalysisProgress visible={loading} />
     </View>
   );
 }
