@@ -1,9 +1,22 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { Image } from "expo-image";
 import Colors from "@/constants/colors";
 import GradeCircle from "./GradeCircle";
 import SubGradeRow from "./SubGradeRow";
 import type { PSAGrade, BeckettGrade, AceGrade } from "@/lib/types";
+
+const LOGO_MAP = {
+  PSA: require("@/assets/images/logo-psa.png"),
+  Beckett: require("@/assets/images/logo-bgs.png"),
+  Ace: require("@/assets/images/logo-ace.png"),
+};
+
+const COMPANY_LABELS: Record<string, string> = {
+  PSA: "PSA",
+  Beckett: "BGS",
+  Ace: "ACE",
+};
 
 interface CompanyCardProps {
   company: "PSA" | "Beckett" | "Ace";
@@ -21,9 +34,14 @@ export default function CompanyCard({ company, grade, color }: CompanyCardProps)
   return (
     <View style={[styles.card, { borderColor: color + "30" }]}>
       <View style={styles.headerRow}>
-        <View style={styles.companyBadge}>
-          <View style={[styles.dot, { backgroundColor: color }]} />
-          <Text style={[styles.companyName, { color }]}>{company}</Text>
+        <View style={styles.companyInfo}>
+          <Image source={LOGO_MAP[company]} style={styles.companyLogo} contentFit="contain" />
+          <View>
+            <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
+            <Text style={styles.companyFullName}>
+              {company === "PSA" ? "Professional Sports Authenticator" : company === "Beckett" ? "Beckett Grading Services" : "Ace Grading"}
+            </Text>
+          </View>
         </View>
         <GradeCircle grade={overallGrade} size={56} color={color} />
       </View>
@@ -68,19 +86,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  companyBadge: {
+  companyInfo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
+    flex: 1,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  companyLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
   },
   companyName: {
     fontFamily: "Inter_700Bold",
     fontSize: 20,
+  },
+  companyFullName: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 1,
   },
   divider: {
     height: 1,
