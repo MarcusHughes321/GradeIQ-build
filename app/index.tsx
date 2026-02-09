@@ -12,7 +12,7 @@ import {
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
-import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading } from "@/lib/storage";
@@ -130,25 +130,12 @@ export default function HomeScreen() {
           </LinearGradient>
         </Pressable>
 
-        <View style={styles.bubbleColumn}>
-          <Pressable
-            style={({ pressed }) => [styles.bubbleSmall, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
-            onPress={() => router.push("/grade")}
-          >
-            <View style={styles.bubbleSmallIcon}>
-              <Feather name="zap" size={20} color={Colors.primary} />
-            </View>
-            <Text style={styles.bubbleSmallText}>Quick Scan</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.bubbleSmall, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
-            onPress={() => {}}
-          >
-            <View style={styles.bubbleSmallIcon}>
-              <Ionicons name="stats-chart" size={20} color={Colors.primary} />
-            </View>
-            <Text style={styles.bubbleSmallText}>{gradings.length} Graded</Text>
-          </Pressable>
+        <View style={styles.bubbleStats}>
+          <View style={styles.statsIconCircle}>
+            <Ionicons name="stats-chart" size={24} color={Colors.primary} />
+          </View>
+          <Text style={styles.statsNumber}>{gradings.length}</Text>
+          <Text style={styles.statsLabel}>Cards{"\n"}Graded</Text>
         </View>
       </View>
 
@@ -270,34 +257,37 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
     marginTop: 2,
   },
-  bubbleColumn: {
+  bubbleStats: {
     width: BUBBLE_WIDTH,
-    gap: BUBBLE_GAP,
-  },
-  bubbleSmall: {
-    flex: 1,
     backgroundColor: Colors.surface,
     borderRadius: 20,
-    padding: 14,
-    flexDirection: "row",
+    padding: 18,
     alignItems: "center",
-    gap: 10,
+    justifyContent: "center",
+    gap: 6,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
-  bubbleSmallIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  statsIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: "rgba(255,60,49,0.12)",
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 4,
   },
-  bubbleSmallText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
+  statsNumber: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 28,
     color: Colors.text,
-    flex: 1,
+  },
+  statsLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: "center",
+    lineHeight: 16,
   },
   sectionHeader: {
     flexDirection: "row",
