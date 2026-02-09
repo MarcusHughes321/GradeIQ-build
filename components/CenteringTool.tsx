@@ -47,10 +47,10 @@ interface ImageBounds {
 }
 
 const DEFAULT_CARD_BOUNDS: CardBounds = {
-  leftPercent: 8,
-  topPercent: 5,
-  rightPercent: 92,
-  bottomPercent: 95,
+  leftPercent: 4,
+  topPercent: 3,
+  rightPercent: 96,
+  bottomPercent: 97,
 };
 
 const MIN_LINE_MARGIN = 12;
@@ -136,7 +136,7 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const LINE_HIT = 30;
+const LINE_HIT_SCREEN_PX = 44;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
 
@@ -166,7 +166,7 @@ function getTouchDistance(touches: any[]): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function findNearestLine(x: number, y: number, pos: BorderPositions, hitDist: number = LINE_HIT): { key: LineKey; dist: number } | null {
+function findNearestLine(x: number, y: number, pos: BorderPositions, hitDist: number): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
   const vLines: LineKey[] = ["outerLeft", "innerLeft", "outerRight", "innerRight"];
@@ -219,9 +219,11 @@ function viewportToContainer(
 
 function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
   const lineW = config.dashed ? 1 : 2.5;
-  const dotStyle = { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.85)" } as const;
+  const dotStyle = { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.9)" } as const;
 
   if (config.orientation === "v") {
+    const grabW = config.dashed ? 22 : 28;
+    const grabH = config.dashed ? 38 : 48;
     return (
       <View
         key={config.key}
@@ -238,20 +240,20 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
         pointerEvents="none"
       >
         <View style={{ position: "absolute" as const, width: lineW, height: "100%" as const, backgroundColor: config.color, opacity: config.dashed ? 0.5 : 1 }} />
-        {!config.dashed && (
-          <View style={{ width: 16, height: 32, borderRadius: 8, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const }}>
-            <View style={{ gap: 2.5 }}>
-              <View style={dotStyle} />
-              <View style={dotStyle} />
-              <View style={dotStyle} />
-            </View>
+        <View style={{ width: grabW, height: grabH, borderRadius: grabW / 2, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 }}>
+          <View style={{ gap: 4 }}>
+            <View style={dotStyle} />
+            <View style={dotStyle} />
+            <View style={dotStyle} />
           </View>
-        )}
-        {config.label ? <Text style={{ position: "absolute" as const, top: 3, left: 6, fontFamily: "Inter_700Bold", fontSize: 9, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
+        </View>
+        {config.label ? <Text style={{ position: "absolute" as const, top: 3, left: 8, fontFamily: "Inter_700Bold", fontSize: 10, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
       </View>
     );
   }
 
+  const grabW = config.dashed ? 38 : 48;
+  const grabH = config.dashed ? 22 : 28;
   return (
     <View
       key={config.key}
@@ -268,16 +270,14 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
       pointerEvents="none"
     >
       <View style={{ position: "absolute" as const, height: lineW, width: "100%" as const, backgroundColor: config.color, opacity: config.dashed ? 0.5 : 1 }} />
-      {!config.dashed && (
-        <View style={{ width: 32, height: 16, borderRadius: 8, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const }}>
-          <View style={{ flexDirection: "row" as const, gap: 2.5 }}>
-            <View style={dotStyle} />
-            <View style={dotStyle} />
-            <View style={dotStyle} />
-          </View>
+      <View style={{ width: grabW, height: grabH, borderRadius: grabH / 2, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 }}>
+        <View style={{ flexDirection: "row" as const, gap: 4 }}>
+          <View style={dotStyle} />
+          <View style={dotStyle} />
+          <View style={dotStyle} />
         </View>
-      )}
-      {config.label ? <Text style={{ position: "absolute" as const, left: 5, top: 6, fontFamily: "Inter_700Bold", fontSize: 9, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
+      </View>
+      {config.label ? <Text style={{ position: "absolute" as const, left: 5, top: 8, fontFamily: "Inter_700Bold", fontSize: 10, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
     </View>
   );
 }
@@ -474,7 +474,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
         const currentPos = posRef.current;
         if (currentPos) {
-          const nearest = findNearestLine(containerX, containerY, currentPos, LINE_HIT);
+          const hitDist = LINE_HIT_SCREEN_PX / scale;
+          const nearest = findNearestLine(containerX, containerY, currentPos, hitDist);
           if (nearest) {
             gestureMode.current = "drag";
             dragLineKey.current = nearest.key;
@@ -689,7 +690,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           </View>
         )}
 
-        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag lines to adjust</Text>
+        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag handles to adjust lines</Text>
       </View>
     </View>
   );
