@@ -10,6 +10,7 @@ import {
   Platform,
   GestureResponderEvent,
   PanResponderGestureState,
+  Image as RNImage,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -153,7 +154,7 @@ function getTouchDistance(touches: any[]): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function findNearestLine(x: number, y: number, pos: BorderPositions): { key: LineKey; dist: number } | null {
+function findNearestLine(x: number, y: number, pos: BorderPositions, hitDist: number = LINE_HIT): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
   const vLines: LineKey[] = ["outerLeft", "innerLeft", "outerRight", "innerRight"];
@@ -161,14 +162,14 @@ function findNearestLine(x: number, y: number, pos: BorderPositions): { key: Lin
 
   for (const k of vLines) {
     const d = Math.abs(x - pos[k]);
-    if (d < LINE_HIT && (!best || d < best.dist)) {
+    if (d < hitDist && (!best || d < best.dist)) {
       best = { key: k, dist: d };
     }
   }
 
   for (const k of hLines) {
     const d = Math.abs(y - pos[k]);
-    if (d < LINE_HIT && (!best || d < best.dist)) {
+    if (d < hitDist && (!best || d < best.dist)) {
       best = { key: k, dist: d };
     }
   }
@@ -281,6 +282,26 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const natural = showFront ? frontNatural : backNatural;
 
   useEffect(() => {
+    if (frontImage) {
+      RNImage.getSize(
+        frontImage,
+        (w, h) => { if (w > 0 && h > 0) setFrontNatural({ w, h }); },
+        () => {}
+      );
+    }
+  }, [frontImage]);
+
+  useEffect(() => {
+    if (backImage) {
+      RNImage.getSize(
+        backImage,
+        (w, h) => { if (w > 0 && h > 0) setBackNatural({ w, h }); },
+        () => {}
+      );
+    }
+  }, [backImage]);
+
+  useEffect(() => {
     if (containerSize.width > 0 && frontNatural.w > 0 && !frontPos) {
       const bounds = calcContainBounds(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
       setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
@@ -305,7 +326,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
     if (w > 0 && h > 0) {
-      setFrontNatural({ w, h });
+      setFrontNatural(prev => prev.w > 0 ? prev : { w, h });
     }
   }, []);
 
@@ -313,7 +334,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
     if (w > 0 && h > 0) {
-      setBackNatural({ w, h });
+      setBackNatural(prev => prev.w > 0 ? prev : { w, h });
     }
   }, []);
 
@@ -402,8 +423,9 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         viewportOriginRef.current = { x: lx, y: ly };
 
         const currentPos = posRef.current;
-        if (currentPos && scale <= 1.05) {
-          const nearest = findNearestLine(viewX, viewY, currentPos);
+        const hitSlop = LINE_HIT / scale;
+        if (currentPos) {
+          const nearest = findNearestLine(viewX, viewY, currentPos, hitSlop);
           if (nearest) {
             gestureMode.current = "drag";
             dragLineKey.current = nearest.key;
@@ -416,14 +438,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           gestureMode.current = "pan";
           panStartOffRef.current = { ...panOffsetRef.current };
         } else {
-          const nearest = currentPos ? findNearestLine(viewX, viewY, currentPos) : null;
-          if (nearest) {
-            gestureMode.current = "drag";
-            dragLineKey.current = nearest.key;
-            dragLineStart.current = currentPos![nearest.key];
-          } else {
-            gestureMode.current = "none";
-          }
+          gestureMode.current = "none";
         }
       },
       onPanResponderMove: (evt, g) => {
