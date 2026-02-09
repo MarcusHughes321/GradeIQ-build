@@ -10,6 +10,7 @@ import {
   Platform,
   GestureResponderEvent,
   PanResponderGestureState,
+  ScrollView,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import type { CenteringMeasurement } from "@/lib/types";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 interface CenteringToolProps {
   frontImage: string;
@@ -39,20 +40,19 @@ interface BorderPositions {
 }
 
 function initPositions(lr: number, tb: number, imgW: number, imgH: number): BorderPositions {
-  const outerInset = 0.02;
-  const outerLeft = imgW * outerInset;
-  const outerRight = imgW * (1 - outerInset);
-  const outerTop = imgH * outerInset;
-  const outerBottom = imgH * (1 - outerInset);
+  const outerLeft = 0;
+  const outerRight = imgW;
+  const outerTop = 0;
+  const outerBottom = imgH;
 
-  const cardW = outerRight - outerLeft;
-  const cardH = outerBottom - outerTop;
-  const avgBorderH = cardW * 0.06;
-  const avgBorderV = cardH * 0.06;
-  const leftBorder = avgBorderH * (lr / 50);
-  const rightBorder = avgBorderH * ((100 - lr) / 50);
-  const topBorder = avgBorderV * (tb / 50);
-  const bottomBorder = avgBorderV * ((100 - tb) / 50);
+  const borderFraction = 0.045;
+  const avgBorderH = imgW * borderFraction;
+  const avgBorderV = imgH * borderFraction;
+
+  const leftBorder = avgBorderH * 2 * (lr / 100);
+  const rightBorder = avgBorderH * 2 * ((100 - lr) / 100);
+  const topBorder = avgBorderV * 2 * (tb / 100);
+  const bottomBorder = avgBorderV * 2 * ((100 - tb) / 100);
 
   return {
     outerLeft,
@@ -133,190 +133,48 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
     })
   ).current;
 
+  const dotStyle = { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.85)" } as const;
+
   if (orientation === "v") {
     return (
       <View
-        style={{
-          position: "absolute" as const,
-          top: 0,
-          left: position - LINE_HIT / 2,
-          width: LINE_HIT,
-          height: imgSize.height,
-          zIndex: dashed ? 8 : 12,
-          alignItems: "center" as const,
-          justifyContent: "center" as const,
-        }}
+        style={{ position: "absolute" as const, top: 0, left: position - LINE_HIT / 2, width: LINE_HIT, height: imgSize.height, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
         {...pan.panHandlers}
       >
-        <View style={{
-          position: "absolute" as const,
-          width: dashed ? 1.5 : 2.5,
-          height: "100%" as const,
-          left: LINE_HIT / 2 - (dashed ? 0.75 : 1.25),
-          backgroundColor: color,
-          opacity: dashed ? 0.6 : 1,
-          ...(dashed ? { borderStyle: "dashed" as const } : {}),
-        }} />
+        <View style={{ position: "absolute" as const, width: dashed ? 1 : 2, height: "100%" as const, left: LINE_HIT / 2 - (dashed ? 0.5 : 1), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
         {!dashed && (
-          <View style={{
-            width: 18,
-            height: 36,
-            borderRadius: 9,
-            backgroundColor: color,
-            alignItems: "center" as const,
-            justifyContent: "center" as const,
-          }}>
-            <View style={{ gap: 3 }}>
-              <View style={dot} />
-              <View style={dot} />
-              <View style={dot} />
+          <View style={{ width: 16, height: 32, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
+            <View style={{ gap: 2.5 }}>
+              <View style={dotStyle} />
+              <View style={dotStyle} />
+              <View style={dotStyle} />
             </View>
           </View>
         )}
-        {dashed && (
-          <View style={{
-            width: 14,
-            height: 14,
-            borderRadius: 7,
-            backgroundColor: color,
-            opacity: 0.8,
-            alignItems: "center" as const,
-            justifyContent: "center" as const,
-          }}>
-            <View style={{ width: 6, height: 1.5, backgroundColor: "#fff", borderRadius: 1 }} />
-          </View>
-        )}
-        <Text style={{
-          position: "absolute" as const,
-          top: 4,
-          left: LINE_HIT / 2 + 6,
-          fontFamily: "Inter_700Bold",
-          fontSize: 10,
-          color,
-          textShadowColor: "rgba(0,0,0,0.9)",
-          textShadowOffset: { width: 0, height: 1 },
-          textShadowRadius: 3,
-        }}>{label}</Text>
+        {label ? <Text style={{ position: "absolute" as const, top: 3, left: LINE_HIT / 2 + 5, fontFamily: "Inter_700Bold", fontSize: 9, color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{label}</Text> : null}
       </View>
     );
   }
 
   return (
     <View
-      style={{
-        position: "absolute" as const,
-        left: 0,
-        top: position - LINE_HIT / 2,
-        width: imgSize.width,
-        height: LINE_HIT,
-        zIndex: dashed ? 8 : 12,
-        alignItems: "center" as const,
-        justifyContent: "center" as const,
-      }}
+      style={{ position: "absolute" as const, left: 0, top: position - LINE_HIT / 2, width: imgSize.width, height: LINE_HIT, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
       {...pan.panHandlers}
     >
-      <View style={{
-        position: "absolute" as const,
-        height: dashed ? 1.5 : 2.5,
-        width: "100%" as const,
-        top: LINE_HIT / 2 - (dashed ? 0.75 : 1.25),
-        backgroundColor: color,
-        opacity: dashed ? 0.6 : 1,
-      }} />
+      <View style={{ position: "absolute" as const, height: dashed ? 1 : 2, width: "100%" as const, top: LINE_HIT / 2 - (dashed ? 0.5 : 1), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
       {!dashed && (
-        <View style={{
-          width: 36,
-          height: 18,
-          borderRadius: 9,
-          backgroundColor: color,
-          alignItems: "center" as const,
-          justifyContent: "center" as const,
-        }}>
-          <View style={{ flexDirection: "row" as const, gap: 3 }}>
-            <View style={dot} />
-            <View style={dot} />
-            <View style={dot} />
+        <View style={{ width: 32, height: 16, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
+          <View style={{ flexDirection: "row" as const, gap: 2.5 }}>
+            <View style={dotStyle} />
+            <View style={dotStyle} />
+            <View style={dotStyle} />
           </View>
         </View>
       )}
-      {dashed && (
-        <View style={{
-          width: 14,
-          height: 14,
-          borderRadius: 7,
-          backgroundColor: color,
-          opacity: 0.8,
-          alignItems: "center" as const,
-          justifyContent: "center" as const,
-        }}>
-          <View style={{ width: 1.5, height: 6, backgroundColor: "#fff", borderRadius: 1 }} />
-        </View>
-      )}
-      <Text style={{
-        position: "absolute" as const,
-        left: 6,
-        top: LINE_HIT / 2 + 6,
-        fontFamily: "Inter_700Bold",
-        fontSize: 10,
-        color,
-        textShadowColor: "rgba(0,0,0,0.9)",
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 3,
-      }}>{label}</Text>
+      {label ? <Text style={{ position: "absolute" as const, left: 5, top: LINE_HIT / 2 + 5, fontFamily: "Inter_700Bold", fontSize: 9, color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{label}</Text> : null}
     </View>
   );
 }
-
-const dot = { width: 3.5, height: 3.5, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.85)" };
-
-function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const clamp = (v: number) => Math.max(-15, Math.min(15, Math.round(v * 10) / 10));
-  return (
-    <View style={rotStyles.container}>
-      <Pressable onPress={() => onChange(clamp(value - 0.5))} style={({ pressed }) => [rotStyles.btn, { opacity: pressed ? 0.5 : 1 }]}>
-        <Ionicons name="remove" size={16} color="#fff" />
-      </Pressable>
-      <View style={rotStyles.track}>
-        <View style={rotStyles.trackBg}>
-          {[-10, -5, 0, 5, 10].map(tick => (
-            <View key={tick} style={[rotStyles.tick, tick === 0 && rotStyles.tickCenter, { left: `${((tick + 15) / 30) * 100}%` }]} />
-          ))}
-        </View>
-        <View style={[rotStyles.thumb, { left: `${((value + 15) / 30) * 100}%` }]} />
-        <View style={rotStyles.scrubArea} {...PanResponder.create({
-          onStartShouldSetPanResponder: () => true,
-          onMoveShouldSetPanResponder: () => true,
-          onPanResponderGrant: (e) => {
-            const x = e.nativeEvent.locationX;
-            const trackW = SCREEN_WIDTH - 140;
-            onChange(clamp((x / trackW) * 30 - 15));
-          },
-          onPanResponderMove: (e) => {
-            const x = e.nativeEvent.locationX;
-            const trackW = SCREEN_WIDTH - 140;
-            onChange(clamp((x / trackW) * 30 - 15));
-          },
-        }).panHandlers} />
-      </View>
-      <Pressable onPress={() => onChange(clamp(value + 0.5))} style={({ pressed }) => [rotStyles.btn, { opacity: pressed ? 0.5 : 1 }]}>
-        <Ionicons name="add" size={16} color="#fff" />
-      </Pressable>
-      <Text style={rotStyles.degText}>{value > 0 ? "+" : ""}{value.toFixed(1)}</Text>
-    </View>
-  );
-}
-
-const rotStyles = StyleSheet.create({
-  container: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 6, height: 32 },
-  btn: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
-  track: { flex: 1, height: 28, justifyContent: "center", position: "relative" },
-  trackBg: { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 1.5 },
-  tick: { position: "absolute", top: -3, width: 1, height: 9, backgroundColor: "rgba(255,255,255,0.25)" },
-  tickCenter: { backgroundColor: "rgba(255,255,255,0.6)", width: 1.5, height: 11, top: -4 },
-  thumb: { position: "absolute", width: 14, height: 14, borderRadius: 7, backgroundColor: Colors.primary, top: 7, marginLeft: -7, borderWidth: 2, borderColor: "#fff" },
-  scrubArea: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
-  degText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textSecondary, width: 36, textAlign: "right" as const },
-});
 
 export default function CenteringTool({ frontImage, backImage, centering, onSave, onClose }: CenteringToolProps) {
   const insets = useSafeAreaInsets();
@@ -326,6 +184,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const [backPos, setBackPos] = useState<BorderPositions | null>(null);
   const [frontRotation, setFrontRotation] = useState(0);
   const [backRotation, setBackRotation] = useState(0);
+  const [showRotation, setShowRotation] = useState(false);
   const initRef = useRef(false);
 
   const rotation = showFront ? frontRotation : backRotation;
@@ -334,9 +193,13 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const pad = 16;
+  const pad = 12;
   const imgWidth = SCREEN_WIDTH - pad * 2;
-  const imgHeight = imgWidth / 0.714;
+  const headerHeight = 44;
+  const controlsHeight = showRotation ? 120 : 80;
+  const availableHeight = SCREEN_HEIGHT - (insets.top + webTopInset) - (insets.bottom + webBottomInset) - headerHeight - controlsHeight;
+  const maxImgHeight = Math.min(imgWidth / 0.714, availableHeight);
+  const imgHeight = Math.max(200, maxImgHeight);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     setImageLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
@@ -387,48 +250,29 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const w = imageLayout.width;
   const h = imageLayout.height;
 
-  const OUTER_COLOR = "rgba(255,255,255,0.7)";
+  const OUTER_COLOR = "rgba(255,255,255,0.6)";
   const INNER_L = "#FF3C31";
   const INNER_R = "#3B82F6";
   const INNER_T = "#F59E0B";
   const INNER_B = "#10B981";
 
+  const rotClamp = (v: number) => Math.max(-15, Math.min(15, Math.round(v * 10) / 10));
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
         <Pressable onPress={onClose} style={({ pressed }) => [styles.headerBtn, { opacity: pressed ? 0.6 : 1 }]}>
-          <Ionicons name="close" size={26} color="#fff" />
+          <Ionicons name="close" size={24} color="#fff" />
         </Pressable>
-        <Text style={styles.headerTitle}>Centering Tool</Text>
+        <View style={styles.ratioInline}>
+          <Text style={[styles.ratioText, { color: lrColor }]}>L/R {formatRatio(ratio.lr)}</Text>
+          <View style={styles.ratioDot} />
+          <Text style={[styles.ratioText, { color: tbColor }]}>T/B {formatRatio(ratio.tb)}</Text>
+        </View>
         <Pressable onPress={handleSave} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
-          <Ionicons name="checkmark" size={18} color="#fff" />
+          <Ionicons name="checkmark" size={16} color="#fff" />
           <Text style={styles.saveBtnText}>Save</Text>
         </Pressable>
-      </View>
-
-      <View style={styles.ratioBar}>
-        <View style={styles.ratioItem}>
-          <Text style={styles.ratioLabel}>L/R</Text>
-          <Text style={[styles.ratioValue, { color: lrColor }]}>{formatRatio(ratio.lr)}</Text>
-        </View>
-        <View style={styles.ratioSep} />
-        <View style={styles.ratioItem}>
-          <Text style={styles.ratioLabel}>T/B</Text>
-          <Text style={[styles.ratioValue, { color: tbColor }]}>{formatRatio(ratio.tb)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.rotationSection}>
-        <View style={styles.rotationHeader}>
-          <Ionicons name="sync-outline" size={14} color={Colors.textMuted} />
-          <Text style={styles.rotationLabel}>Straighten</Text>
-          {rotation !== 0 && (
-            <Pressable onPress={() => setRotation(0)} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
-              <Text style={styles.rotationReset}>Reset</Text>
-            </Pressable>
-          )}
-        </View>
-        <RotationControl value={rotation} onChange={setRotation} />
       </View>
 
       <View style={styles.imageArea}>
@@ -436,24 +280,24 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
           <View style={styles.imageClip}>
             <Image
               source={{ uri: showFront ? frontImage : backImage }}
-              style={[styles.cardImage, { transform: [{ rotate: `${rotation}deg` }] }]}
+              style={[styles.cardImage, rotation !== 0 ? { transform: [{ rotate: `${rotation}deg` }] } : undefined]}
               contentFit="contain"
             />
           </View>
 
           {pos && w > 0 && (
             <View style={styles.linesOverlay}>
-              <DragLine orientation="v" position={pos.outerLeft} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerLeft", v)} minPos={2} maxPos={pos.innerLeft - 4} />
-              <DragLine orientation="v" position={pos.innerLeft} imgSize={imageLayout} color={INNER_L} label="L" onDrag={v => drag("innerLeft", v)} minPos={pos.outerLeft + 4} maxPos={w * 0.4} />
+              <DragLine orientation="v" position={pos.outerLeft} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerLeft", v)} minPos={0} maxPos={pos.innerLeft - 4} />
+              <DragLine orientation="v" position={pos.innerLeft} imgSize={imageLayout} color={INNER_L} label="L" onDrag={v => drag("innerLeft", v)} minPos={pos.outerLeft + 4} maxPos={w * 0.45} />
 
-              <DragLine orientation="v" position={pos.outerRight} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerRight", v)} minPos={pos.innerRight + 4} maxPos={w - 2} />
-              <DragLine orientation="v" position={pos.innerRight} imgSize={imageLayout} color={INNER_R} label="R" onDrag={v => drag("innerRight", v)} minPos={w * 0.6} maxPos={pos.outerRight - 4} />
+              <DragLine orientation="v" position={pos.outerRight} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerRight", v)} minPos={pos.innerRight + 4} maxPos={w} />
+              <DragLine orientation="v" position={pos.innerRight} imgSize={imageLayout} color={INNER_R} label="R" onDrag={v => drag("innerRight", v)} minPos={w * 0.55} maxPos={pos.outerRight - 4} />
 
-              <DragLine orientation="h" position={pos.outerTop} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerTop", v)} minPos={2} maxPos={pos.innerTop - 4} />
-              <DragLine orientation="h" position={pos.innerTop} imgSize={imageLayout} color={INNER_T} label="T" onDrag={v => drag("innerTop", v)} minPos={pos.outerTop + 4} maxPos={h * 0.4} />
+              <DragLine orientation="h" position={pos.outerTop} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerTop", v)} minPos={0} maxPos={pos.innerTop - 4} />
+              <DragLine orientation="h" position={pos.innerTop} imgSize={imageLayout} color={INNER_T} label="T" onDrag={v => drag("innerTop", v)} minPos={pos.outerTop + 4} maxPos={h * 0.45} />
 
-              <DragLine orientation="h" position={pos.outerBottom} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerBottom", v)} minPos={pos.innerBottom + 4} maxPos={h - 2} />
-              <DragLine orientation="h" position={pos.innerBottom} imgSize={imageLayout} color={INNER_B} label="B" onDrag={v => drag("innerBottom", v)} minPos={h * 0.6} maxPos={pos.outerBottom - 4} />
+              <DragLine orientation="h" position={pos.outerBottom} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerBottom", v)} minPos={pos.innerBottom + 4} maxPos={h} />
+              <DragLine orientation="h" position={pos.innerBottom} imgSize={imageLayout} color={INNER_B} label="B" onDrag={v => drag("innerBottom", v)} minPos={h * 0.55} maxPos={pos.outerBottom - 4} />
 
               <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: pos.innerLeft - pos.outerLeft, height: pos.outerBottom - pos.outerTop }]} />
               <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: pos.outerRight - pos.innerRight, height: pos.outerBottom - pos.outerTop }]} />
@@ -464,60 +308,51 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
         </View>
       </View>
 
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDash, { backgroundColor: "rgba(255,255,255,0.5)" }]} />
-          <Text style={styles.legendText}>Card edge</Text>
+      <View style={[styles.controls, { paddingBottom: insets.bottom + webBottomInset + 4 }]}>
+        <View style={styles.controlRow}>
+          <View style={styles.sideToggle}>
+            <Pressable style={[styles.sideBtn, showFront && styles.sideBtnActive]} onPress={() => setShowFront(true)}>
+              <Text style={[styles.sideBtnText, showFront && styles.sideBtnTextActive]}>Front</Text>
+            </Pressable>
+            <Pressable style={[styles.sideBtn, !showFront && styles.sideBtnActive]} onPress={() => setShowFront(false)}>
+              <Text style={[styles.sideBtnText, !showFront && styles.sideBtnTextActive]}>Back</Text>
+            </Pressable>
+          </View>
+          <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.toolBtn, showRotation && styles.toolBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="sync-outline" size={16} color={showRotation ? "#fff" : Colors.textMuted} />
+          </Pressable>
+          <Pressable onPress={handleReset} style={({ pressed }) => [styles.toolBtn, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="refresh" size={16} color={Colors.textMuted} />
+          </Pressable>
         </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendSolid, { backgroundColor: INNER_L }]} />
-          <Text style={styles.legendText}>Border margin</Text>
-        </View>
-      </View>
 
-      <View style={styles.sideToggle}>
-        <Pressable style={[styles.sideBtn, showFront && styles.sideBtnActive]} onPress={() => setShowFront(true)}>
-          <Text style={[styles.sideBtnText, showFront && styles.sideBtnTextActive]}>Front</Text>
-        </Pressable>
-        <Pressable style={[styles.sideBtn, !showFront && styles.sideBtnActive]} onPress={() => setShowFront(false)}>
-          <Text style={[styles.sideBtnText, !showFront && styles.sideBtnTextActive]}>Back</Text>
-        </Pressable>
-      </View>
+        {showRotation && (
+          <View style={styles.rotRow}>
+            <Pressable onPress={() => setRotation(rotClamp(rotation - 0.5))} style={({ pressed }) => [styles.rotBtn, { opacity: pressed ? 0.5 : 1 }]}>
+              <Ionicons name="remove" size={14} color="#fff" />
+            </Pressable>
+            <View style={styles.rotTrack}>
+              <View style={styles.rotTrackBg}>
+                {[-10, -5, 0, 5, 10].map(t => (
+                  <View key={t} style={[styles.rotTick, t === 0 && styles.rotTickCenter, { left: `${((t + 15) / 30) * 100}%` }]} />
+                ))}
+              </View>
+              <View style={[styles.rotThumb, { left: `${((rotation + 15) / 30) * 100}%` }]} />
+              <View style={styles.rotScrub} {...PanResponder.create({
+                onStartShouldSetPanResponder: () => true,
+                onMoveShouldSetPanResponder: () => true,
+                onPanResponderGrant: (e) => { setRotation(rotClamp((e.nativeEvent.locationX / (SCREEN_WIDTH - 120)) * 30 - 15)); },
+                onPanResponderMove: (e) => { setRotation(rotClamp((e.nativeEvent.locationX / (SCREEN_WIDTH - 120)) * 30 - 15)); },
+              }).panHandlers} />
+            </View>
+            <Pressable onPress={() => setRotation(rotClamp(rotation + 0.5))} style={({ pressed }) => [styles.rotBtn, { opacity: pressed ? 0.5 : 1 }]}>
+              <Ionicons name="add" size={14} color="#fff" />
+            </Pressable>
+            <Text style={styles.rotDeg}>{rotation > 0 ? "+" : ""}{rotation.toFixed(1)}</Text>
+          </View>
+        )}
 
-      <View style={styles.gradePreview}>
-        <GradeRow company="PSA" front10={55} back10={75} centering={computed} />
-        <GradeRow company="BGS" front10={50} back10={50} centering={computed} />
-        <GradeRow company="Ace" front10={60} back10={60} centering={computed} />
-      </View>
-
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + webBottomInset + 8 }]}>
-        <Pressable onPress={handleReset} style={({ pressed }) => [styles.resetBtn, { opacity: pressed ? 0.6 : 1 }]}>
-          <Ionicons name="refresh" size={16} color={Colors.textSecondary} />
-          <Text style={styles.resetText}>Reset to AI</Text>
-        </Pressable>
-        <Text style={styles.hintText}>Drag lines to adjust borders</Text>
-      </View>
-    </View>
-  );
-}
-
-interface GradeRowProps { company: string; front10: number; back10: number; centering: CenteringMeasurement; }
-
-function GradeRow({ company, front10, back10, centering }: GradeRowProps) {
-  const frontWorst = Math.max(centering.frontLeftRight, centering.frontTopBottom);
-  const backWorst = Math.max(centering.backLeftRight, centering.backTopBottom);
-  const passes = frontWorst <= front10 && backWorst <= back10;
-  const color = passes ? "#10B981" : getCenteringColor(frontWorst);
-  const label = passes ? "10 eligible" : frontWorst <= front10 + 5 ? "Close" : "Off";
-  return (
-    <View style={styles.gradeRow}>
-      <Text style={styles.gradeCompany}>{company}</Text>
-      <View style={styles.gradeReq}>
-        <Text style={styles.gradeReqText}>{front10}/{100 - front10} / {back10}/{100 - back10}</Text>
-      </View>
-      <View style={[styles.gradeBadge, { backgroundColor: color + "20" }]}>
-        <View style={[styles.gradeDot, { backgroundColor: color }]} />
-        <Text style={[styles.gradeLabel, { color }]}>{label}</Text>
+        <Text style={styles.hint}>Drag colored lines to mark border edges</Text>
       </View>
     </View>
   );
@@ -525,46 +360,36 @@ function GradeRow({ company, front10, back10, centering }: GradeRowProps) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 8 },
-  headerBtn: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
-  headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: "#fff" },
-  saveBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, height: 44 },
+  headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  ratioInline: { flexDirection: "row", alignItems: "center", gap: 10 },
+  ratioText: { fontFamily: "Inter_700Bold", fontSize: 15 },
+  ratioDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.3)" },
+  saveBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: Colors.primary, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
   saveBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
-  ratioBar: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 20, paddingVertical: 8, marginHorizontal: 20, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 12 },
-  ratioItem: { flexDirection: "row", alignItems: "center", gap: 8 },
-  ratioLabel: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textMuted },
-  ratioValue: { fontFamily: "Inter_700Bold", fontSize: 18 },
-  ratioSep: { width: 1, height: 20, backgroundColor: "rgba(255,255,255,0.15)" },
-  rotationSection: { marginHorizontal: 20, marginTop: 6 },
-  rotationHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
-  rotationLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, flex: 1 },
-  rotationReset: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.primary },
-  imageArea: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 6 },
-  imageContainer: { borderRadius: 10, backgroundColor: Colors.surfaceLight },
-  imageClip: { width: "100%", height: "100%", borderRadius: 10, overflow: "hidden" },
+  imageArea: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  imageContainer: { borderRadius: 8, backgroundColor: Colors.surfaceLight },
+  imageClip: { width: "100%", height: "100%", borderRadius: 8, overflow: "hidden" },
   cardImage: { width: "100%", height: "100%" },
   linesOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 },
-  borderShade: { position: "absolute", backgroundColor: "rgba(255, 60, 49, 0.10)" },
-  legend: { flexDirection: "row", justifyContent: "center", gap: 20, paddingVertical: 4 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDash: { width: 14, height: 2, borderRadius: 1 },
-  legendSolid: { width: 14, height: 3, borderRadius: 1.5 },
-  legendText: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted },
-  sideToggle: { flexDirection: "row", marginHorizontal: 60, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, padding: 3, marginVertical: 4 },
-  sideBtn: { flex: 1, paddingVertical: 7, alignItems: "center", borderRadius: 8 },
+  borderShade: { position: "absolute", backgroundColor: "rgba(255, 60, 49, 0.08)" },
+  controls: { paddingHorizontal: 12, paddingTop: 6 },
+  controlRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sideToggle: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, padding: 2 },
+  sideBtn: { flex: 1, paddingVertical: 6, alignItems: "center", borderRadius: 6 },
   sideBtnActive: { backgroundColor: Colors.primary },
-  sideBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.textMuted },
+  sideBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.textMuted },
   sideBtnTextActive: { color: "#fff" },
-  gradePreview: { marginHorizontal: 20, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 12, padding: 10, gap: 6 },
-  gradeRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  gradeCompany: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.textSecondary, width: 34 },
-  gradeReq: { flex: 1 },
-  gradeReqText: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
-  gradeBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  gradeDot: { width: 6, height: 6, borderRadius: 3 },
-  gradeLabel: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  bottomBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 6 },
-  resetBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
-  resetText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textSecondary },
-  hintText: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+  toolBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  toolBtnActive: { backgroundColor: "rgba(255,255,255,0.18)" },
+  rotRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, paddingHorizontal: 4 },
+  rotBtn: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
+  rotTrack: { flex: 1, height: 26, justifyContent: "center", position: "relative" },
+  rotTrackBg: { height: 2, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 1 },
+  rotTick: { position: "absolute", top: -3, width: 1, height: 8, backgroundColor: "rgba(255,255,255,0.2)" },
+  rotTickCenter: { backgroundColor: "rgba(255,255,255,0.5)", width: 1.5, height: 10, top: -4 },
+  rotThumb: { position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: Colors.primary, top: 7, marginLeft: -6, borderWidth: 1.5, borderColor: "#fff" },
+  rotScrub: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  rotDeg: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textSecondary, width: 32, textAlign: "right" as const },
+  hint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center" as const, marginTop: 4 },
 });
