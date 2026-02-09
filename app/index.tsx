@@ -95,11 +95,13 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>GradeIT</Text>
-          <Text style={styles.subtitle}>Pokemon Card Grading</Text>
+        <View style={styles.headerLeft}>
+          <Image source={require("@/assets/images/icon.png")} style={styles.headerLogo} contentFit="contain" />
+          <View>
+            <Text style={styles.title}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
+            <Text style={styles.subtitle}>Pokemon Card Grading</Text>
+          </View>
         </View>
-        <MaterialCommunityIcons name="cards" size={28} color={Colors.primary} />
       </View>
 
       <Pressable
@@ -156,6 +158,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
   },
   title: {
     fontFamily: "Inter_700Bold",

@@ -1,7 +1,7 @@
-# GradeIT - Pokemon Card Grading App
+# Grade.IQ - Pokemon Card Grading App
 
 ## Overview
-GradeIT is a mobile app that uses AI vision to estimate Pokemon card grades based on the grading standards of PSA, Beckett (BGS), and Ace Grading. Users take photos of the front and back of their card, and the AI analyzes centering, corners, edges, and surface condition to provide estimated grades.
+Grade.IQ is a mobile app that uses AI vision to estimate Pokemon card grades based on the grading standards of PSA, Beckett (BGS), and Ace Grading. Users take photos of the front and back of their card, and the AI analyzes centering, corners, edges, and surface condition to provide estimated grades.
 
 ## Tech Stack
 - **Frontend**: Expo React Native with Expo Router (file-based routing)
@@ -45,4 +45,5 @@ server/
 
 ## Recent Changes
 - 2026-02-09: Initial build with AI-powered Pokemon card grading
-- App renamed to GradeIT with #FF3C31/black/white color scheme
+- App renamed to Grade.IQ with #FF3C31/black/white color scheme
+- Custom logo provided by user, used for app icon and splash screen
