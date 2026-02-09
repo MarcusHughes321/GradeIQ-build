@@ -102,11 +102,6 @@ export default function HomeScreen() {
   const renderHeader = () => (
     <>
       <View style={styles.heroSection}>
-        <Image
-          source={require("@/assets/images/icon.png")}
-          style={styles.heroLogo}
-          contentFit="contain"
-        />
         <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
         <Text style={styles.heroSubtitle}>AI-Powered Pokemon Card Grading</Text>
       </View>
@@ -193,12 +188,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 20,
     paddingBottom: 24,
-  },
-  heroLogo: {
-    width: 100,
-    height: 100,
-    borderRadius: 24,
-    marginBottom: 14,
   },
   heroTitle: {
     fontFamily: "Inter_700Bold",
