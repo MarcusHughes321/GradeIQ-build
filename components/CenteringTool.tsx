@@ -294,14 +294,16 @@ export default function CenteringTool({
           style={[styles.imageContainer, { width: imgWidth, height: imgHeight }]}
           onLayout={onImageLayout}
         >
-          <Image
-            source={{ uri: showFront ? frontImage : backImage }}
-            style={styles.cardImage}
-            contentFit="cover"
-          />
+          <View style={styles.imageClip}>
+            <Image
+              source={{ uri: showFront ? frontImage : backImage }}
+              style={styles.cardImage}
+              contentFit="cover"
+            />
+          </View>
 
           {positions && imageLayout.width > 0 && (
-            <View style={styles.linesOverlay} pointerEvents="box-none">
+            <View style={styles.linesOverlay}>
               <DraggableLine
                 orientation="vertical"
                 position={positions.left}
@@ -604,8 +606,13 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     borderRadius: 10,
-    overflow: "hidden",
     backgroundColor: Colors.surfaceLight,
+  },
+  imageClip: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 10,
+    overflow: "hidden",
   },
   cardImage: {
     width: "100%",
@@ -617,6 +624,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 10,
   },
   borderShade: {
     position: "absolute",
