@@ -365,7 +365,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
       <View style={styles.imageArea}>
         <View style={[styles.imageContainer, { width: imgWidth, height: imgHeight }]} onLayout={onLayout}>
           <View style={styles.imageClip}>
-            <Image source={{ uri: showFront ? frontImage : backImage }} style={styles.cardImage} contentFit="cover" />
+            <Image source={{ uri: showFront ? frontImage : backImage }} style={styles.cardImage} contentFit="contain" />
           </View>
 
           {pos && w > 0 && (
