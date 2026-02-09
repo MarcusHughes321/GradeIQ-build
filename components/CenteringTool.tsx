@@ -10,7 +10,6 @@ import {
   Platform,
   GestureResponderEvent,
   PanResponderGestureState,
-  ScrollView,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import type { CenteringMeasurement } from "@/lib/types";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface CenteringToolProps {
   frontImage: string;
@@ -40,19 +39,22 @@ interface BorderPositions {
 }
 
 function initPositions(lr: number, tb: number, imgW: number, imgH: number): BorderPositions {
-  const outerLeft = 0;
-  const outerRight = imgW;
-  const outerTop = 0;
-  const outerBottom = imgH;
+  const cardInset = 0.03;
+  const outerLeft = imgW * cardInset;
+  const outerRight = imgW * (1 - cardInset);
+  const outerTop = imgH * cardInset;
+  const outerBottom = imgH * (1 - cardInset);
 
-  const borderFraction = 0.045;
-  const avgBorderH = imgW * borderFraction;
-  const avgBorderV = imgH * borderFraction;
+  const cardW = outerRight - outerLeft;
+  const cardH = outerBottom - outerTop;
 
-  const leftBorder = avgBorderH * 2 * (lr / 100);
-  const rightBorder = avgBorderH * 2 * ((100 - lr) / 100);
-  const topBorder = avgBorderV * 2 * (tb / 100);
-  const bottomBorder = avgBorderV * 2 * ((100 - tb) / 100);
+  const totalBorderH = cardW * 0.09;
+  const totalBorderV = cardH * 0.09;
+
+  const leftBorder = totalBorderH * (lr / 100);
+  const rightBorder = totalBorderH * ((100 - lr) / 100);
+  const topBorder = totalBorderV * (tb / 100);
+  const bottomBorder = totalBorderV * ((100 - tb) / 100);
 
   return {
     outerLeft,
@@ -141,7 +143,7 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
         style={{ position: "absolute" as const, top: 0, left: position - LINE_HIT / 2, width: LINE_HIT, height: imgSize.height, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
         {...pan.panHandlers}
       >
-        <View style={{ position: "absolute" as const, width: dashed ? 1 : 2, height: "100%" as const, left: LINE_HIT / 2 - (dashed ? 0.5 : 1), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
+        <View style={{ position: "absolute" as const, width: dashed ? 1 : 2.5, height: "100%" as const, left: LINE_HIT / 2 - (dashed ? 0.5 : 1.25), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
         {!dashed && (
           <View style={{ width: 16, height: 32, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
             <View style={{ gap: 2.5 }}>
@@ -161,7 +163,7 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
       style={{ position: "absolute" as const, left: 0, top: position - LINE_HIT / 2, width: imgSize.width, height: LINE_HIT, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
       {...pan.panHandlers}
     >
-      <View style={{ position: "absolute" as const, height: dashed ? 1 : 2, width: "100%" as const, top: LINE_HIT / 2 - (dashed ? 0.5 : 1), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
+      <View style={{ position: "absolute" as const, height: dashed ? 1 : 2.5, width: "100%" as const, top: LINE_HIT / 2 - (dashed ? 0.5 : 1.25), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
       {!dashed && (
         <View style={{ width: 32, height: 16, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
           <View style={{ flexDirection: "row" as const, gap: 2.5 }}>
@@ -193,16 +195,11 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const pad = 12;
-  const imgWidth = SCREEN_WIDTH - pad * 2;
-  const headerHeight = 44;
-  const controlsHeight = showRotation ? 120 : 80;
-  const availableHeight = SCREEN_HEIGHT - (insets.top + webTopInset) - (insets.bottom + webBottomInset) - headerHeight - controlsHeight;
-  const maxImgHeight = Math.min(imgWidth / 0.714, availableHeight);
-  const imgHeight = Math.max(200, maxImgHeight);
-
   const onLayout = useCallback((e: LayoutChangeEvent) => {
-    setImageLayout({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
+    const { width, height } = e.nativeEvent.layout;
+    if (width > 0 && height > 0) {
+      setImageLayout({ width, height });
+    }
   }, []);
 
   if (imageLayout.width > 0 && !initRef.current) {
@@ -238,19 +235,12 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
     setBackRotation(0);
   };
 
-  const computed = useMemo((): CenteringMeasurement => {
-    if (!frontPos || !backPos) return centering;
-    const fr = computeRatio(frontPos);
-    const br = computeRatio(backPos);
-    return { frontLeftRight: fr.lr, frontTopBottom: fr.tb, backLeftRight: br.lr, backTopBottom: br.tb };
-  }, [frontPos, backPos, centering]);
-
   const lrColor = getCenteringColor(ratio.lr);
   const tbColor = getCenteringColor(ratio.tb);
   const w = imageLayout.width;
   const h = imageLayout.height;
 
-  const OUTER_COLOR = "rgba(255,255,255,0.6)";
+  const OUTER_COLOR = "rgba(255,255,255,0.7)";
   const INNER_L = "#FF3C31";
   const INNER_R = "#3B82F6";
   const INNER_T = "#F59E0B";
@@ -259,10 +249,10 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const rotClamp = (v: number) => Math.max(-15, Math.min(15, Math.round(v * 10) / 10));
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+    <View style={[styles.container, { paddingTop: insets.top + webTopInset, paddingBottom: insets.bottom + webBottomInset }]}>
       <View style={styles.header}>
         <Pressable onPress={onClose} style={({ pressed }) => [styles.headerBtn, { opacity: pressed ? 0.6 : 1 }]}>
-          <Ionicons name="close" size={24} color="#fff" />
+          <Ionicons name="close" size={22} color="#fff" />
         </Pressable>
         <View style={styles.ratioInline}>
           <Text style={[styles.ratioText, { color: lrColor }]}>L/R {formatRatio(ratio.lr)}</Text>
@@ -276,14 +266,12 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
       </View>
 
       <View style={styles.imageArea}>
-        <View style={[styles.imageContainer, { width: imgWidth, height: imgHeight }]} onLayout={onLayout}>
-          <View style={styles.imageClip}>
-            <Image
-              source={{ uri: showFront ? frontImage : backImage }}
-              style={[styles.cardImage, rotation !== 0 ? { transform: [{ rotate: `${rotation}deg` }] } : undefined]}
-              contentFit="contain"
-            />
-          </View>
+        <View style={styles.imageContainer} onLayout={onLayout}>
+          <Image
+            source={{ uri: showFront ? frontImage : backImage }}
+            style={[styles.cardImage, rotation !== 0 ? { transform: [{ rotate: `${rotation}deg` }] } : undefined]}
+            contentFit="contain"
+          />
 
           {pos && w > 0 && (
             <View style={styles.linesOverlay}>
@@ -299,16 +287,16 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
               <DragLine orientation="h" position={pos.outerBottom} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerBottom", v)} minPos={pos.innerBottom + 4} maxPos={h} />
               <DragLine orientation="h" position={pos.innerBottom} imgSize={imageLayout} color={INNER_B} label="B" onDrag={v => drag("innerBottom", v)} minPos={h * 0.55} maxPos={pos.outerBottom - 4} />
 
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: pos.innerLeft - pos.outerLeft, height: pos.outerBottom - pos.outerTop }]} />
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: pos.outerRight - pos.innerRight, height: pos.outerBottom - pos.outerTop }]} />
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.outerTop, width: pos.innerRight - pos.innerLeft, height: pos.innerTop - pos.outerTop }]} />
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.innerBottom, width: pos.innerRight - pos.innerLeft, height: pos.outerBottom - pos.innerBottom }]} />
+              <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: Math.max(0, pos.innerLeft - pos.outerLeft), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
+              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: Math.max(0, pos.outerRight - pos.innerRight), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
+              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.outerTop, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.innerTop - pos.outerTop) }]} />
+              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.innerBottom, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.outerBottom - pos.innerBottom) }]} />
             </View>
           )}
         </View>
       </View>
 
-      <View style={[styles.controls, { paddingBottom: insets.bottom + webBottomInset + 4 }]}>
+      <View style={styles.controls}>
         <View style={styles.controlRow}>
           <View style={styles.sideToggle}>
             <Pressable style={[styles.sideBtn, showFront && styles.sideBtnActive]} onPress={() => setShowFront(true)}>
@@ -352,7 +340,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
           </View>
         )}
 
-        <Text style={styles.hint}>Drag colored lines to mark border edges</Text>
+        <Text style={styles.hint}>Drag lines to adjust centering</Text>
       </View>
     </View>
   );
@@ -360,20 +348,19 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, height: 44 },
-  headerBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, height: 40 },
+  headerBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   ratioInline: { flexDirection: "row", alignItems: "center", gap: 10 },
-  ratioText: { fontFamily: "Inter_700Bold", fontSize: 15 },
+  ratioText: { fontFamily: "Inter_700Bold", fontSize: 14 },
   ratioDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.3)" },
   saveBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: Colors.primary, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
   saveBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
-  imageArea: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-  imageContainer: { borderRadius: 8, backgroundColor: Colors.surfaceLight },
-  imageClip: { width: "100%", height: "100%", borderRadius: 8, overflow: "hidden" },
+  imageArea: { flex: 1, paddingHorizontal: 6, paddingVertical: 4 },
+  imageContainer: { flex: 1, borderRadius: 8, overflow: "hidden", backgroundColor: Colors.surfaceLight },
   cardImage: { width: "100%", height: "100%" },
   linesOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 },
-  borderShade: { position: "absolute", backgroundColor: "rgba(255, 60, 49, 0.08)" },
-  controls: { paddingHorizontal: 12, paddingTop: 6 },
+  borderShade: { position: "absolute", backgroundColor: "rgba(255, 60, 49, 0.1)" },
+  controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
   controlRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sideToggle: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, padding: 2 },
   sideBtn: { flex: 1, paddingVertical: 6, alignItems: "center", borderRadius: 6 },
@@ -391,5 +378,5 @@ const styles = StyleSheet.create({
   rotThumb: { position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: Colors.primary, top: 7, marginLeft: -6, borderWidth: 1.5, borderColor: "#fff" },
   rotScrub: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   rotDeg: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textSecondary, width: 32, textAlign: "right" as const },
-  hint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center" as const, marginTop: 4 },
+  hint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center" as const, marginTop: 3, marginBottom: 2 },
 });
