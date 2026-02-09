@@ -48,7 +48,7 @@ interface ImageBounds {
 }
 
 function initPositions(lr: number, tb: number, imageBounds: ImageBounds, cardBounds?: CardBounds): BorderPositions {
-  const cb = cardBounds || { leftPercent: 1, topPercent: 1, rightPercent: 99, bottomPercent: 99 };
+  const cb = cardBounds || { leftPercent: 2, topPercent: 2, rightPercent: 98, bottomPercent: 98 };
 
   const outerLeft = imageBounds.x + imageBounds.w * (cb.leftPercent / 100);
   const outerRight = imageBounds.x + imageBounds.w * (cb.rightPercent / 100);
@@ -123,59 +123,99 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const LINE_HIT = 34;
+const LINE_HIT = 30;
 
-interface DragLineProps {
+type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
+
+interface LineConfig {
+  key: LineKey;
   orientation: "h" | "v";
-  position: number;
-  containerSize: { width: number; height: number };
   color: string;
   label: string;
-  dashed?: boolean;
-  onDrag: (pos: number) => void;
-  minPos: number;
-  maxPos: number;
-  scale: number;
+  dashed: boolean;
 }
 
-function DragLine({ orientation, position, containerSize, color, label, dashed, onDrag, minPos, maxPos, scale }: DragLineProps) {
-  const posRef = useRef(position);
-  const startRef = useRef(position);
-  const cbRef = useRef(onDrag);
-  const minRef = useRef(minPos);
-  const maxRef = useRef(maxPos);
-  const scaleRef = useRef(scale);
-  posRef.current = position;
-  cbRef.current = onDrag;
-  minRef.current = minPos;
-  maxRef.current = maxPos;
-  scaleRef.current = scale;
+const LINE_CONFIGS: LineConfig[] = [
+  { key: "outerLeft", orientation: "v", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
+  { key: "innerLeft", orientation: "v", color: "#FF3C31", label: "L", dashed: false },
+  { key: "outerRight", orientation: "v", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
+  { key: "innerRight", orientation: "v", color: "#3B82F6", label: "R", dashed: false },
+  { key: "outerTop", orientation: "h", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
+  { key: "innerTop", orientation: "h", color: "#F59E0B", label: "T", dashed: false },
+  { key: "outerBottom", orientation: "h", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
+  { key: "innerBottom", orientation: "h", color: "#10B981", label: "B", dashed: false },
+];
 
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 1,
-      onMoveShouldSetPanResponder: (evt, g) => evt.nativeEvent.touches.length === 1 && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
-      onPanResponderGrant: () => { startRef.current = posRef.current; },
-      onPanResponderMove: (_: GestureResponderEvent, g: PanResponderGestureState) => {
-        const d = orientation === "v" ? g.dx / scaleRef.current : g.dy / scaleRef.current;
-        cbRef.current(Math.max(minRef.current, Math.min(maxRef.current, startRef.current + d)));
-      },
-      onPanResponderTerminationRequest: () => true,
-    })
-  ).current;
+function getTouchDistance(touches: any[]): number {
+  if (touches.length < 2) return 0;
+  const dx = touches[0].pageX - touches[1].pageX;
+  const dy = touches[0].pageY - touches[1].pageY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
 
+function findNearestLine(x: number, y: number, pos: BorderPositions): { key: LineKey; dist: number } | null {
+  let best: { key: LineKey; dist: number } | null = null;
+
+  const vLines: LineKey[] = ["outerLeft", "innerLeft", "outerRight", "innerRight"];
+  const hLines: LineKey[] = ["outerTop", "innerTop", "outerBottom", "innerBottom"];
+
+  for (const k of vLines) {
+    const d = Math.abs(x - pos[k]);
+    if (d < LINE_HIT && (!best || d < best.dist)) {
+      best = { key: k, dist: d };
+    }
+  }
+
+  for (const k of hLines) {
+    const d = Math.abs(y - pos[k]);
+    if (d < LINE_HIT && (!best || d < best.dist)) {
+      best = { key: k, dist: d };
+    }
+  }
+
+  return best;
+}
+
+function getLineMinMax(key: LineKey, pos: BorderPositions, cw: number, ch: number): { min: number; max: number } {
+  switch (key) {
+    case "outerLeft": return { min: 0, max: pos.innerLeft - 4 };
+    case "innerLeft": return { min: pos.outerLeft + 4, max: cw * 0.45 };
+    case "outerRight": return { min: pos.innerRight + 4, max: cw };
+    case "innerRight": return { min: cw * 0.55, max: pos.outerRight - 4 };
+    case "outerTop": return { min: 0, max: pos.innerTop - 4 };
+    case "innerTop": return { min: pos.outerTop + 4, max: ch * 0.45 };
+    case "outerBottom": return { min: pos.innerBottom + 4, max: ch };
+    case "innerBottom": return { min: ch * 0.55, max: pos.outerBottom - 4 };
+  }
+}
+
+function isVLine(key: LineKey): boolean {
+  return key === "outerLeft" || key === "innerLeft" || key === "outerRight" || key === "innerRight";
+}
+
+function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
+  const lineW = config.dashed ? 1 : 2.5;
   const dotStyle = { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.85)" } as const;
-  const lineW = dashed ? 1 : 2.5;
 
-  if (orientation === "v") {
+  if (config.orientation === "v") {
     return (
       <View
-        style={{ position: "absolute" as const, top: 0, left: position - LINE_HIT / 2, width: LINE_HIT, height: containerSize.height, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
-        {...pan.panHandlers}
+        key={config.key}
+        style={{
+          position: "absolute" as const,
+          top: 0,
+          left: pos - 1.5,
+          width: 3,
+          height: containerSize.height,
+          zIndex: config.dashed ? 8 : 12,
+          alignItems: "center" as const,
+          justifyContent: "center" as const,
+        }}
+        pointerEvents="none"
       >
-        <View style={{ position: "absolute" as const, width: lineW, height: "100%" as const, left: LINE_HIT / 2 - lineW / 2, backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
-        {!dashed && (
-          <View style={{ width: 16, height: 32, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
+        <View style={{ position: "absolute" as const, width: lineW, height: "100%" as const, backgroundColor: config.color, opacity: config.dashed ? 0.5 : 1 }} />
+        {!config.dashed && (
+          <View style={{ width: 16, height: 32, borderRadius: 8, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const }}>
             <View style={{ gap: 2.5 }}>
               <View style={dotStyle} />
               <View style={dotStyle} />
@@ -183,19 +223,29 @@ function DragLine({ orientation, position, containerSize, color, label, dashed, 
             </View>
           </View>
         )}
-        {label ? <Text style={{ position: "absolute" as const, top: 3, left: LINE_HIT / 2 + 5, fontFamily: "Inter_700Bold", fontSize: 9, color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{label}</Text> : null}
+        {config.label ? <Text style={{ position: "absolute" as const, top: 3, left: 6, fontFamily: "Inter_700Bold", fontSize: 9, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
       </View>
     );
   }
 
   return (
     <View
-      style={{ position: "absolute" as const, left: 0, top: position - LINE_HIT / 2, width: containerSize.width, height: LINE_HIT, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
-      {...pan.panHandlers}
+      key={config.key}
+      style={{
+        position: "absolute" as const,
+        left: 0,
+        top: pos - 1.5,
+        width: containerSize.width,
+        height: 3,
+        zIndex: config.dashed ? 8 : 12,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      }}
+      pointerEvents="none"
     >
-      <View style={{ position: "absolute" as const, height: lineW, width: "100%" as const, top: LINE_HIT / 2 - lineW / 2, backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
-      {!dashed && (
-        <View style={{ width: 32, height: 16, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
+      <View style={{ position: "absolute" as const, height: lineW, width: "100%" as const, backgroundColor: config.color, opacity: config.dashed ? 0.5 : 1 }} />
+      {!config.dashed && (
+        <View style={{ width: 32, height: 16, borderRadius: 8, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const }}>
           <View style={{ flexDirection: "row" as const, gap: 2.5 }}>
             <View style={dotStyle} />
             <View style={dotStyle} />
@@ -203,16 +253,9 @@ function DragLine({ orientation, position, containerSize, color, label, dashed, 
           </View>
         </View>
       )}
-      {label ? <Text style={{ position: "absolute" as const, left: 5, top: LINE_HIT / 2 + 5, fontFamily: "Inter_700Bold", fontSize: 9, color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{label}</Text> : null}
+      {config.label ? <Text style={{ position: "absolute" as const, left: 5, top: 6, fontFamily: "Inter_700Bold", fontSize: 9, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
     </View>
   );
-}
-
-function getTouchDistance(touches: any[]): number {
-  if (touches.length < 2) return 0;
-  const dx = touches[0].pageX - touches[1].pageX;
-  const dy = touches[0].pageY - touches[1].pageY;
-  return Math.sqrt(dx * dx + dy * dy);
 }
 
 export default function CenteringTool({ frontImage, backImage, centering, frontCardBounds, backCardBounds, onSave, onClose }: CenteringToolProps) {
@@ -228,8 +271,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const [showRotation, setShowRotation] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [frontInited, setFrontInited] = useState(false);
-  const [backInited, setBackInited] = useState(false);
 
   const rotation = showFront ? frontRotation : backRotation;
   const setRotation = showFront ? setFrontRotation : setBackRotation;
@@ -239,25 +280,19 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
   const natural = showFront ? frontNatural : backNatural;
 
-  const imgBounds = useMemo(() => {
-    return calcContainBounds(containerSize.width, containerSize.height, natural.w, natural.h);
-  }, [containerSize, natural]);
-
   useEffect(() => {
-    if (containerSize.width > 0 && frontNatural.w > 0 && !frontInited) {
+    if (containerSize.width > 0 && frontNatural.w > 0 && !frontPos) {
       const bounds = calcContainBounds(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
       setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
-      setFrontInited(true);
     }
-  }, [containerSize, frontNatural, frontInited, centering, frontCardBounds]);
+  }, [containerSize, frontNatural]);
 
   useEffect(() => {
-    if (containerSize.width > 0 && backNatural.w > 0 && !backInited) {
+    if (containerSize.width > 0 && backNatural.w > 0 && !backPos) {
       const bounds = calcContainBounds(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
       setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
-      setBackInited(true);
     }
-  }, [containerSize, backNatural, backInited, centering, backCardBounds]);
+  }, [containerSize, backNatural]);
 
   const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -267,14 +302,18 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   }, []);
 
   const handleFrontLoad = useCallback((e: any) => {
-    if (e?.source?.width && e?.source?.height) {
-      setFrontNatural({ w: e.source.width, h: e.source.height });
+    const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
+    const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
+    if (w > 0 && h > 0) {
+      setFrontNatural({ w, h });
     }
   }, []);
 
   const handleBackLoad = useCallback((e: any) => {
-    if (e?.source?.width && e?.source?.height) {
-      setBackNatural({ w: e.source.width, h: e.source.height });
+    const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
+    const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
+    if (w > 0 && h > 0) {
+      setBackNatural({ w, h });
     }
   }, []);
 
@@ -285,10 +324,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     if (!pos) return { lr: 50, tb: 50 };
     return computeRatio(pos);
   }, [pos]);
-
-  const drag = useCallback((key: keyof BorderPositions, val: number) => {
-    setPos(prev => prev ? { ...prev, [key]: val } : prev);
-  }, [setPos]);
 
   const handleSave = () => {
     if (!frontPos || !backPos) return;
@@ -316,24 +351,30 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const pinchStartDistRef = useRef(0);
   const pinchStartScaleRef = useRef(1);
   const panStartOffRef = useRef({ x: 0, y: 0 });
-  const isPinchingRef = useRef(false);
   const zoomScaleRef = useRef(1);
   const panOffsetRef = useRef({ x: 0, y: 0 });
   const containerSizeRef = useRef(containerSize);
+  const posRef = useRef(pos);
+  const showFrontRef = useRef(showFront);
+  const setFrontPosRef = useRef(setFrontPos);
+  const setBackPosRef = useRef(setBackPos);
   zoomScaleRef.current = zoomScale;
   panOffsetRef.current = panOffset;
   containerSizeRef.current = containerSize;
+  posRef.current = pos;
+  showFrontRef.current = showFront;
+  setFrontPosRef.current = setFrontPos;
+  setBackPosRef.current = setBackPos;
 
-  const viewportPan = useRef(
+  const gestureMode = useRef<"none" | "pinch" | "pan" | "drag">("none");
+  const dragLineKey = useRef<LineKey | null>(null);
+  const dragLineStart = useRef(0);
+  const viewportOriginRef = useRef({ x: 0, y: 0 });
+
+  const viewportPan = useMemo(() =>
     PanResponder.create({
-      onStartShouldSetPanResponder: (evt) => {
-        return evt.nativeEvent.touches.length >= 2;
-      },
-      onMoveShouldSetPanResponder: (evt, g) => {
-        if (evt.nativeEvent.touches.length >= 2) return true;
-        if (zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5)) return true;
-        return false;
-      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onStartShouldSetPanResponderCapture: (evt) => {
         return evt.nativeEvent.touches.length >= 2;
       },
@@ -343,28 +384,70 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
       onPanResponderGrant: (evt) => {
         const touches = evt.nativeEvent.touches;
         if (touches.length >= 2) {
-          isPinchingRef.current = true;
+          gestureMode.current = "pinch";
           pinchStartDistRef.current = getTouchDistance(touches);
           pinchStartScaleRef.current = zoomScaleRef.current;
           panStartOffRef.current = { ...panOffsetRef.current };
-        } else {
-          isPinchingRef.current = false;
+          return;
+        }
+
+        const scale = zoomScaleRef.current;
+        const cs = containerSizeRef.current;
+        const lx = evt.nativeEvent.locationX;
+        const ly = evt.nativeEvent.locationY;
+
+        const viewX = (lx - cs.width / 2) / scale - panOffsetRef.current.x + cs.width / 2;
+        const viewY = (ly - cs.height / 2) / scale - panOffsetRef.current.y + cs.height / 2;
+
+        viewportOriginRef.current = { x: lx, y: ly };
+
+        const currentPos = posRef.current;
+        if (currentPos && scale <= 1.05) {
+          const nearest = findNearestLine(viewX, viewY, currentPos);
+          if (nearest) {
+            gestureMode.current = "drag";
+            dragLineKey.current = nearest.key;
+            dragLineStart.current = currentPos[nearest.key];
+            return;
+          }
+        }
+
+        if (scale > 1.05) {
+          gestureMode.current = "pan";
           panStartOffRef.current = { ...panOffsetRef.current };
+        } else {
+          const nearest = currentPos ? findNearestLine(viewX, viewY, currentPos) : null;
+          if (nearest) {
+            gestureMode.current = "drag";
+            dragLineKey.current = nearest.key;
+            dragLineStart.current = currentPos![nearest.key];
+          } else {
+            gestureMode.current = "none";
+          }
         }
       },
       onPanResponderMove: (evt, g) => {
         const touches = evt.nativeEvent.touches;
+
         if (touches.length >= 2) {
-          isPinchingRef.current = true;
+          if (gestureMode.current !== "pinch") {
+            gestureMode.current = "pinch";
+            pinchStartDistRef.current = getTouchDistance(touches);
+            pinchStartScaleRef.current = zoomScaleRef.current;
+            panStartOffRef.current = { ...panOffsetRef.current };
+          }
           const dist = getTouchDistance(touches);
           if (pinchStartDistRef.current > 0) {
             const newScale = Math.max(1, Math.min(4, pinchStartScaleRef.current * (dist / pinchStartDistRef.current)));
             setZoomScale(newScale);
             zoomScaleRef.current = newScale;
           }
-        } else if (zoomScaleRef.current > 1.05 && !isPinchingRef.current) {
-          const cs = containerSizeRef.current;
+          return;
+        }
+
+        if (gestureMode.current === "pan") {
           const s = zoomScaleRef.current;
+          const cs = containerSizeRef.current;
           const maxPanX = (cs.width * (s - 1)) / (2 * s);
           const maxPanY = (cs.height * (s - 1)) / (2 * s);
           const newX = panStartOffRef.current.x + g.dx / s;
@@ -375,31 +458,45 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           };
           setPanOffset(clamped);
           panOffsetRef.current = clamped;
+          return;
+        }
+
+        if (gestureMode.current === "drag" && dragLineKey.current) {
+          const key = dragLineKey.current;
+          const s = zoomScaleRef.current;
+          const d = isVLine(key) ? g.dx / s : g.dy / s;
+          const currentPos = posRef.current;
+          if (!currentPos) return;
+          const { min, max } = getLineMinMax(key, currentPos, containerSizeRef.current.width, containerSizeRef.current.height);
+          const newVal = Math.max(min, Math.min(max, dragLineStart.current + d));
+          const setter = showFrontRef.current ? setFrontPosRef.current : setBackPosRef.current;
+          setter(prev => prev ? { ...prev, [key]: newVal } : prev);
+          return;
+        }
+
+        if (gestureMode.current === "none" && zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)) {
+          gestureMode.current = "pan";
+          panStartOffRef.current = { ...panOffsetRef.current };
         }
       },
       onPanResponderRelease: () => {
-        isPinchingRef.current = false;
-        if (zoomScaleRef.current < 1.08) {
+        if (gestureMode.current === "pinch" && zoomScaleRef.current < 1.08) {
           setZoomScale(1);
           setPanOffset({ x: 0, y: 0 });
           zoomScaleRef.current = 1;
           panOffsetRef.current = { x: 0, y: 0 };
         }
+        gestureMode.current = "none";
+        dragLineKey.current = null;
       },
       onPanResponderTerminationRequest: () => false,
-    })
-  ).current;
+    }),
+  []);
 
   const lrColor = getCenteringColor(ratio.lr);
   const tbColor = getCenteringColor(ratio.tb);
   const cw = containerSize.width;
   const ch = containerSize.height;
-
-  const OUTER_COLOR = "rgba(255,255,255,0.7)";
-  const INNER_L = "#FF3C31";
-  const INNER_R = "#3B82F6";
-  const INNER_T = "#F59E0B";
-  const INNER_B = "#10B981";
 
   const rotClamp = (v: number) => Math.max(-15, Math.min(15, Math.round(v * 10) / 10));
 
@@ -421,7 +518,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
       </View>
 
       <View style={styles.imageArea}>
-        <View style={styles.imageViewport} {...viewportPan.panHandlers}>
+        <View style={styles.imageViewport} onLayout={onContainerLayout} {...viewportPan.panHandlers}>
           <View
             style={[
               styles.imageContainer,
@@ -433,7 +530,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
                 ],
               },
             ]}
-            onLayout={onContainerLayout}
           >
             <Image
               source={{ uri: frontImage }}
@@ -457,18 +553,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
             />
 
             {pos && cw > 0 && (
-              <View style={styles.linesOverlay} pointerEvents="box-none">
-                <DragLine orientation="v" position={pos.outerLeft} containerSize={containerSize} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerLeft", v)} minPos={0} maxPos={pos.innerLeft - 4} scale={zoomScale} />
-                <DragLine orientation="v" position={pos.innerLeft} containerSize={containerSize} color={INNER_L} label="L" onDrag={v => drag("innerLeft", v)} minPos={pos.outerLeft + 4} maxPos={cw * 0.45} scale={zoomScale} />
-
-                <DragLine orientation="v" position={pos.outerRight} containerSize={containerSize} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerRight", v)} minPos={pos.innerRight + 4} maxPos={cw} scale={zoomScale} />
-                <DragLine orientation="v" position={pos.innerRight} containerSize={containerSize} color={INNER_R} label="R" onDrag={v => drag("innerRight", v)} minPos={cw * 0.55} maxPos={pos.outerRight - 4} scale={zoomScale} />
-
-                <DragLine orientation="h" position={pos.outerTop} containerSize={containerSize} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerTop", v)} minPos={0} maxPos={pos.innerTop - 4} scale={zoomScale} />
-                <DragLine orientation="h" position={pos.innerTop} containerSize={containerSize} color={INNER_T} label="T" onDrag={v => drag("innerTop", v)} minPos={pos.outerTop + 4} maxPos={ch * 0.45} scale={zoomScale} />
-
-                <DragLine orientation="h" position={pos.outerBottom} containerSize={containerSize} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerBottom", v)} minPos={pos.innerBottom + 4} maxPos={ch} scale={zoomScale} />
-                <DragLine orientation="h" position={pos.innerBottom} containerSize={containerSize} color={INNER_B} label="B" onDrag={v => drag("innerBottom", v)} minPos={ch * 0.55} maxPos={pos.outerBottom - 4} scale={zoomScale} />
+              <View style={styles.linesOverlay} pointerEvents="none">
+                {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize))}
 
                 <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: Math.max(0, pos.innerLeft - pos.outerLeft), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
                 <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: Math.max(0, pos.outerRight - pos.innerRight), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
