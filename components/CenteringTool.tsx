@@ -261,53 +261,64 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
   );
 }
 
-function renderHatchZone(
-  left: number, top: number, width: number, height: number,
-  color: string, orientation: "h" | "v", key: string
-) {
-  if (width <= 0 || height <= 0) return null;
-  const spacing = 8;
-  const maxDim = Math.max(width, height);
-  const diagLen = maxDim * 2;
-  const count = Math.min(Math.ceil(diagLen / spacing), 80);
-  const lines: React.ReactNode[] = [];
+function HatchPattern({ width: w, height: h, color }: { width: number; height: number; color: string }) {
+  if (w <= 1 || h <= 1) return null;
+  const spacing = 5;
+  const diagSpan = w + h;
+  const lineLen = Math.sqrt(w * w + h * h) + 10;
+  const count = Math.min(Math.ceil(diagSpan / spacing), 80);
+  const stripes: React.ReactNode[] = [];
 
   for (let i = 0; i < count; i++) {
-    const offset = i * spacing - maxDim * 0.5;
-    lines.push(
+    const offset = i * spacing;
+    stripes.push(
       <View
         key={i}
         style={{
           position: "absolute" as const,
-          left: offset,
-          top: -maxDim * 0.25,
+          left: offset - h,
+          top: -5,
           width: 1,
-          height: diagLen,
+          height: lineLen,
           backgroundColor: color,
-          opacity: 0.3,
+          opacity: 0.25,
           transform: [{ rotate: "45deg" }],
-          transformOrigin: "center center" as any,
         }}
       />
     );
   }
 
+  return <>{stripes}</>;
+}
+
+function renderHatchOverlay(pos: BorderPositions, _containerSize: { width: number; height: number }) {
+  const zones = [
+    { key: "hatch-left", left: pos.outerLeft, top: pos.outerTop, w: Math.max(0, pos.innerLeft - pos.outerLeft), h: Math.max(0, pos.outerBottom - pos.outerTop), color: "#FF3C31" },
+    { key: "hatch-right", left: pos.innerRight, top: pos.outerTop, w: Math.max(0, pos.outerRight - pos.innerRight), h: Math.max(0, pos.outerBottom - pos.outerTop), color: "#3B82F6" },
+    { key: "hatch-top", left: pos.innerLeft, top: pos.outerTop, w: Math.max(0, pos.innerRight - pos.innerLeft), h: Math.max(0, pos.innerTop - pos.outerTop), color: "#F59E0B" },
+    { key: "hatch-bottom", left: pos.innerLeft, top: pos.innerBottom, w: Math.max(0, pos.innerRight - pos.innerLeft), h: Math.max(0, pos.outerBottom - pos.innerBottom), color: "#10B981" },
+  ];
+
   return (
-    <View
-      key={key}
-      style={{
-        position: "absolute" as const,
-        left,
-        top,
-        width,
-        height,
-        overflow: "hidden" as const,
-        zIndex: 6,
-      }}
-      pointerEvents="none"
-    >
-      {lines}
-    </View>
+    <>
+      {zones.map(z => (
+        <View
+          key={z.key}
+          style={{
+            position: "absolute" as const,
+            left: z.left,
+            top: z.top,
+            width: z.w,
+            height: z.h,
+            overflow: "hidden" as const,
+            zIndex: 6,
+          }}
+          pointerEvents="none"
+        >
+          <HatchPattern width={z.w} height={z.h} color={z.color} />
+        </View>
+      ))}
+    </>
   );
 }
 
@@ -688,10 +699,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
               <View style={styles.linesOverlay} pointerEvents="none">
                 {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize))}
 
-                {renderHatchZone(pos.outerLeft, pos.outerTop, Math.max(0, pos.innerLeft - pos.outerLeft), Math.max(0, pos.outerBottom - pos.outerTop), "#FF3C31", "v", "hatch-left")}
-                {renderHatchZone(pos.innerRight, pos.outerTop, Math.max(0, pos.outerRight - pos.innerRight), Math.max(0, pos.outerBottom - pos.outerTop), "#3B82F6", "v", "hatch-right")}
-                {renderHatchZone(pos.innerLeft, pos.outerTop, Math.max(0, pos.innerRight - pos.innerLeft), Math.max(0, pos.innerTop - pos.outerTop), "#F59E0B", "h", "hatch-top")}
-                {renderHatchZone(pos.innerLeft, pos.innerBottom, Math.max(0, pos.innerRight - pos.innerLeft), Math.max(0, pos.outerBottom - pos.innerBottom), "#10B981", "h", "hatch-bottom")}
+                {renderHatchOverlay(pos, containerSize)}
               </View>
             )}
           </View>
