@@ -63,7 +63,7 @@ export default function GradeScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      quality: 0.8,
+      quality: 0.4,
       base64: true,
       allowsEditing: true,
       aspect: [63, 88],
@@ -101,7 +101,7 @@ export default function GradeScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.8,
+      quality: 0.4,
       base64: true,
       allowsEditing: true,
       aspect: [63, 88],
