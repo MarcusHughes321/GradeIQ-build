@@ -20,6 +20,7 @@ import type { SavedGrading, GradingResult, CenteringMeasurement } from "@/lib/ty
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
+import CenteringTool from "@/components/CenteringTool";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -77,6 +78,7 @@ export default function ResultsScreen() {
   const [viewerShowFront, setViewerShowFront] = useState(true);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
+  const [centeringToolVisible, setCenteringToolVisible] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -210,7 +212,7 @@ export default function ResultsScreen() {
 
         <CenteringCard
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
-          onCenteringChange={handleCenteringChange}
+          onOpenTool={() => setCenteringToolVisible(true)}
         />
 
         <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />
@@ -389,6 +391,23 @@ export default function ResultsScreen() {
             </Pressable>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={centeringToolVisible}
+        animationType="slide"
+        onRequestClose={() => setCenteringToolVisible(false)}
+      >
+        <CenteringTool
+          frontImage={grading.frontImage}
+          backImage={grading.backImage}
+          centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
+          onSave={(newCentering) => {
+            handleCenteringChange(newCentering);
+            setCenteringToolVisible(false);
+          }}
+          onClose={() => setCenteringToolVisible(false)}
+        />
       </Modal>
     </View>
   );
