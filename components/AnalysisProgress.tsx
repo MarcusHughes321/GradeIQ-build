@@ -5,12 +5,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 
 const STAGES = [
-  { label: "Uploading images", icon: "cloud-upload" as const, pct: 10 },
-  { label: "Analyzing centering", icon: "scan" as const, pct: 25 },
-  { label: "Checking corners & edges", icon: "search" as const, pct: 45 },
-  { label: "Evaluating surface condition", icon: "eye" as const, pct: 65 },
-  { label: "Calculating grades", icon: "calculator" as const, pct: 80 },
-  { label: "Finalizing results", icon: "checkmark-circle" as const, pct: 90 },
+  { label: "Uploading images", icon: "cloud-upload" as const, pct: 15 },
+  { label: "Analyzing centering", icon: "scan" as const, pct: 35 },
+  { label: "Checking corners & edges", icon: "search" as const, pct: 55 },
+  { label: "Evaluating surface", icon: "eye" as const, pct: 75 },
+  { label: "Calculating grades", icon: "calculator" as const, pct: 90 },
 ];
 
 interface AnalysisProgressProps {
@@ -38,21 +37,21 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
 
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 300,
+        duration: 200,
         useNativeDriver: true,
       }).start();
 
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 800,
+            toValue: 1.12,
+            duration: 700,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 800,
+            duration: 700,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
@@ -67,29 +66,29 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
         let pct: number;
         let stageIdx: number;
 
-        if (elapsed < 5000) {
-          pct = (elapsed / 5000) * 10;
+        if (elapsed < 1500) {
+          pct = (elapsed / 1500) * 15;
           stageIdx = 0;
-        } else if (elapsed < 12000) {
-          pct = 10 + ((elapsed - 5000) / 7000) * 15;
+        } else if (elapsed < 3500) {
+          pct = 15 + ((elapsed - 1500) / 2000) * 20;
           stageIdx = 1;
-        } else if (elapsed < 22000) {
-          pct = 25 + ((elapsed - 12000) / 10000) * 20;
+        } else if (elapsed < 5500) {
+          pct = 35 + ((elapsed - 3500) / 2000) * 20;
           stageIdx = 2;
-        } else if (elapsed < 32000) {
-          pct = 45 + ((elapsed - 22000) / 10000) * 20;
+        } else if (elapsed < 7500) {
+          pct = 55 + ((elapsed - 5500) / 2000) * 20;
           stageIdx = 3;
-        } else if (elapsed < 42000) {
-          pct = 65 + ((elapsed - 32000) / 10000) * 15;
+        } else if (elapsed < 10000) {
+          pct = 75 + ((elapsed - 7500) / 2500) * 15;
           stageIdx = 4;
         } else {
-          const extraTime = elapsed - 42000;
-          const remaining = 10 * (1 - Math.exp(-extraTime / 30000));
-          pct = 80 + remaining;
-          stageIdx = 5;
+          const extraTime = elapsed - 10000;
+          const remaining = 8 * (1 - Math.exp(-extraTime / 20000));
+          pct = 90 + remaining;
+          stageIdx = 4;
         }
 
-        pct = Math.min(pct, 92);
+        pct = Math.min(pct, 97);
         const roundedPct = Math.round(pct);
 
         setPercentage(roundedPct);
@@ -97,27 +96,27 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
 
         Animated.timing(progressAnim, {
           toValue: pct / 100,
-          duration: 200,
+          duration: 150,
           useNativeDriver: false,
         }).start();
-      }, 150);
+      }, 100);
     } else {
       if (percentage > 0 && startTimeRef.current > 0) {
         setPercentage(100);
         setCurrentStageIndex(STAGES.length - 1);
         Animated.timing(progressAnim, {
           toValue: 1,
-          duration: 300,
+          duration: 200,
           useNativeDriver: false,
         }).start();
 
         setTimeout(() => {
           Animated.timing(fadeAnim, {
             toValue: 0,
-            duration: 250,
+            duration: 200,
             useNativeDriver: true,
           }).start();
-        }, 400);
+        }, 300);
       }
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -141,16 +140,6 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
   });
 
   const currentStage = STAGES[currentStageIndex];
-
-  const getStatusText = () => {
-    if (percentage >= 90) {
-      return "Waiting for AI response...";
-    }
-    if (elapsedSecs < 5) {
-      return "This usually takes 15-30 seconds";
-    }
-    return `${elapsedSecs}s elapsed`;
-  };
 
   return (
     <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
@@ -192,7 +181,9 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
           ))}
         </View>
 
-        <Text style={styles.estimateText}>{getStatusText()}</Text>
+        <Text style={styles.estimateText}>
+          {elapsedSecs < 3 ? "Usually takes 5-10 seconds" : `${elapsedSecs}s elapsed`}
+        </Text>
       </View>
     </Animated.View>
   );

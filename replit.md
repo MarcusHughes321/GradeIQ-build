@@ -6,7 +6,7 @@ Grade.IQ is a mobile app that uses AI vision to estimate Pokemon card grades bas
 ## Tech Stack
 - **Frontend**: Expo React Native with Expo Router (file-based routing)
 - **Backend**: Express.js with TypeScript
-- **AI**: OpenAI GPT-5.2 vision via Replit AI Integrations
+- **AI**: OpenAI GPT-4.1 vision via Replit AI Integrations (fast ~5-10s response)
 - **Storage**: AsyncStorage for local grading history
 - **Font**: Inter (Google Fonts)
 
@@ -36,7 +36,7 @@ lib/
   query-client.ts   - React Query client and API helpers
 
 server/
-  routes.ts         - /api/grade-card endpoint (GPT-5.2 vision analysis)
+  routes.ts         - /api/grade-card endpoint (GPT-4.1 vision analysis)
   index.ts          - Express server setup (port 5000)
 ```
 
@@ -47,3 +47,7 @@ server/
 - 2026-02-09: Initial build with AI-powered Pokemon card grading
 - App renamed to Grade.IQ with #FF3C31/black/white color scheme
 - Custom logo provided by user, used for app icon and splash screen
+- Switched AI model from GPT-5.2 to GPT-4.1 for 5x faster analysis (~5-10s vs ~28s)
+- Added AnalysisProgress overlay with animated stages, percentage, and elapsed time
+- Fixed native image conversion using expo-file-system for reliable base64 encoding
+- Added 90-second client-side timeout with clear error messaging

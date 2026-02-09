@@ -162,8 +162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const startTime = Date.now();
 
       const response = await openai.chat.completions.create({
-        model: "gpt-5.2",
-        max_completion_tokens: 4096,
+        model: "gpt-4.1",
+        max_completion_tokens: 2048,
         messages: [
           {
             role: "system",
