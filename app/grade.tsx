@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -17,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
+import AnalysisProgress from "@/components/AnalysisProgress";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
@@ -255,29 +255,19 @@ export default function GradeScreen() {
             { opacity: !canGrade ? 0.4 : pressed ? 0.9 : 1 },
           ]}
         >
-          {loading ? (
-            <LinearGradient
-              colors={[Colors.gradientStart, Colors.gradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.gradientInner}
-            >
-              <ActivityIndicator color="#fff" size="small" />
-              <Text style={styles.analyzeText}>Analyzing Card...</Text>
-            </LinearGradient>
-          ) : (
-            <LinearGradient
-              colors={[Colors.gradientStart, Colors.gradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.gradientInner}
-            >
-              <Ionicons name="sparkles" size={20} color="#fff" />
-              <Text style={styles.analyzeText}>Analyze & Grade</Text>
-            </LinearGradient>
-          )}
+          <LinearGradient
+            colors={[Colors.gradientStart, Colors.gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.gradientInner}
+          >
+            <Ionicons name="sparkles" size={20} color="#fff" />
+            <Text style={styles.analyzeText}>Analyze & Grade</Text>
+          </LinearGradient>
         </Pressable>
       </View>
+
+      <AnalysisProgress visible={loading} />
     </View>
   );
 }
