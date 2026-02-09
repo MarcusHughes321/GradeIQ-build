@@ -8,8 +8,6 @@ import {
   Dimensions,
   LayoutChangeEvent,
   Platform,
-  GestureResponderEvent,
-  PanResponderGestureState,
   Image as RNImage,
 } from "react-native";
 import { Image } from "expo-image";
@@ -48,8 +46,15 @@ interface ImageBounds {
   h: number;
 }
 
+const DEFAULT_CARD_BOUNDS: CardBounds = {
+  leftPercent: 8,
+  topPercent: 5,
+  rightPercent: 92,
+  bottomPercent: 95,
+};
+
 function initPositions(lr: number, tb: number, imageBounds: ImageBounds, cardBounds?: CardBounds): BorderPositions {
-  const cb = cardBounds || { leftPercent: 2, topPercent: 2, rightPercent: 98, bottomPercent: 98 };
+  const cb = cardBounds || DEFAULT_CARD_BOUNDS;
 
   const outerLeft = imageBounds.x + imageBounds.w * (cb.leftPercent / 100);
   const outerRight = imageBounds.x + imageBounds.w * (cb.rightPercent / 100);
@@ -194,6 +199,17 @@ function isVLine(key: LineKey): boolean {
   return key === "outerLeft" || key === "innerLeft" || key === "outerRight" || key === "innerRight";
 }
 
+function viewportToContainer(
+  lx: number, ly: number,
+  scale: number, px: number, py: number,
+  cw: number, ch: number
+): { x: number; y: number } {
+  return {
+    x: (lx - px - cw / 2) / scale + cw / 2,
+    y: (ly - py - ch / 2) / scale + ch / 2,
+  };
+}
+
 function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
   const lineW = config.dashed ? 1 : 2.5;
   const dotStyle = { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.85)" } as const;
@@ -279,41 +295,74 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const natural = showFront ? frontNatural : backNatural;
+  useEffect(() => {
+    const loadDimensions = (uri: string, setter: (d: { w: number; h: number }) => void) => {
+      if (!uri) return;
+      try {
+        RNImage.getSize(
+          uri,
+          (w, h) => {
+            console.log("[CenteringTool] getSize success:", w, h, uri.substring(0, 50));
+            if (w > 0 && h > 0) setter({ w, h });
+          },
+          (err) => {
+            console.log("[CenteringTool] getSize failed:", err, uri.substring(0, 50));
+          }
+        );
+      } catch (e) {
+        console.log("[CenteringTool] getSize exception:", e);
+      }
+    };
+
+    loadDimensions(frontImage, setFrontNatural);
+    loadDimensions(backImage, setBackNatural);
+  }, [frontImage, backImage]);
+
+  const initFrontPositions = useCallback((cw: number, ch: number, nw: number, nh: number) => {
+    const bounds = calcContainBounds(cw, ch, nw, nh);
+    console.log("[CenteringTool] initFrontPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(frontCardBounds));
+    setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
+  }, [centering, frontCardBounds]);
+
+  const initBackPositions = useCallback((cw: number, ch: number, nw: number, nh: number) => {
+    const bounds = calcContainBounds(cw, ch, nw, nh);
+    console.log("[CenteringTool] initBackPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(backCardBounds));
+    setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
+  }, [centering, backCardBounds]);
 
   useEffect(() => {
-    if (frontImage) {
-      RNImage.getSize(
-        frontImage,
-        (w, h) => { if (w > 0 && h > 0) setFrontNatural({ w, h }); },
-        () => {}
-      );
+    if (containerSize.width > 0 && !frontPos) {
+      if (frontNatural.w > 0) {
+        initFrontPositions(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
+      }
     }
-  }, [frontImage]);
+  }, [containerSize, frontNatural, frontPos]);
 
   useEffect(() => {
-    if (backImage) {
-      RNImage.getSize(
-        backImage,
-        (w, h) => { if (w > 0 && h > 0) setBackNatural({ w, h }); },
-        () => {}
-      );
+    if (containerSize.width > 0 && !backPos) {
+      if (backNatural.w > 0) {
+        initBackPositions(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
+      }
     }
-  }, [backImage]);
+  }, [containerSize, backNatural, backPos]);
 
   useEffect(() => {
-    if (containerSize.width > 0 && frontNatural.w > 0 && !frontPos) {
-      const bounds = calcContainBounds(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
-      setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
+    if (containerSize.width > 0) {
+      const timer = setTimeout(() => {
+        if (!frontPos) {
+          console.log("[CenteringTool] Fallback init front - natural dims not available, using container");
+          const bounds = { x: 0, y: 0, w: containerSize.width, h: containerSize.height };
+          setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
+        }
+        if (!backPos) {
+          console.log("[CenteringTool] Fallback init back - natural dims not available, using container");
+          const bounds = { x: 0, y: 0, w: containerSize.width, h: containerSize.height };
+          setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
+        }
+      }, 500);
+      return () => clearTimeout(timer);
     }
-  }, [containerSize, frontNatural]);
-
-  useEffect(() => {
-    if (containerSize.width > 0 && backNatural.w > 0 && !backPos) {
-      const bounds = calcContainBounds(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
-      setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
-    }
-  }, [containerSize, backNatural]);
+  }, [containerSize]);
 
   const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -325,6 +374,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const handleFrontLoad = useCallback((e: any) => {
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
+    console.log("[CenteringTool] onLoad front:", w, h);
     if (w > 0 && h > 0) {
       setFrontNatural(prev => prev.w > 0 ? prev : { w, h });
     }
@@ -333,13 +383,13 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const handleBackLoad = useCallback((e: any) => {
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
+    console.log("[CenteringTool] onLoad back:", w, h);
     if (w > 0 && h > 0) {
       setBackNatural(prev => prev.w > 0 ? prev : { w, h });
     }
   }, []);
 
   const pos = showFront ? frontPos : backPos;
-  const setPos = showFront ? setFrontPos : setBackPos;
 
   const ratio = useMemo(() => {
     if (!pos) return { lr: 50, tb: 50 };
@@ -355,14 +405,14 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
   const handleReset = () => {
     if (containerSize.width === 0) return;
-    if (frontNatural.w > 0) {
-      const fb = calcContainBounds(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
-      setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, fb, frontCardBounds));
-    }
-    if (backNatural.w > 0) {
-      const bb = calcContainBounds(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
-      setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bb, backCardBounds));
-    }
+    const fw = frontNatural.w || 0;
+    const fh = frontNatural.h || 0;
+    const bw = backNatural.w || 0;
+    const bh = backNatural.h || 0;
+    const fb = calcContainBounds(containerSize.width, containerSize.height, fw, fh);
+    const bb = calcContainBounds(containerSize.width, containerSize.height, bw, bh);
+    setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, fb, frontCardBounds));
+    setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bb, backCardBounds));
     setFrontRotation(0);
     setBackRotation(0);
     setZoomScale(1);
@@ -390,7 +440,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const gestureMode = useRef<"none" | "pinch" | "pan" | "drag">("none");
   const dragLineKey = useRef<LineKey | null>(null);
   const dragLineStart = useRef(0);
-  const viewportOriginRef = useRef({ x: 0, y: 0 });
 
   const viewportPan = useMemo(() =>
     PanResponder.create({
@@ -414,18 +463,16 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
         const scale = zoomScaleRef.current;
         const cs = containerSizeRef.current;
+        const px = panOffsetRef.current.x;
+        const py = panOffsetRef.current.y;
         const lx = evt.nativeEvent.locationX;
         const ly = evt.nativeEvent.locationY;
 
-        const viewX = (lx - cs.width / 2) / scale - panOffsetRef.current.x + cs.width / 2;
-        const viewY = (ly - cs.height / 2) / scale - panOffsetRef.current.y + cs.height / 2;
-
-        viewportOriginRef.current = { x: lx, y: ly };
+        const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
 
         const currentPos = posRef.current;
-        const hitSlop = LINE_HIT / scale;
         if (currentPos) {
-          const nearest = findNearestLine(viewX, viewY, currentPos, hitSlop);
+          const nearest = findNearestLine(containerX, containerY, currentPos, LINE_HIT);
           if (nearest) {
             gestureMode.current = "drag";
             dragLineKey.current = nearest.key;
@@ -463,10 +510,10 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         if (gestureMode.current === "pan") {
           const s = zoomScaleRef.current;
           const cs = containerSizeRef.current;
-          const maxPanX = (cs.width * (s - 1)) / (2 * s);
-          const maxPanY = (cs.height * (s - 1)) / (2 * s);
-          const newX = panStartOffRef.current.x + g.dx / s;
-          const newY = panStartOffRef.current.y + g.dy / s;
+          const maxPanX = (cs.width * (s - 1)) / 2;
+          const maxPanY = (cs.height * (s - 1)) / 2;
+          const newX = panStartOffRef.current.x + g.dx;
+          const newY = panStartOffRef.current.y + g.dy;
           const clamped = {
             x: Math.max(-maxPanX, Math.min(maxPanX, newX)),
             y: Math.max(-maxPanY, Math.min(maxPanY, newY)),
