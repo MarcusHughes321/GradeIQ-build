@@ -21,8 +21,8 @@ import GradeCircle from "@/components/GradeCircle";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const BUBBLE_GAP = 12;
-const BUBBLE_HORIZONTAL_PAD = 20;
-const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_HORIZONTAL_PAD * 2 - BUBBLE_GAP) / 2;
+const BUBBLE_PAD = 20;
+const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_PAD * 2 - BUBBLE_GAP) / 2;
 
 function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: string) => void }) {
   const date = new Date(item.timestamp);
@@ -58,13 +58,13 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
     >
       <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
       <View style={styles.historyInfo}>
-        <Text style={styles.cardName} numberOfLines={1}>
+        <Text style={styles.histCardName} numberOfLines={1}>
           {item.result.cardName || "Unknown Card"}
         </Text>
-        <Text style={styles.setInfoText} numberOfLines={1}>
+        <Text style={styles.histSetInfo} numberOfLines={1}>
           {item.result.setInfo || "Pokemon Card"}
         </Text>
-        <Text style={styles.dateText}>{dateStr}</Text>
+        <Text style={styles.histDate}>{dateStr}</Text>
       </View>
       <View style={styles.historyGrades}>
         <GradeCircle grade={item.result.psa.grade} size={36} color={Colors.cardPSA} label="PSA" />
@@ -101,14 +101,14 @@ export default function HomeScreen() {
 
   const renderHeader = () => (
     <>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Image source={require("@/assets/images/icon.png")} style={styles.headerLogo} contentFit="contain" />
-          <View>
-            <Text style={styles.title}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
-            <Text style={styles.subtitle}>Pokemon Card Grading</Text>
-          </View>
-        </View>
+      <View style={styles.heroSection}>
+        <Image
+          source={require("@/assets/images/icon.png")}
+          style={styles.heroLogo}
+          contentFit="contain"
+        />
+        <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
+        <Text style={styles.heroSubtitle}>AI-Powered Pokemon Card Grading</Text>
       </View>
 
       <View style={styles.bubblesRow}>
@@ -189,38 +189,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  heroSection: {
     alignItems: "center",
-    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
-    paddingTop: 16,
-    paddingBottom: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
   },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  heroLogo: {
+    width: 100,
+    height: 100,
+    borderRadius: 24,
+    marginBottom: 14,
   },
-  headerLogo: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-  },
-  title: {
+  heroTitle: {
     fontFamily: "Inter_700Bold",
-    fontSize: 28,
+    fontSize: 32,
     color: Colors.text,
+    letterSpacing: -0.5,
   },
-  subtitle: {
+  heroSubtitle: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textSecondary,
-    marginTop: 1,
+    marginTop: 4,
   },
   bubblesRow: {
     flexDirection: "row",
-    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    paddingHorizontal: BUBBLE_PAD,
     gap: BUBBLE_GAP,
     marginBottom: 28,
   },
@@ -293,7 +287,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    paddingHorizontal: BUBBLE_PAD,
     marginBottom: 14,
   },
   sectionTitle: {
@@ -310,7 +304,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 40,
-    paddingTop: 60,
+    paddingTop: 50,
     gap: 12,
   },
   emptyIconWrap: {
@@ -337,7 +331,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   listContent: {
-    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    paddingHorizontal: BUBBLE_PAD,
     gap: 10,
   },
   historyItem: {
@@ -360,17 +354,17 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
   },
-  cardName: {
+  histCardName: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: Colors.text,
   },
-  setInfoText: {
+  histSetInfo: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  dateText: {
+  histDate: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
