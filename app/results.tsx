@@ -110,7 +110,63 @@ export default function ResultsScreen() {
 
   const handleCenteringChange = async (newCentering: CenteringMeasurement) => {
     if (!grading) return;
-    const updatedResult = { ...grading.result, centering: newCentering };
+    const c = newCentering;
+    const frontWorst = Math.max(c.frontLeftRight, c.frontTopBottom);
+    const backWorst = Math.max(c.backLeftRight, c.backTopBottom);
+
+    const calcPsaCentering = (): number => {
+      if (frontWorst <= 55 && backWorst <= 75) return 10;
+      if (frontWorst <= 60 && backWorst <= 75) return 9;
+      if (frontWorst <= 65 && backWorst <= 90) return 8;
+      if (frontWorst <= 70 && backWorst <= 90) return 7;
+      return 6;
+    };
+    const calcBgsCentering = (): number => {
+      if (frontWorst <= 50 && backWorst <= 50) return 10;
+      if (frontWorst <= 55 && backWorst <= 55) return 9.5;
+      if (frontWorst <= 60 && backWorst <= 60) return 9;
+      if (frontWorst <= 65 && backWorst <= 65) return 8.5;
+      if (frontWorst <= 70 && backWorst <= 70) return 8;
+      return 7;
+    };
+    const calcAceCentering = (): number => {
+      if (frontWorst <= 60 && backWorst <= 60) return 10;
+      if (frontWorst <= 65 && backWorst <= 65) return 9;
+      if (frontWorst <= 70 && backWorst <= 70) return 8;
+      return 7;
+    };
+
+    const prevResult = grading.result;
+    const centeringNote = `Front: ${c.frontLeftRight}/${100 - c.frontLeftRight} LR, ${c.frontTopBottom}/${100 - c.frontTopBottom} TB. Back: ${c.backLeftRight}/${100 - c.backLeftRight} LR, ${c.backTopBottom}/${100 - c.backTopBottom} TB.`;
+
+    const psaCenteringGrade = calcPsaCentering();
+    const bgsCenteringGrade = calcBgsCentering();
+    const aceCenteringGrade = calcAceCentering();
+
+    const bgsAvg = (bgsCenteringGrade + prevResult.beckett.corners.grade + prevResult.beckett.edges.grade + prevResult.beckett.surface.grade) / 4;
+    const aceAvg = (aceCenteringGrade + prevResult.ace.corners.grade + prevResult.ace.edges.grade + prevResult.ace.surface.grade) / 4;
+    const roundHalf = (v: number) => Math.round(v * 2) / 2;
+
+    const updatedResult: GradingResult = {
+      ...prevResult,
+      centering: newCentering,
+      psa: {
+        ...prevResult.psa,
+        grade: Math.min(psaCenteringGrade, prevResult.psa.grade),
+        centering: centeringNote,
+      },
+      beckett: {
+        ...prevResult.beckett,
+        centering: { grade: bgsCenteringGrade, notes: centeringNote },
+        overallGrade: roundHalf(bgsAvg),
+      },
+      ace: {
+        ...prevResult.ace,
+        centering: { grade: aceCenteringGrade, notes: centeringNote },
+        overallGrade: roundHalf(aceAvg),
+      },
+    };
+
     const updatedGrading = { ...grading, result: updatedResult };
     setGrading(updatedGrading);
     await updateGrading(grading.id, { result: updatedResult });
