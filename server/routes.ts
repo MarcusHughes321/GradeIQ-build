@@ -1,14 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
-import express from "express";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
-
-const largeBodyParser = express.json({ limit: "50mb" });
 
 const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), and Ace Grading. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
 
@@ -75,7 +72,7 @@ Respond ONLY with valid JSON in this exact format:
 Be realistic and conservative in your grading. Most cards in circulation are not PSA 10 or BGS 10. Consider that photos may not capture every detail, so note any limitations in your assessment.`;
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  app.post("/api/grade-card", largeBodyParser, async (req, res) => {
+  app.post("/api/grade-card", async (req, res) => {
     try {
       const { frontImage, backImage } = req.body;
 

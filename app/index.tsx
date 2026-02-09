@@ -96,7 +96,7 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>CardGrade AI</Text>
+          <Text style={styles.title}>GradeIT</Text>
           <Text style={styles.subtitle}>Pokemon Card Grading</Text>
         </View>
         <MaterialCommunityIcons name="cards" size={28} color={Colors.primary} />

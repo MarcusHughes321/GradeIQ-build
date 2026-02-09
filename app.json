@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "CardGrade AI",
-    "slug": "cardgrade-ai",
+    "name": "GradeIT",
+    "slug": "gradeit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
