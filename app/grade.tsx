@@ -25,6 +25,8 @@ export default function GradeScreen() {
   const insets = useSafeAreaInsets();
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
+  const [frontBase64, setFrontBase64] = useState<string | null>(null);
+  const [backBase64, setBackBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -69,11 +71,20 @@ export default function GradeScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      const uri = asset.uri;
       if (side === "front") {
-        setFrontImage(uri);
+        setFrontImage(asset.uri);
+        if (asset.base64) {
+          setFrontBase64(`data:image/jpeg;base64,${asset.base64}`);
+        } else {
+          setFrontBase64(null);
+        }
       } else {
-        setBackImage(uri);
+        setBackImage(asset.uri);
+        if (asset.base64) {
+          setBackBase64(`data:image/jpeg;base64,${asset.base64}`);
+        } else {
+          setBackBase64(null);
+        }
       }
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -98,11 +109,20 @@ export default function GradeScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      const uri = asset.uri;
       if (side === "front") {
-        setFrontImage(uri);
+        setFrontImage(asset.uri);
+        if (asset.base64) {
+          setFrontBase64(`data:image/jpeg;base64,${asset.base64}`);
+        } else {
+          setFrontBase64(null);
+        }
       } else {
-        setBackImage(uri);
+        setBackImage(asset.uri);
+        if (asset.base64) {
+          setBackBase64(`data:image/jpeg;base64,${asset.base64}`);
+        } else {
+          setBackBase64(null);
+        }
       }
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -153,23 +173,33 @@ export default function GradeScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      console.log("Starting image conversion...");
-      const frontBase64 = await getBase64FromUri(frontImage);
-      const backBase64 = await getBase64FromUri(backImage);
-      console.log("Images converted. Front size:", Math.round(frontBase64.length / 1024), "KB, Back size:", Math.round(backBase64.length / 1024), "KB");
+      console.log("Preparing images...");
+      const front = frontBase64 || await getBase64FromUri(frontImage);
+      const back = backBase64 || await getBase64FromUri(backImage);
+      console.log("Images ready. Front:", Math.round(front.length / 1024), "KB, Back:", Math.round(back.length / 1024), "KB");
 
       console.log("Sending grading request...");
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Analysis timed out. Please try again with smaller or clearer photos.")), 90000);
-      });
+      const { getApiUrl } = require("@/lib/query-client");
+      const baseUrl = getApiUrl();
+      const url = new URL("/api/grade-card", baseUrl);
 
-      const requestPromise = apiRequest("POST", "/api/grade-card", {
-        frontImage: frontBase64,
-        backImage: backBase64,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
 
-      const response = await Promise.race([requestPromise, timeoutPromise]);
-      console.log("Received response, status:", response.status);
+      const response = await globalThis.fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frontImage: front, backImage: back }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      console.log("Response received, status:", response.status);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(errorBody || `Server error: ${response.status}`);
+      }
 
       const result: GradingResult = await response.json();
 
@@ -189,9 +219,17 @@ export default function GradeScreen() {
       });
     } catch (error: any) {
       console.error("Grading error:", error?.message || error);
-      const msg = error?.message?.includes("timed out")
-        ? error.message
-        : "There was an error analyzing your card. Please try again.";
+      let msg = "There was an error analyzing your card. Please try again.";
+      if (error?.name === "AbortError") {
+        msg = "Analysis timed out after 90 seconds. Please try again.";
+      } else if (error?.message) {
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          if (error.message.length < 200) msg = error.message;
+        }
+      }
       Alert.alert("Grading Failed", msg);
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -229,13 +267,13 @@ export default function GradeScreen() {
             label="Front"
             imageUri={frontImage}
             onCapture={() => pickImage("front")}
-            onRemove={() => setFrontImage(null)}
+            onRemove={() => { setFrontImage(null); setFrontBase64(null); }}
           />
           <ImageCapture
             label="Back"
             imageUri={backImage}
             onCapture={() => pickImage("back")}
-            onRemove={() => setBackImage(null)}
+            onRemove={() => { setBackImage(null); setBackBase64(null); }}
           />
         </View>
 
