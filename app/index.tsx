@@ -7,16 +7,22 @@ import {
   FlatList,
   Alert,
   Platform,
+  Dimensions,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading } from "@/lib/storage";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const BUBBLE_GAP = 12;
+const BUBBLE_HORIZONTAL_PAD = 20;
+const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_HORIZONTAL_PAD * 2 - BUBBLE_GAP) / 2;
 
 function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: string) => void }) {
   const date = new Date(item.timestamp);
@@ -41,7 +47,7 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.historyItem, { opacity: pressed ? 0.8 : 1 }]}
+      style={({ pressed }) => [styles.historyItem, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
       onPress={() =>
         router.push({
           pathname: "/results",
@@ -55,7 +61,7 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
         <Text style={styles.cardName} numberOfLines={1}>
           {item.result.cardName || "Unknown Card"}
         </Text>
-        <Text style={styles.setInfo} numberOfLines={1}>
+        <Text style={styles.setInfoText} numberOfLines={1}>
           {item.result.setInfo || "Pokemon Card"}
         </Text>
         <Text style={styles.dateText}>{dateStr}</Text>
@@ -65,6 +71,7 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
         <GradeCircle grade={item.result.beckett.overallGrade} size={36} color={Colors.cardBeckett} label="BGS" />
         <GradeCircle grade={item.result.ace.overallGrade} size={36} color={Colors.cardAce} label="ACE" />
       </View>
+      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>
   );
 }
@@ -92,8 +99,8 @@ export default function HomeScreen() {
     loadGradings();
   };
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+  const renderHeader = () => (
+    <>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Image source={require("@/assets/images/icon.png")} style={styles.headerLogo} contentFit="contain" />
@@ -104,43 +111,86 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <Pressable
-        style={({ pressed }) => [styles.gradeButton, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
-        onPress={() => router.push("/grade")}
-      >
-        <LinearGradient
-          colors={[Colors.gradientStart, Colors.gradientEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.gradientButton}
+      <View style={styles.bubblesRow}>
+        <Pressable
+          style={({ pressed }) => [styles.bubbleButton, styles.bubblePrimary, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
+          onPress={() => router.push("/grade")}
         >
-          <Ionicons name="camera" size={22} color="#fff" />
-          <Text style={styles.gradeButtonText}>Grade a Card</Text>
-          <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
-        </LinearGradient>
-      </Pressable>
+          <LinearGradient
+            colors={[Colors.gradientStart, Colors.gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.bubbleGradient}
+          >
+            <View style={styles.bubbleIconCircle}>
+              <Ionicons name="camera" size={28} color="#fff" />
+            </View>
+            <Text style={styles.bubblePrimaryText}>Grade a Card</Text>
+            <Text style={styles.bubbleSubtext}>Take photos to analyze</Text>
+          </LinearGradient>
+        </Pressable>
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>History</Text>
-        <Text style={styles.sectionCount}>{gradings.length} cards</Text>
+        <View style={styles.bubbleColumn}>
+          <Pressable
+            style={({ pressed }) => [styles.bubbleSmall, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
+            onPress={() => router.push("/grade")}
+          >
+            <View style={styles.bubbleSmallIcon}>
+              <Feather name="zap" size={20} color={Colors.primary} />
+            </View>
+            <Text style={styles.bubbleSmallText}>Quick Scan</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.bubbleSmall, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
+            onPress={() => {}}
+          >
+            <View style={styles.bubbleSmallIcon}>
+              <Ionicons name="stats-chart" size={20} color={Colors.primary} />
+            </View>
+            <Text style={styles.bubbleSmallText}>{gradings.length} Graded</Text>
+          </Pressable>
+        </View>
       </View>
 
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Recent Grades</Text>
+        {gradings.length > 0 && (
+          <Text style={styles.sectionCount}>{gradings.length} cards</Text>
+        )}
+      </View>
+    </>
+  );
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       {gradings.length === 0 ? (
-        <View style={styles.emptyState}>
-          <MaterialCommunityIcons name="card-search" size={48} color={Colors.textMuted} />
-          <Text style={styles.emptyTitle}>No cards graded yet</Text>
-          <Text style={styles.emptyText}>
-            Take photos of your Pokemon card to get AI-powered grade estimates
-          </Text>
-        </View>
+        <FlatList
+          data={[]}
+          renderItem={null}
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconWrap}>
+                <MaterialCommunityIcons name="card-search" size={40} color={Colors.textMuted} />
+              </View>
+              <Text style={styles.emptyTitle}>No cards graded yet</Text>
+              <Text style={styles.emptyText}>
+                Take photos of your Pokemon card to get AI-powered grade estimates
+              </Text>
+            </View>
+          }
+          contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 20 }}
+          showsVerticalScrollIndicator={false}
+        />
       ) : (
         <FlatList
           data={gradings}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <HistoryItem item={item} onDelete={handleDelete} />}
+          ListHeaderComponent={renderHeader}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 20 }]}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={gradings.length > 0}
+          scrollEnabled={true}
         />
       )}
     </View>
@@ -156,8 +206,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    paddingTop: 16,
+    paddingBottom: 20,
   },
   headerLeft: {
     flexDirection: "row",
@@ -165,9 +216,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
   },
   title: {
     fontFamily: "Inter_700Bold",
@@ -176,38 +227,87 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontFamily: "Inter_400Regular",
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
   },
-  gradeButton: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderRadius: 16,
+  bubblesRow: {
+    flexDirection: "row",
+    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    gap: BUBBLE_GAP,
+    marginBottom: 28,
+  },
+  bubbleButton: {
+    width: BUBBLE_WIDTH,
+    borderRadius: 20,
     overflow: "hidden",
   },
-  gradientButton: {
-    flexDirection: "row",
+  bubblePrimary: {
+    minHeight: 140,
+  },
+  bubbleGradient: {
+    flex: 1,
+    padding: 18,
+    justifyContent: "space-between",
+  },
+  bubbleIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 18,
-    gap: 10,
+    marginBottom: 12,
   },
-  gradeButtonText: {
-    fontFamily: "Inter_600SemiBold",
+  bubblePrimaryText: {
+    fontFamily: "Inter_700Bold",
     fontSize: 17,
     color: "#fff",
+  },
+  bubbleSubtext: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 2,
+  },
+  bubbleColumn: {
+    width: BUBBLE_WIDTH,
+    gap: BUBBLE_GAP,
+  },
+  bubbleSmall: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  bubbleSmallIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,60,49,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bubbleSmallText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.text,
     flex: 1,
   },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 12,
+    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    marginBottom: 14,
   },
   sectionTitle: {
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "Inter_700Bold",
     fontSize: 18,
     color: Colors.text,
   },
@@ -217,11 +317,22 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   emptyState: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 40,
+    paddingTop: 60,
     gap: 12,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
   emptyTitle: {
     fontFamily: "Inter_600SemiBold",
@@ -236,33 +347,35 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   listContent: {
-    paddingHorizontal: 20,
-    gap: 12,
+    paddingHorizontal: BUBBLE_HORIZONTAL_PAD,
+    gap: 10,
   },
   historyItem: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 18,
+    padding: 14,
     alignItems: "center",
     gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
   thumbnail: {
-    width: 52,
-    height: 72,
-    borderRadius: 8,
+    width: 54,
+    height: 75,
+    borderRadius: 10,
     backgroundColor: Colors.surfaceLight,
   },
   historyInfo: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
   cardName: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: Colors.text,
   },
-  setInfo: {
+  setInfoText: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textSecondary,
@@ -275,6 +388,6 @@ const styles = StyleSheet.create({
   },
   historyGrades: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
   },
 });
