@@ -310,21 +310,9 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     const loadDimensions = (uri: string, setter: (d: { w: number; h: number }) => void) => {
       if (!uri) return;
       try {
-        RNImage.getSize(
-          uri,
-          (w, h) => {
-            console.log("[CenteringTool] getSize success:", w, h, uri.substring(0, 50));
-            if (w > 0 && h > 0) setter({ w, h });
-          },
-          (err) => {
-            console.log("[CenteringTool] getSize failed:", err, uri.substring(0, 50));
-          }
-        );
-      } catch (e) {
-        console.log("[CenteringTool] getSize exception:", e);
-      }
+        RNImage.getSize(uri, (w, h) => { if (w > 0 && h > 0) setter({ w, h }); }, () => {});
+      } catch (e) {}
     };
-
     loadDimensions(frontImage, setFrontNatural);
     loadDimensions(backImage, setBackNatural);
   }, [frontImage, backImage]);
@@ -333,7 +321,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     if (frontPosInitRef.current) return;
     frontPosInitRef.current = true;
     const bounds = calcContainBounds(cw, ch, nw, nh);
-    console.log("[CenteringTool] initFrontPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(frontCardBounds), "natural:", nw, nh);
     setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
   }, [centering, frontCardBounds]);
 
@@ -341,7 +328,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     if (backPosInitRef.current) return;
     backPosInitRef.current = true;
     const bounds = calcContainBounds(cw, ch, nw, nh);
-    console.log("[CenteringTool] initBackPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(backCardBounds), "natural:", nw, nh);
     setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
   }, [centering, backCardBounds]);
 
@@ -361,11 +347,9 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     if (containerSize.width > 0) {
       const timer = setTimeout(() => {
         if (!frontPosInitRef.current) {
-          console.log("[CenteringTool] Fallback init front - using container dims");
           doInitFront(containerSize.width, containerSize.height, 0, 0);
         }
         if (!backPosInitRef.current) {
-          console.log("[CenteringTool] Fallback init back - using container dims");
           doInitBack(containerSize.width, containerSize.height, 0, 0);
         }
       }, 800);
@@ -385,7 +369,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     frontLoadLoggedRef.current = true;
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
-    console.log("[CenteringTool] onLoad front:", w, h);
     if (w > 0 && h > 0) {
       setFrontNatural(prev => prev.w > 0 ? prev : { w, h });
     }
@@ -396,7 +379,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     backLoadLoggedRef.current = true;
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
-    console.log("[CenteringTool] onLoad back:", w, h);
     if (w > 0 && h > 0) {
       setBackNatural(prev => prev.w > 0 ? prev : { w, h });
     }
