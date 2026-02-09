@@ -39,17 +39,17 @@ interface BorderPositions {
 }
 
 function initPositions(lr: number, tb: number, imgW: number, imgH: number): BorderPositions {
-  const cardInset = 0.03;
-  const outerLeft = imgW * cardInset;
-  const outerRight = imgW * (1 - cardInset);
-  const outerTop = imgH * cardInset;
-  const outerBottom = imgH * (1 - cardInset);
+  const edgeInset = 0.025;
+  const outerLeft = imgW * edgeInset;
+  const outerRight = imgW * (1 - edgeInset);
+  const outerTop = imgH * edgeInset;
+  const outerBottom = imgH * (1 - edgeInset);
 
   const cardW = outerRight - outerLeft;
   const cardH = outerBottom - outerTop;
 
-  const totalBorderH = cardW * 0.09;
-  const totalBorderV = cardH * 0.09;
+  const totalBorderH = cardW * 0.10;
+  const totalBorderV = cardH * 0.10;
 
   const leftBorder = totalBorderH * (lr / 100);
   const rightBorder = totalBorderH * ((100 - lr) / 100);
@@ -107,18 +107,21 @@ interface DragLineProps {
   onDrag: (pos: number) => void;
   minPos: number;
   maxPos: number;
+  scale: number;
 }
 
-function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag, minPos, maxPos }: DragLineProps) {
+function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag, minPos, maxPos, scale }: DragLineProps) {
   const posRef = useRef(position);
   const startRef = useRef(position);
   const cbRef = useRef(onDrag);
   const minRef = useRef(minPos);
   const maxRef = useRef(maxPos);
+  const scaleRef = useRef(scale);
   posRef.current = position;
   cbRef.current = onDrag;
   minRef.current = minPos;
   maxRef.current = maxPos;
+  scaleRef.current = scale;
 
   const pan = useRef(
     PanResponder.create({
@@ -128,7 +131,7 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
       onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2,
       onPanResponderGrant: () => { startRef.current = posRef.current; },
       onPanResponderMove: (_: GestureResponderEvent, g: PanResponderGestureState) => {
-        const d = orientation === "v" ? g.dx : g.dy;
+        const d = orientation === "v" ? g.dx / scaleRef.current : g.dy / scaleRef.current;
         cbRef.current(Math.max(minRef.current, Math.min(maxRef.current, startRef.current + d)));
       },
       onPanResponderTerminationRequest: () => false,
@@ -136,6 +139,7 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
   ).current;
 
   const dotStyle = { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.85)" } as const;
+  const lineW = dashed ? 1 : 2.5;
 
   if (orientation === "v") {
     return (
@@ -143,7 +147,7 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
         style={{ position: "absolute" as const, top: 0, left: position - LINE_HIT / 2, width: LINE_HIT, height: imgSize.height, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
         {...pan.panHandlers}
       >
-        <View style={{ position: "absolute" as const, width: dashed ? 1 : 2.5, height: "100%" as const, left: LINE_HIT / 2 - (dashed ? 0.5 : 1.25), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
+        <View style={{ position: "absolute" as const, width: lineW, height: "100%" as const, left: LINE_HIT / 2 - lineW / 2, backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
         {!dashed && (
           <View style={{ width: 16, height: 32, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
             <View style={{ gap: 2.5 }}>
@@ -163,7 +167,7 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
       style={{ position: "absolute" as const, left: 0, top: position - LINE_HIT / 2, width: imgSize.width, height: LINE_HIT, zIndex: dashed ? 8 : 12, alignItems: "center" as const, justifyContent: "center" as const }}
       {...pan.panHandlers}
     >
-      <View style={{ position: "absolute" as const, height: dashed ? 1 : 2.5, width: "100%" as const, top: LINE_HIT / 2 - (dashed ? 0.5 : 1.25), backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
+      <View style={{ position: "absolute" as const, height: lineW, width: "100%" as const, top: LINE_HIT / 2 - lineW / 2, backgroundColor: color, opacity: dashed ? 0.5 : 1 }} />
       {!dashed && (
         <View style={{ width: 32, height: 16, borderRadius: 8, backgroundColor: color, alignItems: "center" as const, justifyContent: "center" as const }}>
           <View style={{ flexDirection: "row" as const, gap: 2.5 }}>
@@ -178,6 +182,8 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
   );
 }
 
+const ZOOM_LEVELS = [1, 1.5, 2, 3];
+
 export default function CenteringTool({ frontImage, backImage, centering, onSave, onClose }: CenteringToolProps) {
   const insets = useSafeAreaInsets();
   const [showFront, setShowFront] = useState(true);
@@ -187,7 +193,12 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const [frontRotation, setFrontRotation] = useState(0);
   const [backRotation, setBackRotation] = useState(0);
   const [showRotation, setShowRotation] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const initRef = useRef(false);
+  const lastTapRef = useRef(0);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const containerLayoutRef = useRef({ width: 0, height: 0 });
 
   const rotation = showFront ? frontRotation : backRotation;
   const setRotation = showFront ? setFrontRotation : setBackRotation;
@@ -199,6 +210,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
     const { width, height } = e.nativeEvent.layout;
     if (width > 0 && height > 0) {
       setImageLayout({ width, height });
+      containerLayoutRef.current = { width, height };
     }
   }, []);
 
@@ -235,6 +247,64 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
     setBackRotation(0);
   };
 
+  const cycleZoom = () => {
+    const currentIdx = ZOOM_LEVELS.indexOf(zoomLevel);
+    const nextIdx = (currentIdx + 1) % ZOOM_LEVELS.length;
+    const newZoom = ZOOM_LEVELS[nextIdx];
+    if (newZoom === 1) {
+      setPanOffset({ x: 0, y: 0 });
+    }
+    setZoomLevel(newZoom);
+  };
+
+  const resetZoom = () => {
+    setZoomLevel(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  const clampPan = useCallback((x: number, y: number, scale: number) => {
+    if (scale <= 1) return { x: 0, y: 0 };
+    const { width, height } = containerLayoutRef.current;
+    const maxPanX = (width * (scale - 1)) / (2 * scale);
+    const maxPanY = (height * (scale - 1)) / (2 * scale);
+    return {
+      x: Math.max(-maxPanX, Math.min(maxPanX, x)),
+      y: Math.max(-maxPanY, Math.min(maxPanY, y)),
+    };
+  }, []);
+
+  const bgPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (evt) => {
+        if (evt.nativeEvent.touches.length >= 2) return true;
+        const now = Date.now();
+        if (now - lastTapRef.current < 300) {
+          return true;
+        }
+        lastTapRef.current = now;
+        return false;
+      },
+      onMoveShouldSetPanResponder: (evt, g) => {
+        if (evt.nativeEvent.touches.length >= 2) return true;
+        return false;
+      },
+      onPanResponderGrant: (evt) => {
+        const now = Date.now();
+        if (evt.nativeEvent.touches.length < 2 && now - lastTapRef.current < 50) {
+          return;
+        }
+        panStartRef.current = { x: 0, y: 0 };
+      },
+      onPanResponderMove: (evt, g) => {
+        if (evt.nativeEvent.touches.length >= 2) {
+          return;
+        }
+      },
+      onPanResponderRelease: (evt) => {
+      },
+    })
+  ).current;
+
   const lrColor = getCenteringColor(ratio.lr);
   const tbColor = getCenteringColor(ratio.tb);
   const w = imageLayout.width;
@@ -247,6 +317,11 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   const INNER_B = "#10B981";
 
   const rotClamp = (v: number) => Math.max(-15, Math.min(15, Math.round(v * 10) / 10));
+
+  const nudgePan = (dx: number, dy: number) => {
+    const step = 30 / zoomLevel;
+    setPanOffset(prev => clampPan(prev.x + dx * step, prev.y + dy * step, zoomLevel));
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset, paddingBottom: insets.bottom + webBottomInset }]}>
@@ -266,33 +341,87 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
       </View>
 
       <View style={styles.imageArea}>
-        <View style={styles.imageContainer} onLayout={onLayout}>
-          <Image
-            source={{ uri: showFront ? frontImage : backImage }}
-            style={[styles.cardImage, rotation !== 0 ? { transform: [{ rotate: `${rotation}deg` }] } : undefined]}
-            contentFit="contain"
-          />
+        <View style={styles.imageViewport}>
+          <View
+            style={[
+              styles.imageContainer,
+              {
+                transform: [
+                  { scale: zoomLevel },
+                  { translateX: panOffset.x },
+                  { translateY: panOffset.y },
+                ],
+              },
+            ]}
+            onLayout={onLayout}
+          >
+            <Image
+              source={{ uri: showFront ? frontImage : backImage }}
+              style={[styles.cardImage, rotation !== 0 ? { transform: [{ rotate: `${rotation}deg` }] } : undefined]}
+              contentFit="contain"
+            />
 
-          {pos && w > 0 && (
-            <View style={styles.linesOverlay}>
-              <DragLine orientation="v" position={pos.outerLeft} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerLeft", v)} minPos={0} maxPos={pos.innerLeft - 4} />
-              <DragLine orientation="v" position={pos.innerLeft} imgSize={imageLayout} color={INNER_L} label="L" onDrag={v => drag("innerLeft", v)} minPos={pos.outerLeft + 4} maxPos={w * 0.45} />
+            {pos && w > 0 && (
+              <View style={styles.linesOverlay}>
+                <DragLine orientation="v" position={pos.outerLeft} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerLeft", v)} minPos={0} maxPos={pos.innerLeft - 4} scale={zoomLevel} />
+                <DragLine orientation="v" position={pos.innerLeft} imgSize={imageLayout} color={INNER_L} label="L" onDrag={v => drag("innerLeft", v)} minPos={pos.outerLeft + 4} maxPos={w * 0.45} scale={zoomLevel} />
 
-              <DragLine orientation="v" position={pos.outerRight} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerRight", v)} minPos={pos.innerRight + 4} maxPos={w} />
-              <DragLine orientation="v" position={pos.innerRight} imgSize={imageLayout} color={INNER_R} label="R" onDrag={v => drag("innerRight", v)} minPos={w * 0.55} maxPos={pos.outerRight - 4} />
+                <DragLine orientation="v" position={pos.outerRight} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerRight", v)} minPos={pos.innerRight + 4} maxPos={w} scale={zoomLevel} />
+                <DragLine orientation="v" position={pos.innerRight} imgSize={imageLayout} color={INNER_R} label="R" onDrag={v => drag("innerRight", v)} minPos={w * 0.55} maxPos={pos.outerRight - 4} scale={zoomLevel} />
 
-              <DragLine orientation="h" position={pos.outerTop} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerTop", v)} minPos={0} maxPos={pos.innerTop - 4} />
-              <DragLine orientation="h" position={pos.innerTop} imgSize={imageLayout} color={INNER_T} label="T" onDrag={v => drag("innerTop", v)} minPos={pos.outerTop + 4} maxPos={h * 0.45} />
+                <DragLine orientation="h" position={pos.outerTop} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerTop", v)} minPos={0} maxPos={pos.innerTop - 4} scale={zoomLevel} />
+                <DragLine orientation="h" position={pos.innerTop} imgSize={imageLayout} color={INNER_T} label="T" onDrag={v => drag("innerTop", v)} minPos={pos.outerTop + 4} maxPos={h * 0.45} scale={zoomLevel} />
 
-              <DragLine orientation="h" position={pos.outerBottom} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerBottom", v)} minPos={pos.innerBottom + 4} maxPos={h} />
-              <DragLine orientation="h" position={pos.innerBottom} imgSize={imageLayout} color={INNER_B} label="B" onDrag={v => drag("innerBottom", v)} minPos={h * 0.55} maxPos={pos.outerBottom - 4} />
+                <DragLine orientation="h" position={pos.outerBottom} imgSize={imageLayout} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerBottom", v)} minPos={pos.innerBottom + 4} maxPos={h} scale={zoomLevel} />
+                <DragLine orientation="h" position={pos.innerBottom} imgSize={imageLayout} color={INNER_B} label="B" onDrag={v => drag("innerBottom", v)} minPos={h * 0.55} maxPos={pos.outerBottom - 4} scale={zoomLevel} />
 
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: Math.max(0, pos.innerLeft - pos.outerLeft), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: Math.max(0, pos.outerRight - pos.innerRight), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.outerTop, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.innerTop - pos.outerTop) }]} />
-              <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.innerBottom, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.outerBottom - pos.innerBottom) }]} />
+                <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: Math.max(0, pos.innerLeft - pos.outerLeft), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
+                <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: Math.max(0, pos.outerRight - pos.innerRight), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
+                <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.outerTop, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.innerTop - pos.outerTop) }]} />
+                <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.innerBottom, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.outerBottom - pos.innerBottom) }]} />
+              </View>
+            )}
+          </View>
+
+          {zoomLevel > 1 && (
+            <View style={styles.panControls}>
+              <View style={styles.panRow}>
+                <View style={styles.panSpacer} />
+                <Pressable onPress={() => nudgePan(0, 1)} style={({ pressed }) => [styles.panBtn, { opacity: pressed ? 0.5 : 1 }]}>
+                  <Ionicons name="chevron-up" size={16} color="#fff" />
+                </Pressable>
+                <View style={styles.panSpacer} />
+              </View>
+              <View style={styles.panRow}>
+                <Pressable onPress={() => nudgePan(1, 0)} style={({ pressed }) => [styles.panBtn, { opacity: pressed ? 0.5 : 1 }]}>
+                  <Ionicons name="chevron-back" size={16} color="#fff" />
+                </Pressable>
+                <View style={styles.panSpacer} />
+                <Pressable onPress={() => nudgePan(-1, 0)} style={({ pressed }) => [styles.panBtn, { opacity: pressed ? 0.5 : 1 }]}>
+                  <Ionicons name="chevron-forward" size={16} color="#fff" />
+                </Pressable>
+              </View>
+              <View style={styles.panRow}>
+                <View style={styles.panSpacer} />
+                <Pressable onPress={() => nudgePan(0, -1)} style={({ pressed }) => [styles.panBtn, { opacity: pressed ? 0.5 : 1 }]}>
+                  <Ionicons name="chevron-down" size={16} color="#fff" />
+                </Pressable>
+                <View style={styles.panSpacer} />
+              </View>
             </View>
           )}
+
+          <View style={styles.zoomBadge}>
+            <Pressable onPress={cycleZoom} style={({ pressed }) => [styles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}>
+              <Ionicons name="search" size={14} color="#fff" />
+              <Text style={styles.zoomText}>{zoomLevel}x</Text>
+            </Pressable>
+            {zoomLevel > 1 && (
+              <Pressable onPress={resetZoom} style={({ pressed }) => [styles.zoomResetBtn, { opacity: pressed ? 0.6 : 1 }]}>
+                <Ionicons name="contract-outline" size={14} color="#fff" />
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
 
@@ -355,11 +484,20 @@ const styles = StyleSheet.create({
   ratioDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.3)" },
   saveBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: Colors.primary, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
   saveBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
-  imageArea: { flex: 1, paddingHorizontal: 6, paddingVertical: 4 },
-  imageContainer: { flex: 1, borderRadius: 8, overflow: "hidden", backgroundColor: Colors.surfaceLight },
+  imageArea: { flex: 1, paddingHorizontal: 4, paddingVertical: 2 },
+  imageViewport: { flex: 1, borderRadius: 8, overflow: "hidden", backgroundColor: Colors.surfaceLight },
+  imageContainer: { width: "100%", height: "100%" },
   cardImage: { width: "100%", height: "100%" },
   linesOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 },
   borderShade: { position: "absolute", backgroundColor: "rgba(255, 60, 49, 0.1)" },
+  zoomBadge: { position: "absolute", bottom: 8, right: 8, flexDirection: "row", gap: 4, zIndex: 20 },
+  zoomBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.65)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  zoomText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "#fff" },
+  zoomResetBtn: { alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.65)", width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  panControls: { position: "absolute", bottom: 8, left: 8, zIndex: 20, gap: 1 },
+  panRow: { flexDirection: "row", gap: 1 },
+  panBtn: { width: 28, height: 28, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
+  panSpacer: { width: 28, height: 28 },
   controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
   controlRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sideToggle: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, padding: 2 },
