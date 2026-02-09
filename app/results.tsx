@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -14,13 +14,110 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { getGradings } from "@/lib/storage";
-import type { SavedGrading } from "@/lib/types";
+import type { SavedGrading, GradingResult } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+interface AnalysisNote {
+  area: string;
+  icon: string;
+  notes: string;
+  grade: string;
+  color: string;
+}
+
+function getAnalysisNotes(result: GradingResult, isFront: boolean): AnalysisNote[] {
+  const bgs = result.beckett;
+  const notes: AnalysisNote[] = [];
+
+  const centeringNote = isFront
+    ? (bgs.centering.notes || result.psa.centering)
+    : (bgs.centering.notes || result.psa.centering);
+  if (centeringNote) {
+    notes.push({
+      area: "Centering",
+      icon: "scan-outline",
+      notes: centeringNote,
+      grade: `${bgs.centering.grade}/10`,
+      color: getGradeColor(bgs.centering.grade),
+    });
+  }
+
+  const cornersNote = isFront
+    ? (bgs.corners.notes || result.psa.corners)
+    : (bgs.corners.notes || result.psa.corners);
+  if (cornersNote) {
+    notes.push({
+      area: "Corners",
+      icon: "resize-outline",
+      notes: cornersNote,
+      grade: `${bgs.corners.grade}/10`,
+      color: getGradeColor(bgs.corners.grade),
+    });
+  }
+
+  const edgesNote = isFront
+    ? (bgs.edges.notes || result.psa.edges)
+    : (bgs.edges.notes || result.psa.edges);
+  if (edgesNote) {
+    notes.push({
+      area: "Edges",
+      icon: "remove-outline",
+      notes: edgesNote,
+      grade: `${bgs.edges.grade}/10`,
+      color: getGradeColor(bgs.edges.grade),
+    });
+  }
+
+  const surfaceNote = isFront
+    ? (bgs.surface.notes || result.psa.surface)
+    : (bgs.surface.notes || result.psa.surface);
+  if (surfaceNote) {
+    notes.push({
+      area: "Surface",
+      icon: "layers-outline",
+      notes: surfaceNote,
+      grade: `${bgs.surface.grade}/10`,
+      color: getGradeColor(bgs.surface.grade),
+    });
+  }
+
+  return notes;
+}
+
+function getGradeColor(grade: number): string {
+  if (grade >= 9.5) return "#10B981";
+  if (grade >= 9) return "#34D399";
+  if (grade >= 8) return "#F59E0B";
+  if (grade >= 7) return "#FB923C";
+  return "#EF4444";
+}
+
+function AnnotationCard({ note }: { note: AnalysisNote }) {
+  return (
+    <View style={annoStyles.card}>
+      <View style={annoStyles.cardHeader}>
+        <View style={[annoStyles.iconWrap, { backgroundColor: note.color + "20" }]}>
+          <Ionicons name={note.icon as any} size={14} color={note.color} />
+        </View>
+        <Text style={annoStyles.areaText}>{note.area}</Text>
+        <View style={[annoStyles.gradeBadge, { backgroundColor: note.color + "25" }]}>
+          <Text style={[annoStyles.gradeText, { color: note.color }]}>{note.grade}</Text>
+        </View>
+      </View>
+      <Text style={annoStyles.noteText} numberOfLines={3}>{note.notes}</Text>
+    </View>
+  );
+}
 
 export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
@@ -29,6 +126,10 @@ export default function ResultsScreen() {
   const [showFront, setShowFront] = useState(true);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [viewerShowFront, setViewerShowFront] = useState(true);
+  const [showAnnotations, setShowAnnotations] = useState(true);
+
+  const zoomScale = useSharedValue(1);
+  const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -47,7 +148,13 @@ export default function ResultsScreen() {
 
   const openImageViewer = (front: boolean) => {
     setViewerShowFront(front);
+    setShowAnnotations(true);
     setImageViewerVisible(true);
+  };
+
+  const closeImageViewer = () => {
+    setImageViewerVisible(false);
+    zoomScale.value = withSpring(1);
   };
 
   if (!grading) {
@@ -59,6 +166,7 @@ export default function ResultsScreen() {
   }
 
   const { result } = grading;
+  const analysisNotes = getAnalysisNotes(result, viewerShowFront);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -173,31 +281,97 @@ export default function ResultsScreen() {
         visible={imageViewerVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setImageViewerVisible(false)}
+        onRequestClose={closeImageViewer}
       >
         <View style={[styles.modalOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={styles.modalHeader}>
             <Pressable
-              onPress={() => setImageViewerVisible(false)}
-              style={({ pressed }) => [styles.modalCloseBtn, { opacity: pressed ? 0.6 : 1 }]}
+              onPress={closeImageViewer}
+              style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
             >
-              <Ionicons name="close" size={28} color="#fff" />
+              <Ionicons name="close" size={26} color="#fff" />
             </Pressable>
             <Text style={styles.modalTitle}>{viewerShowFront ? "Front" : "Back"}</Text>
-            <Pressable
-              onPress={() => setViewerShowFront(!viewerShowFront)}
-              style={({ pressed }) => [styles.modalFlipBtn, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Ionicons name="swap-horizontal" size={24} color="#fff" />
-            </Pressable>
+            <View style={styles.modalHeaderRight}>
+              <Pressable
+                onPress={() => setShowAnnotations(!showAnnotations)}
+                style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Ionicons
+                  name={showAnnotations ? "chatbubble-ellipses" : "chatbubble-ellipses-outline"}
+                  size={22}
+                  color={showAnnotations ? Colors.primary : "#fff"}
+                />
+              </Pressable>
+              <Pressable
+                onPress={() => setViewerShowFront(!viewerShowFront)}
+                style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Ionicons name="swap-horizontal" size={24} color="#fff" />
+              </Pressable>
+            </View>
           </View>
 
-          <View style={styles.modalImageContainer}>
-            <Image
-              source={{ uri: viewerShowFront ? grading.frontImage : grading.backImage }}
-              style={styles.modalImage}
-              contentFit="contain"
-            />
+          <View style={styles.modalBody}>
+            <ScrollView
+              ref={zoomScrollRef}
+              style={styles.zoomScrollView}
+              contentContainerStyle={styles.zoomScrollContent}
+              maximumZoomScale={5}
+              minimumZoomScale={1}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              bouncesZoom={true}
+              centerContent={true}
+            >
+              <View style={styles.modalImageWrap}>
+                <Image
+                  source={{ uri: viewerShowFront ? grading.frontImage : grading.backImage }}
+                  style={styles.modalImage}
+                  contentFit="contain"
+                />
+                {showAnnotations && (
+                  <View style={styles.annotationOverlay}>
+                    <View style={[styles.annotationMarker, styles.markerTopCenter]}>
+                      <View style={[styles.markerDot, { backgroundColor: getGradeColor(result.beckett.centering.grade) }]} />
+                    </View>
+                    <View style={[styles.annotationMarker, styles.markerTopLeft]}>
+                      <View style={[styles.markerCorner, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
+                    </View>
+                    <View style={[styles.annotationMarker, styles.markerTopRight]}>
+                      <View style={[styles.markerCorner, { borderColor: getGradeColor(result.beckett.corners.grade), transform: [{ rotate: "90deg" }] }]} />
+                    </View>
+                    <View style={[styles.annotationMarker, styles.markerBottomLeft]}>
+                      <View style={[styles.markerCorner, { borderColor: getGradeColor(result.beckett.corners.grade), transform: [{ rotate: "-90deg" }] }]} />
+                    </View>
+                    <View style={[styles.annotationMarker, styles.markerBottomRight]}>
+                      <View style={[styles.markerCorner, { borderColor: getGradeColor(result.beckett.corners.grade), transform: [{ rotate: "180deg" }] }]} />
+                    </View>
+                    <View style={[styles.annotationMarker, styles.markerLeftEdge]}>
+                      <View style={[styles.markerEdge, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
+                    </View>
+                    <View style={[styles.annotationMarker, styles.markerRightEdge]}>
+                      <View style={[styles.markerEdge, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
+                    </View>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+
+            {showAnnotations && (
+              <View style={styles.annotationPanel}>
+                <ScrollView
+                  horizontal={false}
+                  showsVerticalScrollIndicator={false}
+                  style={styles.annotationScroll}
+                  contentContainerStyle={styles.annotationScrollContent}
+                >
+                  {analysisNotes.map((note, i) => (
+                    <AnnotationCard key={note.area} note={note} />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
           </View>
 
           <View style={styles.modalFooter}>
@@ -227,6 +401,50 @@ export default function ResultsScreen() {
     </View>
   );
 }
+
+const annoStyles = StyleSheet.create({
+  card: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  iconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  areaText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
+    flex: 1,
+  },
+  gradeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  gradeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+  },
+  noteText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.7)",
+    lineHeight: 16,
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -388,55 +606,140 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
-    justifyContent: "space-between",
+    backgroundColor: "rgba(0,0,0,0.97)",
   },
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
-  modalCloseBtn: {
-    width: 44,
-    height: 44,
+  modalHeaderBtn: {
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
+  },
+  modalHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   modalTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 17,
+    fontSize: 16,
     color: "#fff",
   },
-  modalFlipBtn: {
-    width: 44,
-    height: 44,
+  modalBody: {
+    flex: 1,
+  },
+  zoomScrollView: {
+    flex: 1,
+  },
+  zoomScrollContent: {
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  modalImageContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
+  modalImageWrap: {
+    width: SCREEN_WIDTH - 24,
+    aspectRatio: 0.7,
+    maxHeight: SCREEN_HEIGHT * 0.48,
   },
   modalImage: {
-    width: SCREEN_WIDTH - 32,
-    height: SCREEN_HEIGHT * 0.65,
-    borderRadius: 12,
+    width: "100%",
+    height: "100%",
+    borderRadius: 10,
+  },
+  annotationOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  annotationMarker: {
+    position: "absolute",
+  },
+  markerTopCenter: {
+    top: "4%",
+    left: "40%",
+    right: "40%",
+    alignItems: "center",
+  },
+  markerDot: {
+    width: 20,
+    height: 6,
+    borderRadius: 3,
+    opacity: 0.8,
+  },
+  markerTopLeft: {
+    top: "3%",
+    left: "5%",
+  },
+  markerTopRight: {
+    top: "3%",
+    right: "5%",
+  },
+  markerBottomLeft: {
+    bottom: "3%",
+    left: "5%",
+  },
+  markerBottomRight: {
+    bottom: "3%",
+    right: "5%",
+  },
+  markerCorner: {
+    width: 16,
+    height: 16,
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderColor: "#F59E0B",
+    borderTopLeftRadius: 4,
+    opacity: 0.85,
+  },
+  markerLeftEdge: {
+    left: "2%",
+    top: "40%",
+    bottom: "40%",
+    justifyContent: "center",
+  },
+  markerRightEdge: {
+    right: "2%",
+    top: "40%",
+    bottom: "40%",
+    justifyContent: "center",
+  },
+  markerEdge: {
+    width: 4,
+    height: 30,
+    borderRadius: 2,
+    opacity: 0.7,
+  },
+  annotationPanel: {
+    maxHeight: SCREEN_HEIGHT * 0.3,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  annotationScroll: {
+    flex: 1,
+  },
+  annotationScrollContent: {
+    gap: 8,
+    paddingBottom: 4,
   },
   modalFooter: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 12,
-    paddingBottom: 20,
+    gap: 10,
+    paddingBottom: 16,
+    paddingTop: 8,
     paddingHorizontal: 40,
   },
   modalTab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.08)",
     alignItems: "center",
