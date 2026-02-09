@@ -5,15 +5,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 
 const STAGES = [
-  { label: "Uploading images", icon: "cloud-upload" as const, duration: 2000 },
-  { label: "Analyzing centering", icon: "scan" as const, duration: 4000 },
-  { label: "Checking corners & edges", icon: "search" as const, duration: 5000 },
-  { label: "Evaluating surface condition", icon: "eye" as const, duration: 4000 },
-  { label: "Calculating grades", icon: "calculator" as const, duration: 3000 },
-  { label: "Finalizing results", icon: "checkmark-circle" as const, duration: 2000 },
+  { label: "Uploading images", icon: "cloud-upload" as const, pct: 10 },
+  { label: "Analyzing centering", icon: "scan" as const, pct: 25 },
+  { label: "Checking corners & edges", icon: "search" as const, pct: 45 },
+  { label: "Evaluating surface condition", icon: "eye" as const, pct: 65 },
+  { label: "Calculating grades", icon: "calculator" as const, pct: 80 },
+  { label: "Finalizing results", icon: "checkmark-circle" as const, pct: 90 },
 ];
-
-const TOTAL_ESTIMATED_TIME = STAGES.reduce((sum, s) => sum + s.duration, 0);
 
 interface AnalysisProgressProps {
   visible: boolean;
@@ -22,10 +20,10 @@ interface AnalysisProgressProps {
 export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
   const [percentage, setPercentage] = useState(0);
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
+  const [elapsedSecs, setElapsedSecs] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const stageOpacity = useRef(new Animated.Value(1)).current;
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(0);
 
@@ -34,6 +32,7 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
       startTimeRef.current = Date.now();
       setPercentage(0);
       setCurrentStageIndex(0);
+      setElapsedSecs(0);
       progressAnim.setValue(0);
       fadeAnim.setValue(0);
 
@@ -62,35 +61,48 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
 
       intervalRef.current = setInterval(() => {
         const elapsed = Date.now() - startTimeRef.current;
-        const rawProgress = Math.min(elapsed / TOTAL_ESTIMATED_TIME, 0.95);
-        const smoothProgress = rawProgress < 0.8
-          ? rawProgress
-          : 0.8 + (rawProgress - 0.8) * 0.5;
-        const pct = Math.round(smoothProgress * 100);
-        setPercentage(pct);
+        const secs = Math.floor(elapsed / 1000);
+        setElapsedSecs(secs);
 
-        let accumulated = 0;
-        let stageIdx = 0;
-        for (let i = 0; i < STAGES.length; i++) {
-          accumulated += STAGES[i].duration;
-          if (elapsed < accumulated) {
-            stageIdx = i;
-            break;
-          }
-          if (i === STAGES.length - 1) {
-            stageIdx = STAGES.length - 1;
-          }
+        let pct: number;
+        let stageIdx: number;
+
+        if (elapsed < 5000) {
+          pct = (elapsed / 5000) * 10;
+          stageIdx = 0;
+        } else if (elapsed < 12000) {
+          pct = 10 + ((elapsed - 5000) / 7000) * 15;
+          stageIdx = 1;
+        } else if (elapsed < 22000) {
+          pct = 25 + ((elapsed - 12000) / 10000) * 20;
+          stageIdx = 2;
+        } else if (elapsed < 32000) {
+          pct = 45 + ((elapsed - 22000) / 10000) * 20;
+          stageIdx = 3;
+        } else if (elapsed < 42000) {
+          pct = 65 + ((elapsed - 32000) / 10000) * 15;
+          stageIdx = 4;
+        } else {
+          const extraTime = elapsed - 42000;
+          const remaining = 10 * (1 - Math.exp(-extraTime / 30000));
+          pct = 80 + remaining;
+          stageIdx = 5;
         }
+
+        pct = Math.min(pct, 92);
+        const roundedPct = Math.round(pct);
+
+        setPercentage(roundedPct);
         setCurrentStageIndex(stageIdx);
 
         Animated.timing(progressAnim, {
-          toValue: smoothProgress,
+          toValue: pct / 100,
           duration: 200,
           useNativeDriver: false,
         }).start();
-      }, 100);
+      }, 150);
     } else {
-      if (percentage > 0) {
+      if (percentage > 0 && startTimeRef.current > 0) {
         setPercentage(100);
         setCurrentStageIndex(STAGES.length - 1);
         Animated.timing(progressAnim, {
@@ -129,6 +141,16 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
   });
 
   const currentStage = STAGES[currentStageIndex];
+
+  const getStatusText = () => {
+    if (percentage >= 90) {
+      return "Waiting for AI response...";
+    }
+    if (elapsedSecs < 5) {
+      return "This usually takes 15-30 seconds";
+    }
+    return `${elapsedSecs}s elapsed`;
+  };
 
   return (
     <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
@@ -170,11 +192,7 @@ export default function AnalysisProgress({ visible }: AnalysisProgressProps) {
           ))}
         </View>
 
-        <Text style={styles.estimateText}>
-          {percentage < 95
-            ? `Estimated ${Math.max(1, Math.ceil((TOTAL_ESTIMATED_TIME - (Date.now() - startTimeRef.current)) / 1000))}s remaining`
-            : "Almost done..."}
-        </Text>
+        <Text style={styles.estimateText}>{getStatusText()}</Text>
       </View>
     </Animated.View>
   );
