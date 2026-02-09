@@ -10,6 +10,13 @@ export interface CenteringMeasurement {
   backTopBottom: number;
 }
 
+export interface CardBounds {
+  leftPercent: number;
+  topPercent: number;
+  rightPercent: number;
+  bottomPercent: number;
+}
+
 export interface PSAGrade {
   grade: number;
   centering: string;
@@ -42,6 +49,8 @@ export interface GradingResult {
   setInfo: string;
   overallCondition: string;
   centering: CenteringMeasurement;
+  frontCardBounds?: CardBounds;
+  backCardBounds?: CardBounds;
   psa: PSAGrade;
   beckett: BeckettGrade;
   ace: AceGrade;

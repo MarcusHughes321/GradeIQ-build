@@ -458,6 +458,8 @@ export default function ResultsScreen() {
           frontImage={grading.frontImage}
           backImage={grading.backImage}
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
+          frontCardBounds={result.frontCardBounds}
+          backCardBounds={result.backCardBounds}
           onSave={(newCentering) => {
             handleCenteringChange(newCentering);
             setCenteringToolVisible(false);

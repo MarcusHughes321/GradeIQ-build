@@ -43,6 +43,20 @@ Analyze the card images carefully. Look for:
 3. Edges - look for whitening, chipping, or rough cuts along all edges
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects
 
+CARD BOUNDARY DETECTION - CRITICAL:
+For each image (front and back), you MUST detect where the physical card edges are within the photograph. The card may not fill the entire photo - there could be background (table, sleeve, etc.) around it. Report the boundaries as percentages of the image dimensions:
+- leftPercent: percentage from the left edge of the image to the left edge of the card (0-100)
+- topPercent: percentage from the top edge of the image to the top edge of the card (0-100)
+- rightPercent: percentage from the left edge of the image to the right edge of the card (0-100)
+- bottomPercent: percentage from the top edge of the image to the bottom edge of the card (0-100)
+
+For example, if the card takes up the middle 80% of the image horizontally and 90% vertically:
+leftPercent=10, topPercent=5, rightPercent=90, bottomPercent=95
+
+If the card fills almost the entire image: leftPercent=1, topPercent=1, rightPercent=99, bottomPercent=99
+
+Be PRECISE about the card boundaries. Look at where the actual physical card edge meets the background.
+
 Respond ONLY with valid JSON in this exact format:
 {
   "cardName": "Name of the Pokemon card if identifiable",
@@ -53,6 +67,18 @@ Respond ONLY with valid JSON in this exact format:
     "frontTopBottom": 54,
     "backLeftRight": 55,
     "backTopBottom": 53
+  },
+  "frontCardBounds": {
+    "leftPercent": 5,
+    "topPercent": 3,
+    "rightPercent": 95,
+    "bottomPercent": 97
+  },
+  "backCardBounds": {
+    "leftPercent": 4,
+    "topPercent": 2,
+    "rightPercent": 96,
+    "bottomPercent": 98
   },
   "psa": {
     "grade": 8,
@@ -84,6 +110,7 @@ CRITICAL REMINDERS:
 - PSA grade: valid values are 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10 (NO 9.5)
 - BGS grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10)
 - Ace grades: WHOLE NUMBERS ONLY (1-10, never 8.5 or 9.5)
+- Card bounds: percentages 0-100 for where the card physically sits in each photo
 
 Be realistic and conservative in your grading. Most cards in circulation are not PSA 10 or BGS 10.`;
 
@@ -114,6 +141,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function enforceCardBounds(bounds: any): any {
+  if (!bounds) return { leftPercent: 2, topPercent: 2, rightPercent: 98, bottomPercent: 98 };
+  return {
+    leftPercent: clamp(Math.round(bounds.leftPercent ?? 2), 0, 45),
+    topPercent: clamp(Math.round(bounds.topPercent ?? 2), 0, 45),
+    rightPercent: clamp(Math.round(bounds.rightPercent ?? 98), 55, 100),
+    bottomPercent: clamp(Math.round(bounds.bottomPercent ?? 98), 55, 100),
+  };
+}
+
 function enforceGradingScales(result: any): any {
   if (result.centering) {
     result.centering.frontLeftRight = clamp(Math.round(result.centering.frontLeftRight || 50), 50, 95);
@@ -123,6 +160,9 @@ function enforceGradingScales(result: any): any {
   } else {
     result.centering = { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 };
   }
+
+  result.frontCardBounds = enforceCardBounds(result.frontCardBounds);
+  result.backCardBounds = enforceCardBounds(result.backCardBounds);
 
   if (result.psa) {
     result.psa.grade = roundToNearest(clamp(result.psa.grade, 1, 10), VALID_PSA_GRADES);
@@ -171,7 +211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content: [
               {
                 type: "text",
-                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.",
+                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back. Be sure to detect the exact card boundaries in each photo.",
               },
               {
                 type: "image_url",

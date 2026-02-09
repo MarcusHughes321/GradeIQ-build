@@ -15,7 +15,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
-import type { CenteringMeasurement } from "@/lib/types";
+import type { CenteringMeasurement, CardBounds } from "@/lib/types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -23,6 +23,8 @@ interface CenteringToolProps {
   frontImage: string;
   backImage: string;
   centering: CenteringMeasurement;
+  frontCardBounds?: CardBounds;
+  backCardBounds?: CardBounds;
   onSave: (centering: CenteringMeasurement) => void;
   onClose: () => void;
 }
@@ -45,14 +47,19 @@ interface ImageBounds {
   h: number;
 }
 
-function initPositions(lr: number, tb: number, bounds: ImageBounds): BorderPositions {
-  const outerLeft = bounds.x;
-  const outerRight = bounds.x + bounds.w;
-  const outerTop = bounds.y;
-  const outerBottom = bounds.y + bounds.h;
+function initPositions(lr: number, tb: number, imageBounds: ImageBounds, cardBounds?: CardBounds): BorderPositions {
+  const cb = cardBounds || { leftPercent: 1, topPercent: 1, rightPercent: 99, bottomPercent: 99 };
 
-  const totalBorderH = bounds.w * 0.10;
-  const totalBorderV = bounds.h * 0.07;
+  const outerLeft = imageBounds.x + imageBounds.w * (cb.leftPercent / 100);
+  const outerRight = imageBounds.x + imageBounds.w * (cb.rightPercent / 100);
+  const outerTop = imageBounds.y + imageBounds.h * (cb.topPercent / 100);
+  const outerBottom = imageBounds.y + imageBounds.h * (cb.bottomPercent / 100);
+
+  const cardW = outerRight - outerLeft;
+  const cardH = outerBottom - outerTop;
+
+  const totalBorderH = cardW * 0.10;
+  const totalBorderV = cardH * 0.07;
 
   const leftBorder = totalBorderH * (lr / 100);
   const rightBorder = totalBorderH * ((100 - lr) / 100);
@@ -146,16 +153,14 @@ function DragLine({ orientation, position, containerSize, color, label, dashed, 
 
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2,
-      onStartShouldSetPanResponderCapture: () => true,
-      onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2,
+      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 1,
+      onMoveShouldSetPanResponder: (evt, g) => evt.nativeEvent.touches.length === 1 && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
       onPanResponderGrant: () => { startRef.current = posRef.current; },
       onPanResponderMove: (_: GestureResponderEvent, g: PanResponderGestureState) => {
         const d = orientation === "v" ? g.dx / scaleRef.current : g.dy / scaleRef.current;
         cbRef.current(Math.max(minRef.current, Math.min(maxRef.current, startRef.current + d)));
       },
-      onPanResponderTerminationRequest: () => false,
+      onPanResponderTerminationRequest: () => true,
     })
   ).current;
 
@@ -210,15 +215,7 @@ function getTouchDistance(touches: any[]): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function getTouchCenter(touches: any[]): { x: number; y: number } {
-  if (touches.length < 2) return { x: touches[0]?.pageX ?? 0, y: touches[0]?.pageY ?? 0 };
-  return {
-    x: (touches[0].pageX + touches[1].pageX) / 2,
-    y: (touches[0].pageY + touches[1].pageY) / 2,
-  };
-}
-
-export default function CenteringTool({ frontImage, backImage, centering, onSave, onClose }: CenteringToolProps) {
+export default function CenteringTool({ frontImage, backImage, centering, frontCardBounds, backCardBounds, onSave, onClose }: CenteringToolProps) {
   const insets = useSafeAreaInsets();
   const [showFront, setShowFront] = useState(true);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -249,18 +246,18 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
   useEffect(() => {
     if (containerSize.width > 0 && frontNatural.w > 0 && !frontInited) {
       const bounds = calcContainBounds(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
-      setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds));
+      setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
       setFrontInited(true);
     }
-  }, [containerSize, frontNatural, frontInited, centering]);
+  }, [containerSize, frontNatural, frontInited, centering, frontCardBounds]);
 
   useEffect(() => {
     if (containerSize.width > 0 && backNatural.w > 0 && !backInited) {
       const bounds = calcContainBounds(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
-      setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds));
+      setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
       setBackInited(true);
     }
-  }, [containerSize, backNatural, backInited, centering]);
+  }, [containerSize, backNatural, backInited, centering, backCardBounds]);
 
   const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -304,11 +301,11 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
     if (containerSize.width === 0) return;
     if (frontNatural.w > 0) {
       const fb = calcContainBounds(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
-      setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, fb));
+      setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, fb, frontCardBounds));
     }
     if (backNatural.w > 0) {
       const bb = calcContainBounds(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
-      setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bb));
+      setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bb, backCardBounds));
     }
     setFrontRotation(0);
     setBackRotation(0);
@@ -316,25 +313,16 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
     setPanOffset({ x: 0, y: 0 });
   };
 
-  const clampPan = useCallback((x: number, y: number, scale: number) => {
-    if (scale <= 1) return { x: 0, y: 0 };
-    const maxPanX = (containerSize.width * (scale - 1)) / (2 * scale);
-    const maxPanY = (containerSize.height * (scale - 1)) / (2 * scale);
-    return {
-      x: Math.max(-maxPanX, Math.min(maxPanX, x)),
-      y: Math.max(-maxPanY, Math.min(maxPanY, y)),
-    };
-  }, [containerSize]);
-
   const pinchStartDistRef = useRef(0);
   const pinchStartScaleRef = useRef(1);
   const panStartOffRef = useRef({ x: 0, y: 0 });
   const isPinchingRef = useRef(false);
-  const panMoveStartRef = useRef({ x: 0, y: 0 });
   const zoomScaleRef = useRef(1);
   const panOffsetRef = useRef({ x: 0, y: 0 });
+  const containerSizeRef = useRef(containerSize);
   zoomScaleRef.current = zoomScale;
   panOffsetRef.current = panOffset;
+  containerSizeRef.current = containerSize;
 
   const viewportPan = useRef(
     PanResponder.create({
@@ -343,8 +331,14 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
       },
       onMoveShouldSetPanResponder: (evt, g) => {
         if (evt.nativeEvent.touches.length >= 2) return true;
-        if (zoomScaleRef.current > 1 && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)) return true;
+        if (zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5)) return true;
         return false;
+      },
+      onStartShouldSetPanResponderCapture: (evt) => {
+        return evt.nativeEvent.touches.length >= 2;
+      },
+      onMoveShouldSetPanResponderCapture: (evt) => {
+        return evt.nativeEvent.touches.length >= 2;
       },
       onPanResponderGrant: (evt) => {
         const touches = evt.nativeEvent.touches;
@@ -352,8 +346,6 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
           isPinchingRef.current = true;
           pinchStartDistRef.current = getTouchDistance(touches);
           pinchStartScaleRef.current = zoomScaleRef.current;
-          const center = getTouchCenter(touches);
-          panMoveStartRef.current = { x: center.x, y: center.y };
           panStartOffRef.current = { ...panOffsetRef.current };
         } else {
           isPinchingRef.current = false;
@@ -370,12 +362,16 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
             setZoomScale(newScale);
             zoomScaleRef.current = newScale;
           }
-        } else if (zoomScaleRef.current > 1 && !isPinchingRef.current) {
-          const newX = panStartOffRef.current.x + g.dx / zoomScaleRef.current;
-          const newY = panStartOffRef.current.y + g.dy / zoomScaleRef.current;
+        } else if (zoomScaleRef.current > 1.05 && !isPinchingRef.current) {
+          const cs = containerSizeRef.current;
+          const s = zoomScaleRef.current;
+          const maxPanX = (cs.width * (s - 1)) / (2 * s);
+          const maxPanY = (cs.height * (s - 1)) / (2 * s);
+          const newX = panStartOffRef.current.x + g.dx / s;
+          const newY = panStartOffRef.current.y + g.dy / s;
           const clamped = {
-            x: Math.max(-(containerSize.width * (zoomScaleRef.current - 1)) / (2 * zoomScaleRef.current), Math.min((containerSize.width * (zoomScaleRef.current - 1)) / (2 * zoomScaleRef.current), newX)),
-            y: Math.max(-(containerSize.height * (zoomScaleRef.current - 1)) / (2 * zoomScaleRef.current), Math.min((containerSize.height * (zoomScaleRef.current - 1)) / (2 * zoomScaleRef.current), newY)),
+            x: Math.max(-maxPanX, Math.min(maxPanX, newX)),
+            y: Math.max(-maxPanY, Math.min(maxPanY, newY)),
           };
           setPanOffset(clamped);
           panOffsetRef.current = clamped;
@@ -383,7 +379,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
       },
       onPanResponderRelease: () => {
         isPinchingRef.current = false;
-        if (zoomScaleRef.current < 1.1) {
+        if (zoomScaleRef.current < 1.08) {
           setZoomScale(1);
           setPanOffset({ x: 0, y: 0 });
           zoomScaleRef.current = 1;
@@ -425,7 +421,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
       </View>
 
       <View style={styles.imageArea}>
-        <View style={styles.imageViewport}>
+        <View style={styles.imageViewport} {...viewportPan.panHandlers}>
           <View
             style={[
               styles.imageContainer,
@@ -438,7 +434,6 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
               },
             ]}
             onLayout={onContainerLayout}
-            {...viewportPan.panHandlers}
           >
             <Image
               source={{ uri: frontImage }}
@@ -462,7 +457,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
             />
 
             {pos && cw > 0 && (
-              <View style={styles.linesOverlay}>
+              <View style={styles.linesOverlay} pointerEvents="box-none">
                 <DragLine orientation="v" position={pos.outerLeft} containerSize={containerSize} color={OUTER_COLOR} label="" dashed onDrag={v => drag("outerLeft", v)} minPos={0} maxPos={pos.innerLeft - 4} scale={zoomScale} />
                 <DragLine orientation="v" position={pos.innerLeft} containerSize={containerSize} color={INNER_L} label="L" onDrag={v => drag("innerLeft", v)} minPos={pos.outerLeft + 4} maxPos={cw * 0.45} scale={zoomScale} />
 
@@ -484,7 +479,7 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
           </View>
 
           {zoomScale > 1 && (
-            <View style={styles.zoomIndicator}>
+            <View style={styles.zoomIndicator} pointerEvents="none">
               <Text style={styles.zoomIndicatorText}>{zoomScale.toFixed(1)}x</Text>
             </View>
           )}
