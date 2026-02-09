@@ -7,6 +7,8 @@ import {
   Pressable,
   Platform,
   ActivityIndicator,
+  Modal,
+  Dimensions,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,11 +20,15 @@ import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
 export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
   const { gradingId } = useLocalSearchParams<{ gradingId: string }>();
   const [grading, setGrading] = useState<SavedGrading | null>(null);
   const [showFront, setShowFront] = useState(true);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [viewerShowFront, setViewerShowFront] = useState(true);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -37,6 +43,11 @@ export default function ResultsScreen() {
     if (found) {
       setGrading(found);
     }
+  };
+
+  const openImageViewer = (front: boolean) => {
+    setViewerShowFront(front);
+    setImageViewerVisible(true);
   };
 
   if (!grading) {
@@ -73,18 +84,25 @@ export default function ResultsScreen() {
       >
         <View style={styles.cardPreview}>
           <Pressable
-            onPress={() => setShowFront(!showFront)}
-            style={styles.cardImageWrapper}
+            onPress={() => openImageViewer(showFront)}
+            onLongPress={() => setShowFront(!showFront)}
+            style={({ pressed }) => [styles.cardImageWrapper, { opacity: pressed ? 0.85 : 1 }]}
           >
             <Image
               source={{ uri: showFront ? grading.frontImage : grading.backImage }}
               style={styles.cardImage}
               contentFit="cover"
             />
-            <View style={styles.flipBadge}>
+            <View style={styles.viewBadge}>
+              <Ionicons name="expand" size={14} color="#fff" />
+            </View>
+            <Pressable
+              onPress={() => setShowFront(!showFront)}
+              style={({ pressed }) => [styles.flipBadge, { opacity: pressed ? 0.7 : 1 }]}
+            >
               <Ionicons name="swap-horizontal" size={14} color="#fff" />
               <Text style={styles.flipText}>{showFront ? "Front" : "Back"}</Text>
-            </View>
+            </Pressable>
           </Pressable>
 
           <View style={styles.cardInfo}>
@@ -92,7 +110,7 @@ export default function ResultsScreen() {
             {result.setInfo ? (
               <Text style={styles.setInfo}>{result.setInfo}</Text>
             ) : null}
-            <Text style={styles.condition}>{result.overallCondition}</Text>
+            <Text style={styles.condition} numberOfLines={3}>{result.overallCondition}</Text>
 
             <View style={styles.gradesRow}>
               <GradeCircle grade={result.psa.grade} size={52} color={Colors.cardPSA} label="PSA" />
@@ -107,6 +125,37 @@ export default function ResultsScreen() {
           </View>
         </View>
 
+        <View style={styles.imageRow}>
+          <Pressable
+            style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
+            onPress={() => openImageViewer(true)}
+          >
+            <Image
+              source={{ uri: grading.frontImage }}
+              style={styles.imageThumbImg}
+              contentFit="cover"
+            />
+            <View style={styles.imageThumbLabel}>
+              <Text style={styles.imageThumbText}>Front</Text>
+              <Ionicons name="expand-outline" size={12} color="#fff" />
+            </View>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
+            onPress={() => openImageViewer(false)}
+          >
+            <Image
+              source={{ uri: grading.backImage }}
+              style={styles.imageThumbImg}
+              contentFit="cover"
+            />
+            <View style={styles.imageThumbLabel}>
+              <Text style={styles.imageThumbText}>Back</Text>
+              <Ionicons name="expand-outline" size={12} color="#fff" />
+            </View>
+          </Pressable>
+        </View>
+
         <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />
         <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />
         <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />
@@ -119,6 +168,62 @@ export default function ResultsScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={imageViewerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setImageViewerVisible(false)}
+      >
+        <View style={[styles.modalOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={styles.modalHeader}>
+            <Pressable
+              onPress={() => setImageViewerVisible(false)}
+              style={({ pressed }) => [styles.modalCloseBtn, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Ionicons name="close" size={28} color="#fff" />
+            </Pressable>
+            <Text style={styles.modalTitle}>{viewerShowFront ? "Front" : "Back"}</Text>
+            <Pressable
+              onPress={() => setViewerShowFront(!viewerShowFront)}
+              style={({ pressed }) => [styles.modalFlipBtn, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Ionicons name="swap-horizontal" size={24} color="#fff" />
+            </Pressable>
+          </View>
+
+          <View style={styles.modalImageContainer}>
+            <Image
+              source={{ uri: viewerShowFront ? grading.frontImage : grading.backImage }}
+              style={styles.modalImage}
+              contentFit="contain"
+            />
+          </View>
+
+          <View style={styles.modalFooter}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.modalTab,
+                viewerShowFront && styles.modalTabActive,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+              onPress={() => setViewerShowFront(true)}
+            >
+              <Text style={[styles.modalTabText, viewerShowFront && styles.modalTabTextActive]}>Front</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.modalTab,
+                !viewerShowFront && styles.modalTabActive,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+              onPress={() => setViewerShowFront(false)}
+            >
+              <Text style={[styles.modalTabText, !viewerShowFront && styles.modalTabTextActive]}>Back</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -159,14 +264,16 @@ const styles = StyleSheet.create({
   cardPreview: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 16,
     gap: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
   cardImageWrapper: {
     width: 100,
     height: 140,
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: "hidden",
     backgroundColor: Colors.surfaceLight,
   },
@@ -174,17 +281,28 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  viewBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   flipBadge: {
     position: "absolute",
     bottom: 6,
     left: 6,
     right: 6,
     backgroundColor: "rgba(0,0,0,0.65)",
-    borderRadius: 6,
+    borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 3,
+    paddingVertical: 4,
     gap: 4,
   },
   flipText: {
@@ -217,13 +335,49 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 8,
   },
+  imageRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  imageThumb: {
+    flex: 1,
+    height: 100,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  imageThumbImg: {
+    width: "100%",
+    height: "100%",
+  },
+  imageThumbLabel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+    gap: 6,
+  },
+  imageThumbText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#fff",
+  },
   disclaimer: {
     flexDirection: "row",
     gap: 8,
     backgroundColor: Colors.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     alignItems: "flex-start",
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
   disclaimerText: {
     fontFamily: "Inter_400Regular",
@@ -231,5 +385,71 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     lineHeight: 16,
     flex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    justifyContent: "space-between",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  modalCloseBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 17,
+    color: "#fff",
+  },
+  modalFlipBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalImageContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  modalImage: {
+    width: SCREEN_WIDTH - 32,
+    height: SCREEN_HEIGHT * 0.65,
+    borderRadius: 12,
+  },
+  modalFooter: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 12,
+    paddingBottom: 20,
+    paddingHorizontal: 40,
+  },
+  modalTab: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+  },
+  modalTabActive: {
+    backgroundColor: Colors.primary,
+  },
+  modalTabText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "rgba(255,255,255,0.5)",
+  },
+  modalTabTextActive: {
+    color: "#fff",
   },
 });
