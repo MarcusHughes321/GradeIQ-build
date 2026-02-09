@@ -59,3 +59,8 @@ server/
 - Added AI card boundary detection for precise centering line placement
 - Implemented pinch-to-zoom with pan gestures in CenteringTool
 - Added 8-stage progress UI with animated progress bar during analysis
+- Fixed line hit detection to scale with zoom (LINE_HIT_SCREEN_PX / scale) so only touching near lines moves them
+- Enlarged grab handles on lines (28x48 inner, 22x38 outer) with shadow for easier targeting
+- Tightened default card bounds to 4/3/96/97 for better auto-snap when AI bounds unavailable
+- Fixed stale closure bug in fallback timer using refs to prevent overwriting correct positions
+- Fixed expo-image onLoad spam with guard refs
