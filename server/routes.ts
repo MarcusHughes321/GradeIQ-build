@@ -142,12 +142,12 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function enforceCardBounds(bounds: any): any {
-  if (!bounds) return { leftPercent: 2, topPercent: 2, rightPercent: 98, bottomPercent: 98 };
+  if (!bounds) return { leftPercent: 5, topPercent: 3, rightPercent: 95, bottomPercent: 97 };
   return {
-    leftPercent: clamp(Math.round(bounds.leftPercent ?? 2), 0, 45),
-    topPercent: clamp(Math.round(bounds.topPercent ?? 2), 0, 45),
-    rightPercent: clamp(Math.round(bounds.rightPercent ?? 98), 55, 100),
-    bottomPercent: clamp(Math.round(bounds.bottomPercent ?? 98), 55, 100),
+    leftPercent: clamp(Math.round(bounds.leftPercent ?? 5), 3, 45),
+    topPercent: clamp(Math.round(bounds.topPercent ?? 3), 2, 45),
+    rightPercent: clamp(Math.round(bounds.rightPercent ?? 95), 55, 97),
+    bottomPercent: clamp(Math.round(bounds.bottomPercent ?? 97), 55, 98),
   };
 }
 

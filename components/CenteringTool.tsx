@@ -53,13 +53,20 @@ const DEFAULT_CARD_BOUNDS: CardBounds = {
   bottomPercent: 95,
 };
 
+const MIN_LINE_MARGIN = 12;
+
 function initPositions(lr: number, tb: number, imageBounds: ImageBounds, cardBounds?: CardBounds): BorderPositions {
   const cb = cardBounds || DEFAULT_CARD_BOUNDS;
 
-  const outerLeft = imageBounds.x + imageBounds.w * (cb.leftPercent / 100);
-  const outerRight = imageBounds.x + imageBounds.w * (cb.rightPercent / 100);
-  const outerTop = imageBounds.y + imageBounds.h * (cb.topPercent / 100);
-  const outerBottom = imageBounds.y + imageBounds.h * (cb.bottomPercent / 100);
+  let outerLeft = imageBounds.x + imageBounds.w * (cb.leftPercent / 100);
+  let outerRight = imageBounds.x + imageBounds.w * (cb.rightPercent / 100);
+  let outerTop = imageBounds.y + imageBounds.h * (cb.topPercent / 100);
+  let outerBottom = imageBounds.y + imageBounds.h * (cb.bottomPercent / 100);
+
+  outerLeft = Math.max(outerLeft, MIN_LINE_MARGIN);
+  outerTop = Math.max(outerTop, MIN_LINE_MARGIN);
+  outerRight = Math.min(outerRight, imageBounds.x + imageBounds.w - MIN_LINE_MARGIN);
+  outerBottom = Math.min(outerBottom, imageBounds.y + imageBounds.h - MIN_LINE_MARGIN);
 
   const cardW = outerRight - outerLeft;
   const cardH = outerBottom - outerTop;
@@ -283,6 +290,10 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const [backNatural, setBackNatural] = useState({ w: 0, h: 0 });
   const [frontPos, setFrontPos] = useState<BorderPositions | null>(null);
   const [backPos, setBackPos] = useState<BorderPositions | null>(null);
+  const frontPosInitRef = useRef(false);
+  const backPosInitRef = useRef(false);
+  const frontLoadLoggedRef = useRef(false);
+  const backLoadLoggedRef = useRef(false);
   const [frontRotation, setFrontRotation] = useState(0);
   const [backRotation, setBackRotation] = useState(0);
   const [showRotation, setShowRotation] = useState(false);
@@ -318,48 +329,46 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     loadDimensions(backImage, setBackNatural);
   }, [frontImage, backImage]);
 
-  const initFrontPositions = useCallback((cw: number, ch: number, nw: number, nh: number) => {
+  const doInitFront = useCallback((cw: number, ch: number, nw: number, nh: number) => {
+    if (frontPosInitRef.current) return;
+    frontPosInitRef.current = true;
     const bounds = calcContainBounds(cw, ch, nw, nh);
-    console.log("[CenteringTool] initFrontPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(frontCardBounds));
+    console.log("[CenteringTool] initFrontPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(frontCardBounds), "natural:", nw, nh);
     setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
   }, [centering, frontCardBounds]);
 
-  const initBackPositions = useCallback((cw: number, ch: number, nw: number, nh: number) => {
+  const doInitBack = useCallback((cw: number, ch: number, nw: number, nh: number) => {
+    if (backPosInitRef.current) return;
+    backPosInitRef.current = true;
     const bounds = calcContainBounds(cw, ch, nw, nh);
-    console.log("[CenteringTool] initBackPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(backCardBounds));
+    console.log("[CenteringTool] initBackPos bounds:", JSON.stringify(bounds), "cardBounds:", JSON.stringify(backCardBounds), "natural:", nw, nh);
     setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
   }, [centering, backCardBounds]);
 
   useEffect(() => {
-    if (containerSize.width > 0 && !frontPos) {
-      if (frontNatural.w > 0) {
-        initFrontPositions(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
-      }
+    if (containerSize.width > 0 && !frontPosInitRef.current && frontNatural.w > 0) {
+      doInitFront(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
     }
-  }, [containerSize, frontNatural, frontPos]);
+  }, [containerSize, frontNatural]);
 
   useEffect(() => {
-    if (containerSize.width > 0 && !backPos) {
-      if (backNatural.w > 0) {
-        initBackPositions(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
-      }
+    if (containerSize.width > 0 && !backPosInitRef.current && backNatural.w > 0) {
+      doInitBack(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
     }
-  }, [containerSize, backNatural, backPos]);
+  }, [containerSize, backNatural]);
 
   useEffect(() => {
     if (containerSize.width > 0) {
       const timer = setTimeout(() => {
-        if (!frontPos) {
-          console.log("[CenteringTool] Fallback init front - natural dims not available, using container");
-          const bounds = { x: 0, y: 0, w: containerSize.width, h: containerSize.height };
-          setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
+        if (!frontPosInitRef.current) {
+          console.log("[CenteringTool] Fallback init front - using container dims");
+          doInitFront(containerSize.width, containerSize.height, 0, 0);
         }
-        if (!backPos) {
-          console.log("[CenteringTool] Fallback init back - natural dims not available, using container");
-          const bounds = { x: 0, y: 0, w: containerSize.width, h: containerSize.height };
-          setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
+        if (!backPosInitRef.current) {
+          console.log("[CenteringTool] Fallback init back - using container dims");
+          doInitBack(containerSize.width, containerSize.height, 0, 0);
         }
-      }, 500);
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [containerSize]);
@@ -372,6 +381,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   }, []);
 
   const handleFrontLoad = useCallback((e: any) => {
+    if (frontLoadLoggedRef.current) return;
+    frontLoadLoggedRef.current = true;
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
     console.log("[CenteringTool] onLoad front:", w, h);
@@ -381,6 +392,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   }, []);
 
   const handleBackLoad = useCallback((e: any) => {
+    if (backLoadLoggedRef.current) return;
+    backLoadLoggedRef.current = true;
     const w = e?.source?.width || e?.nativeEvent?.source?.width || 0;
     const h = e?.source?.height || e?.nativeEvent?.source?.height || 0;
     console.log("[CenteringTool] onLoad back:", w, h);
@@ -411,8 +424,12 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     const bh = backNatural.h || 0;
     const fb = calcContainBounds(containerSize.width, containerSize.height, fw, fh);
     const bb = calcContainBounds(containerSize.width, containerSize.height, bw, bh);
+    frontPosInitRef.current = false;
+    backPosInitRef.current = false;
     setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, fb, frontCardBounds));
     setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bb, backCardBounds));
+    frontPosInitRef.current = true;
+    backPosInitRef.current = true;
     setFrontRotation(0);
     setBackRotation(0);
     setZoomScale(1);
@@ -439,7 +456,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
   const gestureMode = useRef<"none" | "pinch" | "pan" | "drag">("none");
   const dragLineKey = useRef<LineKey | null>(null);
-  const dragLineStart = useRef(0);
+  const dragTouchOffset = useRef(0);
+  const viewportOriginRef = useRef({ x: 0, y: 0 });
 
   const viewportPan = useMemo(() =>
     PanResponder.create({
@@ -468,6 +486,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         const lx = evt.nativeEvent.locationX;
         const ly = evt.nativeEvent.locationY;
 
+        viewportOriginRef.current = { x: lx, y: ly };
+
         const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
 
         const currentPos = posRef.current;
@@ -476,7 +496,10 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           if (nearest) {
             gestureMode.current = "drag";
             dragLineKey.current = nearest.key;
-            dragLineStart.current = currentPos[nearest.key];
+            const lineVal = currentPos[nearest.key];
+            dragTouchOffset.current = isVLine(nearest.key)
+              ? lineVal - containerX
+              : lineVal - containerY;
             return;
           }
         }
@@ -526,11 +549,17 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         if (gestureMode.current === "drag" && dragLineKey.current) {
           const key = dragLineKey.current;
           const s = zoomScaleRef.current;
-          const d = isVLine(key) ? g.dx / s : g.dy / s;
+          const cs = containerSizeRef.current;
+          const px = panOffsetRef.current.x;
+          const py = panOffsetRef.current.y;
+          const currentLx = viewportOriginRef.current.x + g.dx;
+          const currentLy = viewportOriginRef.current.y + g.dy;
+          const { x: cx, y: cy } = viewportToContainer(currentLx, currentLy, s, px, py, cs.width, cs.height);
           const currentPos = posRef.current;
           if (!currentPos) return;
-          const { min, max } = getLineMinMax(key, currentPos, containerSizeRef.current.width, containerSizeRef.current.height);
-          const newVal = Math.max(min, Math.min(max, dragLineStart.current + d));
+          const { min, max } = getLineMinMax(key, currentPos, cs.width, cs.height);
+          const targetVal = isVLine(key) ? cx + dragTouchOffset.current : cy + dragTouchOffset.current;
+          const newVal = Math.max(min, Math.min(max, targetVal));
           const setter = showFrontRef.current ? setFrontPosRef.current : setBackPosRef.current;
           setter(prev => prev ? { ...prev, [key]: newVal } : prev);
           return;
