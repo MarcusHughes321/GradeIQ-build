@@ -61,3 +61,7 @@ task = "shell.exec"
 args = "npm run expo:dev"
 waitForPort = 8081
 ensurePreviewReachable = "/status"
+
+[[ports]]
+localPort = 8082
+externalPort = 3001

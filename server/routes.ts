@@ -208,8 +208,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(gradingResult);
     } catch (error: any) {
-      console.error("Error grading card:", error);
-      res.status(500).json({ error: error.message || "Failed to grade card" });
+      console.error("Error grading card:", error?.message || error);
+      const message = error?.message || "Failed to grade card";
+      const status = error?.status || 500;
+      res.status(status).json({ error: message });
     }
   });
 
