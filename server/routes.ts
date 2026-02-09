@@ -38,7 +38,7 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - Surface: Free from scratches and defects
 
 Analyze the card images carefully. Look for:
-1. Centering - how well centered is the image on both front and back
+1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
 2. Corners - check all four corners for whitening, dings, or damage
 3. Edges - look for whitening, chipping, or rough cuts along all edges
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects
@@ -48,6 +48,12 @@ Respond ONLY with valid JSON in this exact format:
   "cardName": "Name of the Pokemon card if identifiable",
   "setInfo": "Set name and number if identifiable",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
+  "centering": {
+    "frontLeftRight": 52,
+    "frontTopBottom": 54,
+    "backLeftRight": 55,
+    "backTopBottom": 53
+  },
   "psa": {
     "grade": 8,
     "centering": "Description of centering assessment",
@@ -109,6 +115,15 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function enforceGradingScales(result: any): any {
+  if (result.centering) {
+    result.centering.frontLeftRight = clamp(Math.round(result.centering.frontLeftRight || 50), 50, 95);
+    result.centering.frontTopBottom = clamp(Math.round(result.centering.frontTopBottom || 50), 50, 95);
+    result.centering.backLeftRight = clamp(Math.round(result.centering.backLeftRight || 50), 50, 95);
+    result.centering.backTopBottom = clamp(Math.round(result.centering.backTopBottom || 50), 50, 95);
+  } else {
+    result.centering = { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 };
+  }
+
   if (result.psa) {
     result.psa.grade = roundToNearest(clamp(result.psa.grade, 1, 10), VALID_PSA_GRADES);
   }

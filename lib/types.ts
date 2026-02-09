@@ -3,6 +3,13 @@ export interface SubGrade {
   notes: string;
 }
 
+export interface CenteringMeasurement {
+  frontLeftRight: number;
+  frontTopBottom: number;
+  backLeftRight: number;
+  backTopBottom: number;
+}
+
 export interface PSAGrade {
   grade: number;
   centering: string;
@@ -34,6 +41,7 @@ export interface GradingResult {
   cardName: string;
   setInfo: string;
   overallCondition: string;
+  centering: CenteringMeasurement;
   psa: PSAGrade;
   beckett: BeckettGrade;
   ace: AceGrade;

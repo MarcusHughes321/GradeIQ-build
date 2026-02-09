@@ -38,3 +38,12 @@ export async function deleteGrading(id: string): Promise<void> {
   const filtered = existing.filter((g) => g.id !== id);
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
 }
+
+export async function updateGrading(id: string, updates: Partial<SavedGrading>): Promise<void> {
+  const existing = await getGradings();
+  const index = existing.findIndex((g) => g.id === id);
+  if (index !== -1) {
+    existing[index] = { ...existing[index], ...updates };
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  }
+}
