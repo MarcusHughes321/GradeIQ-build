@@ -136,7 +136,8 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const LINE_HIT_SCREEN_PX = 44;
+const HANDLE_HIT_SCREEN_PX = 40;
+const DISAMBIG_THRESHOLD = 6;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
 
@@ -166,23 +167,35 @@ function getTouchDistance(touches: any[]): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function findNearestLine(x: number, y: number, pos: BorderPositions, hitDist: number): { key: LineKey; dist: number } | null {
+function findNearestHandle(
+  x: number, y: number, pos: BorderPositions,
+  cw: number, ch: number, hitDist: number
+): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
   const vLines: LineKey[] = ["outerLeft", "innerLeft", "outerRight", "innerRight"];
   const hLines: LineKey[] = ["outerTop", "innerTop", "outerBottom", "innerBottom"];
 
+  const handleH = 60;
+  const handleW = 60;
+
   for (const k of vLines) {
-    const d = Math.abs(x - pos[k]);
-    if (d < hitDist && (!best || d < best.dist)) {
-      best = { key: k, dist: d };
+    const perpDist = Math.abs(x - pos[k]);
+    const handleCenterY = ch / 2;
+    const alongDist = Math.abs(y - handleCenterY);
+    if (perpDist < hitDist && alongDist < handleH) {
+      const d = perpDist;
+      if (!best || d < best.dist) best = { key: k, dist: d };
     }
   }
 
   for (const k of hLines) {
-    const d = Math.abs(y - pos[k]);
-    if (d < hitDist && (!best || d < best.dist)) {
-      best = { key: k, dist: d };
+    const perpDist = Math.abs(y - pos[k]);
+    const handleCenterX = cw / 2;
+    const alongDist = Math.abs(x - handleCenterX);
+    if (perpDist < hitDist && alongDist < handleW) {
+      const d = perpDist;
+      if (!best || d < best.dist) best = { key: k, dist: d };
     }
   }
 
@@ -436,10 +449,11 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   setFrontPosRef.current = setFrontPos;
   setBackPosRef.current = setBackPos;
 
-  const gestureMode = useRef<"none" | "pinch" | "pan" | "drag">("none");
+  const gestureMode = useRef<"none" | "pinch" | "pan" | "drag" | "tentative">("none");
   const dragLineKey = useRef<LineKey | null>(null);
   const dragTouchOffset = useRef(0);
   const viewportOriginRef = useRef({ x: 0, y: 0 });
+  const tentativeLineRef = useRef<{ key: LineKey; offset: number } | null>(null);
 
   const viewportPan = useMemo(() =>
     PanResponder.create({
@@ -469,27 +483,34 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         const ly = evt.nativeEvent.locationY;
 
         viewportOriginRef.current = { x: lx, y: ly };
+        panStartOffRef.current = { ...panOffsetRef.current };
 
         const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
 
         const currentPos = posRef.current;
         if (currentPos) {
-          const hitDist = LINE_HIT_SCREEN_PX / scale;
-          const nearest = findNearestLine(containerX, containerY, currentPos, hitDist);
+          const hitDist = HANDLE_HIT_SCREEN_PX / scale;
+          const nearest = findNearestHandle(containerX, containerY, currentPos, cs.width, cs.height, hitDist);
           if (nearest) {
-            gestureMode.current = "drag";
-            dragLineKey.current = nearest.key;
             const lineVal = currentPos[nearest.key];
-            dragTouchOffset.current = isVLine(nearest.key)
+            const offset = isVLine(nearest.key)
               ? lineVal - containerX
               : lineVal - containerY;
+            tentativeLineRef.current = { key: nearest.key, offset };
+
+            if (scale <= 1.05) {
+              gestureMode.current = "drag";
+              dragLineKey.current = nearest.key;
+              dragTouchOffset.current = offset;
+            } else {
+              gestureMode.current = "tentative";
+            }
             return;
           }
         }
 
         if (scale > 1.05) {
           gestureMode.current = "pan";
-          panStartOffRef.current = { ...panOffsetRef.current };
         } else {
           gestureMode.current = "none";
         }
@@ -503,6 +524,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
             pinchStartDistRef.current = getTouchDistance(touches);
             pinchStartScaleRef.current = zoomScaleRef.current;
             panStartOffRef.current = { ...panOffsetRef.current };
+            tentativeLineRef.current = null;
           }
           const dist = getTouchDistance(touches);
           if (pinchStartDistRef.current > 0) {
@@ -511,6 +533,26 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
             zoomScaleRef.current = newScale;
           }
           return;
+        }
+
+        if (gestureMode.current === "tentative" && tentativeLineRef.current) {
+          const lineKey = tentativeLineRef.current.key;
+          const isV = isVLine(lineKey);
+          const perpMovement = isV ? Math.abs(g.dx) : Math.abs(g.dy);
+          const paraMovement = isV ? Math.abs(g.dy) : Math.abs(g.dx);
+
+          if (perpMovement > DISAMBIG_THRESHOLD || paraMovement > DISAMBIG_THRESHOLD) {
+            if (perpMovement >= paraMovement) {
+              gestureMode.current = "drag";
+              dragLineKey.current = lineKey;
+              dragTouchOffset.current = tentativeLineRef.current.offset;
+              tentativeLineRef.current = null;
+            } else {
+              gestureMode.current = "pan";
+              tentativeLineRef.current = null;
+            }
+          }
+          if (gestureMode.current === "tentative") return;
         }
 
         if (gestureMode.current === "pan") {
@@ -550,7 +592,6 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
         if (gestureMode.current === "none" && zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)) {
           gestureMode.current = "pan";
-          panStartOffRef.current = { ...panOffsetRef.current };
         }
       },
       onPanResponderRelease: () => {
@@ -562,6 +603,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         }
         gestureMode.current = "none";
         dragLineKey.current = null;
+        tentativeLineRef.current = null;
       },
       onPanResponderTerminationRequest: () => false,
     }),
