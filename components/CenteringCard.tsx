@@ -1,19 +1,12 @@
-import React, { useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  PanResponder,
-  LayoutChangeEvent,
-} from "react-native";
+import React from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import type { CenteringMeasurement } from "@/lib/types";
 
 interface CenteringCardProps {
   centering: CenteringMeasurement;
-  onCenteringChange: (centering: CenteringMeasurement) => void;
+  onOpenTool: () => void;
 }
 
 function formatRatio(value: number): string {
@@ -29,286 +22,139 @@ function getCenteringColor(value: number): string {
   return "#EF4444";
 }
 
-function getCenteringLabel(value: number): string {
-  if (value <= 52) return "Excellent";
-  if (value <= 55) return "Good";
-  if (value <= 60) return "Acceptable";
-  if (value <= 65) return "Below Average";
-  return "Poor";
+interface CenteringStandard {
+  company: string;
+  front10: number;
+  back10: number;
+  color: string;
 }
 
-interface SliderRowProps {
+const STANDARDS: CenteringStandard[] = [
+  { company: "PSA", front10: 55, back10: 75, color: Colors.cardPSA },
+  { company: "BGS", front10: 50, back10: 50, color: Colors.cardBeckett },
+  { company: "Ace", front10: 60, back10: 60, color: Colors.cardAce },
+];
+
+function getCenteringGradeForCompany(
+  frontLR: number,
+  frontTB: number,
+  backLR: number,
+  backTB: number,
+  standard: CenteringStandard
+): { grade: number; passes10: boolean } {
+  const frontWorst = Math.max(frontLR, frontTB);
+  const backWorst = Math.max(backLR, backTB);
+
+  if (standard.company === "PSA") {
+    if (frontWorst <= 55 && backWorst <= 75) return { grade: 10, passes10: true };
+    if (frontWorst <= 60 && backWorst <= 75) return { grade: 9, passes10: false };
+    if (frontWorst <= 65 && backWorst <= 90) return { grade: 8, passes10: false };
+    if (frontWorst <= 70 && backWorst <= 90) return { grade: 7, passes10: false };
+    return { grade: 6, passes10: false };
+  }
+  if (standard.company === "BGS") {
+    if (frontWorst <= 50 && backWorst <= 50) return { grade: 10, passes10: true };
+    if (frontWorst <= 55 && backWorst <= 55) return { grade: 9.5, passes10: false };
+    if (frontWorst <= 60 && backWorst <= 60) return { grade: 9, passes10: false };
+    if (frontWorst <= 65 && backWorst <= 65) return { grade: 8.5, passes10: false };
+    if (frontWorst <= 70 && backWorst <= 70) return { grade: 8, passes10: false };
+    return { grade: 7, passes10: false };
+  }
+  if (frontWorst <= 60 && backWorst <= 60) return { grade: 10, passes10: true };
+  if (frontWorst <= 65 && backWorst <= 65) return { grade: 9, passes10: false };
+  if (frontWorst <= 70 && backWorst <= 70) return { grade: 8, passes10: false };
+  return { grade: 7, passes10: false };
+}
+
+interface RatioDisplayProps {
   label: string;
-  value: number;
-  onChange: (val: number) => void;
-  axis: "L/R" | "T/B";
+  lr: number;
+  tb: number;
 }
 
-function SliderRow({ label, value, onChange, axis }: SliderRowProps) {
-  const [trackWidth, setTrackWidth] = useState(0);
-  const color = getCenteringColor(value);
-  const ratio = formatRatio(value);
-  const pct = ((value - 50) / 45) * 100;
-
-  const onLayout = useCallback((e: LayoutChangeEvent) => {
-    setTrackWidth(e.nativeEvent.layout.width);
-  }, []);
-
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (evt) => {
-      if (trackWidth > 0) {
-        const x = evt.nativeEvent.locationX;
-        const newVal = Math.round(50 + (x / trackWidth) * 45);
-        onChange(Math.max(50, Math.min(95, newVal)));
-      }
-    },
-    onPanResponderMove: (evt) => {
-      if (trackWidth > 0) {
-        const x = evt.nativeEvent.locationX;
-        const newVal = Math.round(50 + (x / trackWidth) * 45);
-        onChange(Math.max(50, Math.min(95, newVal)));
-      }
-    },
-  });
-
-  const leftLabel = axis === "L/R" ? "L" : "T";
-  const rightLabel = axis === "L/R" ? "R" : "B";
+function RatioDisplay({ label, lr, tb }: RatioDisplayProps) {
+  const lrColor = getCenteringColor(lr);
+  const tbColor = getCenteringColor(tb);
 
   return (
-    <View style={sliderStyles.row}>
-      <View style={sliderStyles.labelRow}>
-        <Text style={sliderStyles.label}>{label}</Text>
-        <Text style={[sliderStyles.ratio, { color }]}>{ratio}</Text>
-      </View>
-      <View style={sliderStyles.sliderContainer}>
-        <Text style={sliderStyles.axisLabel}>{leftLabel}</Text>
-        <View
-          style={sliderStyles.track}
-          onLayout={onLayout}
-          {...panResponder.panHandlers}
-        >
-          <View style={sliderStyles.trackBackground}>
-            <View style={[sliderStyles.perfectZone, { left: "0%", width: "11%" }]} />
-          </View>
-          <View
-            style={[
-              sliderStyles.thumb,
-              {
-                left: `${pct}%`,
-                backgroundColor: color,
-              },
-            ]}
-          />
-          {value > 50 && (
-            <View
-              style={[
-                sliderStyles.fillBar,
-                {
-                  width: `${pct}%`,
-                  backgroundColor: color + "40",
-                },
-              ]}
-            />
-          )}
+    <View style={styles.ratioSection}>
+      <Text style={styles.ratioSectionLabel}>{label}</Text>
+      <View style={styles.ratioRow}>
+        <View style={styles.ratioItem}>
+          <Text style={styles.ratioAxisLabel}>L/R</Text>
+          <Text style={[styles.ratioValue, { color: lrColor }]}>{formatRatio(lr)}</Text>
         </View>
-        <Text style={sliderStyles.axisLabel}>{rightLabel}</Text>
+        <View style={styles.ratioDivider} />
+        <View style={styles.ratioItem}>
+          <Text style={styles.ratioAxisLabel}>T/B</Text>
+          <Text style={[styles.ratioValue, { color: tbColor }]}>{formatRatio(tb)}</Text>
+        </View>
       </View>
     </View>
   );
 }
 
-export default function CenteringCard({ centering, onCenteringChange }: CenteringCardProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [localCentering, setLocalCentering] = useState<CenteringMeasurement>(centering);
-
-  const worstValue = Math.max(
-    localCentering.frontLeftRight,
-    localCentering.frontTopBottom,
-    localCentering.backLeftRight,
-    localCentering.backTopBottom
-  );
-  const overallColor = getCenteringColor(worstValue);
-  const overallLabel = getCenteringLabel(worstValue);
-
-  const handleChange = (key: keyof CenteringMeasurement, val: number) => {
-    const updated = { ...localCentering, [key]: val };
-    setLocalCentering(updated);
-  };
-
-  const handleSave = () => {
-    onCenteringChange(localCentering);
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setLocalCentering(centering);
-    setIsEditing(false);
-  };
-
-  const c = isEditing ? localCentering : centering;
+export default function CenteringCard({ centering, onOpenTool }: CenteringCardProps) {
+  const c = centering;
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
-          <View style={[styles.iconCircle, { backgroundColor: overallColor + "20" }]}>
-            <Ionicons name="scan-outline" size={18} color={overallColor} />
-          </View>
-          <View>
-            <Text style={styles.title}>Centering Analysis</Text>
-            <Text style={[styles.verdict, { color: overallColor }]}>{overallLabel}</Text>
-          </View>
+          <Ionicons name="scan-outline" size={20} color={Colors.primary} />
+          <Text style={styles.title}>Centering</Text>
         </View>
-        {!isEditing ? (
-          <Pressable
-            onPress={() => setIsEditing(true)}
-            style={({ pressed }) => [styles.editBtn, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Ionicons name="pencil" size={16} color={Colors.primary} />
-            <Text style={styles.editBtnText}>Adjust</Text>
-          </Pressable>
-        ) : (
-          <View style={styles.editActions}>
-            <Pressable
-              onPress={handleCancel}
-              style={({ pressed }) => [styles.actionBtn, styles.cancelBtn, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Ionicons name="close" size={16} color={Colors.textMuted} />
-            </Pressable>
-            <Pressable
-              onPress={handleSave}
-              style={({ pressed }) => [styles.actionBtn, styles.saveBtn, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Ionicons name="checkmark" size={16} color="#fff" />
-            </Pressable>
-          </View>
-        )}
+        <Pressable
+          onPress={onOpenTool}
+          style={({ pressed }) => [styles.measureBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Ionicons name="resize-outline" size={16} color="#fff" />
+          <Text style={styles.measureBtnText}>Measure</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.ratiosContainer}>
+        <RatioDisplay label="Front" lr={c.frontLeftRight} tb={c.frontTopBottom} />
+        <RatioDisplay label="Back" lr={c.backLeftRight} tb={c.backTopBottom} />
       </View>
 
       <View style={styles.divider} />
 
-      <Text style={styles.sectionLabel}>Front</Text>
-      <SliderRow
-        label="Left / Right"
-        value={c.frontLeftRight}
-        onChange={(val) => isEditing && handleChange("frontLeftRight", val)}
-        axis="L/R"
-      />
-      <SliderRow
-        label="Top / Bottom"
-        value={c.frontTopBottom}
-        onChange={(val) => isEditing && handleChange("frontTopBottom", val)}
-        axis="T/B"
-      />
+      <View style={styles.gradesContainer}>
+        {STANDARDS.map((standard) => {
+          const result = getCenteringGradeForCompany(
+            c.frontLeftRight,
+            c.frontTopBottom,
+            c.backLeftRight,
+            c.backTopBottom,
+            standard
+          );
+          const gradeColor = result.passes10 ? "#10B981" : getCenteringColor(
+            Math.max(c.frontLeftRight, c.frontTopBottom)
+          );
 
-      <View style={styles.spacer} />
-
-      <Text style={styles.sectionLabel}>Back</Text>
-      <SliderRow
-        label="Left / Right"
-        value={c.backLeftRight}
-        onChange={(val) => isEditing && handleChange("backLeftRight", val)}
-        axis="L/R"
-      />
-      <SliderRow
-        label="Top / Bottom"
-        value={c.backTopBottom}
-        onChange={(val) => isEditing && handleChange("backTopBottom", val)}
-        axis="T/B"
-      />
-
-      {isEditing && (
-        <View style={styles.editHint}>
-          <Ionicons name="information-circle-outline" size={14} color={Colors.textMuted} />
-          <Text style={styles.editHintText}>
-            Drag the sliders to adjust centering. 50/50 is perfect centering. Tap the checkmark to save.
-          </Text>
-        </View>
-      )}
+          return (
+            <View key={standard.company} style={styles.gradeItem}>
+              <Text style={[styles.gradeCompany, { color: standard.color === "#FFFFFF" ? Colors.textSecondary : standard.color }]}>
+                {standard.company}
+              </Text>
+              <Text style={[styles.gradeValue, { color: gradeColor }]}>{result.grade}</Text>
+              <Text style={styles.gradeMaxLabel}>
+                {result.passes10 ? "10 eligible" : `max ${result.grade}`}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
-
-const sliderStyles = StyleSheet.create({
-  row: {
-    gap: 6,
-    paddingVertical: 6,
-  },
-  labelRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  label: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  ratio: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 13,
-  },
-  sliderContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  axisLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 10,
-    color: Colors.textMuted,
-    width: 14,
-    textAlign: "center",
-  },
-  track: {
-    flex: 1,
-    height: 28,
-    justifyContent: "center",
-  },
-  trackBackground: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.surfaceBorder,
-    overflow: "hidden",
-  },
-  perfectZone: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    backgroundColor: "rgba(16, 185, 129, 0.3)",
-    borderRadius: 3,
-  },
-  fillBar: {
-    position: "absolute",
-    left: 0,
-    top: 11,
-    height: 6,
-    borderRadius: 3,
-  },
-  thumb: {
-    position: "absolute",
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    marginLeft: -9,
-    top: 5,
-    borderWidth: 2,
-    borderColor: "#fff",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-  },
-});
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
@@ -316,88 +162,97 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: 14,
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-  },
-  iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
+    gap: 8,
   },
   title: {
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.text,
   },
-  verdict: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    marginTop: 1,
-  },
-  editBtn: {
+  measureBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: Colors.primary + "15",
-  },
-  editBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: Colors.primary,
-  },
-  editActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  actionBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelBtn: {
-    backgroundColor: Colors.surfaceBorder,
-  },
-  saveBtn: {
+    gap: 6,
     backgroundColor: Colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  measureBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
+  },
+  ratiosContainer: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  ratioSection: {
+    flex: 1,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 12,
+    padding: 12,
+  },
+  ratioSectionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  ratioRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  ratioItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  ratioAxisLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
+  ratioValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+  },
+  ratioDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: Colors.surfaceBorder,
   },
   divider: {
     height: 1,
     backgroundColor: Colors.surfaceBorder,
     marginVertical: 14,
   },
-  sectionLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  spacer: {
-    height: 10,
-  },
-  editHint: {
+  gradesContainer: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.surfaceBorder,
+    justifyContent: "space-around",
   },
-  editHintText: {
-    fontFamily: "Inter_400Regular",
+  gradeItem: {
+    alignItems: "center",
+    gap: 2,
+  },
+  gradeCompany: {
+    fontFamily: "Inter_600SemiBold",
     fontSize: 11,
+  },
+  gradeValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+  },
+  gradeMaxLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
     color: Colors.textMuted,
-    lineHeight: 16,
-    flex: 1,
   },
 });
