@@ -111,36 +111,33 @@ export default function GradeScreen() {
   };
 
   const getBase64FromUri = async (uri: string): Promise<string> => {
-    if (Platform.OS === "web") {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          resolve(result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } else {
-      const { File } = require("expo-file-system");
-      const { fetch: expoFetch } = require("expo/fetch");
-      const file = new File(uri);
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          resolve(result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+    if (uri.startsWith("data:")) {
+      return uri;
     }
+
+    if (Platform.OS !== "web") {
+      try {
+        const FileSystem = require("expo-file-system");
+        const base64Data = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return `data:image/jpeg;base64,${base64Data}`;
+      } catch (fsError) {
+        console.warn("expo-file-system read failed, falling back to fetch:", fsError);
+      }
+    }
+
+    const response = await globalThis.fetch(uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        resolve(result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   };
 
   const handleGrade = async () => {
@@ -156,15 +153,29 @@ export default function GradeScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
+      console.log("Starting image conversion...");
       const frontBase64 = await getBase64FromUri(frontImage);
       const backBase64 = await getBase64FromUri(backImage);
+      console.log("Images converted. Front size:", Math.round(frontBase64.length / 1024), "KB, Back size:", Math.round(backBase64.length / 1024), "KB");
 
-      const response = await apiRequest("POST", "/api/grade-card", {
+      console.log("Sending grading request...");
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Analysis timed out. Please try again with smaller or clearer photos.")), 90000);
+      });
+
+      const requestPromise = apiRequest("POST", "/api/grade-card", {
         frontImage: frontBase64,
         backImage: backBase64,
       });
 
+      const response = await Promise.race([requestPromise, timeoutPromise]);
+      console.log("Received response, status:", response.status);
+
       const result: GradingResult = await response.json();
+
+      if ((result as any).error) {
+        throw new Error((result as any).error);
+      }
 
       const saved = await saveGrading(frontImage, backImage, result);
 
@@ -177,8 +188,11 @@ export default function GradeScreen() {
         params: { gradingId: saved.id },
       });
     } catch (error: any) {
-      console.error("Grading error:", error);
-      Alert.alert("Grading Failed", "There was an error analyzing your card. Please try again.");
+      console.error("Grading error:", error?.message || error);
+      const msg = error?.message?.includes("timed out")
+        ? error.message
+        : "There was an error analyzing your card. Please try again.";
+      Alert.alert("Grading Failed", msg);
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }

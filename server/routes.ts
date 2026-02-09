@@ -158,6 +158,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Both front and back card images are required" });
       }
 
+      console.log("Received grading request. Front image size:", Math.round((frontImage?.length || 0) / 1024), "KB, Back:", Math.round((backImage?.length || 0) / 1024), "KB");
+      const startTime = Date.now();
+
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
         max_completion_tokens: 4096,
@@ -190,6 +193,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ],
       });
 
+      const aiDuration = Date.now() - startTime;
+      console.log(`AI response received in ${aiDuration}ms`);
+
       const content = response.choices[0]?.message?.content || "";
 
       let gradingResult;
@@ -201,10 +207,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           throw new Error("No JSON found in response");
         }
       } catch (parseError) {
-        return res.status(500).json({ error: "Failed to parse grading results", raw: content });
+        console.error("Failed to parse AI response:", content.substring(0, 200));
+        return res.status(500).json({ error: "Failed to parse grading results" });
       }
 
       gradingResult = enforceGradingScales(gradingResult);
+
+      const totalDuration = Date.now() - startTime;
+      console.log(`Grading complete in ${totalDuration}ms. Card: ${gradingResult.cardName || "unknown"}`);
 
       res.json(gradingResult);
     } catch (error: any) {
