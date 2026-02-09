@@ -136,7 +136,7 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const HANDLE_HIT_SCREEN_PX = 40;
+const LINE_HIT_PX = 22;
 const DISAMBIG_THRESHOLD = 6;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
@@ -146,18 +146,18 @@ interface LineConfig {
   orientation: "h" | "v";
   color: string;
   label: string;
-  dashed: boolean;
+  isOuter: boolean;
 }
 
 const LINE_CONFIGS: LineConfig[] = [
-  { key: "outerLeft", orientation: "v", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
-  { key: "innerLeft", orientation: "v", color: "#FF3C31", label: "L", dashed: false },
-  { key: "outerRight", orientation: "v", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
-  { key: "innerRight", orientation: "v", color: "#3B82F6", label: "R", dashed: false },
-  { key: "outerTop", orientation: "h", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
-  { key: "innerTop", orientation: "h", color: "#F59E0B", label: "T", dashed: false },
-  { key: "outerBottom", orientation: "h", color: "rgba(255,255,255,0.7)", label: "", dashed: true },
-  { key: "innerBottom", orientation: "h", color: "#10B981", label: "B", dashed: false },
+  { key: "outerLeft", orientation: "v", color: "#FF3C31", label: "", isOuter: true },
+  { key: "innerLeft", orientation: "v", color: "#FF3C31", label: "L", isOuter: false },
+  { key: "outerRight", orientation: "v", color: "#3B82F6", label: "", isOuter: true },
+  { key: "innerRight", orientation: "v", color: "#3B82F6", label: "R", isOuter: false },
+  { key: "outerTop", orientation: "h", color: "#F59E0B", label: "", isOuter: true },
+  { key: "innerTop", orientation: "h", color: "#F59E0B", label: "T", isOuter: false },
+  { key: "outerBottom", orientation: "h", color: "#10B981", label: "", isOuter: true },
+  { key: "innerBottom", orientation: "h", color: "#10B981", label: "B", isOuter: false },
 ];
 
 function getTouchDistance(touches: any[]): number {
@@ -167,35 +167,25 @@ function getTouchDistance(touches: any[]): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function findNearestHandle(
-  x: number, y: number, pos: BorderPositions,
-  cw: number, ch: number, hitDist: number
+function findNearestLine(
+  x: number, y: number, pos: BorderPositions, hitDist: number
 ): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
   const vLines: LineKey[] = ["outerLeft", "innerLeft", "outerRight", "innerRight"];
   const hLines: LineKey[] = ["outerTop", "innerTop", "outerBottom", "innerBottom"];
 
-  const handleH = 60;
-  const handleW = 60;
-
   for (const k of vLines) {
-    const perpDist = Math.abs(x - pos[k]);
-    const handleCenterY = ch / 2;
-    const alongDist = Math.abs(y - handleCenterY);
-    if (perpDist < hitDist && alongDist < handleH) {
-      const d = perpDist;
-      if (!best || d < best.dist) best = { key: k, dist: d };
+    const d = Math.abs(x - pos[k]);
+    if (d < hitDist && (!best || d < best.dist)) {
+      best = { key: k, dist: d };
     }
   }
 
   for (const k of hLines) {
-    const perpDist = Math.abs(y - pos[k]);
-    const handleCenterX = cw / 2;
-    const alongDist = Math.abs(x - handleCenterX);
-    if (perpDist < hitDist && alongDist < handleW) {
-      const d = perpDist;
-      if (!best || d < best.dist) best = { key: k, dist: d };
+    const d = Math.abs(y - pos[k]);
+    if (d < hitDist && (!best || d < best.dist)) {
+      best = { key: k, dist: d };
     }
   }
 
@@ -231,66 +221,92 @@ function viewportToContainer(
 }
 
 function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
-  const lineW = config.dashed ? 1 : 2.5;
-  const dotStyle = { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.9)" } as const;
+  const lineW = config.isOuter ? 1.5 : 2;
+  const opacity = config.isOuter ? 0.7 : 1;
 
   if (config.orientation === "v") {
-    const grabW = config.dashed ? 22 : 28;
-    const grabH = config.dashed ? 38 : 48;
     return (
       <View
         key={config.key}
         style={{
           position: "absolute" as const,
           top: 0,
-          left: pos - 1.5,
-          width: 3,
+          left: pos - lineW / 2,
+          width: lineW,
           height: containerSize.height,
-          zIndex: config.dashed ? 8 : 12,
-          alignItems: "center" as const,
-          justifyContent: "center" as const,
+          backgroundColor: config.color,
+          opacity,
+          zIndex: config.isOuter ? 8 : 12,
         }}
         pointerEvents="none"
-      >
-        <View style={{ position: "absolute" as const, width: lineW, height: "100%" as const, backgroundColor: config.color, opacity: config.dashed ? 0.5 : 1 }} />
-        <View style={{ width: grabW, height: grabH, borderRadius: grabW / 2, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 }}>
-          <View style={{ gap: 4 }}>
-            <View style={dotStyle} />
-            <View style={dotStyle} />
-            <View style={dotStyle} />
-          </View>
-        </View>
-        {config.label ? <Text style={{ position: "absolute" as const, top: 3, left: 8, fontFamily: "Inter_700Bold", fontSize: 10, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
-      </View>
+      />
     );
   }
 
-  const grabW = config.dashed ? 38 : 48;
-  const grabH = config.dashed ? 22 : 28;
   return (
     <View
       key={config.key}
       style={{
         position: "absolute" as const,
         left: 0,
-        top: pos - 1.5,
+        top: pos - lineW / 2,
         width: containerSize.width,
-        height: 3,
-        zIndex: config.dashed ? 8 : 12,
-        alignItems: "center" as const,
-        justifyContent: "center" as const,
+        height: lineW,
+        backgroundColor: config.color,
+        opacity,
+        zIndex: config.isOuter ? 8 : 12,
+      }}
+      pointerEvents="none"
+    />
+  );
+}
+
+function renderHatchZone(
+  left: number, top: number, width: number, height: number,
+  color: string, orientation: "h" | "v", key: string
+) {
+  if (width <= 0 || height <= 0) return null;
+  const spacing = 8;
+  const maxDim = Math.max(width, height);
+  const diagLen = maxDim * 2;
+  const count = Math.min(Math.ceil(diagLen / spacing), 80);
+  const lines: React.ReactNode[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const offset = i * spacing - maxDim * 0.5;
+    lines.push(
+      <View
+        key={i}
+        style={{
+          position: "absolute" as const,
+          left: offset,
+          top: -maxDim * 0.25,
+          width: 1,
+          height: diagLen,
+          backgroundColor: color,
+          opacity: 0.3,
+          transform: [{ rotate: "45deg" }],
+          transformOrigin: "center center" as any,
+        }}
+      />
+    );
+  }
+
+  return (
+    <View
+      key={key}
+      style={{
+        position: "absolute" as const,
+        left,
+        top,
+        width,
+        height,
+        overflow: "hidden" as const,
+        zIndex: 6,
       }}
       pointerEvents="none"
     >
-      <View style={{ position: "absolute" as const, height: lineW, width: "100%" as const, backgroundColor: config.color, opacity: config.dashed ? 0.5 : 1 }} />
-      <View style={{ width: grabW, height: grabH, borderRadius: grabH / 2, backgroundColor: config.color, alignItems: "center" as const, justifyContent: "center" as const, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 }}>
-        <View style={{ flexDirection: "row" as const, gap: 4 }}>
-          <View style={dotStyle} />
-          <View style={dotStyle} />
-          <View style={dotStyle} />
-        </View>
-      </View>
-      {config.label ? <Text style={{ position: "absolute" as const, left: 5, top: 8, fontFamily: "Inter_700Bold", fontSize: 10, color: config.color, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>{config.label}</Text> : null}
+      {lines}
     </View>
   );
 }
@@ -489,8 +505,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
         const currentPos = posRef.current;
         if (currentPos) {
-          const hitDist = HANDLE_HIT_SCREEN_PX / scale;
-          const nearest = findNearestHandle(containerX, containerY, currentPos, cs.width, cs.height, hitDist);
+          const hitDist = LINE_HIT_PX / scale;
+          const nearest = findNearestLine(containerX, containerY, currentPos, hitDist);
           if (nearest) {
             const lineVal = currentPos[nearest.key];
             const offset = isVLine(nearest.key)
@@ -672,10 +688,10 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
               <View style={styles.linesOverlay} pointerEvents="none">
                 {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize))}
 
-                <View pointerEvents="none" style={[styles.borderShade, { left: pos.outerLeft, top: pos.outerTop, width: Math.max(0, pos.innerLeft - pos.outerLeft), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
-                <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerRight, top: pos.outerTop, width: Math.max(0, pos.outerRight - pos.innerRight), height: Math.max(0, pos.outerBottom - pos.outerTop) }]} />
-                <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.outerTop, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.innerTop - pos.outerTop) }]} />
-                <View pointerEvents="none" style={[styles.borderShade, { left: pos.innerLeft, top: pos.innerBottom, width: Math.max(0, pos.innerRight - pos.innerLeft), height: Math.max(0, pos.outerBottom - pos.innerBottom) }]} />
+                {renderHatchZone(pos.outerLeft, pos.outerTop, Math.max(0, pos.innerLeft - pos.outerLeft), Math.max(0, pos.outerBottom - pos.outerTop), "#FF3C31", "v", "hatch-left")}
+                {renderHatchZone(pos.innerRight, pos.outerTop, Math.max(0, pos.outerRight - pos.innerRight), Math.max(0, pos.outerBottom - pos.outerTop), "#3B82F6", "v", "hatch-right")}
+                {renderHatchZone(pos.innerLeft, pos.outerTop, Math.max(0, pos.innerRight - pos.innerLeft), Math.max(0, pos.innerTop - pos.outerTop), "#F59E0B", "h", "hatch-top")}
+                {renderHatchZone(pos.innerLeft, pos.innerBottom, Math.max(0, pos.innerRight - pos.innerLeft), Math.max(0, pos.outerBottom - pos.innerBottom), "#10B981", "h", "hatch-bottom")}
               </View>
             )}
           </View>
@@ -732,7 +748,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           </View>
         )}
 
-        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag handles to adjust lines</Text>
+        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag lines to adjust</Text>
       </View>
     </View>
   );
@@ -753,7 +769,6 @@ const styles = StyleSheet.create({
   cardImage: { position: "absolute", width: "100%", height: "100%" },
   cardImageBack: { position: "absolute", width: "100%", height: "100%" },
   linesOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 },
-  borderShade: { position: "absolute", backgroundColor: "rgba(255, 60, 49, 0.1)" },
   zoomIndicator: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, zIndex: 20 },
   zoomIndicatorText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
   controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
