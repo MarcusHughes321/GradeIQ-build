@@ -18,7 +18,7 @@ import Colors from "@/constants/colors";
 import type { CenteringMeasurement } from "@/lib/types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const BORDER_FRACTION = 0.08;
+const BORDER_FRACTION = 0.06;
 
 interface CenteringToolProps {
   frontImage: string;
@@ -28,13 +28,20 @@ interface CenteringToolProps {
   onClose: () => void;
 }
 
-function ratioToPositions(lr: number, tb: number, imgW: number, imgH: number) {
-  const totalBorderH = imgW * BORDER_FRACTION * 2;
-  const totalBorderV = imgH * BORDER_FRACTION * 2;
-  const leftBorder = (lr / 100) * totalBorderH;
-  const rightBorder = ((100 - lr) / 100) * totalBorderH;
-  const topBorder = (tb / 100) * totalBorderV;
-  const bottomBorder = ((100 - tb) / 100) * totalBorderV;
+interface LinePositions {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function ratioToPositions(lr: number, tb: number, imgW: number, imgH: number): LinePositions {
+  const avgBorderH = imgW * BORDER_FRACTION;
+  const avgBorderV = imgH * BORDER_FRACTION;
+  const leftBorder = avgBorderH * (lr / 50);
+  const rightBorder = avgBorderH * ((100 - lr) / 50);
+  const topBorder = avgBorderV * (tb / 50);
+  const bottomBorder = avgBorderV * ((100 - tb) / 50);
   return {
     left: leftBorder,
     right: imgW - rightBorder,
@@ -43,27 +50,18 @@ function ratioToPositions(lr: number, tb: number, imgW: number, imgH: number) {
   };
 }
 
-function positionsToRatio(
-  left: number,
-  right: number,
-  top: number,
-  bottom: number,
-  imgW: number,
-  imgH: number
-) {
-  const leftBorder = left;
-  const rightBorder = imgW - right;
-  const topBorder = top;
-  const bottomBorder = imgH - bottom;
+function positionsToRatio(pos: LinePositions, imgW: number, imgH: number) {
+  const leftBorder = Math.max(0, pos.left);
+  const rightBorder = Math.max(0, imgW - pos.right);
+  const topBorder = Math.max(0, pos.top);
+  const bottomBorder = Math.max(0, imgH - pos.bottom);
   const totalH = leftBorder + rightBorder;
   const totalV = topBorder + bottomBorder;
-  const lr = totalH > 0 ? Math.round((leftBorder / totalH) * 100) : 50;
-  const tb = totalV > 0 ? Math.round((topBorder / totalV) * 100) : 50;
+  const lrRaw = totalH > 0 ? Math.round((leftBorder / totalH) * 100) : 50;
+  const tbRaw = totalV > 0 ? Math.round((topBorder / totalV) * 100) : 50;
   return {
-    lr: Math.max(50, Math.min(95, Math.max(lr, 100 - lr))),
-    tb: Math.max(50, Math.min(95, Math.max(tb, 100 - tb))),
-    lrRaw: lr,
-    tbRaw: tb,
+    lr: Math.max(50, Math.min(95, Math.max(lrRaw, 100 - lrRaw))),
+    tb: Math.max(50, Math.min(95, Math.max(tbRaw, 100 - tbRaw))),
   };
 }
 
@@ -196,7 +194,9 @@ export default function CenteringTool({
   const insets = useSafeAreaInsets();
   const [showFront, setShowFront] = useState(true);
   const [imageLayout, setImageLayout] = useState({ width: 0, height: 0 });
-  const [localCentering, setLocalCentering] = useState<CenteringMeasurement>(centering);
+  const [frontPositions, setFrontPositions] = useState<LinePositions | null>(null);
+  const [backPositions, setBackPositions] = useState<LinePositions | null>(null);
+  const initializedRef = useRef(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -210,53 +210,69 @@ export default function CenteringTool({
     setImageLayout({ width, height });
   }, []);
 
-  const currentLR = showFront ? localCentering.frontLeftRight : localCentering.backLeftRight;
-  const currentTB = showFront ? localCentering.frontTopBottom : localCentering.backTopBottom;
+  if (imageLayout.width > 0 && !initializedRef.current) {
+    initializedRef.current = true;
+    setFrontPositions(ratioToPositions(centering.frontLeftRight, centering.frontTopBottom, imageLayout.width, imageLayout.height));
+    setBackPositions(ratioToPositions(centering.backLeftRight, centering.backTopBottom, imageLayout.width, imageLayout.height));
+  }
 
-  const positions = useMemo(() => {
-    if (imageLayout.width === 0) return null;
-    return ratioToPositions(currentLR, currentTB, imageLayout.width, imageLayout.height);
-  }, [currentLR, currentTB, imageLayout]);
+  const positions = showFront ? frontPositions : backPositions;
+  const setPositions = showFront ? setFrontPositions : setBackPositions;
+
+  const currentRatio = useMemo(() => {
+    if (!positions || imageLayout.width === 0) return { lr: 50, tb: 50 };
+    return positionsToRatio(positions, imageLayout.width, imageLayout.height);
+  }, [positions, imageLayout]);
 
   const handleLineDrag = useCallback(
     (line: "left" | "right" | "top" | "bottom", newPos: number) => {
-      if (!positions || imageLayout.width === 0) return;
-
-      const updatedPositions = { ...positions, [line]: newPos };
-      const result = positionsToRatio(
-        updatedPositions.left,
-        updatedPositions.right,
-        updatedPositions.top,
-        updatedPositions.bottom,
-        imageLayout.width,
-        imageLayout.height
-      );
-
-      setLocalCentering((prev) => {
-        if (showFront) {
-          return { ...prev, frontLeftRight: result.lr, frontTopBottom: result.tb };
-        }
-        return { ...prev, backLeftRight: result.lr, backTopBottom: result.tb };
+      setPositions((prev) => {
+        if (!prev) return prev;
+        return { ...prev, [line]: newPos };
       });
     },
-    [positions, imageLayout, showFront]
+    [setPositions]
   );
 
   const handleSave = () => {
-    onSave(localCentering);
+    if (!frontPositions || !backPositions || imageLayout.width === 0) return;
+    const frontRatio = positionsToRatio(frontPositions, imageLayout.width, imageLayout.height);
+    const backRatio = positionsToRatio(backPositions, imageLayout.width, imageLayout.height);
+    onSave({
+      frontLeftRight: frontRatio.lr,
+      frontTopBottom: frontRatio.tb,
+      backLeftRight: backRatio.lr,
+      backTopBottom: backRatio.tb,
+    });
   };
 
   const handleReset = () => {
-    setLocalCentering(centering);
+    if (imageLayout.width === 0) return;
+    setFrontPositions(ratioToPositions(centering.frontLeftRight, centering.frontTopBottom, imageLayout.width, imageLayout.height));
+    setBackPositions(ratioToPositions(centering.backLeftRight, centering.backTopBottom, imageLayout.width, imageLayout.height));
   };
 
-  const lrColor = getCenteringColor(currentLR);
-  const tbColor = getCenteringColor(currentTB);
+  const computedCentering = useMemo((): CenteringMeasurement => {
+    if (!frontPositions || !backPositions || imageLayout.width === 0) {
+      return centering;
+    }
+    const fr = positionsToRatio(frontPositions, imageLayout.width, imageLayout.height);
+    const br = positionsToRatio(backPositions, imageLayout.width, imageLayout.height);
+    return {
+      frontLeftRight: fr.lr,
+      frontTopBottom: fr.tb,
+      backLeftRight: br.lr,
+      backTopBottom: br.tb,
+    };
+  }, [frontPositions, backPositions, imageLayout, centering]);
 
-  const minBorderH = imageLayout.width * 0.01;
-  const maxBorderH = imageLayout.width * 0.25;
-  const minBorderV = imageLayout.height * 0.01;
-  const maxBorderV = imageLayout.height * 0.25;
+  const lrColor = getCenteringColor(currentRatio.lr);
+  const tbColor = getCenteringColor(currentRatio.tb);
+
+  const minBorderH = imageLayout.width * 0.005;
+  const maxBorderH = imageLayout.width * 0.20;
+  const minBorderV = imageLayout.height * 0.005;
+  const maxBorderV = imageLayout.height * 0.20;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -280,12 +296,12 @@ export default function CenteringTool({
       <View style={styles.ratioBar}>
         <View style={styles.ratioItem}>
           <Text style={styles.ratioLabel}>L/R</Text>
-          <Text style={[styles.ratioValue, { color: lrColor }]}>{formatRatio(currentLR)}</Text>
+          <Text style={[styles.ratioValue, { color: lrColor }]}>{formatRatio(currentRatio.lr)}</Text>
         </View>
         <View style={styles.ratioSep} />
         <View style={styles.ratioItem}>
           <Text style={styles.ratioLabel}>T/B</Text>
-          <Text style={[styles.ratioValue, { color: tbColor }]}>{formatRatio(currentTB)}</Text>
+          <Text style={[styles.ratioValue, { color: tbColor }]}>{formatRatio(currentRatio.tb)}</Text>
         </View>
       </View>
 
@@ -399,9 +415,9 @@ export default function CenteringTool({
       </View>
 
       <View style={styles.gradePreview}>
-        <GradeRow company="PSA" front10={55} back10={75} centering={localCentering} />
-        <GradeRow company="BGS" front10={50} back10={50} centering={localCentering} />
-        <GradeRow company="Ace" front10={60} back10={60} centering={localCentering} />
+        <GradeRow company="PSA" front10={55} back10={75} centering={computedCentering} />
+        <GradeRow company="BGS" front10={50} back10={50} centering={computedCentering} />
+        <GradeRow company="Ace" front10={60} back10={60} centering={computedCentering} />
       </View>
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + webBottomInset + 8 }]}>
