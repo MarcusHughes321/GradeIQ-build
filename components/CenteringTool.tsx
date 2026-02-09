@@ -269,13 +269,67 @@ function DragLine({ orientation, position, imgSize, color, label, dashed, onDrag
 
 const dot = { width: 3.5, height: 3.5, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.85)" };
 
+function RotationControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const clamp = (v: number) => Math.max(-15, Math.min(15, Math.round(v * 10) / 10));
+  return (
+    <View style={rotStyles.container}>
+      <Pressable onPress={() => onChange(clamp(value - 0.5))} style={({ pressed }) => [rotStyles.btn, { opacity: pressed ? 0.5 : 1 }]}>
+        <Ionicons name="remove" size={16} color="#fff" />
+      </Pressable>
+      <View style={rotStyles.track}>
+        <View style={rotStyles.trackBg}>
+          {[-10, -5, 0, 5, 10].map(tick => (
+            <View key={tick} style={[rotStyles.tick, tick === 0 && rotStyles.tickCenter, { left: `${((tick + 15) / 30) * 100}%` }]} />
+          ))}
+        </View>
+        <View style={[rotStyles.thumb, { left: `${((value + 15) / 30) * 100}%` }]} />
+        <View style={rotStyles.scrubArea} {...PanResponder.create({
+          onStartShouldSetPanResponder: () => true,
+          onMoveShouldSetPanResponder: () => true,
+          onPanResponderGrant: (e) => {
+            const x = e.nativeEvent.locationX;
+            const trackW = SCREEN_WIDTH - 140;
+            onChange(clamp((x / trackW) * 30 - 15));
+          },
+          onPanResponderMove: (e) => {
+            const x = e.nativeEvent.locationX;
+            const trackW = SCREEN_WIDTH - 140;
+            onChange(clamp((x / trackW) * 30 - 15));
+          },
+        }).panHandlers} />
+      </View>
+      <Pressable onPress={() => onChange(clamp(value + 0.5))} style={({ pressed }) => [rotStyles.btn, { opacity: pressed ? 0.5 : 1 }]}>
+        <Ionicons name="add" size={16} color="#fff" />
+      </Pressable>
+      <Text style={rotStyles.degText}>{value > 0 ? "+" : ""}{value.toFixed(1)}</Text>
+    </View>
+  );
+}
+
+const rotStyles = StyleSheet.create({
+  container: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 6, height: 32 },
+  btn: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
+  track: { flex: 1, height: 28, justifyContent: "center", position: "relative" },
+  trackBg: { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 1.5 },
+  tick: { position: "absolute", top: -3, width: 1, height: 9, backgroundColor: "rgba(255,255,255,0.25)" },
+  tickCenter: { backgroundColor: "rgba(255,255,255,0.6)", width: 1.5, height: 11, top: -4 },
+  thumb: { position: "absolute", width: 14, height: 14, borderRadius: 7, backgroundColor: Colors.primary, top: 7, marginLeft: -7, borderWidth: 2, borderColor: "#fff" },
+  scrubArea: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  degText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textSecondary, width: 36, textAlign: "right" as const },
+});
+
 export default function CenteringTool({ frontImage, backImage, centering, onSave, onClose }: CenteringToolProps) {
   const insets = useSafeAreaInsets();
   const [showFront, setShowFront] = useState(true);
   const [imageLayout, setImageLayout] = useState({ width: 0, height: 0 });
   const [frontPos, setFrontPos] = useState<BorderPositions | null>(null);
   const [backPos, setBackPos] = useState<BorderPositions | null>(null);
+  const [frontRotation, setFrontRotation] = useState(0);
+  const [backRotation, setBackRotation] = useState(0);
   const initRef = useRef(false);
+
+  const rotation = showFront ? frontRotation : backRotation;
+  const setRotation = showFront ? setFrontRotation : setBackRotation;
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -317,6 +371,8 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
     if (imageLayout.width === 0) return;
     setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, imageLayout.width, imageLayout.height));
     setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, imageLayout.width, imageLayout.height));
+    setFrontRotation(0);
+    setBackRotation(0);
   };
 
   const computed = useMemo((): CenteringMeasurement => {
@@ -362,10 +418,27 @@ export default function CenteringTool({ frontImage, backImage, centering, onSave
         </View>
       </View>
 
+      <View style={styles.rotationSection}>
+        <View style={styles.rotationHeader}>
+          <Ionicons name="sync-outline" size={14} color={Colors.textMuted} />
+          <Text style={styles.rotationLabel}>Straighten</Text>
+          {rotation !== 0 && (
+            <Pressable onPress={() => setRotation(0)} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+              <Text style={styles.rotationReset}>Reset</Text>
+            </Pressable>
+          )}
+        </View>
+        <RotationControl value={rotation} onChange={setRotation} />
+      </View>
+
       <View style={styles.imageArea}>
         <View style={[styles.imageContainer, { width: imgWidth, height: imgHeight }]} onLayout={onLayout}>
           <View style={styles.imageClip}>
-            <Image source={{ uri: showFront ? frontImage : backImage }} style={styles.cardImage} contentFit="contain" />
+            <Image
+              source={{ uri: showFront ? frontImage : backImage }}
+              style={[styles.cardImage, { transform: [{ rotate: `${rotation}deg` }] }]}
+              contentFit="contain"
+            />
           </View>
 
           {pos && w > 0 && (
@@ -462,6 +535,10 @@ const styles = StyleSheet.create({
   ratioLabel: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textMuted },
   ratioValue: { fontFamily: "Inter_700Bold", fontSize: 18 },
   ratioSep: { width: 1, height: 20, backgroundColor: "rgba(255,255,255,0.15)" },
+  rotationSection: { marginHorizontal: 20, marginTop: 6 },
+  rotationHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  rotationLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, flex: 1 },
+  rotationReset: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.primary },
   imageArea: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 6 },
   imageContainer: { borderRadius: 10, backgroundColor: Colors.surfaceLight },
   imageClip: { width: "100%", height: "100%", borderRadius: 10, overflow: "hidden" },
