@@ -143,16 +143,36 @@ export default function ResultsScreen() {
     const bgsCenteringGrade = calcBgsCentering();
     const aceCenteringGrade = calcAceCentering();
 
+    const psaNonCenteringMax = (() => {
+      const minOther = Math.min(
+        prevResult.beckett.corners.grade,
+        prevResult.beckett.edges.grade,
+        prevResult.beckett.surface.grade
+      );
+      if (minOther >= 9.5) return 10;
+      if (minOther >= 8.5) return 9;
+      if (minOther >= 7.5) return 8;
+      if (minOther >= 6.5) return 7;
+      if (minOther >= 5.5) return 6;
+      return Math.max(1, Math.round(minOther));
+    })();
+
     const bgsAvg = (bgsCenteringGrade + prevResult.beckett.corners.grade + prevResult.beckett.edges.grade + prevResult.beckett.surface.grade) / 4;
     const aceAvg = (aceCenteringGrade + prevResult.ace.corners.grade + prevResult.ace.edges.grade + prevResult.ace.surface.grade) / 4;
     const roundHalf = (v: number) => Math.round(v * 2) / 2;
+
+    const VALID_PSA = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
+    const psaFinal = Math.min(psaCenteringGrade, psaNonCenteringMax);
+    const psaGrade = VALID_PSA.reduce((prev, curr) =>
+      Math.abs(curr - psaFinal) < Math.abs(prev - psaFinal) ? curr : prev
+    );
 
     const updatedResult: GradingResult = {
       ...prevResult,
       centering: newCentering,
       psa: {
         ...prevResult.psa,
-        grade: Math.min(psaCenteringGrade, prevResult.psa.grade),
+        grade: psaGrade,
         centering: centeringNote,
       },
       beckett: {
@@ -462,7 +482,6 @@ export default function ResultsScreen() {
           backCardBounds={result.backCardBounds}
           onSave={(newCentering) => {
             handleCenteringChange(newCentering);
-            setCenteringToolVisible(false);
           }}
           onClose={() => setCenteringToolVisible(false)}
         />

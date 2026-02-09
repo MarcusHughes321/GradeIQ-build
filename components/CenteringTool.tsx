@@ -136,8 +136,8 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const LINE_HIT_PX = 22;
-const DISAMBIG_THRESHOLD = 6;
+const LINE_HIT_PX = 35;
+const DISAMBIG_THRESHOLD = 5;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
 
@@ -221,7 +221,7 @@ function viewportToContainer(
 }
 
 function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
-  const lineW = config.isOuter ? 1.5 : 2;
+  const lineW = config.isOuter ? 2 : 2.5;
   const opacity = config.isOuter ? 0.7 : 1;
 
   if (config.orientation === "v") {
@@ -468,6 +468,9 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const showFrontRef = useRef(showFront);
   const setFrontPosRef = useRef(setFrontPos);
   const setBackPosRef = useRef(setBackPos);
+  const onSaveRef = useRef(onSave);
+  const frontPosRef = useRef(frontPos);
+  const backPosRef = useRef(backPos);
   zoomScaleRef.current = zoomScale;
   panOffsetRef.current = panOffset;
   containerSizeRef.current = containerSize;
@@ -475,12 +478,18 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   showFrontRef.current = showFront;
   setFrontPosRef.current = setFrontPos;
   setBackPosRef.current = setBackPos;
+  onSaveRef.current = onSave;
+  frontPosRef.current = frontPos;
+  backPosRef.current = backPos;
+
+  const viewportLayoutRef = useRef({ x: 0, y: 0 });
 
   const gestureMode = useRef<"none" | "pinch" | "pan" | "drag" | "tentative">("none");
   const dragLineKey = useRef<LineKey | null>(null);
   const dragTouchOffset = useRef(0);
   const viewportOriginRef = useRef({ x: 0, y: 0 });
   const tentativeLineRef = useRef<{ key: LineKey; offset: number } | null>(null);
+  const didDragRef = useRef(false);
 
   const viewportPan = useMemo(() =>
     PanResponder.create({
@@ -494,6 +503,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
       },
       onPanResponderGrant: (evt) => {
         const touches = evt.nativeEvent.touches;
+        didDragRef.current = false;
         if (touches.length >= 2) {
           gestureMode.current = "pinch";
           pinchStartDistRef.current = getTouchDistance(touches);
@@ -599,6 +609,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
         }
 
         if (gestureMode.current === "drag" && dragLineKey.current) {
+          didDragRef.current = true;
           const key = dragLineKey.current;
           const s = zoomScaleRef.current;
           const cs = containerSizeRef.current;
@@ -628,9 +639,26 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           zoomScaleRef.current = 1;
           panOffsetRef.current = { x: 0, y: 0 };
         }
+        if (didDragRef.current) {
+          setTimeout(() => {
+            const fp = frontPosRef.current;
+            const bp = backPosRef.current;
+            if (fp && bp) {
+              const fr = computeRatio(fp);
+              const br = computeRatio(bp);
+              onSaveRef.current({
+                frontLeftRight: fr.lr,
+                frontTopBottom: fr.tb,
+                backLeftRight: br.lr,
+                backTopBottom: br.tb,
+              });
+            }
+          }, 50);
+        }
         gestureMode.current = "none";
         dragLineKey.current = null;
         tentativeLineRef.current = null;
+        didDragRef.current = false;
       },
       onPanResponderTerminationRequest: () => false,
     }),
@@ -654,9 +682,9 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           <View style={styles.ratioDot} />
           <Text style={[styles.ratioText, { color: tbColor }]}>T/B {formatRatio(ratio.tb)}</Text>
         </View>
-        <Pressable onPress={handleSave} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
+        <Pressable onPress={onClose} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
           <Ionicons name="checkmark" size={16} color="#fff" />
-          <Text style={styles.saveBtnText}>Save</Text>
+          <Text style={styles.saveBtnText}>Done</Text>
         </Pressable>
       </View>
 
@@ -756,7 +784,7 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
           </View>
         )}
 
-        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag lines to adjust</Text>
+        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag lines to adjust {"\u00B7"} Updates grades live</Text>
       </View>
     </View>
   );
