@@ -15,10 +15,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
-import { getGradings } from "@/lib/storage";
-import type { SavedGrading, GradingResult } from "@/lib/types";
+import { getGradings, updateGrading } from "@/lib/storage";
+import type { SavedGrading, GradingResult, CenteringMeasurement } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
+import CenteringCard from "@/components/CenteringCard";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -103,6 +104,14 @@ export default function ResultsScreen() {
   const closeImageViewer = () => {
     setImageViewerVisible(false);
     setSelectedArea(null);
+  };
+
+  const handleCenteringChange = async (newCentering: CenteringMeasurement) => {
+    if (!grading) return;
+    const updatedResult = { ...grading.result, centering: newCentering };
+    const updatedGrading = { ...grading, result: updatedResult };
+    setGrading(updatedGrading);
+    await updateGrading(grading.id, { result: updatedResult });
   };
 
   if (!grading) {
@@ -198,6 +207,11 @@ export default function ResultsScreen() {
             </View>
           </Pressable>
         </View>
+
+        <CenteringCard
+          centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
+          onCenteringChange={handleCenteringChange}
+        />
 
         <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />
         <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />

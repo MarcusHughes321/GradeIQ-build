@@ -9,8 +9,8 @@ interface SubGradeRowProps {
   color: string;
 }
 
-function getBarWidth(grade: number): string {
-  return `${(grade / 10) * 100}%`;
+function getBarWidth(grade: number): `${number}%` {
+  return `${(grade / 10) * 100}%` as `${number}%`;
 }
 
 function getBarColor(grade: number): string {
