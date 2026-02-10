@@ -1176,7 +1176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const titles: string[] = [];
 
       const itemBlocks = html.split(/s-item__wrapper/g).slice(1);
-      for (const block of itemBlocks.slice(0, 20)) {
+      for (const block of itemBlocks.slice(0, 5)) {
         const priceMatch = block.match(/£([\d,]+\.?\d*)/);
         const titleMatch = block.match(/class="s-item__title"[^>]*>(?:<span[^>]*>)?(.*?)(?:<\/span>)?<\//);
         if (priceMatch) {
@@ -1199,11 +1199,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function summarizePrices(prices: number[]): string {
     if (prices.length === 0) return "";
     const sorted = [...prices].sort((a, b) => a - b);
-    const trimmed = sorted.length > 4 ? sorted.slice(1, -1) : sorted;
-    const min = trimmed[0];
-    const max = trimmed[trimmed.length - 1];
-    const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
-    return `£${min.toFixed(0)} - £${max.toFixed(0)} (avg £${avg.toFixed(0)}, ${prices.length} sold)`;
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    const avg = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+    return `${sorted.map(p => `£${p.toFixed(0)}`).join(", ")} (avg £${avg.toFixed(0)})`;
   }
 
   app.post("/api/card-value", async (req, res) => {
@@ -1215,24 +1214,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Card name is required" });
       }
 
-      const japaneseSetNames = [
-        "phantasmal flames", "wild blaze", "vmax climax", "vstar universe",
-        "raging surf", "shiny treasure", "pokemon card 151", "crimson haze",
-        "mask of change", "stellar miracle", "battle partners", "eevee heroes",
-        "fusion arts", "star birth", "battle region", "time gazer", "space juggler",
-        "lost abyss", "incandescent arcana", "silver tempest", "scarlet ex",
-        "ruler of the black flame", "terastal fest", "night wanderer",
-        "ancient roar", "future flash", "cyber judge", "wild force",
-        "super electric breaker", "paradise dragona", "surging sparks",
-      ];
-      const setLower = (setName || "").toLowerCase();
-      const hasJapaneseChars = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(cardName + (setName || ""));
-      const isJapaneseSet = hasJapaneseChars || japaneseSetNames.some(n => setLower.includes(n));
-      const cardNumber = (setNumber || "").split("/")[0]?.replace(/^0+/, "") || "";
-
-      console.log(`[card-value] Language: ${isJapaneseSet ? "Japanese" : "English"}`);
-
-      const baseSearch = `${cardName} ${cardNumber ? setNumber : ""} pokemon`.trim();
+      const baseSearch = `${cardName} ${setNumber || ""} pokemon`.trim();
+      console.log(`[card-value] Base search: "${baseSearch}"`);
       const ebaySearches = [
         searchEbaySold(`${baseSearch} PSA ${psaGrade}`),
         searchEbaySold(`${baseSearch} PSA 10`),
@@ -1276,11 +1259,10 @@ RULES:
 1. Use the REAL eBay data provided as your PRIMARY source. The data shows actual sold prices from eBay UK.
 2. If eBay data is available for a category, base your estimate closely on that data.
 3. If eBay data is missing for a category, estimate based on the data you DO have (e.g., if PSA 10 sold for £X, PSA ${psaGrade} should be proportionally less).
-4. ${isJapaneseSet ? "This is a JAPANESE card — the eBay data reflects Japanese card prices." : "This is an ENGLISH card — the eBay data reflects English card prices."}
-5. Graded cards are ALWAYS worth more than raw. PSA 10 > PSA 9 > PSA 8 etc.
-6. If no eBay data was found at all, use your market knowledge to estimate — but "No value data found" should only be used for genuinely obscure cards.
-7. Price ranges should be tight when good data exists (e.g., "£700 - £800"), wider when estimating (e.g., "£400 - £600").
-8. All prices in GBP (£).
+4. Graded cards are ALWAYS worth more than raw. PSA 10 > PSA 9 > PSA 8 etc.
+5. If no eBay data was found at all, use your market knowledge to estimate — but "No value data found" should only be used for genuinely obscure cards.
+6. Price ranges should be tight when good data exists (e.g., "£700 - £800"), wider when estimating (e.g., "£400 - £600").
+7. All prices in GBP (£).
 
 Respond ONLY with valid JSON:
 {
