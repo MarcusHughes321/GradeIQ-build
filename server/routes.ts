@@ -586,34 +586,27 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return avgX;
     };
 
-    const findEdgeRow = (startY: number, endY: number, step: number, leftX: number, rightX: number): number => {
-      const edgeZoneWidth = Math.max(8, Math.round((rightX - leftX) * 0.12));
-      const leftZoneStart = Math.max(1, Math.round(leftX - edgeZoneWidth * 0.5));
-      const leftZoneEnd = Math.round(leftX + edgeZoneWidth);
-      const rightZoneStart = Math.round(rightX - edgeZoneWidth);
-      const rightZoneEnd = Math.min(sw - 1, Math.round(rightX + edgeZoneWidth * 0.5));
+    const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
+    const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
+
+    const findEdgeRow = (startY: number, endY: number, step: number): number => {
+      const scanXStart = Math.round(sw * 0.1);
+      const scanXEnd = Math.round(sw * 0.9);
+      const totalScanCols = Math.floor((scanXEnd - scanXStart) / 1);
+      const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
 
       const rows: { y: number; score: number; votes: number }[] = [];
 
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let x = leftZoneStart; x < leftZoneEnd; x++) {
+        for (let x = scanXStart; x < scanXEnd; x += 1) {
           const gy = Math.abs(sobelY(x, y));
           if (gy >= EDGE_THRESHOLD) {
             votes++;
             totalGrad += gy;
           }
         }
-        for (let x = rightZoneStart; x < rightZoneEnd; x++) {
-          const gy = Math.abs(sobelY(x, y));
-          if (gy >= EDGE_THRESHOLD) {
-            votes++;
-            totalGrad += gy;
-          }
-        }
-        const totalZoneWidth = (leftZoneEnd - leftZoneStart) + (rightZoneEnd - rightZoneStart);
-        const minVotes = Math.max(2, Math.round(totalZoneWidth * 0.12));
         if (votes >= minVotes) {
           rows.push({ y, score: totalGrad, votes });
         }
@@ -621,81 +614,39 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
       if (rows.length === 0) return startY;
 
-      const scoreThreshold = rows.reduce((max, r) => Math.max(max, r.score), 0) * 0.35;
-      const strong = rows.filter(r => r.score >= scoreThreshold);
+      rows.sort((a, b) => b.score - a.score);
+      const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.1)));
 
       if (step > 0) {
-        strong.sort((a, b) => a.y - b.y);
+        topN.sort((a, b) => a.y - b.y);
       } else {
-        strong.sort((a, b) => b.y - a.y);
+        topN.sort((a, b) => b.y - a.y);
       }
 
-      let cluster: number[] = [strong[0].y];
-      for (let i = 1; i < strong.length; i++) {
-        if (Math.abs(strong[i].y - strong[0].y) <= 3) {
-          cluster.push(strong[i].y);
+      let cluster: number[] = [topN[0].y];
+      for (let i = 1; i < topN.length; i++) {
+        if (Math.abs(topN[i].y - topN[0].y) <= 3) {
+          cluster.push(topN[i].y);
         }
       }
 
-      const avgY = cluster.reduce((s, v) => s + v, 0) / cluster.length;
-      return avgY;
+      return cluster.reduce((s, v) => s + v, 0) / cluster.length;
     };
 
-    const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
-    const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
+    const rawTopRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1);
+    const rawBottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1);
 
     const CARD_RATIO = 7 / 5;
     const cardWidthPx = rightCol - leftCol;
     const expectedCardHeightPx = cardWidthPx * CARD_RATIO;
+    const detectedCenter = (rawTopRow + rawBottomRow) / 2;
+    const expectedTop = detectedCenter - expectedCardHeightPx / 2;
+    const expectedBottom = detectedCenter + expectedCardHeightPx / 2;
 
-    const findCardVerticalExtent = (edgeX: number): { top: number; bottom: number } => {
-      const x = Math.round(edgeX);
-      const vertEdgeScores: number[] = new Array(sh).fill(0);
+    const finalTop = Math.min(rawTopRow, expectedTop);
+    const finalBottom = Math.max(rawBottomRow, expectedBottom);
 
-      for (let y = 1; y < sh - 1; y++) {
-        vertEdgeScores[y] = Math.abs(sobelX(x, y));
-      }
-
-      const maxVert = Math.max(...vertEdgeScores);
-      const activeThreshold = maxVert * 0.15;
-
-      let top = -1;
-      let bottom = -1;
-
-      for (let y = 1; y < sh - 1; y++) {
-        if (vertEdgeScores[y] >= activeThreshold) {
-          if (top < 0) top = y;
-          bottom = y;
-        }
-      }
-
-      return { top: top >= 0 ? top : 1, bottom: bottom >= 0 ? bottom : sh - 2 };
-    };
-
-    const leftExtent = findCardVerticalExtent(leftCol);
-    const rightExtent = findCardVerticalExtent(rightCol);
-
-    const rawTop = Math.min(leftExtent.top, rightExtent.top);
-    const rawBottom = Math.max(leftExtent.bottom, rightExtent.bottom);
-
-    console.log(`[detect-bounds] Vertical extent: leftT=${leftExtent.top} leftB=${leftExtent.bottom} rightT=${rightExtent.top} rightB=${rightExtent.bottom}`);
-
-    const detectedHeight = rawBottom - rawTop;
-    const heightRatio = cardWidthPx > 0 ? detectedHeight / cardWidthPx : 0;
-
-    let finalTop: number;
-    let finalBottom: number;
-
-    if (heightRatio >= 1.25 && heightRatio <= 1.55) {
-      finalTop = rawTop;
-      finalBottom = rawBottom;
-      console.log(`[detect-bounds] Using vertical extent T/B: ${finalTop}-${finalBottom} (ratio ${heightRatio.toFixed(2)})`);
-    } else {
-      const centerY = (rawTop + rawBottom) / 2;
-      finalTop = Math.round(centerY - expectedCardHeightPx / 2);
-      finalBottom = Math.round(centerY + expectedCardHeightPx / 2);
-      console.log(`[detect-bounds] Ratio ${heightRatio.toFixed(2)} out of range, using aspect-corrected T/B: ${finalTop}-${finalBottom} (center=${centerY.toFixed(0)})`);
-    }
+    console.log(`[detect-bounds] Raw T/B: ${rawTopRow.toFixed(1)}-${rawBottomRow.toFixed(1)}, Expected T/B: ${expectedTop.toFixed(1)}-${expectedBottom.toFixed(1)}, Final T/B: ${finalTop.toFixed(1)}-${finalBottom.toFixed(1)}`);
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;
