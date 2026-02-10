@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -22,9 +22,7 @@ import { apiRequest } from "@/lib/query-client";
 import { saveGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const MAX_CARDS = 20;
-const CARD_SIZE = (SCREEN_WIDTH - 40 - 12) / 2;
 
 interface CardSlot {
   id: string;
@@ -32,11 +30,13 @@ interface CardSlot {
   backImage: string | null;
 }
 
+function generateId(): string {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 5);
+}
+
 export default function BulkScreen() {
   const insets = useSafeAreaInsets();
-  const [cards, setCards] = useState<CardSlot[]>([
-    { id: "1", frontImage: null, backImage: null },
-  ]);
+  const [cards, setCards] = useState<CardSlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [completedCount, setCompletedCount] = useState(0);
   const [totalToGrade, setTotalToGrade] = useState(0);
@@ -48,21 +48,50 @@ export default function BulkScreen() {
 
   const readyCards = cards.filter((c) => c.frontImage && c.backImage);
 
-  const addCard = () => {
-    if (cards.length >= MAX_CARDS) {
-      Alert.alert("Maximum Reached", `You can grade up to ${MAX_CARDS} cards at once.`);
+  const selectMultipleImages = async () => {
+    if (loading) return;
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Photo library access is needed to select card photos.");
       return;
     }
-    const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-    setCards((prev) => [...prev, { id, frontImage: null, backImage: null }]);
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      selectionLimit: MAX_CARDS * 2,
+      quality: 0.8,
+      orderedSelection: true,
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+    const uris = result.assets.map((a) => a.uri);
+
+    const newCards: CardSlot[] = [];
+    for (let i = 0; i < uris.length; i += 2) {
+      if (newCards.length >= MAX_CARDS) break;
+      const front = uris[i];
+      const back = i + 1 < uris.length ? uris[i + 1] : null;
+      newCards.push({
+        id: generateId(),
+        frontImage: front,
+        backImage: back,
+      });
+    }
+
+    setCards((prev) => {
+      const combined = [...prev, ...newCards];
+      return combined.slice(0, MAX_CARDS);
+    });
+
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
   };
 
-  const removeCard = (id: string) => {
-    if (cards.length <= 1) return;
-    setCards((prev) => prev.filter((c) => c.id !== id));
-  };
-
-  const pickImage = async (cardId: string, side: "front" | "back") => {
+  const pickSingleImage = async (cardId: string, side: "front" | "back") => {
     if (loading) return;
 
     const doPickFromLibrary = async () => {
@@ -74,7 +103,6 @@ export default function BulkScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         quality: 0.8,
-        base64: true,
         allowsEditing: true,
         aspect: [63, 88],
       });
@@ -99,7 +127,6 @@ export default function BulkScreen() {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
         quality: 0.8,
-        base64: true,
         allowsEditing: true,
         aspect: [63, 88],
       });
@@ -118,10 +145,27 @@ export default function BulkScreen() {
     if (Platform.OS === "web") {
       await doPickFromLibrary();
     } else {
-      Alert.alert("Add Photo", "Choose an option", [
+      Alert.alert("Replace Photo", "Choose an option", [
         { text: "Take Photo", onPress: doTakePhoto },
         { text: "Choose from Library", onPress: doPickFromLibrary },
         { text: "Cancel", style: "cancel" },
+      ]);
+    }
+  };
+
+  const removeCard = (id: string) => {
+    setCards((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const clearAll = () => {
+    if (cards.length === 0) return;
+    const doIt = () => setCards([]);
+    if (Platform.OS === "web") {
+      if (confirm("Remove all cards?")) doIt();
+    } else {
+      Alert.alert("Clear All", "Remove all cards?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear All", style: "destructive", onPress: doIt },
       ]);
     }
   };
@@ -139,7 +183,7 @@ export default function BulkScreen() {
 
   const handleBulkGrade = async () => {
     if (readyCards.length === 0) {
-      Alert.alert("No Cards Ready", "Add front and back photos for at least one card.");
+      Alert.alert("No Cards Ready", "Each card needs both a front and back photo.");
       return;
     }
 
@@ -185,7 +229,7 @@ export default function BulkScreen() {
           setCompletedCount((prev) => prev + 1);
           setCurrentCardName(item.result.cardName || `Card ${item.index + 1}`);
           Animated.timing(progressAnim, {
-            toValue: (savedIds.length) / readyCards.length,
+            toValue: savedIds.length / readyCards.length,
             duration: 300,
             useNativeDriver: false,
           }).start();
@@ -216,57 +260,7 @@ export default function BulkScreen() {
     }
   };
 
-  const renderCardSlot = (card: CardSlot, index: number) => (
-    <View key={card.id} style={styles.cardSlot}>
-      <View style={styles.cardSlotHeader}>
-        <Text style={styles.cardSlotNumber}>Card {index + 1}</Text>
-        {cards.length > 1 && !loading && (
-          <Pressable onPress={() => removeCard(card.id)} hitSlop={8}>
-            <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
-          </Pressable>
-        )}
-      </View>
-
-      <View style={styles.cardImages}>
-        <Pressable
-          style={[styles.imageSlot, card.frontImage && styles.imageSlotFilled]}
-          onPress={() => pickImage(card.id, "front")}
-          disabled={loading}
-        >
-          {card.frontImage ? (
-            <Image source={{ uri: card.frontImage }} style={styles.slotImage} contentFit="cover" />
-          ) : (
-            <View style={styles.slotPlaceholder}>
-              <Ionicons name="camera-outline" size={20} color={Colors.textMuted} />
-              <Text style={styles.slotLabel}>Front</Text>
-            </View>
-          )}
-        </Pressable>
-
-        <Pressable
-          style={[styles.imageSlot, card.backImage && styles.imageSlotFilled]}
-          onPress={() => pickImage(card.id, "back")}
-          disabled={loading}
-        >
-          {card.backImage ? (
-            <Image source={{ uri: card.backImage }} style={styles.slotImage} contentFit="cover" />
-          ) : (
-            <View style={styles.slotPlaceholder}>
-              <Ionicons name="camera-outline" size={20} color={Colors.textMuted} />
-              <Text style={styles.slotLabel}>Back</Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
-
-      {card.frontImage && card.backImage && (
-        <View style={styles.readyBadge}>
-          <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
-          <Text style={styles.readyText}>Ready</Text>
-        </View>
-      )}
-    </View>
-  );
+  const incompleteCards = cards.filter((c) => !c.frontImage || !c.backImage);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -279,7 +273,13 @@ export default function BulkScreen() {
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Bulk Grade</Text>
-        <View style={{ width: 40 }} />
+        {cards.length > 0 && !loading ? (
+          <Pressable onPress={clearAll} style={({ pressed }) => [styles.clearBtn, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="trash-outline" size={18} color={Colors.primary} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
 
       {loading ? (
@@ -329,42 +329,146 @@ export default function BulkScreen() {
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + webBottomInset + 100 }]}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.infoBar}>
-              <Ionicons name="information-circle" size={16} color={Colors.textSecondary} />
-              <Text style={styles.infoText}>
-                Add front & back photos for each card. Max {MAX_CARDS} cards. Cards are processed 3 at a time for speed.
-              </Text>
-            </View>
+            {cards.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons name="images-outline" size={40} color={Colors.textMuted} />
+                </View>
+                <Text style={styles.emptyTitle}>Select Your Card Photos</Text>
+                <Text style={styles.emptyText}>
+                  Pick all your card images at once from your photo library. Select them in order: front, back, front, back...
+                </Text>
+                <Text style={styles.emptyHint}>
+                  Images are automatically paired as front/back for each card. Up to {MAX_CARDS} cards.
+                </Text>
 
-            {cards.map((card, i) => renderCardSlot(card, i))}
+                <Pressable
+                  style={({ pressed }) => [styles.selectBtn, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+                  onPress={selectMultipleImages}
+                >
+                  <Ionicons name="images" size={22} color="#fff" />
+                  <Text style={styles.selectBtnText}>Select Images from Library</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <>
+                <View style={styles.statusBar}>
+                  <View style={styles.statusItem}>
+                    <Text style={styles.statusNumber}>{cards.length}</Text>
+                    <Text style={styles.statusLabel}>Total</Text>
+                  </View>
+                  <View style={styles.statusDivider} />
+                  <View style={styles.statusItem}>
+                    <Text style={[styles.statusNumber, { color: Colors.success }]}>{readyCards.length}</Text>
+                    <Text style={styles.statusLabel}>Ready</Text>
+                  </View>
+                  {incompleteCards.length > 0 && (
+                    <>
+                      <View style={styles.statusDivider} />
+                      <View style={styles.statusItem}>
+                        <Text style={[styles.statusNumber, { color: Colors.warning }]}>{incompleteCards.length}</Text>
+                        <Text style={styles.statusLabel}>Need Back</Text>
+                      </View>
+                    </>
+                  )}
+                </View>
 
-            {cards.length < MAX_CARDS && (
-              <Pressable
-                style={({ pressed }) => [styles.addCardBtn, { opacity: pressed ? 0.7 : 1 }]}
-                onPress={addCard}
-              >
-                <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
-                <Text style={styles.addCardText}>Add Another Card</Text>
-              </Pressable>
+                {cards.map((card, index) => (
+                  <View key={card.id} style={styles.cardSlot}>
+                    <View style={styles.cardSlotHeader}>
+                      <Text style={styles.cardSlotNumber}>Card {index + 1}</Text>
+                      <View style={styles.cardSlotBadges}>
+                        {card.frontImage && card.backImage ? (
+                          <View style={styles.readyBadge}>
+                            <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
+                            <Text style={styles.readyText}>Ready</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.incompleteBadge}>
+                            <Ionicons name="alert-circle" size={14} color={Colors.warning} />
+                            <Text style={styles.incompleteText}>Needs back</Text>
+                          </View>
+                        )}
+                        <Pressable onPress={() => removeCard(card.id)} hitSlop={8}>
+                          <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    <View style={styles.cardImages}>
+                      <Pressable
+                        style={[styles.imageSlot, card.frontImage && styles.imageSlotFilled]}
+                        onPress={() => pickSingleImage(card.id, "front")}
+                      >
+                        {card.frontImage ? (
+                          <Image source={{ uri: card.frontImage }} style={styles.slotImage} contentFit="cover" />
+                        ) : (
+                          <View style={styles.slotPlaceholder}>
+                            <Ionicons name="camera-outline" size={20} color={Colors.textMuted} />
+                            <Text style={styles.slotLabel}>Front</Text>
+                          </View>
+                        )}
+                        <View style={styles.slotTag}>
+                          <Text style={styles.slotTagText}>Front</Text>
+                        </View>
+                      </Pressable>
+
+                      <Pressable
+                        style={[styles.imageSlot, card.backImage && styles.imageSlotFilled, !card.backImage && styles.imageSlotMissing]}
+                        onPress={() => pickSingleImage(card.id, "back")}
+                      >
+                        {card.backImage ? (
+                          <Image source={{ uri: card.backImage }} style={styles.slotImage} contentFit="cover" />
+                        ) : (
+                          <View style={styles.slotPlaceholder}>
+                            <Ionicons name="add-circle-outline" size={22} color={Colors.warning} />
+                            <Text style={[styles.slotLabel, { color: Colors.warning }]}>Add Back</Text>
+                          </View>
+                        )}
+                        <View style={styles.slotTag}>
+                          <Text style={styles.slotTagText}>Back</Text>
+                        </View>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+
+                {cards.length < MAX_CARDS && (
+                  <Pressable
+                    style={({ pressed }) => [styles.addMoreBtn, { opacity: pressed ? 0.7 : 1 }]}
+                    onPress={selectMultipleImages}
+                  >
+                    <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
+                    <Text style={styles.addMoreText}>Select More Images</Text>
+                  </Pressable>
+                )}
+              </>
             )}
           </ScrollView>
 
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + webBottomInset + 12 }]}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.gradeBtn,
-                readyCards.length === 0 && styles.gradeBtnDisabled,
-                { transform: [{ scale: pressed && readyCards.length > 0 ? 0.97 : 1 }] },
-              ]}
-              onPress={handleBulkGrade}
-              disabled={readyCards.length === 0}
-            >
-              <Ionicons name="flash" size={20} color="#fff" />
-              <Text style={styles.gradeBtnText}>
-                Grade {readyCards.length} {readyCards.length === 1 ? "Card" : "Cards"}
-              </Text>
-            </Pressable>
-          </View>
+          {cards.length > 0 && (
+            <View style={[styles.bottomBar, { paddingBottom: insets.bottom + webBottomInset + 12 }]}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.gradeBtn,
+                  readyCards.length === 0 && styles.gradeBtnDisabled,
+                  { transform: [{ scale: pressed && readyCards.length > 0 ? 0.97 : 1 }] },
+                ]}
+                onPress={handleBulkGrade}
+                disabled={readyCards.length === 0}
+              >
+                <Ionicons name="flash" size={20} color="#fff" />
+                <Text style={styles.gradeBtnText}>
+                  Grade {readyCards.length} {readyCards.length === 1 ? "Card" : "Cards"}
+                </Text>
+              </Pressable>
+              {incompleteCards.length > 0 && (
+                <Text style={styles.bottomHint}>
+                  {incompleteCards.length} card{incompleteCards.length > 1 ? "s" : ""} missing back photo — tap to add
+                </Text>
+              )}
+            </View>
+          )}
         </>
       )}
     </View>
@@ -394,6 +498,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: Colors.text,
   },
+  clearBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scrollView: {
     flex: 1,
   },
@@ -401,23 +511,90 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 12,
   },
-  infoBar: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+  emptyState: {
+    alignItems: "center",
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
-    marginBottom: 4,
   },
-  infoText: {
-    flex: 1,
+  emptyTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: Colors.text,
+    textAlign: "center",
+  },
+  emptyText: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  emptyHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: "center",
     lineHeight: 18,
+    marginTop: 4,
+  },
+  selectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: Colors.primary,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    marginTop: 20,
+    width: "100%",
+  },
+  selectBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#fff",
+  },
+  statusBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 16,
+  },
+  statusItem: {
+    alignItems: "center",
+    gap: 2,
+  },
+  statusNumber: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: Colors.text,
+  },
+  statusLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  statusDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: Colors.surfaceBorder,
   },
   cardSlot: {
     backgroundColor: Colors.surface,
@@ -437,23 +614,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text,
   },
+  cardSlotBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  readyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  readyText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.success,
+  },
+  incompleteBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  incompleteText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.warning,
+  },
   cardImages: {
     flexDirection: "row",
     gap: 10,
   },
   imageSlot: {
     flex: 1,
-    height: 120,
+    height: 130,
     borderRadius: 12,
     backgroundColor: Colors.surfaceLight,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
-    borderStyle: "dashed",
     overflow: "hidden",
+    position: "relative",
   },
   imageSlotFilled: {
-    borderStyle: "solid",
-    borderColor: Colors.primary + "40",
+    borderColor: Colors.success + "40",
+  },
+  imageSlotMissing: {
+    borderColor: Colors.warning + "40",
+    borderStyle: "dashed",
   },
   slotImage: {
     width: "100%",
@@ -470,19 +675,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
   },
-  readyBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 8,
-    alignSelf: "center",
+  slotTag: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  readyText: {
+  slotTagText: {
     fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.success,
+    fontSize: 10,
+    color: "#fff",
   },
-  addCardBtn: {
+  addMoreBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -494,7 +701,7 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     backgroundColor: Colors.primary + "08",
   },
-  addCardText: {
+  addMoreText: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
     color: Colors.primary,
@@ -526,6 +733,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: "#fff",
+  },
+  bottomHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.warning,
+    textAlign: "center",
+    marginTop: 8,
   },
   loadingContainer: {
     flex: 1,
