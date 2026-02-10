@@ -1195,6 +1195,94 @@ If no data exists for a category, use "No value data found". All prices MUST be 
     }
   });
 
+  app.post("/api/bulk-grade", async (req, res) => {
+    try {
+      const { cards } = req.body;
+
+      if (!cards || !Array.isArray(cards) || cards.length === 0) {
+        return res.status(400).json({ error: "Cards array is required" });
+      }
+      if (cards.length > 20) {
+        return res.status(400).json({ error: "Maximum 20 cards per bulk upload" });
+      }
+
+      console.log(`[bulk-grade] Starting bulk grade for ${cards.length} cards`);
+
+      const BATCH_SIZE = 3;
+      const results: Array<{ index: number; result?: any; error?: string }> = [];
+
+      const gradeOneCard = async (card: { frontImage: string; backImage: string }, index: number) => {
+        try {
+          const frontUrl = card.frontImage.startsWith("data:") ? card.frontImage : `data:image/jpeg;base64,${card.frontImage}`;
+          const backUrl = card.backImage.startsWith("data:") ? card.backImage : `data:image/jpeg;base64,${card.backImage}`;
+
+          console.log(`[bulk-grade] Grading card ${index + 1}/${cards.length}`);
+
+          const gradingResponse = await openai.chat.completions.create({
+            model: "gpt-5.2",
+            max_completion_tokens: 4096,
+            messages: [
+              {
+                role: "system",
+                content: GRADING_SYSTEM_PROMPT,
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: frontUrl, detail: "high" },
+                  },
+                  {
+                    type: "image_url",
+                    image_url: { url: backUrl, detail: "high" },
+                  },
+                ],
+              },
+            ],
+          });
+
+          const content = gradingResponse.choices[0]?.message?.content || "";
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            return { index, error: "Failed to parse grading results" };
+          }
+
+          let gradingResult = JSON.parse(jsonMatch[0]);
+          gradingResult = enforceGradingScales(gradingResult);
+          gradingResult = syncCenteringToGrades(gradingResult);
+
+          console.log(`[bulk-grade] Card ${index + 1} done: "${gradingResult.cardName}"`);
+          return { index, result: gradingResult };
+        } catch (err: any) {
+          console.error(`[bulk-grade] Card ${index + 1} failed:`, err?.message);
+          return { index, error: err?.message || "Failed to grade card" };
+        }
+      };
+
+      for (let i = 0; i < cards.length; i += BATCH_SIZE) {
+        const batch = cards.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map((card: { frontImage: string; backImage: string }, batchIdx: number) =>
+          gradeOneCard(card, i + batchIdx)
+        );
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+      }
+
+      results.sort((a, b) => a.index - b.index);
+
+      console.log(`[bulk-grade] Complete. ${results.filter(r => r.result).length}/${cards.length} successful`);
+      res.json({ results });
+    } catch (error: any) {
+      console.error("Error in bulk grade:", error);
+      res.status(500).json({ error: error.message || "Failed to bulk grade cards" });
+    }
+  });
+
   app.post("/api/detect-bounds", async (req, res) => {
     try {
       const { image } = req.body;

@@ -171,6 +171,20 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      <Pressable
+        style={({ pressed }) => [styles.bulkButton, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+        onPress={() => router.push("/bulk")}
+      >
+        <View style={styles.bulkIconCircle}>
+          <Ionicons name="layers" size={20} color={Colors.primary} />
+        </View>
+        <View style={styles.bulkTextWrap}>
+          <Text style={styles.bulkTitle}>Bulk Grade</Text>
+          <Text style={styles.bulkSubtitle}>Grade up to 20 cards at once</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+      </Pressable>
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent Grades</Text>
         <View style={styles.sectionHeaderRight}>
@@ -331,6 +345,40 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: "center",
     lineHeight: 16,
+  },
+  bulkButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: BUBBLE_PAD,
+    marginBottom: 28,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  bulkIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.primary + "15",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bulkTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  bulkTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  bulkSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   sectionHeader: {
     flexDirection: "row",

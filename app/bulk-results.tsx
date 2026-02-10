@@ -1,0 +1,275 @@
+import React, { useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  FlatList,
+  Platform,
+} from "react-native";
+import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
+import Colors from "@/constants/colors";
+import { getGradings } from "@/lib/storage";
+import type { SavedGrading } from "@/lib/types";
+import GradeCircle from "@/components/GradeCircle";
+
+function getGradeColor(grade: number): string {
+  if (grade >= 9) return "#10B981";
+  if (grade >= 7) return "#F59E0B";
+  return "#EF4444";
+}
+
+function BulkResultItem({ item }: { item: SavedGrading }) {
+  const psaGrade = item.result.psa.grade;
+  const bgsGrade = item.result.beckett.overallGrade;
+  const aceGrade = item.result.ace.overallGrade;
+  const avgGrade = Math.round(((psaGrade + bgsGrade + aceGrade) / 3) * 10) / 10;
+
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.resultItem, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+      onPress={() =>
+        router.push({
+          pathname: "/results",
+          params: { gradingId: item.id },
+        })
+      }
+    >
+      <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
+      <View style={styles.resultInfo}>
+        <Text style={styles.cardName} numberOfLines={1}>
+          {item.result.cardName || "Unknown Card"}
+        </Text>
+        <Text style={styles.setInfo} numberOfLines={1}>
+          {[item.result.setName, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
+        </Text>
+        <Text style={styles.condition} numberOfLines={1}>
+          {item.result.overallCondition}
+        </Text>
+      </View>
+      <View style={styles.gradesColumn}>
+        <GradeCircle grade={psaGrade} size={32} label="PSA" />
+        <GradeCircle grade={bgsGrade} size={32} label="BGS" />
+        <GradeCircle grade={aceGrade} size={32} label="ACE" />
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+    </Pressable>
+  );
+}
+
+export default function BulkResultsScreen() {
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams();
+  const gradingIds = (params.gradingIds as string || "").split(",").filter(Boolean);
+  const failedCount = parseInt(params.failedCount as string || "0", 10);
+
+  const [gradings, setGradings] = useState<SavedGrading[]>([]);
+
+  const webTopInset = Platform.OS === "web" ? 67 : 0;
+  const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  useFocusEffect(
+    useCallback(() => {
+      loadGradings();
+    }, [])
+  );
+
+  const loadGradings = async () => {
+    const allGradings = await getGradings();
+    const matched = gradingIds
+      .map((id) => allGradings.find((g) => g.id === id))
+      .filter(Boolean) as SavedGrading[];
+    setGradings(matched);
+  };
+
+  const successCount = gradings.length;
+  const totalCount = successCount + failedCount;
+
+  const avgPsa = gradings.length > 0
+    ? Math.round((gradings.reduce((s, g) => s + g.result.psa.grade, 0) / gradings.length) * 10) / 10
+    : 0;
+  const avgBgs = gradings.length > 0
+    ? Math.round((gradings.reduce((s, g) => s + g.result.beckett.overallGrade, 0) / gradings.length) * 10) / 10
+    : 0;
+  const avgAce = gradings.length > 0
+    ? Math.round((gradings.reduce((s, g) => s + g.result.ace.overallGrade, 0) / gradings.length) * 10) / 10
+    : 0;
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => router.replace("/")}
+          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+        >
+          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Bulk Results</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <FlatList
+        data={gradings}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <BulkResultItem item={item} />}
+        ListHeaderComponent={
+          <View style={styles.summarySection}>
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Batch Complete</Text>
+              <Text style={styles.summarySubtitle}>
+                {successCount} of {totalCount} cards graded successfully
+                {failedCount > 0 ? ` (${failedCount} failed)` : ""}
+              </Text>
+
+              <View style={styles.avgRow}>
+                <View style={styles.avgItem}>
+                  <Text style={styles.avgLabel}>Avg PSA</Text>
+                  <Text style={[styles.avgValue, { color: getGradeColor(avgPsa) }]}>{avgPsa}</Text>
+                </View>
+                <View style={styles.avgDivider} />
+                <View style={styles.avgItem}>
+                  <Text style={styles.avgLabel}>Avg BGS</Text>
+                  <Text style={[styles.avgValue, { color: getGradeColor(avgBgs) }]}>{avgBgs}</Text>
+                </View>
+                <View style={styles.avgDivider} />
+                <View style={styles.avgItem}>
+                  <Text style={styles.avgLabel}>Avg ACE</Text>
+                  <Text style={[styles.avgValue, { color: getGradeColor(avgAce) }]}>{avgAce}</Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.listTitle}>All Cards</Text>
+          </View>
+        }
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 20 }]}
+        showsVerticalScrollIndicator={false}
+        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+  },
+  summarySection: {
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  summaryCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    marginBottom: 20,
+  },
+  summaryTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  summarySubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 18,
+  },
+  avgRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  avgItem: {
+    alignItems: "center",
+    gap: 4,
+  },
+  avgLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  avgValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 24,
+  },
+  avgDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  listTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  listContent: {
+    gap: 0,
+  },
+  resultItem: {
+    flexDirection: "row",
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  thumbnail: {
+    width: 50,
+    height: 70,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceLight,
+  },
+  resultInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  cardName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  setInfo: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  condition: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  gradesColumn: {
+    flexDirection: "row",
+    gap: 4,
+  },
+});

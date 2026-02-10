@@ -24,6 +24,8 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="grade" />
       <Stack.Screen name="results" />
+      <Stack.Screen name="bulk" />
+      <Stack.Screen name="bulk-results" />
     </Stack>
   );
 }
