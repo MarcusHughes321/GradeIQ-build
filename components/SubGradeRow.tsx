@@ -14,12 +14,19 @@ function getBarWidth(grade: number): `${number}%` {
 }
 
 function getBarColor(grade: number): string {
-  if (grade >= 9.5) return "#10B981";
-  if (grade >= 9) return "#34D399";
-  if (grade >= 8) return "#FFB703";
-  if (grade >= 7) return "#F59E0B";
-  if (grade >= 5) return "#F97316";
-  return "#EF4444";
+  const ratio = Math.max(0, Math.min(1, (grade - 1) / 9));
+  if (ratio <= 0.5) {
+    const t = ratio * 2;
+    const r = Math.round(239 + (245 - 239) * t);
+    const g = Math.round(68 + (158 - 68) * t);
+    const b = Math.round(68 + (11 - 68) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  const t = (ratio - 0.5) * 2;
+  const r = Math.round(245 + (16 - 245) * t);
+  const g = Math.round(158 + (185 - 158) * t);
+  const b = Math.round(11 + (129 - 11) * t);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 export default function SubGradeRow({ label, grade, notes, color }: SubGradeRowProps) {

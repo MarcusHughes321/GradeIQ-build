@@ -16,7 +16,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { getGradings, updateGrading } from "@/lib/storage";
-import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds } from "@/lib/types";
+import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate } from "@/lib/types";
 import { apiRequest } from "@/lib/query-client";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
@@ -31,6 +31,33 @@ function getGradeColor(grade: number): string {
   if (grade >= 8) return "#F59E0B";
   if (grade >= 7) return "#FB923C";
   return "#EF4444";
+}
+
+function getGradientColor(grade: number, maxGrade: number = 10): string {
+  const ratio = Math.max(0, Math.min(1, (grade - 1) / (maxGrade - 1)));
+  if (ratio <= 0.5) {
+    const t = ratio * 2;
+    const r = Math.round(239 + (245 - 239) * t);
+    const g = Math.round(68 + (158 - 68) * t);
+    const b = Math.round(68 + (11 - 68) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  } else {
+    const t = (ratio - 0.5) * 2;
+    const r = Math.round(245 + (16 - 245) * t);
+    const g = Math.round(158 + (185 - 158) * t);
+    const b = Math.round(11 + (129 - 11) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+}
+
+function getGradeSummary(psa: number, bgs: number, ace: number): string {
+  const avg = (psa + bgs + ace) / 3;
+  if (avg >= 9.5) return "Exceptional condition. This card is in pristine, gem mint shape across all grading standards.";
+  if (avg >= 9) return "Outstanding condition. This card grades extremely well with only the most minor imperfections.";
+  if (avg >= 8) return "Great condition. This card shows well with minimal wear, suitable for most collections.";
+  if (avg >= 7) return "Good condition. This card has some visible wear but remains attractive and collectible.";
+  if (avg >= 6) return "Decent condition. Noticeable wear present, but the card retains its appeal for casual collectors.";
+  return "Below average condition. This card shows significant wear and would benefit from careful handling.";
 }
 
 interface AreaAnnotation {
@@ -81,6 +108,8 @@ export default function ResultsScreen() {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [centeringToolVisible, setCenteringToolVisible] = useState(false);
   const [originalCentering, setOriginalCentering] = useState<CenteringMeasurement | null>(null);
+  const [cardValue, setCardValue] = useState<CardValueEstimate | null>(null);
+  const [loadingValue, setLoadingValue] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -106,6 +135,36 @@ export default function ResultsScreen() {
       return null;
     } catch {
       return null;
+    }
+  };
+
+  const fetchCardValue = async (result: GradingResult) => {
+    if (result.cardValue) {
+      setCardValue(result.cardValue);
+      return;
+    }
+    setLoadingValue(true);
+    try {
+      const resp = await apiRequest("POST", "/api/card-value", {
+        cardName: result.cardName,
+        setName: result.setName || result.setInfo,
+        setNumber: result.setNumber,
+        psaGrade: result.psa.grade,
+        bgsGrade: result.beckett.overallGrade,
+        aceGrade: result.ace.overallGrade,
+      });
+      const data = await resp.json();
+      setCardValue(data);
+    } catch {
+      setCardValue({
+        psaValue: "No value data found",
+        bgsValue: "No value data found",
+        aceValue: "No value data found",
+        rawValue: "No value data found",
+        source: "Error fetching values",
+      });
+    } finally {
+      setLoadingValue(false);
     }
   };
 
@@ -173,6 +232,7 @@ export default function ResultsScreen() {
       if (!updatedResult.frontCardBounds || !updatedResult.backCardBounds) {
         detectBoundsForOldCard(updatedGrading);
       }
+      fetchCardValue(updatedResult);
     }
   };
 
@@ -257,8 +317,17 @@ export default function ResultsScreen() {
     })();
 
     const bgsAvg = (bgsCenteringGrade + prevResult.beckett.corners.grade + prevResult.beckett.edges.grade + prevResult.beckett.surface.grade) / 4;
-    const aceAvg = (aceCenteringGrade + prevResult.ace.corners.grade + prevResult.ace.edges.grade + prevResult.ace.surface.grade) / 4;
     const roundHalf = (v: number) => Math.round(v * 2) / 2;
+
+    const aceGrades = [aceCenteringGrade, prevResult.ace.corners.grade, prevResult.ace.edges.grade, prevResult.ace.surface.grade];
+    const aceCount10 = aceGrades.filter(g => g === 10).length;
+    const aceCount9 = aceGrades.filter(g => g === 9).length;
+    let aceOverall: number;
+    if (aceCount10 >= 3 && aceCount9 >= 1 && aceCenteringGrade === 10) {
+      aceOverall = 10;
+    } else {
+      aceOverall = Math.round(aceGrades.reduce((a, b) => a + b, 0) / 4);
+    }
 
     const VALID_PSA = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
     const psaFinal = Math.min(psaCenteringGrade, psaNonCenteringMax);
@@ -283,7 +352,7 @@ export default function ResultsScreen() {
       ace: {
         ...prevResult.ace,
         centering: { grade: aceCenteringGrade, notes: centeringNote },
-        overallGrade: roundHalf(aceAvg),
+        overallGrade: aceOverall,
       },
     };
 
@@ -303,6 +372,9 @@ export default function ResultsScreen() {
   const { result } = grading;
   const annotations = getAnnotations(result);
   const selectedAnnotation = annotations.find((a) => a.area === selectedArea);
+  const displaySetName = result.setName || result.setInfo || "";
+  const displaySetNumber = result.setNumber || "";
+  const gradeSummary = getGradeSummary(result.psa.grade, result.beckett.overallGrade, result.ace.overallGrade);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -351,17 +423,52 @@ export default function ResultsScreen() {
 
           <View style={styles.cardInfo}>
             <Text style={styles.cardName}>{result.cardName || "Pokemon Card"}</Text>
-            {result.setInfo ? (
-              <Text style={styles.setInfo}>{result.setInfo}</Text>
+            {displaySetName ? (
+              <Text style={styles.setName}>{displaySetName}</Text>
             ) : null}
-            <Text style={styles.condition} numberOfLines={2}>{result.overallCondition}</Text>
+            {displaySetNumber ? (
+              <View style={styles.setNumberBadge}>
+                <Text style={styles.setNumberText}>{displaySetNumber}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
-        <View style={styles.gradesSummaryRow}>
-          <GradeCircle grade={result.psa.grade} size={58} color={Colors.cardPSA} label="PSA" />
-          <GradeCircle grade={result.beckett.overallGrade} size={58} color={Colors.cardBeckett} label="BGS" />
-          <GradeCircle grade={result.ace.overallGrade} size={58} color={Colors.cardAce} label="ACE" />
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <Ionicons name="clipboard-outline" size={16} color={Colors.textSecondary} />
+            <Text style={styles.summaryTitle}>Condition Summary</Text>
+          </View>
+          <Text style={styles.summaryText}>{result.overallCondition || gradeSummary}</Text>
+        </View>
+
+        <View style={styles.overallGradesCard}>
+          <Text style={styles.sectionTitle}>Overall Grades</Text>
+          <View style={styles.gradeChips}>
+            <View style={styles.gradeChip}>
+              <Text style={styles.gradeChipLabel}>PSA</Text>
+              <Text style={[styles.gradeChipValue, { color: getGradientColor(result.psa.grade) }]}>
+                {result.psa.grade % 1 === 0 ? result.psa.grade.toString() : result.psa.grade.toFixed(1)}
+              </Text>
+              <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.psa.grade) }]} />
+            </View>
+            <View style={styles.gradeChipDivider} />
+            <View style={styles.gradeChip}>
+              <Text style={styles.gradeChipLabel}>BGS</Text>
+              <Text style={[styles.gradeChipValue, { color: getGradientColor(result.beckett.overallGrade) }]}>
+                {result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade.toString() : result.beckett.overallGrade.toFixed(1)}
+              </Text>
+              <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.beckett.overallGrade) }]} />
+            </View>
+            <View style={styles.gradeChipDivider} />
+            <View style={styles.gradeChip}>
+              <Text style={styles.gradeChipLabel}>ACE</Text>
+              <Text style={[styles.gradeChipValue, { color: getGradientColor(result.ace.overallGrade) }]}>
+                {result.ace.overallGrade}
+              </Text>
+              <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.ace.overallGrade) }]} />
+            </View>
+          </View>
         </View>
 
         <View style={styles.imageRow}>
@@ -387,6 +494,49 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.valueCard}>
+          <View style={styles.valueHeader}>
+            <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
+            <Text style={styles.valueTitle}>Estimated eBay Values</Text>
+          </View>
+          {loadingValue ? (
+            <View style={styles.valueLoading}>
+              <ActivityIndicator color={Colors.primary} size="small" />
+              <Text style={styles.valueLoadingText}>Looking up values...</Text>
+            </View>
+          ) : cardValue ? (
+            <View style={styles.valueGrid}>
+              <View style={styles.valueRow}>
+                <Text style={styles.valueLabel}>PSA {result.psa.grade}</Text>
+                <Text style={[styles.valueAmount, cardValue.psaValue.includes("No value") && styles.valueNA]}>
+                  {cardValue.psaValue}
+                </Text>
+              </View>
+              <View style={styles.valueRow}>
+                <Text style={styles.valueLabel}>BGS {result.beckett.overallGrade}</Text>
+                <Text style={[styles.valueAmount, cardValue.bgsValue.includes("No value") && styles.valueNA]}>
+                  {cardValue.bgsValue}
+                </Text>
+              </View>
+              <View style={styles.valueRow}>
+                <Text style={styles.valueLabel}>ACE {result.ace.overallGrade}</Text>
+                <Text style={[styles.valueAmount, cardValue.aceValue.includes("No value") && styles.valueNA]}>
+                  {cardValue.aceValue}
+                </Text>
+              </View>
+              <View style={[styles.valueRow, styles.valueRowLast]}>
+                <Text style={styles.valueLabel}>Raw (Ungraded)</Text>
+                <Text style={[styles.valueAmount, cardValue.rawValue.includes("No value") && styles.valueNA]}>
+                  {cardValue.rawValue}
+                </Text>
+              </View>
+              <Text style={styles.valueSource}>{cardValue.source}</Text>
+            </View>
+          ) : (
+            <Text style={styles.valueNA}>No value data found</Text>
+          )}
+        </View>
+
         <CenteringCard
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
           onOpenTool={() => setCenteringToolVisible(true)}
@@ -399,7 +549,7 @@ export default function ResultsScreen() {
         <View style={styles.disclaimer}>
           <Ionicons name="information-circle" size={14} color={Colors.textMuted} />
           <Text style={styles.disclaimerText}>
-            AI estimates based on photo analysis. Actual grades may differ.
+            AI estimates based on photo analysis. Actual grades and values may differ.
           </Text>
         </View>
       </ScrollView>
@@ -549,9 +699,9 @@ export default function ResultsScreen() {
               style={({ pressed }) => [
                 styles.modalTab,
                 viewerShowFront && styles.modalTabActive,
-                { opacity: pressed ? 0.7 : 1 },
+                { opacity: pressed ? 0.85 : 1 },
               ]}
-              onPress={() => { setViewerShowFront(true); setSelectedArea(null); }}
+              onPress={() => setViewerShowFront(true)}
             >
               <Text style={[styles.modalTabText, viewerShowFront && styles.modalTabTextActive]}>Front</Text>
             </Pressable>
@@ -559,9 +709,9 @@ export default function ResultsScreen() {
               style={({ pressed }) => [
                 styles.modalTab,
                 !viewerShowFront && styles.modalTabActive,
-                { opacity: pressed ? 0.7 : 1 },
+                { opacity: pressed ? 0.85 : 1 },
               ]}
-              onPress={() => { setViewerShowFront(false); setSelectedArea(null); }}
+              onPress={() => setViewerShowFront(false)}
             >
               <Text style={[styles.modalTabText, !viewerShowFront && styles.modalTabTextActive]}>Back</Text>
             </Pressable>
@@ -681,32 +831,96 @@ const styles = StyleSheet.create({
   cardInfo: {
     flex: 1,
     gap: 6,
+    justifyContent: "center",
   },
   cardName: {
     fontFamily: "Inter_700Bold",
-    fontSize: 18,
+    fontSize: 20,
     color: Colors.text,
   },
-  setInfo: {
+  setName: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textSecondary,
   },
-  condition: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
-  gradesSummaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-evenly",
-    alignItems: "center",
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    paddingVertical: 16,
+  setNumberBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: Colors.surfaceLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
+  },
+  setNumberText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  summaryCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 8,
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  summaryTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  summaryText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  overallGradesCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 14,
+  },
+  sectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  gradeChips: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  gradeChip: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6,
+  },
+  gradeChipDivider: {
+    width: 1,
+    height: 50,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  gradeChipLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  gradeChipValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 28,
+  },
+  gradeBar: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
   },
   imageRow: {
     flexDirection: "row",
@@ -741,6 +955,71 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 12,
     color: "#fff",
+  },
+  valueCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 12,
+  },
+  valueHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  valueTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  valueLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 12,
+  },
+  valueLoadingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  valueGrid: {
+    gap: 0,
+  },
+  valueRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  valueRowLast: {
+    borderBottomWidth: 0,
+  },
+  valueLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  valueAmount: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#10B981",
+  },
+  valueNA: {
+    color: Colors.textMuted,
+    fontFamily: "Inter_400Regular",
+  },
+  valueSource: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: 6,
   },
   disclaimer: {
     flexDirection: "row",

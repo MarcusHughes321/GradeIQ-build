@@ -62,7 +62,7 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
           {item.result.cardName || "Unknown Card"}
         </Text>
         <Text style={styles.histSetInfo} numberOfLines={1}>
-          {item.result.setInfo || "Pokemon Card"}
+          {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
         </Text>
         <Text style={styles.histDate}>{dateStr}</Text>
       </View>

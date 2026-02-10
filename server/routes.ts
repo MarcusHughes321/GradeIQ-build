@@ -46,8 +46,9 @@ Analyze the card images carefully. Look for:
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "cardName": "Name of the Pokemon card if identifiable",
-  "setInfo": "Set name and number if identifiable",
+  "cardName": "Full name of the Pokemon card (e.g. 'Charizard ex')",
+  "setName": "Name of the Pokemon TCG set (e.g. 'Obsidian Flames')",
+  "setNumber": "Card number as shown on the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
   "centering": {
     "frontLeftRight": 52,
@@ -297,8 +298,15 @@ function syncCenteringToGrades(result: any): any {
   if (result.ace) {
     result.ace.centering.grade = aceCentering;
     result.ace.centering.notes = centeringNote;
-    const avg = (aceCentering + result.ace.corners.grade + result.ace.edges.grade + result.ace.surface.grade) / 4;
-    result.ace.overallGrade = roundToWhole(avg);
+    const aceGrades = [aceCentering, result.ace.corners.grade, result.ace.edges.grade, result.ace.surface.grade];
+    const count10 = aceGrades.filter(g => g === 10).length;
+    const count9 = aceGrades.filter(g => g === 9).length;
+    if (count10 >= 3 && count9 >= 1 && aceCentering === 10) {
+      result.ace.overallGrade = 10;
+    } else {
+      const avg = aceGrades.reduce((a, b) => a + b, 0) / 4;
+      result.ace.overallGrade = roundToWhole(avg);
+    }
   }
 
   return result;
@@ -414,6 +422,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error grading card:", error);
       res.status(500).json({ error: error.message || "Failed to grade card" });
+    }
+  });
+
+  app.post("/api/card-value", async (req, res) => {
+    try {
+      const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade } = req.body;
+      if (!cardName) {
+        return res.status(400).json({ error: "Card name is required" });
+      }
+
+      const cardDesc = [cardName, setName, setNumber].filter(Boolean).join(" - ");
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: `You are a Pokemon TCG market analyst. Provide estimated recent eBay sold prices for graded Pokemon cards. Use your knowledge of Pokemon card values from eBay sold listings. Be realistic with prices based on the card's rarity, popularity, and condition.
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "psaValue": "Estimated eBay sold price for PSA graded version (e.g. '$45 - $65')",
+  "bgsValue": "Estimated eBay sold price for BGS graded version (e.g. '$50 - $70')",
+  "aceValue": "Estimated eBay sold price for Ace graded version (e.g. '$30 - $50')",
+  "rawValue": "Estimated eBay sold price for raw/ungraded version (e.g. '$15 - $25')",
+  "source": "Based on recent eBay sold listings"
+}
+
+If you cannot determine a reasonable price estimate for any category, use "No value data found" for that field. For very common cards, prices may be low ($1-$10). For rare/chase cards, prices can be much higher. The grade significantly affects value.`,
+          },
+          {
+            role: "user",
+            content: `What are the estimated recent eBay sold prices for this Pokemon card?\n\nCard: ${cardDesc}\nPSA Grade: ${psaGrade}\nBGS Grade: ${bgsGrade}\nAce Grade: ${aceGrade}`,
+          },
+        ],
+      });
+
+      const content = response.choices[0]?.message?.content || "";
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const valueData = JSON.parse(jsonMatch[0]);
+        res.json(valueData);
+      } else {
+        res.json({
+          psaValue: "No value data found",
+          bgsValue: "No value data found",
+          aceValue: "No value data found",
+          rawValue: "No value data found",
+          source: "Unable to estimate",
+        });
+      }
+    } catch (error: any) {
+      console.error("Error fetching card value:", error);
+      res.json({
+        psaValue: "No value data found",
+        bgsValue: "No value data found",
+        aceValue: "No value data found",
+        rawValue: "No value data found",
+        source: "Error fetching values",
+      });
     }
   });
 

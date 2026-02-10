@@ -45,9 +45,19 @@ export interface AceGrade {
   notes: string;
 }
 
+export interface CardValueEstimate {
+  psaValue: string;
+  bgsValue: string;
+  aceValue: string;
+  rawValue: string;
+  source: string;
+}
+
 export interface GradingResult {
   cardName: string;
-  setInfo: string;
+  setName?: string;
+  setNumber?: string;
+  setInfo?: string;
   overallCondition: string;
   centering: CenteringMeasurement;
   frontCardBounds?: CardBounds;
@@ -55,6 +65,7 @@ export interface GradingResult {
   psa: PSAGrade;
   beckett: BeckettGrade;
   ace: AceGrade;
+  cardValue?: CardValueEstimate;
 }
 
 export interface SavedGrading {

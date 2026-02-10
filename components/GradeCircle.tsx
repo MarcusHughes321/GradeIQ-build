@@ -10,12 +10,19 @@ interface GradeCircleProps {
 }
 
 function getGradeColor(grade: number): string {
-  if (grade >= 9.5) return "#10B981";
-  if (grade >= 9) return "#34D399";
-  if (grade >= 8) return Colors.accent;
-  if (grade >= 7) return Colors.warning;
-  if (grade >= 5) return "#F97316";
-  return Colors.error;
+  const ratio = Math.max(0, Math.min(1, (grade - 1) / 9));
+  if (ratio <= 0.5) {
+    const t = ratio * 2;
+    const r = Math.round(239 + (245 - 239) * t);
+    const g = Math.round(68 + (158 - 68) * t);
+    const b = Math.round(68 + (11 - 68) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  const t = (ratio - 0.5) * 2;
+  const r = Math.round(245 + (16 - 245) * t);
+  const g = Math.round(158 + (185 - 158) * t);
+  const b = Math.round(11 + (129 - 11) * t);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 export default function GradeCircle({ grade, size = 80, color, label }: GradeCircleProps) {
