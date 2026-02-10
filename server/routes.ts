@@ -1151,6 +1151,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function searchEbaySold(query: string): Promise<{ prices: number[]; titles: string[] }> {
+    try {
+      const encoded = encodeURIComponent(query);
+      const url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_sop=13&_ipg=60`;
+      console.log(`[ebay-search] Searching: "${query}"`);
+
+      const resp = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-GB,en;q=0.9",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!resp.ok) {
+        console.log(`[ebay-search] HTTP ${resp.status}`);
+        return { prices: [], titles: [] };
+      }
+
+      const html = await resp.text();
+      const prices: number[] = [];
+      const titles: string[] = [];
+
+      const itemBlocks = html.split(/s-item__wrapper/g).slice(1);
+      for (const block of itemBlocks.slice(0, 20)) {
+        const priceMatch = block.match(/£([\d,]+\.?\d*)/);
+        const titleMatch = block.match(/class="s-item__title"[^>]*>(?:<span[^>]*>)?(.*?)(?:<\/span>)?<\//);
+        if (priceMatch) {
+          const price = parseFloat(priceMatch[1].replace(",", ""));
+          if (price > 0 && price < 100000) {
+            prices.push(price);
+            if (titleMatch) titles.push(titleMatch[1].replace(/<[^>]*>/g, "").trim());
+          }
+        }
+      }
+
+      console.log(`[ebay-search] Found ${prices.length} sold prices for "${query}": ${prices.slice(0, 5).map(p => `£${p}`).join(", ")}${prices.length > 5 ? "..." : ""}`);
+      return { prices, titles };
+    } catch (err: any) {
+      console.log(`[ebay-search] Failed for "${query}": ${err?.message}`);
+      return { prices: [], titles: [] };
+    }
+  }
+
+  function summarizePrices(prices: number[]): string {
+    if (prices.length === 0) return "";
+    const sorted = [...prices].sort((a, b) => a - b);
+    const trimmed = sorted.length > 4 ? sorted.slice(1, -1) : sorted;
+    const min = trimmed[0];
+    const max = trimmed[trimmed.length - 1];
+    const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+    return `£${min.toFixed(0)} - £${max.toFixed(0)} (avg £${avg.toFixed(0)}, ${prices.length} sold)`;
+  }
+
   app.post("/api/card-value", async (req, res) => {
     try {
       const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade } = req.body;
@@ -1160,7 +1215,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Card name is required" });
       }
 
-      const cardDesc = [cardName, setName, setNumber].filter(Boolean).join(" - ");
+      const japaneseSetNames = [
+        "phantasmal flames", "wild blaze", "vmax climax", "vstar universe",
+        "raging surf", "shiny treasure", "pokemon card 151", "crimson haze",
+        "mask of change", "stellar miracle", "battle partners", "eevee heroes",
+        "fusion arts", "star birth", "battle region", "time gazer", "space juggler",
+        "lost abyss", "incandescent arcana", "silver tempest", "scarlet ex",
+        "ruler of the black flame", "terastal fest", "night wanderer",
+        "ancient roar", "future flash", "cyber judge", "wild force",
+        "super electric breaker", "paradise dragona", "surging sparks",
+      ];
+      const setLower = (setName || "").toLowerCase();
+      const hasJapaneseChars = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(cardName + (setName || ""));
+      const isJapaneseSet = hasJapaneseChars || japaneseSetNames.some(n => setLower.includes(n));
+      const cardNumber = (setNumber || "").split("/")[0]?.replace(/^0+/, "") || "";
+
+      console.log(`[card-value] Language: ${isJapaneseSet ? "Japanese" : "English"}`);
+
+      const baseSearch = `${cardName} ${cardNumber ? setNumber : ""} pokemon`.trim();
+      const ebaySearches = [
+        searchEbaySold(`${baseSearch} PSA ${psaGrade}`),
+        searchEbaySold(`${baseSearch} PSA 10`),
+        searchEbaySold(`${baseSearch} BGS ${bgsGrade}`),
+        searchEbaySold(`${baseSearch} BGS 10`),
+        searchEbaySold(`${baseSearch} ACE ${aceGrade}`),
+        searchEbaySold(`${baseSearch} ACE 10`),
+        searchEbaySold(`${baseSearch} raw`),
+      ];
+
+      const [psaResults, psa10Results, bgsResults, bgs10Results, aceResults, ace10Results, rawResults] = await Promise.all(ebaySearches);
+
+      const ebayData = {
+        psaCurrent: summarizePrices(psaResults.prices),
+        psa10: summarizePrices(psa10Results.prices),
+        bgsCurrent: summarizePrices(bgsResults.prices),
+        bgs10: summarizePrices(bgs10Results.prices),
+        aceCurrent: summarizePrices(aceResults.prices),
+        ace10: summarizePrices(ace10Results.prices),
+        raw: summarizePrices(rawResults.prices),
+      };
+
+      console.log("[card-value] eBay data:", ebayData);
+
+      const ebayContext = Object.entries(ebayData)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join("\n");
 
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
@@ -1168,44 +1268,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market price estimator specialising in UK eBay values.
+            content: `You are a Pokemon TCG market price analyst. You will be given a card's details AND real eBay UK sold listing data that was just scraped.
 
-Your job is to ESTIMATE the market value of graded and ungraded Pokemon cards based on your knowledge of the Pokemon TCG market, eBay sold prices, and card rarity/desirability.
+Your job is to interpret the eBay sold data and provide accurate price estimates in GBP.
 
-You will be given: card name, set name, card number, and specific grades from PSA, BGS, and Ace.
-
-JAPANESE SET NAME CROSS-REFERENCE:
-If the set name is Japanese, identify the English equivalent:
-- Phantasmal Flames / Wild Blaze = Flashfire (XY series)
-- VMAX Climax = VMAX Climax (s8b)
-- VSTAR Universe = VSTAR Universe (s12a)
-- Raging Surf = Raging Surf (sv3a)
-- Shiny Treasure ex = Shiny Treasure ex (sv4a)
-- 151 / Pokemon Card 151 = Pokemon Card 151 (sv2a)
-- Mask of Change = Mask of Change (sv6)
-- Stellar Miracle = Stellar Miracle (sv7)
-Japanese printings of popular cards (especially Charizard, Pikachu, Mewtwo) are commonly sold on eBay UK and have clear market values. The Japanese version is usually worth LESS than the English equivalent but still has significant value.
-
-CARD RARITY INDICATORS:
-- Card number HIGHER than set total (e.g., 125/094) = Secret Rare / Ultra Rare = PREMIUM prices
-- Full art, alt art, illustration rare = higher value
-- EX, GX, V, VMAX, VSTAR suffix = typically more valuable than regular cards
-- First edition, shadowless = vintage premium
-
-PRICING KNOWLEDGE:
-You have extensive knowledge of Pokemon TCG market prices. Use it. Consider:
-- The Pokemon species (Charizard is always premium)
-- The card type (secret rare, full art, etc.)
-- The era (vintage WOTC, modern, etc.)
-- The grade (higher = more valuable)
-- Grading company premiums (PSA typically commands highest premium, then BGS, then Ace)
-
-CRITICAL RULES:
-1. You MUST provide price estimates for ALL categories. "No value data found" is only acceptable for extremely obscure cards that genuinely have no market presence.
-2. ANY card featuring Charizard, Pikachu, Mewtwo, Rayquaza, Lugia, Umbreon, or other popular Pokemon WILL have market data — you MUST provide estimates.
-3. Even common cards have value: raw commons ~£0.50-£2, graded commons ~£5-£15.
-4. Price ranges should reflect realistic market variation (e.g., "£150 - £250").
-5. All prices in GBP (£).
+RULES:
+1. Use the REAL eBay data provided as your PRIMARY source. The data shows actual sold prices from eBay UK.
+2. If eBay data is available for a category, base your estimate closely on that data.
+3. If eBay data is missing for a category, estimate based on the data you DO have (e.g., if PSA 10 sold for £X, PSA ${psaGrade} should be proportionally less).
+4. ${isJapaneseSet ? "This is a JAPANESE card — the eBay data reflects Japanese card prices." : "This is an ENGLISH card — the eBay data reflects English card prices."}
+5. Graded cards are ALWAYS worth more than raw. PSA 10 > PSA 9 > PSA 8 etc.
+6. If no eBay data was found at all, use your market knowledge to estimate — but "No value data found" should only be used for genuinely obscure cards.
+7. Price ranges should be tight when good data exists (e.g., "£700 - £800"), wider when estimating (e.g., "£400 - £600").
+8. All prices in GBP (£).
 
 Respond ONLY with valid JSON:
 {
@@ -1221,7 +1296,7 @@ Respond ONLY with valid JSON:
           },
           {
             role: "user",
-            content: `Look up eBay UK sold prices for this Pokemon card:\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nGrades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}\n\nNote: If the set name appears to be Japanese (e.g., "Phantasmal Flames", "Wild Blaze", "VMAX Climax"), also consider the English equivalent set name when estimating prices. Sellers on eBay UK list Japanese Pokemon cards frequently.\n\nIf the card number is higher than the set total (e.g., 125/094), this is a secret rare / ultra rare and commands premium prices.\n\nProvide price estimates for:\n1. PSA ${psaGrade} → psaValue\n2. BGS ${bgsGrade} → bgsValue\n3. Ace ${aceGrade} → aceValue\n4. Raw/ungraded → rawValue\n5. PSA 10 → psa10Value\n6. BGS 10 → bgs10Value\n7. Ace 10 → ace10Value\n\nAll prices in GBP (£). Graded cards sell for MORE than raw. Grade 10 is the most valuable.`,
+            content: `Card: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nGrades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}\n\n${ebayContext ? `REAL eBay UK sold data (just scraped):\n${ebayContext}` : "No eBay sold data found — use your market knowledge to estimate."}\n\nBased on the eBay data above, provide price estimates for each category.`,
           },
         ],
       });
