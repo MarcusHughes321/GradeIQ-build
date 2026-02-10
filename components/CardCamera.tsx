@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,11 +6,12 @@ import {
   Pressable,
   Platform,
   ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import SpiritLevel from "@/components/SpiritLevel";
+import Accelerometer from "expo-sensors/build/Accelerometer";
 import Colors from "@/constants/colors";
 
 interface CardCameraProps {
@@ -19,15 +20,68 @@ interface CardCameraProps {
   onClose: () => void;
 }
 
+const LEVEL_THRESHOLD = 3;
+const BUBBLE_RANGE = 22;
+
 export default function CardCamera({ side, onCapture, onClose }: CardCameraProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
-  const [isLevel, setIsLevel] = useState(false);
   const cameraRef = useRef<any>(null);
 
-  const handleLevelChange = useCallback((level: boolean, _tiltX: number, _tiltY: number) => {
-    setIsLevel(level);
+  const [tiltX, setTiltX] = useState(0);
+  const [tiltY, setTiltY] = useState(0);
+  const [isLevel, setIsLevel] = useState(false);
+  const [accelStatus, setAccelStatus] = useState("init");
+  const subscriptionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      setAccelStatus("web-skip");
+      return;
+    }
+
+    let mounted = true;
+
+    const start = async () => {
+      try {
+        setAccelStatus("checking...");
+        const avail = await Accelerometer.isAvailableAsync();
+        if (!mounted) return;
+
+        if (!avail) {
+          setAccelStatus("not-available");
+          return;
+        }
+
+        setAccelStatus("subscribing...");
+        Accelerometer.setUpdateInterval(100);
+
+        subscriptionRef.current = Accelerometer.addListener(
+          (data: { x: number; y: number; z: number }) => {
+            if (!mounted) return;
+            const tx = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
+            const ty = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
+            setTiltX(tx);
+            setTiltY(ty);
+            setIsLevel(Math.abs(tx) <= LEVEL_THRESHOLD && Math.abs(ty) <= LEVEL_THRESHOLD);
+            setAccelStatus("active");
+          }
+        );
+      } catch (err: any) {
+        if (mounted) setAccelStatus("error: " + (err?.message || String(err)));
+      }
+    };
+
+    start();
+
+    return () => {
+      mounted = false;
+      if (subscriptionRef.current) {
+        subscriptionRef.current.remove();
+        subscriptionRef.current = null;
+      }
+    };
   }, []);
 
   const handleCapture = async () => {
@@ -89,7 +143,10 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
   }
 
   const frameColor = isLevel ? "#10B981" : Colors.primary;
-  const frameBorderColor = isLevel ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.3)";
+  const frameBorderColor = isLevel ? "rgba(16,185,129,0.35)" : "rgba(255,255,255,0.25)";
+  const levelColor = isLevel ? "#10B981" : Colors.primary;
+  const bubbleX = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, tiltX * 2));
+  const bubbleY = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, -tiltY * 2));
 
   return (
     <View style={styles.container}>
@@ -98,7 +155,8 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
         style={StyleSheet.absoluteFill}
         facing="back"
       />
-      <View style={[styles.overlay, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+
+      <View style={[styles.overlay, { paddingTop: insets.top + 12 }]} pointerEvents="box-none">
         <View style={styles.topBar}>
           <Pressable
             onPress={onClose}
@@ -115,7 +173,7 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
           <View style={{ width: 44 }} />
         </View>
 
-        <View style={styles.cardGuide} pointerEvents="none">
+        <View style={styles.centerContent} pointerEvents="none">
           <View style={[styles.cardFrame, { borderColor: frameBorderColor }]}>
             <View style={[styles.corner, styles.cornerTL, { borderTopColor: frameColor, borderLeftColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerTR, { borderTopColor: frameColor, borderRightColor: frameColor }]} />
@@ -124,16 +182,45 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
           </View>
         </View>
 
-        <View style={styles.spiritLevelOverlay} pointerEvents="none">
-          <SpiritLevel visible={true} onLevelChange={handleLevelChange} />
-        </View>
+        {Platform.OS !== "web" && (
+          <View style={[styles.levelBadge, { top: insets.top + 60 }]}>
+            <View style={[styles.levelCircle, { borderColor: levelColor }]}>
+              <View style={styles.crossH} />
+              <View style={styles.crossV} />
+              <View
+                style={[
+                  styles.bubble,
+                  {
+                    backgroundColor: levelColor,
+                    transform: [{ translateX: bubbleX }, { translateY: bubbleY }],
+                  },
+                ]}
+              />
+              <View style={[styles.centerRing, { borderColor: levelColor }]} />
+            </View>
+            <View style={styles.levelLabelRow}>
+              <Ionicons
+                name={isLevel ? "checkmark-circle" : "navigate-outline"}
+                size={12}
+                color={levelColor}
+              />
+              <Text style={[styles.levelLabelText, { color: levelColor }]}>
+                {accelStatus === "active"
+                  ? isLevel
+                    ? "Level"
+                    : `${tiltX}\u00B0 / ${tiltY}\u00B0`
+                  : accelStatus}
+              </Text>
+            </View>
+          </View>
+        )}
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.hintRow}>
             <Text style={styles.hintText}>
               {isLevel
                 ? "Phone is level. Take the photo!"
-                : "Align the card within the frame. Bubble turns green when level."}
+                : "Hold phone flat and parallel to card"}
             </Text>
           </View>
           <View style={styles.captureRow}>
@@ -165,7 +252,7 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
   );
 }
 
-const CORNER_SIZE = 24;
+const CORNER_SIZE = 28;
 const CORNER_WIDTH = 3;
 
 const styles = StyleSheet.create({
@@ -173,9 +260,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#000",
     zIndex: 100,
-  },
-  camera: {
-    flex: 1,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -203,7 +287,8 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-  cardGuide: {
+  centerContent: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -211,8 +296,7 @@ const styles = StyleSheet.create({
     width: 240,
     height: 336,
     borderWidth: 1,
-    borderRadius: 8,
-    position: "relative",
+    borderRadius: 10,
   },
   corner: {
     position: "absolute",
@@ -224,34 +308,82 @@ const styles = StyleSheet.create({
     left: -1,
     borderTopWidth: CORNER_WIDTH,
     borderLeftWidth: CORNER_WIDTH,
-    borderTopLeftRadius: 8,
+    borderTopLeftRadius: 10,
   },
   cornerTR: {
     top: -1,
     right: -1,
     borderTopWidth: CORNER_WIDTH,
     borderRightWidth: CORNER_WIDTH,
-    borderTopRightRadius: 8,
+    borderTopRightRadius: 10,
   },
   cornerBL: {
     bottom: -1,
     left: -1,
     borderBottomWidth: CORNER_WIDTH,
     borderLeftWidth: CORNER_WIDTH,
-    borderBottomLeftRadius: 8,
+    borderBottomLeftRadius: 10,
   },
   cornerBR: {
     bottom: -1,
     right: -1,
     borderBottomWidth: CORNER_WIDTH,
     borderRightWidth: CORNER_WIDTH,
-    borderBottomRightRadius: 8,
+    borderBottomRightRadius: 10,
   },
-  spiritLevelOverlay: {
+  levelBadge: {
     position: "absolute",
-    top: "15%",
     right: 16,
     alignItems: "center",
+    gap: 4,
+  },
+  levelCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    overflow: "hidden",
+  },
+  crossH: {
+    position: "absolute",
+    width: "100%",
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
+  crossV: {
+    position: "absolute",
+    width: StyleSheet.hairlineWidth,
+    height: "100%",
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
+  bubble: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  centerRing: {
+    position: "absolute",
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    opacity: 0.4,
+  },
+  levelLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  levelLabelText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
   },
   bottomBar: {
     paddingHorizontal: 20,

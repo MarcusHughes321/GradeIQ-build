@@ -27,26 +27,35 @@ export default function SpiritLevel({ visible, onLevelChange }: SpiritLevelProps
   onLevelChangeRef.current = onLevelChange;
 
   useEffect(() => {
+    console.log("[SpiritLevel] useEffect fired, visible:", visible, "platform:", Platform.OS);
     if (!visible || Platform.OS === "web") {
       setSensorAvailable(Platform.OS !== "web");
       return;
     }
 
     let mounted = true;
+    let dataCount = 0;
 
     const startListening = async () => {
       try {
+        console.log("[SpiritLevel] Checking accelerometer availability...");
         const available = await Accelerometer.isAvailableAsync();
+        console.log("[SpiritLevel] Accelerometer available:", available);
         if (!available || !mounted) {
           if (mounted) setSensorAvailable(false);
           return;
         }
 
         Accelerometer.setUpdateInterval(80);
+        console.log("[SpiritLevel] Adding accelerometer listener...");
 
         subscriptionRef.current = Accelerometer.addListener(
           (data: { x: number; y: number; z: number }) => {
             if (!mounted) return;
+            dataCount++;
+            if (dataCount <= 3 || dataCount % 50 === 0) {
+              console.log("[SpiritLevel] Accel data #" + dataCount + ":", JSON.stringify(data));
+            }
             const tiltX = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
             const tiltY = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
             setTilt({ x: tiltX, y: tiltY });
@@ -58,7 +67,9 @@ export default function SpiritLevel({ visible, onLevelChange }: SpiritLevelProps
             onLevelChangeRef.current?.(level, tiltX, tiltY);
           }
         );
-      } catch {
+        console.log("[SpiritLevel] Listener added successfully");
+      } catch (err) {
+        console.log("[SpiritLevel] Error starting accelerometer:", err);
         if (mounted) setSensorAvailable(false);
       }
     };
