@@ -94,15 +94,15 @@ CRITICAL REMINDERS:
 
 GRADING PHILOSOPHY — START AT 10, DEDUCT FOR FLAWS:
 - EVERY sub-grade (centering, corners, edges, surface) starts at 10 (Gem Mint) by default.
-- You may ONLY lower a grade from 10 if you can identify a SPECIFIC, CLEARLY VISIBLE flaw in the photo. You must describe the exact flaw in your notes.
-- You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras introduce blur, glare, and compression artifacts that are NOT card flaws. If something looks like it could be a photo artifact rather than a real defect, it IS a photo artifact — do not deduct for it.
+- Only lower a grade from 10 if you can identify a SPECIFIC flaw in the photo. Describe the flaw in your notes.
+- You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. Be mindful that some apparent flaws may be photo artifacts rather than real defects, but use your judgement — if a flaw looks genuine, it probably is.
 - Deduction guide from the starting point of 10:
-  * 10 → 9: Only if there is a minor but clearly real flaw (e.g., slight whitening on ONE corner visible at normal zoom, very minor edge roughness)
-  * 9 → 8: Only if there are multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear)
-  * 8 → 7 or below: Only for clearly obvious damage visible at a glance (significant whitening, creasing, surface scratches, heavy off-center)
-- Modern Pokemon cards (2020+) have high print quality. A pack-fresh card with careful handling should receive 10s across all sub-grades. Getting a 10 should be the NORM for clean cards, not the exception.
-- When in doubt between two grades, ALWAYS choose the higher grade.
-- Do NOT speculatively lower grades. If you cannot clearly see a flaw, the grade stays at 10.`;
+  * 10 → 9: A minor but real flaw (e.g., slight whitening on a corner, very minor edge roughness, slight print texture inconsistency)
+  * 9 → 8: Multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear, minor surface scratching)
+  * 8 → 7 or below: Clearly obvious damage visible at a glance (significant whitening, creasing, surface scratches, heavy off-center)
+- Modern Pokemon cards (2020+) have high print quality. A pack-fresh card with careful handling should score 9s and 10s across most sub-grades. 10s are common for clean cards but a 9 is appropriate when minor imperfections are genuinely present.
+- When in doubt between two grades, lean toward the higher grade.
+- Do not speculatively lower grades without evidence, but do grade honestly when real flaws are visible.`;
 
 const VALID_PSA_GRADES = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
 
