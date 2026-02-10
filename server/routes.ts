@@ -246,9 +246,11 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       queries.push(`number:${rawNumber} set.printedTotal:${setTotal}`);
     }
     if (rawNumber && setName) {
+      queries.push(`number:${rawNumber} set.name:"${setName}"`);
       queries.push(`number:${rawNumber} set.name:"${setName}*"`);
     }
     if (baseName && setName) {
+      queries.push(`name:"${baseName}*" set.name:"${setName}"`);
       queries.push(`name:"${baseName}*" set.name:"${setName}*"`);
     }
     if (baseName) {
@@ -285,14 +287,19 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       if (cardNum === rawNumber) score += 40;
 
       const cardSetName = (card.set?.name || "").toLowerCase();
-      if (setName && cardSetName.includes(setName.toLowerCase().substring(0, 6))) score += 25;
+      const querySetName = (setName || "").toLowerCase();
+      if (querySetName && cardSetName === querySetName) {
+        score += 25;
+      } else if (querySetName && cardSetName.includes(querySetName)) {
+        score += 10;
+      }
 
       const cardTotal = String(card.set?.printedTotal || "");
       if (setTotal) {
         if (cardTotal === setTotal) {
           score += 30;
         } else {
-          score -= 40;
+          score -= 80;
         }
       }
 
