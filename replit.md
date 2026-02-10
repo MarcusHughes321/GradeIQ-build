@@ -89,3 +89,8 @@ server/
 - Always re-detect card bounds when loading a grading result, improving auto-alignment for previously analyzed cards
 - Card number detection: AI prompt now emphasizes reading card number (e.g., 003/007) from bottom of card for accurate identification
 - Card value endpoint uses card number prominently for more accurate eBay pricing
+- 2026-02-10: Grading philosophy updated to "start at 10, deduct for visible flaws" approach
+- eBay pricing prompt updated to search card name + number + set + company + grade for accurate values
+- Added multi-language support: AI reads cards in any language (Japanese, Korean, etc.) and responds with English names/details
+- Enhanced card number reading: AI uses multiple strategies (set symbol cross-reference, partial digit inference, artwork matching) for better accuracy with glare/camera issues
+- Added SpiritLevel component (expo-sensors accelerometer) showing bubble level on grade screen to help users hold phone flat and parallel to card

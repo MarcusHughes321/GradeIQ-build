@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet, Platform, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Accelerometer from "expo-sensors/build/Accelerometer";
 import Colors from "@/constants/colors";
 
 interface SpiritLevelProps {
@@ -28,28 +29,24 @@ export default function SpiritLevel({ visible }: SpiritLevelProps) {
       return;
     }
 
-    let Accelerometer: any;
     try {
-      Accelerometer = require("expo-sensors").Accelerometer;
+      Accelerometer.setUpdateInterval(100);
+
+      subscriptionRef.current = Accelerometer.addListener(
+        (data: { x: number; y: number; z: number }) => {
+          const tiltX = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
+          const tiltY = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
+          setTilt({ x: tiltX, y: tiltY });
+
+          const level =
+            Math.abs(tiltX) <= LEVEL_THRESHOLD &&
+            Math.abs(tiltY) <= LEVEL_THRESHOLD;
+          setIsLevel(level);
+        }
+      );
     } catch {
       setSensorAvailable(false);
-      return;
     }
-
-    Accelerometer.setUpdateInterval(100);
-
-    subscriptionRef.current = Accelerometer.addListener(
-      (data: { x: number; y: number; z: number }) => {
-        const tiltX = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
-        const tiltY = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
-        setTilt({ x: tiltX, y: tiltY });
-
-        const level =
-          Math.abs(tiltX) <= LEVEL_THRESHOLD &&
-          Math.abs(tiltY) <= LEVEL_THRESHOLD;
-        setIsLevel(level);
-      }
-    );
 
     return () => {
       if (subscriptionRef.current) {
