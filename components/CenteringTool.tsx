@@ -396,28 +396,28 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   const steps = [
     {
       icon: "move-outline" as const,
-      title: "Move the lines",
-      desc: "Switch to \"Move Lines\" mode, then drag the coloured handles to align the outer lines with the card edge and inner lines with the artwork border.",
-    },
-    {
-      icon: "hand-left-outline" as const,
-      title: "Pan & Zoom",
-      desc: "Switch to \"Pan / Zoom\" mode to pinch-zoom in for precision. Drag with one finger to pan around the image when zoomed.",
+      title: "Lines / Pan button",
+      desc: "Toggles between two modes. \"Lines\" mode lets you drag the coloured handles to align lines with the card edge and artwork border. \"Pan\" mode lets you pinch-zoom and drag to pan around.",
     },
     {
       icon: "sync-outline" as const,
-      title: "Rotate",
-      desc: "Tap the rotate icon to show the rotation slider. Use it to straighten your card if the photo is slightly tilted.",
+      title: "Rotate button",
+      desc: "Opens the rotation slider below the controls. Use it to manually straighten your card if the photo is slightly tilted. Tap \u2212 or + for fine 0.5\u00B0 adjustments.",
     },
     {
       icon: "magnet-outline" as const,
-      title: "Auto-Straighten",
-      desc: "Tap the magic wand icon to automatically detect and correct the card's tilt based on the bottom edge.",
+      title: "Straighten button",
+      desc: "Automatically detects the card's tilt by analysing the bottom edge and applies the correction. Works best on cards placed on a contrasting background.",
     },
     {
       icon: "refresh" as const,
-      title: "Reset",
-      desc: "Tap the reset icon to restore the original line positions and rotation from the AI analysis.",
+      title: "Reset button",
+      desc: "Restores all line positions and rotation back to the original AI-detected values.",
+    },
+    {
+      icon: "color-palette-outline" as const,
+      title: "Line colours",
+      desc: "Red/blue lines mark the card's outer edges. Green/yellow lines mark the artwork border inside the card. The gap between them is the centering measurement.",
     },
   ];
 
@@ -632,13 +632,26 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     onSave({ frontLeftRight: fr.lr, frontTopBottom: fr.tb, backLeftRight: br.lr, backTopBottom: br.tb });
   };
 
+  const getBase64FromUri = async (uri: string): Promise<string> => {
+    if (uri.startsWith("data:")) return uri;
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
   const handleAutoStraighten = async () => {
     const imageUri = showFront ? frontImage : backImage;
     if (!imageUri || autoStraightening) return;
 
     setAutoStraightening(true);
     try {
-      const response = await apiRequest("POST", "/api/detect-angle", { image: imageUri });
+      const base64 = await getBase64FromUri(imageUri);
+      const response = await apiRequest("POST", "/api/detect-angle", { image: base64 });
       const data = await response.json();
       const angle = data.angle || 0;
 
@@ -936,29 +949,32 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           </View>
           <Pressable
             onPress={() => setPanLocked(p => !p)}
-            style={({ pressed }) => [styles.lockBtn, panLocked && styles.lockBtnActive, { opacity: pressed ? 0.6 : 1 }]}
+            style={({ pressed }) => [styles.labelBtn, panLocked && styles.labelBtnActive, { opacity: pressed ? 0.6 : 1 }]}
           >
-            <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={14} color={panLocked ? "#fff" : Colors.textMuted} />
-            <Text style={[styles.lockBtnText, panLocked && styles.lockBtnTextActive]}>
+            <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={15} color={panLocked ? "#fff" : Colors.textMuted} />
+            <Text style={[styles.labelBtnText, panLocked && styles.labelBtnTextActive]}>
               {panLocked ? "Lines" : "Pan"}
             </Text>
           </Pressable>
-          <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.toolBtn, showRotation && styles.toolBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
-            <Ionicons name="sync-outline" size={16} color={showRotation ? "#fff" : Colors.textMuted} />
+          <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.labelBtn, showRotation && styles.labelBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="sync-outline" size={15} color={showRotation ? "#fff" : Colors.textMuted} />
+            <Text style={[styles.labelBtnText, showRotation && styles.labelBtnTextActive]}>Rotate</Text>
           </Pressable>
           <Pressable
             onPress={handleAutoStraighten}
             disabled={autoStraightening}
-            style={({ pressed }) => [styles.toolBtn, { opacity: autoStraightening ? 0.4 : pressed ? 0.6 : 1 }]}
+            style={({ pressed }) => [styles.labelBtn, { opacity: autoStraightening ? 0.4 : pressed ? 0.6 : 1 }]}
           >
             {autoStraightening ? (
               <ActivityIndicator size="small" color={Colors.primary} />
             ) : (
-              <Ionicons name="magnet-outline" size={16} color={Colors.textMuted} />
+              <Ionicons name="magnet-outline" size={15} color={Colors.textMuted} />
             )}
+            <Text style={styles.labelBtnText}>Straighten</Text>
           </Pressable>
-          <Pressable onPress={handleReset} style={({ pressed }) => [styles.toolBtn, { opacity: pressed ? 0.6 : 1 }]}>
-            <Ionicons name="refresh" size={16} color={Colors.textMuted} />
+          <Pressable onPress={handleReset} style={({ pressed }) => [styles.labelBtn, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="refresh" size={15} color={Colors.textMuted} />
+            <Text style={styles.labelBtnText}>Reset</Text>
           </Pressable>
         </View>
 
@@ -1027,12 +1043,10 @@ const styles = StyleSheet.create({
   sideBtnActive: { backgroundColor: Colors.primary },
   sideBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.textMuted },
   sideBtnTextActive: { color: "#fff" },
-  lockBtn: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, height: 36, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)" },
-  lockBtnActive: { backgroundColor: Colors.primary },
-  lockBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textMuted },
-  lockBtnTextActive: { color: "#fff" },
-  toolBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
-  toolBtnActive: { backgroundColor: "rgba(255,255,255,0.18)" },
+  labelBtn: { alignItems: "center" as const, justifyContent: "center" as const, gap: 2, height: 40, paddingHorizontal: 8, minWidth: 44, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)" },
+  labelBtnActive: { backgroundColor: Colors.primary },
+  labelBtnText: { fontFamily: "Inter_500Medium", fontSize: 9, color: Colors.textMuted },
+  labelBtnTextActive: { color: "#fff" },
   rotRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, paddingHorizontal: 4 },
   rotBtn: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
   rotTrack: { flex: 1, height: 26, justifyContent: "center", position: "relative" },

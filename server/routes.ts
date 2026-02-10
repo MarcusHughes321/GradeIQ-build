@@ -364,12 +364,12 @@ async function detectCardAngle(dataUri: string): Promise<number> {
       );
     };
 
-    const EDGE_THRESHOLD = 25;
-    const NUM_SAMPLES = 20;
-    const scanXStart = Math.round(sw * 0.15);
-    const scanXEnd = Math.round(sw * 0.85);
-    const scanYStart = Math.round(sh * 0.55);
-    const scanYEnd = Math.round(sh * 0.95);
+    const EDGE_THRESHOLD = 18;
+    const NUM_SAMPLES = 30;
+    const scanXStart = Math.round(sw * 0.2);
+    const scanXEnd = Math.round(sw * 0.8);
+    const scanYStart = Math.round(sh * 0.5);
+    const scanYEnd = Math.round(sh * 0.98);
 
     const edgePoints: { x: number; y: number }[] = [];
     const xStep = (scanXEnd - scanXStart) / (NUM_SAMPLES - 1);
@@ -385,7 +385,7 @@ async function detectCardAngle(dataUri: string): Promise<number> {
           bestGrad = gy;
           bestY = y;
         }
-        if (bestY >= 0 && y < bestY - 5) break;
+        if (bestY >= 0 && y < bestY - 8) break;
       }
 
       if (bestY >= 0) {
@@ -393,12 +393,17 @@ async function detectCardAngle(dataUri: string): Promise<number> {
       }
     }
 
-    if (edgePoints.length < 5) return 0;
+    if (edgePoints.length < 6) return 0;
 
-    const medianY = [...edgePoints].sort((a, b) => a.y - b.y)[Math.floor(edgePoints.length / 2)].y;
-    const filtered = edgePoints.filter(p => Math.abs(p.y - medianY) < sh * 0.05);
+    const sortedByY = [...edgePoints].sort((a, b) => a.y - b.y);
+    const q1 = sortedByY[Math.floor(edgePoints.length * 0.25)].y;
+    const q3 = sortedByY[Math.floor(edgePoints.length * 0.75)].y;
+    const iqr = q3 - q1;
+    const tolerance = Math.max(iqr * 1.5, sh * 0.03);
+    const medianY = sortedByY[Math.floor(edgePoints.length / 2)].y;
+    const filtered = edgePoints.filter(p => Math.abs(p.y - medianY) < tolerance);
 
-    if (filtered.length < 4) return 0;
+    if (filtered.length < 5) return 0;
 
     const n = filtered.length;
     const sumX = filtered.reduce((s, p) => s + p.x, 0);
