@@ -8,6 +8,7 @@ import {
   Alert,
   Platform,
   Dimensions,
+  TextInput,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -79,9 +80,20 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [gradings, setGradings] = useState<SavedGrading[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  const filteredGradings = searchQuery.trim()
+    ? gradings.filter((g) => {
+        const q = searchQuery.toLowerCase();
+        const name = (g.result.cardName || "").toLowerCase();
+        const setName = (g.result.setName || g.result.setInfo || "").toLowerCase();
+        const setNum = (g.result.setNumber || "").toLowerCase();
+        return name.includes(q) || setName.includes(q) || setNum.includes(q);
+      })
+    : gradings;
 
   useFocusEffect(
     useCallback(() => {
@@ -137,16 +149,37 @@ export default function HomeScreen() {
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent Grades</Text>
         {gradings.length > 0 && (
-          <Text style={styles.sectionCount}>{gradings.length} cards</Text>
+          <Text style={styles.sectionCount}>{searchQuery ? `${filteredGradings.length} of ${gradings.length}` : `${gradings.length} cards`}</Text>
         )}
       </View>
+
+      {gradings.length > 0 && (
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={16} color={Colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name, set, or number..."
+            placeholderTextColor={Colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+          {searchQuery.length > 0 && Platform.OS !== "ios" && (
+            <Pressable onPress={() => setSearchQuery("")} style={styles.searchClear}>
+              <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+      )}
     </>
   );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <FlatList
-        data={gradings}
+        data={filteredGradings}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.itemPad}>
@@ -282,6 +315,33 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    marginHorizontal: BUBBLE_PAD,
+    marginBottom: 14,
+    paddingHorizontal: 12,
+    height: 40,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.text,
+    height: 40,
+    padding: 0,
+  },
+  searchClear: {
+    padding: 4,
+    marginLeft: 4,
   },
   emptyState: {
     alignItems: "center",
