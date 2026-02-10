@@ -586,8 +586,10 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return avgX;
     };
 
-    const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): number => {
-      const totalScanCols = Math.floor((xEnd - xStart) / 1);
+    const findEdgeRow = (startY: number, endY: number, step: number): number => {
+      const scanXStart = Math.round(sw * 0.1);
+      const scanXEnd = Math.round(sw * 0.9);
+      const totalScanCols = Math.floor((scanXEnd - scanXStart) / 1);
       const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
 
       const rows: { y: number; score: number; votes: number }[] = [];
@@ -595,7 +597,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let x = xStart; x < xEnd; x += 1) {
+        for (let x = scanXStart; x < scanXEnd; x += 1) {
           const gy = Math.abs(sobelY(x, y));
           if (gy >= EDGE_THRESHOLD) {
             votes++;
@@ -609,19 +611,19 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
       if (rows.length === 0) return startY;
 
-      rows.sort((a, b) => b.score - a.score);
-      const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.1)));
+      const scoreThreshold = rows.reduce((max, r) => Math.max(max, r.score), 0) * 0.4;
+      const strong = rows.filter(r => r.score >= scoreThreshold);
 
       if (step > 0) {
-        topN.sort((a, b) => a.y - b.y);
+        strong.sort((a, b) => a.y - b.y);
       } else {
-        topN.sort((a, b) => b.y - a.y);
+        strong.sort((a, b) => b.y - a.y);
       }
 
-      let cluster: number[] = [topN[0].y];
-      for (let i = 1; i < topN.length; i++) {
-        if (Math.abs(topN[i].y - topN[0].y) <= 3) {
-          cluster.push(topN[i].y);
+      let cluster: number[] = [strong[0].y];
+      for (let i = 1; i < strong.length; i++) {
+        if (Math.abs(strong[i].y - strong[0].y) <= 3) {
+          cluster.push(strong[i].y);
         }
       }
 
@@ -631,13 +633,8 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
     const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
     const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
-
-    const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
-    const rowScanXStart = Math.round(leftCol + cardInsetX);
-    const rowScanXEnd = Math.round(rightCol - cardInsetX);
-
-    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1, rowScanXStart, rowScanXEnd);
-    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1, rowScanXStart, rowScanXEnd);
+    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1);
+    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1);
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;
