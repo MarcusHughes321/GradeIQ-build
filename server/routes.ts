@@ -44,15 +44,30 @@ Analyze the card images carefully. Look for:
 3. Edges - look for whitening, chipping, or rough cuts along all edges. Factory-level minor edge variation is acceptable for high grades.
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects. Minor factory print texture or very faint print lines common to modern Pokemon cards should not lower surface grades below 9.
 
+LANGUAGE HANDLING:
+- Pokemon cards exist in MANY languages: English, Japanese, Korean, Chinese, French, German, Spanish, Italian, Portuguese, etc.
+- You MUST identify the card regardless of what language it is printed in.
+- ALWAYS respond with the ENGLISH name of the Pokemon, set name, and all text fields, even if the card is in another language.
+- For example: a Japanese card showing "リザードンex" should be reported as "Charizard ex" in cardName.
+- Use the artwork, card number, set symbol, and your knowledge of Pokemon TCG releases across all languages to identify the card.
+
 CRITICAL FOR CARD IDENTIFICATION:
 - You MUST read the card number printed at the bottom of the card (e.g., '003/007', '012/220', '151/165'). This is the definitive identifier.
+- The card number is typically in the bottom-left or bottom-right corner of the card face. Look carefully at BOTH corners.
+- Card numbers can be hard to read due to camera angle, glare, small font, or holographic effects. Use these strategies:
+  * Look for the "/" character that separates the card number from the set total (e.g., 012/220)
+  * Japanese cards may use different formatting (e.g., '003/007' or 'S1a 003/007')
+  * Some promo cards have different numbering (e.g., 'SWSH039' or 'SVP 050')
+  * If the number is partially obscured, use the visible digits plus the set symbol to narrow down the exact card
+  * Cross-reference the Pokemon shown, the artwork style, and any visible set symbols to confirm the card number
 - Use this card number along with any visible set symbols/logos to determine the EXACT card, set name, and set number.
 - Do NOT guess the card based only on the Pokemon name or artwork - many Pokemon have multiple cards across different sets. The card number is the ground truth.
+- If you genuinely cannot read the card number, state what you CAN see and make your best determination from the artwork, set symbol, and other visible details.
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "cardName": "Full name of the Pokemon card exactly as printed (e.g. 'Charizard ex')",
-  "setName": "Name of the Pokemon TCG set determined from set symbol and card number (e.g. 'Obsidian Flames')",
+  "cardName": "ENGLISH name of the Pokemon card (e.g. 'Charizard ex') - translate if card is in another language",
+  "setName": "ENGLISH name of the Pokemon TCG set (e.g. 'Obsidian Flames') - use the international English set name",
   "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
   "centering": {
