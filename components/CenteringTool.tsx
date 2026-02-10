@@ -650,16 +650,56 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     const nw = nat.w || containerSize.height * CARD_ASPECT_RATIO;
     const nh = nat.h || containerSize.height;
     const imgBounds = calcContainBounds(containerSize.width, containerSize.height, nw, nh);
-    const cent = showFront
-      ? { lr: centering.frontLeftRight, tb: centering.frontTopBottom }
-      : { lr: centering.backLeftRight, tb: centering.backTopBottom };
-    const newPos = initPositions(cent.lr, cent.tb, imgBounds, newBounds);
+
+    const currentPos = showFront ? frontPos : backPos;
+
+    const newOuterLeft = imgBounds.x + imgBounds.w * (newBounds.leftPercent / 100);
+    const newOuterRight = imgBounds.x + imgBounds.w * (newBounds.rightPercent / 100);
+    const newOuterTop = imgBounds.y + imgBounds.h * (newBounds.topPercent / 100);
+    const newOuterBottom = imgBounds.y + imgBounds.h * (newBounds.bottomPercent / 100);
+
+    let innerLeftOffset: number;
+    let innerRightOffset: number;
+    let innerTopOffset: number;
+    let innerBottomOffset: number;
+
+    if (currentPos) {
+      const oldCardW = currentPos.outerRight - currentPos.outerLeft;
+      const oldCardH = currentPos.outerBottom - currentPos.outerTop;
+      const newCardW = newOuterRight - newOuterLeft;
+      const newCardH = newOuterBottom - newOuterTop;
+      const scaleX = oldCardW > 0 ? newCardW / oldCardW : 1;
+      const scaleY = oldCardH > 0 ? newCardH / oldCardH : 1;
+      innerLeftOffset = (currentPos.innerLeft - currentPos.outerLeft) * scaleX;
+      innerRightOffset = (currentPos.outerRight - currentPos.innerRight) * scaleX;
+      innerTopOffset = (currentPos.innerTop - currentPos.outerTop) * scaleY;
+      innerBottomOffset = (currentPos.outerBottom - currentPos.innerBottom) * scaleY;
+    } else {
+      const cardW = newOuterRight - newOuterLeft;
+      const cardH = newOuterBottom - newOuterTop;
+      innerLeftOffset = cardW * 0.05;
+      innerRightOffset = cardW * 0.05;
+      innerTopOffset = cardH * 0.035;
+      innerBottomOffset = cardH * 0.035;
+    }
+
+    const newPos: BorderPositions = {
+      outerLeft: Math.max(newOuterLeft, MIN_LINE_MARGIN),
+      innerLeft: newOuterLeft + innerLeftOffset,
+      innerRight: newOuterRight - innerRightOffset,
+      outerRight: Math.min(newOuterRight, imgBounds.x + imgBounds.w - MIN_LINE_MARGIN),
+      outerTop: Math.max(newOuterTop, MIN_LINE_MARGIN),
+      innerTop: newOuterTop + innerTopOffset,
+      innerBottom: newOuterBottom - innerBottomOffset,
+      outerBottom: Math.min(newOuterBottom, imgBounds.y + imgBounds.h - MIN_LINE_MARGIN),
+    };
+
     if (showFront) {
       setFrontPos(newPos);
     } else {
       setBackPos(newPos);
     }
-  }, [containerSize, showFront, frontNatural, backNatural, centering]);
+  }, [containerSize, showFront, frontNatural, backNatural, frontPos, backPos]);
 
   const handleAutoStraighten = async () => {
     const imageUri = showFront ? frontImage : backImage;
