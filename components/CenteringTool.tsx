@@ -644,6 +644,23 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     });
   };
 
+  const repositionLinesWithBounds = useCallback((newBounds: CardBounds) => {
+    if (containerSize.width <= 0) return;
+    const nat = showFront ? frontNatural : backNatural;
+    const nw = nat.w || containerSize.height * CARD_ASPECT_RATIO;
+    const nh = nat.h || containerSize.height;
+    const imgBounds = calcContainBounds(containerSize.width, containerSize.height, nw, nh);
+    const cent = showFront
+      ? { lr: centering.frontLeftRight, tb: centering.frontTopBottom }
+      : { lr: centering.backLeftRight, tb: centering.backTopBottom };
+    const newPos = initPositions(cent.lr, cent.tb, imgBounds, newBounds);
+    if (showFront) {
+      setFrontPos(newPos);
+    } else {
+      setBackPos(newPos);
+    }
+  }, [containerSize, showFront, frontNatural, backNatural, centering]);
+
   const handleAutoStraighten = async () => {
     const imageUri = showFront ? frontImage : backImage;
     if (!imageUri || autoStraightening) return;
@@ -651,8 +668,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     setAutoStraightening(true);
     try {
       const base64 = await getBase64FromUri(imageUri);
-      const bounds = showFront ? frontCardBounds : backCardBounds;
-      const response = await apiRequest("POST", "/api/detect-angle", { image: base64, bounds });
+      const currentBounds = showFront ? frontCardBounds : backCardBounds;
+      const response = await apiRequest("POST", "/api/detect-angle", { image: base64, bounds: currentBounds });
       const data = await response.json();
       const angle = data.angle || 0;
 
@@ -660,6 +677,14 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       const newRotation = Math.max(-15, Math.min(15, Math.round(correctedAngle * 10) / 10));
       setRotation(newRotation);
       setShowRotation(true);
+
+      try {
+        const boundsResp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
+        const newBounds = await boundsResp.json();
+        if (newBounds && newBounds.leftPercent !== undefined) {
+          repositionLinesWithBounds(newBounds);
+        }
+      } catch {}
     } catch (err) {
       console.error("Auto-straighten failed:", err);
       setShowRotation(true);
