@@ -8,6 +8,93 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
+interface CachedSet {
+  id: string;
+  name: string;
+  series: string;
+  printedTotal: number;
+  total: number;
+  ptcgoCode: string;
+  releaseDate: string;
+}
+
+let cachedSets: CachedSet[] = [];
+let setsLastFetched = 0;
+const SET_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+async function fetchAndCacheSets(): Promise<void> {
+  try {
+    console.log(`[set-cache] Fetching all sets from Pokemon TCG API...`);
+    const resp = await fetch(
+      "https://api.pokemontcg.io/v2/sets?select=id,name,series,printedTotal,total,ptcgoCode,releaseDate&pageSize=250&orderBy=releaseDate",
+      { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+    );
+    if (!resp.ok) {
+      console.log(`[set-cache] API returned ${resp.status}`);
+      return;
+    }
+    const data = await resp.json() as any;
+    cachedSets = (data?.data || []).map((s: any) => ({
+      id: s.id || "",
+      name: s.name || "",
+      series: s.series || "",
+      printedTotal: s.printedTotal || 0,
+      total: s.total || 0,
+      ptcgoCode: s.ptcgoCode || "",
+      releaseDate: s.releaseDate || "",
+    }));
+    setsLastFetched = Date.now();
+    console.log(`[set-cache] Cached ${cachedSets.length} sets`);
+  } catch (e: any) {
+    console.log(`[set-cache] Failed to fetch sets: ${e?.message}`);
+  }
+}
+
+async function ensureSetsCached(): Promise<CachedSet[]> {
+  if (cachedSets.length === 0 || Date.now() - setsLastFetched > SET_CACHE_TTL) {
+    await fetchAndCacheSets();
+  }
+  return cachedSets;
+}
+
+function findSetsByTotal(printedTotal: number): CachedSet[] {
+  return cachedSets.filter(s => s.printedTotal === printedTotal || s.total === printedTotal);
+}
+
+function findSetByName(name: string): CachedSet | null {
+  const lower = name.toLowerCase().replace(/[—–-]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+  let best: CachedSet | null = null;
+  let bestScore = 0;
+  for (const s of cachedSets) {
+    const sLower = s.name.toLowerCase().replace(/[—–-]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+    if (sLower === lower) return s;
+    if (sLower.includes(lower) || lower.includes(sLower)) {
+      const score = Math.min(sLower.length, lower.length) / Math.max(sLower.length, lower.length);
+      if (score > bestScore) { bestScore = score; best = s; }
+    }
+    const sWords = sLower.split(/\s+/);
+    const nWords = lower.split(/\s+/);
+    const overlap = sWords.filter((w: string) => nWords.includes(w)).length;
+    const wordScore = overlap / Math.max(sWords.length, nWords.length);
+    if (wordScore > 0.5 && wordScore > bestScore) { bestScore = wordScore; best = s; }
+  }
+  return bestScore > 0.4 ? best : null;
+}
+
+function findSetByCode(code: string): CachedSet | null {
+  const lower = code.toLowerCase();
+  return cachedSets.find(s => s.id.toLowerCase() === lower || s.ptcgoCode.toLowerCase() === lower) || null;
+}
+
+function validateCardInSet(cardNumber: number, setTotal: number): CachedSet[] {
+  return cachedSets.filter(s =>
+    cardNumber <= (s.total || s.printedTotal) &&
+    (s.printedTotal === setTotal || s.total === setTotal)
+  );
+}
+
+fetchAndCacheSets();
+
 const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), and Ace Grading. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
 
 IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
@@ -225,24 +312,60 @@ function scoreName(apiName: string, aiName: string): number {
   return 0;
 }
 
-async function lookupCardOnline(cardName: string, setNumber: string, setName: string, setCode?: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
+async function lookupCardOnline(cardName: string, setNumber: string, setName: string, setCode?: string): Promise<{ cardName: string; setName: string; setNumber: string; _score?: number } | null> {
   try {
+    await ensureSetsCached();
+
     const rawNumber = setNumber?.split("/")[0]?.replace(/^0+/, "") || "";
     const setTotal = setNumber?.split("/")[1]?.replace(/^0+/, "") || "";
     const baseName = stripSuffix(cardName);
+    const numericTotal = parseInt(setTotal) || 0;
+    const numericNumber = parseInt(rawNumber) || 0;
+
+    const resolvedSet = setCode ? findSetByCode(setCode) : null;
+    const namedSet = setName ? findSetByName(setName) : null;
+    const matchingSets = numericTotal > 0 ? findSetsByTotal(numericTotal) : [];
+
+    const isKnownSet = !!(resolvedSet || namedSet || matchingSets.length > 0);
+    const setIsJapaneseOnly = setCode && !resolvedSet && /^s\d|^sv\d|^sm\d/.test(setCode.toLowerCase());
+
+    if (resolvedSet) {
+      console.log(`[card-lookup] Set code "${setCode}" resolved to: ${resolvedSet.name} (${resolvedSet.id}, total=${resolvedSet.printedTotal})`);
+    } else if (namedSet) {
+      console.log(`[card-lookup] Set name "${setName}" matched to: ${namedSet.name} (${namedSet.id}, total=${namedSet.printedTotal})`);
+    } else if (matchingSets.length > 0) {
+      console.log(`[card-lookup] ${matchingSets.length} sets match total=${numericTotal}: ${matchingSets.map(s => s.name).join(", ")}`);
+    } else if (setIsJapaneseOnly) {
+      console.log(`[card-lookup] Set code "${setCode}" appears to be Japanese-only, will search by name+number`);
+    } else {
+      console.log(`[card-lookup] No cached set match for name="${setName}" code="${setCode || "none"}" total=${numericTotal}`);
+    }
 
     console.log(`[card-lookup] Looking up: name="${cardName}" number="${rawNumber}" total="${setTotal}" set="${setName}" code="${setCode || "none"}"`);
 
     const queries: string[] = [];
 
-    if (setCode && rawNumber) {
+    const effectiveSetId = resolvedSet?.id || namedSet?.id || "";
+    const effectiveSetCode = resolvedSet?.ptcgoCode || namedSet?.ptcgoCode || "";
+
+    if (effectiveSetId && rawNumber) {
+      queries.push(`set.id:"${effectiveSetId}" number:${rawNumber}`);
+    }
+    if (effectiveSetCode && rawNumber) {
+      queries.push(`set.ptcgoCode:"${effectiveSetCode}" number:${rawNumber}`);
+    }
+    if (setCode && rawNumber && setCode !== effectiveSetId) {
       queries.push(`set.id:"${setCode}*" number:${rawNumber}`);
       queries.push(`set.ptcgoCode:"${setCode}*" number:${rawNumber}`);
     }
     if (rawNumber && baseName) {
       queries.push(`number:${rawNumber} name:"${baseName}*"`);
     }
-    if (rawNumber && setTotal) {
+    if (rawNumber && numericTotal > 0 && matchingSets.length > 0 && matchingSets.length <= 5) {
+      for (const ms of matchingSets) {
+        queries.push(`number:${rawNumber} set.id:"${ms.id}"`);
+      }
+    } else if (rawNumber && setTotal) {
       queries.push(`number:${rawNumber} set.printedTotal:${setTotal}`);
     }
     if (rawNumber && setName) {
@@ -279,6 +402,8 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
     let bestCard = allCards[0];
     let bestScore = -1;
 
+    const resolvedSetId = (resolvedSet?.id || namedSet?.id || "").toLowerCase();
+
     for (const card of allCards) {
       const nameScore = scoreName(card.name || "", cardName);
       let score = nameScore * 1.5;
@@ -286,10 +411,15 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       const cardNum = String(card.number || "").replace(/^0+/, "");
       if (cardNum === rawNumber) score += 30;
 
+      const cardSetId = (card.set?.id || "").toLowerCase();
       const cardSetName = (card.set?.name || "").toLowerCase();
       const querySetName = (setName || "").toLowerCase();
       let setMatched = false;
-      if (querySetName && cardSetName === querySetName) {
+
+      if (resolvedSetId && cardSetId === resolvedSetId) {
+        score += 35;
+        setMatched = true;
+      } else if (querySetName && cardSetName === querySetName) {
         score += 20;
         setMatched = true;
       } else if (querySetName && (cardSetName.includes(querySetName) || querySetName.includes(cardSetName))) {
@@ -297,12 +427,17 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
         setMatched = true;
       }
 
-      const cardTotal = String(card.set?.printedTotal || "");
-      if (setTotal) {
-        if (cardTotal === setTotal) {
+      const cardTotal = card.set?.printedTotal || 0;
+      if (numericTotal > 0) {
+        if (cardTotal === numericTotal) {
           score += 20;
         } else {
-          score -= 10;
+          const cachedSet = findSetByName(card.set?.name || "");
+          if (cachedSet && numericNumber <= cachedSet.total) {
+            score -= 5;
+          } else {
+            score -= 15;
+          }
         }
       }
 
