@@ -50,6 +50,9 @@ export interface CardValueEstimate {
   bgsValue: string;
   aceValue: string;
   rawValue: string;
+  psa10Value?: string;
+  bgs10Value?: string;
+  ace10Value?: string;
   source: string;
 }
 

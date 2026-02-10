@@ -111,6 +111,7 @@ export default function ResultsScreen() {
   const [cardValue, setCardValue] = useState<CardValueEstimate | null>(null);
   const [loadingValue, setLoadingValue] = useState(false);
   const [reAnalysing, setReAnalysing] = useState(false);
+  const [reAnalyseStage, setReAnalyseStage] = useState("");
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -269,15 +270,27 @@ export default function ResultsScreen() {
   const handleReAnalyse = async () => {
     if (!grading || reAnalysing) return;
     setReAnalysing(true);
+    setReAnalyseStage("Preparing images...");
     try {
       const [frontBase64, backBase64] = await Promise.all([
         getBase64FromUri(grading.frontImage),
         getBase64FromUri(grading.backImage),
       ]);
-      const resp = await apiRequest("POST", "/api/grade-card", {
+      setReAnalyseStage("Analysing card condition...");
+      const stageTimer = setTimeout(() => setReAnalyseStage("Grading corners, edges & surface..."), 4000);
+      const stageTimer2 = setTimeout(() => setReAnalyseStage("Calculating grades..."), 8000);
+      const stageTimer3 = setTimeout(() => setReAnalyseStage("Almost done..."), 12000);
+      const resp = await apiRequest("POST", "/api/regrade-card", {
         frontImage: frontBase64,
         backImage: backBase64,
+        cardName: grading.result.cardName,
+        setName: grading.result.setName,
+        setNumber: grading.result.setNumber,
       });
+      clearTimeout(stageTimer);
+      clearTimeout(stageTimer2);
+      clearTimeout(stageTimer3);
+      setReAnalyseStage("Updating results...");
       const newResult: GradingResult = await resp.json();
       const updatedGrading = { ...grading, result: newResult };
       setGrading(updatedGrading);
@@ -288,6 +301,7 @@ export default function ResultsScreen() {
       console.error("Re-analysis failed:", err);
     } finally {
       setReAnalysing(false);
+      setReAnalyseStage("");
     }
   };
 
@@ -530,10 +544,17 @@ export default function ResultsScreen() {
             </View>
           ) : cardValue ? (
             <View style={styles.valueGrid}>
+              <View style={styles.valueSectionHeader}>
+                <Text style={styles.valueSectionTitle}>Your Grade</Text>
+                <Text style={styles.valueSectionTitle}>If Grade 10</Text>
+              </View>
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>PSA {result.psa.grade}</Text>
                 <Text style={[styles.valueAmount, cardValue.psaValue.includes("No value") && styles.valueNA]}>
                   {cardValue.psaValue}
+                </Text>
+                <Text style={[styles.valueAmount10, cardValue.psa10Value?.includes("No value") && styles.valueNA]}>
+                  {result.psa.grade === 10 ? "-" : cardValue.psa10Value || "-"}
                 </Text>
               </View>
               <View style={styles.valueRow}>
@@ -541,11 +562,17 @@ export default function ResultsScreen() {
                 <Text style={[styles.valueAmount, cardValue.bgsValue.includes("No value") && styles.valueNA]}>
                   {cardValue.bgsValue}
                 </Text>
+                <Text style={[styles.valueAmount10, cardValue.bgs10Value?.includes("No value") && styles.valueNA]}>
+                  {result.beckett.overallGrade === 10 ? "-" : cardValue.bgs10Value || "-"}
+                </Text>
               </View>
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>ACE {result.ace.overallGrade}</Text>
                 <Text style={[styles.valueAmount, cardValue.aceValue.includes("No value") && styles.valueNA]}>
                   {cardValue.aceValue}
+                </Text>
+                <Text style={[styles.valueAmount10, cardValue.ace10Value?.includes("No value") && styles.valueNA]}>
+                  {result.ace.overallGrade === 10 ? "-" : cardValue.ace10Value || "-"}
                 </Text>
               </View>
               <View style={[styles.valueRow, styles.valueRowLast]}>
@@ -553,6 +580,7 @@ export default function ResultsScreen() {
                 <Text style={[styles.valueAmount, cardValue.rawValue.includes("No value") && styles.valueNA]}>
                   {cardValue.rawValue}
                 </Text>
+                <Text style={styles.valueAmount10}>{" "}</Text>
               </View>
               <Text style={styles.valueSource}>{cardValue.source}</Text>
             </View>
@@ -748,7 +776,7 @@ export default function ResultsScreen() {
           <View style={styles.reAnalyseBox}>
             <ActivityIndicator size="large" color={Colors.primary} />
             <Text style={styles.reAnalyseTitle}>Re-analysing card...</Text>
-            <Text style={styles.reAnalyseSubtitle}>Updating grades based on straightened image</Text>
+            <Text style={styles.reAnalyseSubtitle}>{reAnalyseStage || "Preparing..."}</Text>
           </View>
         </View>
       )}
@@ -1039,15 +1067,39 @@ const styles = StyleSheet.create({
   valueRowLast: {
     borderBottomWidth: 0,
   },
+  valueSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  valueSectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+  },
   valueLabel: {
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     color: Colors.textSecondary,
+    flex: 1,
   },
   valueAmount: {
     fontFamily: "Inter_700Bold",
-    fontSize: 14,
+    fontSize: 13,
     color: "#10B981",
+    textAlign: "right" as const,
+    flex: 1,
+  },
+  valueAmount10: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: "#F59E0B",
+    textAlign: "right" as const,
+    flex: 1,
   },
   valueNA: {
     color: Colors.textMuted,

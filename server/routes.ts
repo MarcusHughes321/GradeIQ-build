@@ -1014,6 +1014,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/regrade-card", async (req, res) => {
+    try {
+      const { frontImage, backImage, cardName, setName, setNumber } = req.body;
+
+      if (!frontImage || !backImage) {
+        return res.status(400).json({ error: "Both front and back card images are required" });
+      }
+
+      const frontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const backUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+
+      console.log(`[regrade] Starting fast re-grade for "${cardName}"`);
+
+      const [gradingResponse, detectedFront, detectedBack] = await Promise.all([
+        openai.chat.completions.create({
+          model: "gpt-5.2",
+          max_completion_tokens: 2048,
+          messages: [
+            {
+              role: "system",
+              content: GRADING_SYSTEM_PROMPT,
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Re-grade this Pokemon card's CONDITION ONLY. The card has already been identified as: ${cardName || "Unknown"} from ${setName || "Unknown"} (${setNumber || "Unknown"}).\n\nFocus ONLY on grading the physical condition: centering, corners, edges, and surface. Do NOT spend time identifying the card — use the name/set/number provided above.\n\nThe first image is the front, the second is the back.`,
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: frontUrl, detail: "high" },
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: backUrl, detail: "high" },
+                },
+              ],
+            },
+          ],
+        }),
+        detectCardBounds(frontUrl),
+        detectCardBounds(backUrl),
+      ]);
+
+      const content = gradingResponse.choices[0]?.message?.content || "";
+
+      let gradingResult;
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          gradingResult = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error("No JSON found in response");
+        }
+      } catch (parseError) {
+        return res.status(500).json({ error: "Failed to parse grading results", raw: content });
+      }
+
+      gradingResult = enforceGradingScales(gradingResult);
+
+      gradingResult.cardName = cardName || gradingResult.cardName;
+      gradingResult.setName = setName || gradingResult.setName;
+      gradingResult.setNumber = setNumber || gradingResult.setNumber;
+      gradingResult.frontCardBounds = detectedFront;
+      gradingResult.backCardBounds = detectedBack;
+      gradingResult = syncCenteringToGrades(gradingResult);
+
+      console.log(`[regrade] Complete for "${cardName}"`);
+      res.json(gradingResult);
+    } catch (error: any) {
+      console.error("Error re-grading card:", error);
+      res.status(500).json({ error: error.message || "Failed to re-grade card" });
+    }
+  });
+
   app.post("/api/card-value", async (req, res) => {
     try {
       const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade } = req.body;
@@ -1055,6 +1131,9 @@ Respond ONLY with valid JSON:
   "bgsValue": "£XX - £XX",
   "aceValue": "£XX - £XX",
   "rawValue": "£XX - £XX",
+  "psa10Value": "£XX - £XX",
+  "bgs10Value": "£XX - £XX",
+  "ace10Value": "£XX - £XX",
   "source": "Based on recent eBay UK sold listings"
 }
 
@@ -1062,7 +1141,7 @@ If no data exists for a category, use "No value data found". All prices MUST be 
           },
           {
             role: "user",
-            content: `Look up eBay UK sold prices for this Pokemon card. Use the card name, set, AND card number together to identify the exact card.\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\n\nSearch eBay UK sold listings for each of these:\n1. "${cardName} ${setNumber || ""} ${setName || ""} PSA ${psaGrade}" → psaValue\n2. "${cardName} ${setNumber || ""} ${setName || ""} BGS ${bgsGrade}" → bgsValue\n3. "${cardName} ${setNumber || ""} ${setName || ""} Ace ${aceGrade}" → aceValue\n4. "${cardName} ${setNumber || ""} ${setName || ""}" raw/ungraded → rawValue\n\nRemember: graded cards sell for MORE than raw cards. PSA 10 sells for MORE than PSA 9. All prices in GBP (£).`,
+            content: `Look up eBay UK sold prices for this Pokemon card. Use the card name, set, AND card number together to identify the exact card.\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\n\nSearch eBay UK sold listings for each of these:\n1. "${cardName} ${setNumber || ""} ${setName || ""} PSA ${psaGrade}" → psaValue\n2. "${cardName} ${setNumber || ""} ${setName || ""} BGS ${bgsGrade}" → bgsValue\n3. "${cardName} ${setNumber || ""} ${setName || ""} Ace ${aceGrade}" → aceValue\n4. "${cardName} ${setNumber || ""} ${setName || ""}" raw/ungraded → rawValue\n5. "${cardName} ${setNumber || ""} ${setName || ""} PSA 10" → psa10Value\n6. "${cardName} ${setNumber || ""} ${setName || ""} BGS 10" → bgs10Value\n7. "${cardName} ${setNumber || ""} ${setName || ""} Ace 10" → ace10Value\n\nRemember: graded cards sell for MORE than raw cards. PSA 10 sells for MORE than PSA 9. Grade 10 versions are the most valuable. All prices in GBP (£).`,
           },
         ],
       });
@@ -1080,6 +1159,9 @@ If no data exists for a category, use "No value data found". All prices MUST be 
           bgsValue: "No value data found",
           aceValue: "No value data found",
           rawValue: "No value data found",
+          psa10Value: "No value data found",
+          bgs10Value: "No value data found",
+          ace10Value: "No value data found",
           source: "Unable to estimate",
         });
       }
@@ -1090,6 +1172,9 @@ If no data exists for a category, use "No value data found". All prices MUST be 
         bgsValue: "No value data found",
         aceValue: "No value data found",
         rawValue: "No value data found",
+        psa10Value: "No value data found",
+        bgs10Value: "No value data found",
+        ace10Value: "No value data found",
         source: "Error fetching values",
       });
     }
