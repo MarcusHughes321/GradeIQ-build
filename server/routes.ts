@@ -173,7 +173,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function stripSuffix(name: string): string {
-  return name.replace(/\s*(ex|EX|gx|GX|v|V|vmax|VMAX|vstar|VSTAR|☆)\s*$/i, "").trim();
+  return name.replace(/[\s-]*(ex|EX|gx|GX|v|V|vmax|VMAX|vstar|VSTAR|☆)\s*$/i, "").trim();
 }
 
 function formatSetNumber(num: string | number, total: string | number): string {
@@ -798,12 +798,44 @@ async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string
   const w = metadata.width || 1000;
   const h = metadata.height || 1400;
 
-  const topH = Math.round(h * 0.18);
-  const bottomH = Math.round(h * 0.18);
+  let cardLeft = 0;
+  let cardTop = 0;
+  let cardRight = w;
+  let cardBottom = h;
+
+  try {
+    const bounds = await detectCardBounds(imageDataUrl);
+    cardLeft = Math.round(w * bounds.leftPercent / 100);
+    cardTop = Math.round(h * bounds.topPercent / 100);
+    cardRight = Math.round(w * bounds.rightPercent / 100);
+    cardBottom = Math.round(h * bounds.bottomPercent / 100);
+    console.log(`[crop] Card bounds detected: L=${cardLeft} T=${cardTop} R=${cardRight} B=${cardBottom} (image ${w}x${h})`);
+  } catch (e) {
+    console.log(`[crop] Bounds detection failed, using full image`);
+  }
+
+  const cardW = Math.max(cardRight - cardLeft, 100);
+  const cardH = Math.max(cardBottom - cardTop, 100);
+
+  const topStripH = Math.round(cardH * 0.30);
+  const bottomStripH = Math.round(cardH * 0.22);
+
+  const topExtract = {
+    left: Math.max(0, cardLeft),
+    top: Math.max(0, cardTop),
+    width: Math.min(cardW, w - cardLeft),
+    height: Math.min(topStripH, h - cardTop),
+  };
+  const bottomExtract = {
+    left: Math.max(0, cardLeft),
+    top: Math.max(0, cardBottom - bottomStripH),
+    width: Math.min(cardW, w - cardLeft),
+    height: Math.min(bottomStripH, h - (cardBottom - bottomStripH)),
+  };
 
   const [topBuf, bottomBuf] = await Promise.all([
-    sharp(buffer).extract({ left: 0, top: 0, width: w, height: topH }).jpeg({ quality: 95 }).toBuffer(),
-    sharp(buffer).extract({ left: 0, top: h - bottomH, width: w, height: bottomH }).jpeg({ quality: 95 }).toBuffer(),
+    sharp(buffer).extract(topExtract).jpeg({ quality: 95 }).toBuffer(),
+    sharp(buffer).extract(bottomExtract).jpeg({ quality: 95 }).toBuffer(),
   ]);
 
   return {
@@ -813,10 +845,10 @@ async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string
 }
 
 const CARD_ID_SYSTEM_PROMPT = `You are an OCR specialist. You will receive two cropped strips from a Pokemon trading card:
-1. The TOP strip — contains the Pokemon name
+1. The TOP strip — contains the Pokemon name (may include some background or dark area above the card edge)
 2. The BOTTOM strip — contains the card number and set code
 
-Your job is to READ the text in these images. There is NO artwork visible — only text.
+Your job is to READ the text in these images. Focus on finding the Pokemon name in the top strip and the card number in the bottom strip. Ignore any background areas.
 
 READING THE TOP STRIP (Pokemon name):
 - The Pokemon name is the large text in this strip.
@@ -1021,66 +1053,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}"`);
       console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}" code="${idCode}"`);
 
-      let bestName: string;
-      let bestNumber: string;
-      let bestSet: string;
+      const namesAgree = idName && gradingName &&
+        stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
 
-      if (idName && gradingName) {
+      const idIsUnknown = !idName || idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
+      const gradingIsUnknown = !gradingName || gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
+
+      const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
+
+      if (namesAgree) {
         const idHasNumber = idNumber && idNumber.includes("/");
-        const gradingHasNumber = gradingNumber && gradingNumber.includes("/");
-        const namesAgree = stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
-
-        if (namesAgree) {
-          bestName = idName;
-          bestNumber = idHasNumber ? idNumber : gradingNumber;
-          bestSet = idSet || gradingSet;
-        } else {
-          const idIsUnknown = idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
-          const gradingIsUnknown = gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
-
-          if (idIsUnknown && !gradingIsUnknown) {
-            bestName = gradingName;
-            bestNumber = gradingNumber || idNumber;
-            bestSet = gradingSet || idSet;
-            console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose Grading (OCR returned unknown)`);
-          } else if (gradingIsUnknown && !idIsUnknown) {
-            bestName = idName;
-            bestNumber = idNumber || gradingNumber;
-            bestSet = idSet || gradingSet;
-            console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose OCR (Grading returned unknown)`);
-          } else {
-            const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (idCode ? 1 : 0);
-            const gradingScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
-            if (idScore >= gradingScore) {
-              bestName = idName;
-              bestNumber = idNumber || gradingNumber;
-              bestSet = idSet || gradingSet;
-            } else {
-              bestName = gradingName;
-              bestNumber = gradingNumber || idNumber;
-              bestSet = gradingSet || idSet;
-            }
-            console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose ${idScore >= gradingScore ? "OCR" : "Grading"} (scores: ${idScore} vs ${gradingScore})`);
-          }
-        }
+        const mergedNumber = idHasNumber ? idNumber : gradingNumber;
+        const mergedSet = idSet || gradingSet;
+        lookupCandidates.push({ name: idName, number: mergedNumber, set: mergedSet, code: idCode, source: "agreed" });
+        console.log(`[grade-card] Names agree: "${idName}"`);
       } else {
-        bestName = idName || gradingName;
-        bestNumber = idNumber || gradingNumber;
-        bestSet = idSet || gradingSet;
+        if (!gradingIsUnknown) {
+          lookupCandidates.push({ name: gradingName, number: gradingNumber, set: gradingSet, source: "grading" });
+        }
+        if (!idIsUnknown && stripSuffix(idName.toLowerCase()) !== stripSuffix(gradingName.toLowerCase())) {
+          lookupCandidates.push({ name: idName, number: idNumber, set: idSet, code: idCode, source: "ocr" });
+        }
+        if (lookupCandidates.length === 0) {
+          const fallback = !idIsUnknown ? idName : gradingName;
+          lookupCandidates.push({ name: fallback, number: idNumber || gradingNumber, set: idSet || gradingSet, code: idCode, source: "fallback" });
+        }
+        console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — trying both lookups`);
       }
 
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
-
-      const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
-      lookupCandidates.push({ name: bestName, number: bestNumber, set: bestSet, code: idCode, source: "primary" });
-
-      if (gradingNumber && gradingNumber !== bestNumber) {
-        lookupCandidates.push({ name: gradingName || bestName, number: gradingNumber, set: gradingSet || bestSet, source: "grading-alt" });
-      }
-      if (idNumber && idNumber !== bestNumber && idNumber !== gradingNumber) {
-        lookupCandidates.push({ name: idName || bestName, number: idNumber, set: idSet || bestSet, code: idCode, source: "ocr-alt" });
-      }
 
       const [boundsResults, ...lookupResults] = await Promise.all([
         Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]),
@@ -1107,9 +1109,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gradingResult.setNumber = bestVerified.setNumber;
       } else {
         console.log(`[grade-card] No online match found, using AI identification`);
-        gradingResult.cardName = bestName;
-        gradingResult.setNumber = bestNumber;
-        gradingResult.setName = bestSet;
+        const preferGrading = !gradingIsUnknown;
+        gradingResult.cardName = preferGrading ? gradingName : idName;
+        gradingResult.setNumber = preferGrading ? (gradingNumber || idNumber) : (idNumber || gradingNumber);
+        gradingResult.setName = preferGrading ? (gradingSet || idSet) : (idSet || gradingSet);
       }
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
