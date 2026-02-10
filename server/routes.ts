@@ -449,11 +449,13 @@ async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Pr
     const sw = Math.round(width * scaleW);
     const sh = Math.round(height * scaleH);
 
-    const { data: pixels } = await sharp(buffer)
+    const { data: rawPixels } = await sharp(buffer)
       .resize(sw, sh, { fit: "fill" })
       .greyscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
+
+    const pixels = applyLocalContrastEnhancement(rawPixels, sw, sh);
 
     const left = boundsHint?.leftPercent ?? 15;
     const right = boundsHint?.rightPercent ?? 85;
@@ -497,6 +499,44 @@ async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Pr
   }
 }
 
+function applyLocalContrastEnhancement(rawPixels: Buffer, w: number, h: number): Buffer {
+  const enhanced = Buffer.alloc(w * h);
+  const tileW = Math.max(16, Math.round(w / 8));
+  const tileH = Math.max(16, Math.round(h / 8));
+
+  for (let ty = 0; ty < h; ty += tileH) {
+    for (let tx = 0; tx < w; tx += tileW) {
+      const x1 = tx;
+      const y1 = ty;
+      const x2 = Math.min(tx + tileW, w);
+      const y2 = Math.min(ty + tileH, h);
+
+      let min = 255, max = 0;
+      for (let y = y1; y < y2; y++) {
+        for (let x = x1; x < x2; x++) {
+          const v = rawPixels[y * w + x];
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+
+      const range = max - min;
+      for (let y = y1; y < y2; y++) {
+        for (let x = x1; x < x2; x++) {
+          const idx = y * w + x;
+          if (range < 10) {
+            enhanced[idx] = 128;
+          } else {
+            enhanced[idx] = Math.round(((rawPixels[idx] - min) / range) * 255);
+          }
+        }
+      }
+    }
+  }
+
+  return enhanced;
+}
+
 async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }> {
   try {
     const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
@@ -511,11 +551,13 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     const sw = Math.round(width * scaleW);
     const sh = Math.round(height * scaleH);
 
-    const { data: pixels } = await sharp(buffer)
+    const { data: rawPixels } = await sharp(buffer)
       .resize(sw, sh, { fit: "fill" })
       .greyscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
+
+    const pixels = applyLocalContrastEnhancement(rawPixels, sw, sh);
 
     const getPixel = (x: number, y: number) => {
       if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
@@ -538,8 +580,8 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     };
 
     const SCAN_RANGE = 0.4;
-    const EDGE_THRESHOLD = 25;
-    const MIN_VOTE_RATIO = 0.15;
+    const EDGE_THRESHOLD = 20;
+    const MIN_VOTE_RATIO = 0.12;
 
     const findEdgeColumn = (startX: number, endX: number, step: number): number => {
       const scanYStart = Math.round(sh * 0.1);
