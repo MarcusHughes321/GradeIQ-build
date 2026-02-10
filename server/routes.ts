@@ -281,16 +281,16 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
 
     for (const card of allCards) {
       const nameScore = scoreName(card.name || "", cardName);
-      let score = nameScore;
+      let score = nameScore * 1.5;
 
       const cardNum = String(card.number || "").replace(/^0+/, "");
-      if (cardNum === rawNumber) score += 40;
+      if (cardNum === rawNumber) score += 30;
 
       const cardSetName = (card.set?.name || "").toLowerCase();
       const querySetName = (setName || "").toLowerCase();
       let setMatched = false;
       if (querySetName && cardSetName === querySetName) {
-        score += 25;
+        score += 20;
         setMatched = true;
       } else if (querySetName && (cardSetName.includes(querySetName) || querySetName.includes(cardSetName))) {
         score += 10;
@@ -300,9 +300,9 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       const cardTotal = String(card.set?.printedTotal || "");
       if (setTotal) {
         if (cardTotal === setTotal) {
-          score += 30;
+          score += 20;
         } else {
-          score -= 15;
+          score -= 10;
         }
       }
 
@@ -332,6 +332,7 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       cardName: bestCard.name || cardName,
       setName: bestCard.set?.name || setName,
       setNumber: verifiedSetNumber,
+      _score: bestScore,
     };
   } catch (err: any) {
     console.log(`[card-lookup] Lookup failed:`, err?.message);
@@ -1067,6 +1068,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const mergedSet = idSet || gradingSet;
         lookupCandidates.push({ name: idName, number: mergedNumber, set: mergedSet, code: idCode, source: "agreed" });
         console.log(`[grade-card] Names agree: "${idName}"`);
+
+        const altNumber = idHasNumber ? gradingNumber : idNumber;
+        if (altNumber && altNumber !== mergedNumber) {
+          lookupCandidates.push({ name: idName, number: altNumber, set: gradingSet || idSet, code: idCode, source: "agreed-alt" });
+          console.log(`[grade-card] Also trying alt number: "${altNumber}"`);
+        }
       } else {
         if (!gradingIsUnknown) {
           lookupCandidates.push({ name: gradingName, number: gradingNumber, set: gradingSet, source: "grading" });
@@ -1094,12 +1101,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const [detectedFront, detectedBack] = boundsResults;
 
-      let bestVerified: { cardName: string; setName: string; setNumber: string } | null = null;
+      let bestVerified: { cardName: string; setName: string; setNumber: string; _score?: number } | null = null;
+      let bestVerifiedScore = -1;
       for (let i = 0; i < lookupCandidates.length; i++) {
-        if (lookupResults[i]) {
-          bestVerified = lookupResults[i];
-          console.log(`[grade-card] Verified via ${lookupCandidates[i].source}: "${bestVerified!.cardName}" from "${bestVerified!.setName}" (${bestVerified!.setNumber})`);
-          break;
+        const result = lookupResults[i] as { cardName: string; setName: string; setNumber: string; _score?: number } | null;
+        if (result) {
+          const resultScore = result._score || 0;
+          console.log(`[grade-card] Verified via ${lookupCandidates[i].source}: "${result.cardName}" from "${result.setName}" (${result.setNumber}) lookupScore=${resultScore}`);
+          if (resultScore > bestVerifiedScore) {
+            bestVerified = result;
+            bestVerifiedScore = resultScore;
+          }
         }
       }
 
