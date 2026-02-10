@@ -254,13 +254,14 @@ export default function ResultsScreen() {
             {result.setInfo ? (
               <Text style={styles.setInfo}>{result.setInfo}</Text>
             ) : null}
-            <Text style={styles.condition} numberOfLines={3}>{result.overallCondition}</Text>
-            <View style={styles.gradesRow}>
-              <GradeCircle grade={result.psa.grade} size={52} color={Colors.cardPSA} label="PSA" />
-              <GradeCircle grade={result.beckett.overallGrade} size={52} color={Colors.cardBeckett} label="BGS" />
-              <GradeCircle grade={result.ace.overallGrade} size={52} color={Colors.cardAce} label="ACE" />
-            </View>
+            <Text style={styles.condition} numberOfLines={2}>{result.overallCondition}</Text>
           </View>
+        </View>
+
+        <View style={styles.gradesSummaryRow}>
+          <GradeCircle grade={result.psa.grade} size={58} color={Colors.cardPSA} label="PSA" />
+          <GradeCircle grade={result.beckett.overallGrade} size={58} color={Colors.cardBeckett} label="BGS" />
+          <GradeCircle grade={result.ace.overallGrade} size={58} color={Colors.cardAce} label="ACE" />
         </View>
 
         <View style={styles.imageRow}>
@@ -296,10 +297,9 @@ export default function ResultsScreen() {
         <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />
 
         <View style={styles.disclaimer}>
-          <Ionicons name="information-circle" size={16} color={Colors.textMuted} />
+          <Ionicons name="information-circle" size={14} color={Colors.textMuted} />
           <Text style={styles.disclaimerText}>
-            These grades are AI estimates based on photo analysis. Actual grades from professional
-            grading companies may differ. Photo quality affects accuracy.
+            AI estimates based on photo analysis. Actual grades may differ.
           </Text>
         </View>
       </ScrollView>
@@ -525,8 +525,8 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: 16,
+    gap: 12,
   },
   cardPreview: {
     flexDirection: "row",
@@ -597,10 +597,15 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     lineHeight: 18,
   },
-  gradesRow: {
+  gradesSummaryRow: {
     flexDirection: "row",
-    gap: 14,
-    marginTop: 8,
+    justifyContent: "space-evenly",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
   imageRow: {
     flexDirection: "row",
@@ -638,19 +643,16 @@ const styles = StyleSheet.create({
   },
   disclaimer: {
     flexDirection: "row",
-    gap: 8,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "flex-start",
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    gap: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    alignItems: "center",
   },
   disclaimerText: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
-    lineHeight: 16,
+    lineHeight: 15,
     flex: 1,
   },
   modalOverlay: {

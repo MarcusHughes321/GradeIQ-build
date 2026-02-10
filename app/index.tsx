@@ -145,36 +145,30 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
-      {gradings.length === 0 ? (
-        <FlatList
-          data={[]}
-          renderItem={null}
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconWrap}>
-                <MaterialCommunityIcons name="card-search" size={40} color={Colors.textMuted} />
-              </View>
-              <Text style={styles.emptyTitle}>No cards graded yet</Text>
-              <Text style={styles.emptyText}>
-                Take photos of your Pokemon card to get AI-powered grade estimates
-              </Text>
+      <FlatList
+        data={gradings}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <View style={styles.itemPad}>
+            <HistoryItem item={item} onDelete={handleDelete} />
+          </View>
+        )}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconWrap}>
+              <MaterialCommunityIcons name="card-search" size={40} color={Colors.textMuted} />
             </View>
-          }
-          contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 20 }}
-          showsVerticalScrollIndicator={false}
-        />
-      ) : (
-        <FlatList
-          data={gradings}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <HistoryItem item={item} onDelete={handleDelete} />}
-          ListHeaderComponent={renderHeader}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 20 }]}
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={true}
-        />
-      )}
+            <Text style={styles.emptyTitle}>No cards graded yet</Text>
+            <Text style={styles.emptyText}>
+              Take photos of your Pokemon card to get AI-powered grade estimates
+            </Text>
+          </View>
+        }
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 20 }]}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={true}
+      />
     </View>
   );
 }
@@ -320,8 +314,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   listContent: {
-    paddingHorizontal: BUBBLE_PAD,
     gap: 10,
+  },
+  itemPad: {
+    paddingHorizontal: BUBBLE_PAD,
   },
   historyItem: {
     flexDirection: "row",

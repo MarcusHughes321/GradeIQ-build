@@ -49,8 +49,8 @@ export default function SubGradeRow({ label, grade, notes, color }: SubGradeRowP
 
 const styles = StyleSheet.create({
   container: {
-    gap: 4,
-    paddingVertical: 8,
+    gap: 3,
+    paddingVertical: 6,
   },
   header: {
     flexDirection: "row",
@@ -64,22 +64,22 @@ const styles = StyleSheet.create({
   },
   grade: {
     fontFamily: "Inter_700Bold",
-    fontSize: 15,
+    fontSize: 14,
   },
   barBackground: {
-    height: 4,
-    borderRadius: 2,
+    height: 3,
+    borderRadius: 1.5,
     backgroundColor: Colors.surfaceBorder,
     overflow: "hidden",
   },
   barFill: {
     height: "100%",
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
   notes: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
-    lineHeight: 16,
+    lineHeight: 15,
   },
 });

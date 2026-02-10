@@ -36,14 +36,9 @@ export default function CompanyCard({ company, grade, color }: CompanyCardProps)
       <View style={styles.headerRow}>
         <View style={styles.companyInfo}>
           <Image source={LOGO_MAP[company]} style={styles.companyLogo} contentFit="contain" />
-          <View>
-            <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
-            <Text style={styles.companyFullName}>
-              {company === "PSA" ? "Professional Sports Authenticator" : company === "Beckett" ? "Beckett Grading Services" : "Ace Grading"}
-            </Text>
-          </View>
+          <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
         </View>
-        <GradeCircle grade={overallGrade} size={56} color={color} />
+        <GradeCircle grade={overallGrade} size={50} color={color} />
       </View>
 
       <View style={styles.divider} />
@@ -78,7 +73,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
   },
   headerRow: {
@@ -89,31 +84,25 @@ const styles = StyleSheet.create({
   companyInfo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     flex: 1,
   },
   companyLogo: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
   },
   companyName: {
     fontFamily: "Inter_700Bold",
-    fontSize: 20,
-  },
-  companyFullName: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 1,
+    fontSize: 18,
   },
   divider: {
     height: 1,
     backgroundColor: Colors.surfaceBorder,
-    marginVertical: 16,
+    marginVertical: 12,
   },
   subGrades: {
-    gap: 4,
+    gap: 2,
   },
   notes: {
     fontFamily: "Inter_400Regular",

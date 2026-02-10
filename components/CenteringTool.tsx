@@ -47,9 +47,9 @@ interface ImageBounds {
 }
 
 const DEFAULT_CARD_BOUNDS: CardBounds = {
-  leftPercent: 4,
+  leftPercent: 2,
   topPercent: 3,
-  rightPercent: 96,
+  rightPercent: 98,
   bottomPercent: 97,
 };
 
@@ -137,7 +137,7 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
 }
 
 const LINE_HIT_PX = 35;
-const DISAMBIG_THRESHOLD = 5;
+const DISAMBIG_THRESHOLD = 3;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
 
@@ -535,7 +535,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
               : lineVal - containerY;
             tentativeLineRef.current = { key: nearest.key, offset };
 
-            if (scale <= 1.05) {
+            const closeEnough = nearest.dist < (hitDist * 0.5);
+            if (scale <= 1.05 || closeEnough) {
               gestureMode.current = "drag";
               dragLineKey.current = nearest.key;
               dragTouchOffset.current = offset;
