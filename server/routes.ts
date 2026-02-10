@@ -954,9 +954,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}"`);
       console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}" code="${idCode}"`);
 
-      const bestName = idName || gradingName;
-      const bestNumber = idNumber || gradingNumber;
-      const bestSet = idSet || gradingSet;
+      let bestName: string;
+      let bestNumber: string;
+      let bestSet: string;
+
+      if (idName && gradingName) {
+        const idHasNumber = idNumber && idNumber.includes("/");
+        const gradingHasNumber = gradingNumber && gradingNumber.includes("/");
+        const namesAgree = stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
+
+        if (namesAgree) {
+          bestName = idName;
+          bestNumber = idHasNumber ? idNumber : gradingNumber;
+          bestSet = idSet || gradingSet;
+        } else {
+          const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (idCode ? 1 : 0);
+          const gradingScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
+          if (idScore >= gradingScore) {
+            bestName = idName;
+            bestNumber = idNumber || gradingNumber;
+            bestSet = idSet || gradingSet;
+          } else {
+            bestName = gradingName;
+            bestNumber = gradingNumber || idNumber;
+            bestSet = gradingSet || idSet;
+          }
+          console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose ${idScore >= gradingScore ? "OCR" : "Grading"} (scores: ${idScore} vs ${gradingScore})`);
+        }
+      } else {
+        bestName = idName || gradingName;
+        bestNumber = idNumber || gradingNumber;
+        bestSet = idSet || gradingSet;
+      }
 
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
