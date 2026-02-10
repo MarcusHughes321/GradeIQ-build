@@ -29,7 +29,7 @@ interface CenteringToolProps {
   frontCardBounds?: CardBounds;
   backCardBounds?: CardBounds;
   onSave: (centering: CenteringMeasurement) => void;
-  onClose: () => void;
+  onClose: (wasStraightened?: boolean) => void;
 }
 
 interface BorderPositions {
@@ -500,6 +500,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [panLocked, setPanLocked] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [autoStraightening, setAutoStraightening] = useState(false);
+  const wasStraightenedRef = useRef(false);
 
   const rotation = showFront ? frontRotation : backRotation;
   const setRotation = showFront ? setFrontRotation : setBackRotation;
@@ -717,6 +718,9 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       const newRotation = Math.max(-15, Math.min(15, Math.round(correctedAngle * 10) / 10));
       setRotation(newRotation);
       setShowRotation(true);
+      if (Math.abs(newRotation) > 0.1) {
+        wasStraightenedRef.current = true;
+      }
 
       try {
         const boundsResp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
@@ -937,7 +941,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           <View style={styles.ratioDot} />
           <Text style={[styles.ratioText, { color: tbColor }]}>T/B {formatRatio(ratio.tb)}</Text>
         </View>
-        <Pressable onPress={onClose} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
+        <Pressable onPress={() => onClose(wasStraightenedRef.current)} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
           <Ionicons name="checkmark" size={16} color="#fff" />
           <Text style={styles.saveBtnText}>Done</Text>
         </Pressable>
