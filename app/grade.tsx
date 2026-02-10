@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
+import SpiritLevel from "@/components/SpiritLevel";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
@@ -331,6 +332,21 @@ export default function GradeScreen() {
               />
             </View>
 
+            {Platform.OS !== "web" && (
+              <View style={styles.spiritLevelCard}>
+                <View style={styles.spiritLevelHeader}>
+                  <Ionicons name="compass-outline" size={18} color={Colors.text} />
+                  <Text style={styles.spiritLevelTitle}>Alignment Guide</Text>
+                </View>
+                <Text style={styles.spiritLevelDesc}>
+                  Hold your phone flat above the card. The bubble turns green when level.
+                </Text>
+                <View style={styles.spiritLevelWrap}>
+                  <SpiritLevel visible={!loading} />
+                </View>
+              </View>
+            )}
+
             <View style={styles.tipsCard}>
               <Text style={styles.tipsTitle}>Tips for best results</Text>
               <View style={styles.tipRow}>
@@ -338,8 +354,8 @@ export default function GradeScreen() {
                 <Text style={styles.tipText}>Use good, even lighting</Text>
               </View>
               <View style={styles.tipRow}>
-                <Ionicons name="scan" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Keep the card flat and in focus</Text>
+                <Ionicons name="compass" size={16} color={Colors.accent} />
+                <Text style={styles.tipText}>Hold phone flat and parallel to card</Text>
               </View>
               <View style={styles.tipRow}>
                 <Ionicons name="resize" size={16} color={Colors.accent} />
@@ -545,5 +561,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     marginTop: 16,
+  },
+  spiritLevelCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 16,
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  spiritLevelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  spiritLevelTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  spiritLevelDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: "center",
+  },
+  spiritLevelWrap: {
+    marginTop: 4,
   },
 });
