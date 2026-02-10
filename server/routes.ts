@@ -281,27 +281,37 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
     let bestScore = -1;
 
     for (const card of allCards) {
-      let score = scoreName(card.name || "", cardName);
+      const nameScore = scoreName(card.name || "", cardName);
+      let score = nameScore;
 
       const cardNum = String(card.number || "").replace(/^0+/, "");
       if (cardNum === rawNumber) score += 40;
 
       const cardSetName = (card.set?.name || "").toLowerCase();
       const querySetName = (setName || "").toLowerCase();
+      let setMatched = false;
       if (querySetName && cardSetName === querySetName) {
         score += 25;
-      } else if (querySetName && cardSetName.includes(querySetName)) {
+        setMatched = true;
+      } else if (querySetName && (cardSetName.includes(querySetName) || querySetName.includes(cardSetName))) {
         score += 10;
+        setMatched = true;
       }
 
       const cardTotal = String(card.set?.printedTotal || "");
       if (setTotal) {
         if (cardTotal === setTotal) {
           score += 30;
+        } else {
+          score -= 15;
         }
       }
 
-      console.log(`[card-lookup]   Candidate: ${card.name} #${card.number} (${card.set?.name}, total=${cardTotal}) score=${score}`);
+      if (nameScore === 0 && !setMatched) {
+        score = Math.min(score, 30);
+      }
+
+      console.log(`[card-lookup]   Candidate: ${card.name} #${card.number} (${card.set?.name}, total=${cardTotal}) nameScore=${nameScore} score=${score}`);
 
       if (score > bestScore) {
         bestScore = score;
@@ -841,9 +851,15 @@ READING THE BOTTOM STRIP (card number + set code):
 - Also read the rarity symbol if visible (e.g., "RRR", "SR", "RR", "C", "U", "R").
 
 SET NAME from set code:
-- s6b = VMAX Climax, s8b = VMAX Climax, s12a = VSTAR Universe
+- s6a = Eevee Heroes, s6b = Fusion Arts, s8 = Fusion Arts, s8a = 25th Anniversary Collection
+- s8b = VMAX Climax, s9 = Star Birth, s9a = Battle Region, s10 = Time Gazer / Space Juggler
+- s11 = Lost Abyss, s11a = Incandescent Arcana, s12 = Silver Tempest, s12a = VSTAR Universe
 - sv1 = Scarlet ex, sv2a = Pokemon Card 151, sv3 = Ruler of the Black Flame
-- S1a = VMAX Rising, S5a = Matchless Fighters, S11a = Incandescent Arcana
+- S1a = VMAX Rising, S5a = Matchless Fighters
+
+CRITICAL RULES:
+- NEVER return "Unknown", "N/A", or "Unreadable" for cardName. If you cannot read the name, try your best guess based on partial characters, artwork context, or set/number cross-reference.
+- For Japanese cards, sound out the katakana characters and translate to the English Pokemon name.
 
 Respond with JSON ONLY:
 {"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name"}`,
