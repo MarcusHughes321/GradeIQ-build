@@ -3,6 +3,8 @@ import type { Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import * as fs from "fs";
 import * as path from "path";
+import { createProxyMiddleware } from "http-proxy-middleware";
+import { spawn } from "child_process";
 
 const app = express();
 const log = console.log;
@@ -174,33 +176,63 @@ function configureExpoAndLanding(app: express.Application) {
   log("Serving static Expo files with dynamic manifest routing");
 
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith("/api")) {
-      return next();
-    }
-
-    if (req.path !== "/" && req.path !== "/manifest") {
+    if (req.path.startsWith("/api") || req.path === "/status") {
       return next();
     }
 
     const platform = req.header("expo-platform");
     if (platform && (platform === "ios" || platform === "android")) {
-      return serveExpoManifest(platform, res);
-    }
-
-    if (req.path === "/") {
-      return serveLandingPage({
-        req,
-        res,
-        landingPageTemplate,
-        appName,
-      });
+      if (req.path === "/" || req.path === "/manifest") {
+        return serveExpoManifest(platform, res);
+      }
     }
 
     next();
   });
 
-  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
-  app.use(express.static(path.resolve(process.cwd(), "static-build")));
+  if (process.env.NODE_ENV === "development") {
+    log("Development mode: proxying web requests to Metro on port 8081");
+    const metroProxy = createProxyMiddleware({
+      target: "http://127.0.0.1:8081",
+      changeOrigin: true,
+      ws: true,
+      logger: undefined,
+      timeout: 120000,
+      proxyTimeout: 120000,
+      on: {
+        error: (err, _req, res) => {
+          if (res && 'writeHead' in res && typeof (res as any).writeHead === 'function') {
+            try {
+              (res as any).writeHead(200, { "Content-Type": "text/html" });
+              (res as any).end(`<html><head><meta http-equiv="refresh" content="3"></head><body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif"><div style="text-align:center"><h1 style="color:#FF3C31">Grade.IQ</h1><p>Starting up... this page will refresh automatically.</p></div></body></html>`);
+            } catch {}
+          }
+        },
+      },
+    });
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith("/api") || req.path === "/status") {
+        return next();
+      }
+      const platform = req.header("expo-platform");
+      if (platform && (platform === "ios" || platform === "android")) {
+        return next();
+      }
+      return metroProxy(req, res, next);
+    });
+  } else {
+    app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+    app.use(express.static(path.resolve(process.cwd(), "static-build")));
+
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith("/api") || req.path === "/status") {
+        return next();
+      }
+      const platform = req.header("expo-platform");
+      if (platform) return next();
+      return serveLandingPage({ req, res, landingPageTemplate, appName });
+    });
+  }
 
   log("Expo routing: Checking expo-platform header on / and /manifest");
 }
@@ -227,9 +259,31 @@ function setupErrorHandler(app: express.Application) {
 }
 
 (async () => {
+  app.get("/status", (_req, res) => {
+    res.status(200).send("OK");
+  });
+
   setupCors(app);
   setupBodyParsing(app);
   setupRequestLogging(app);
+
+  if (process.env.NODE_ENV === "development") {
+    const devDomain = process.env.REPLIT_DEV_DOMAIN || "";
+    const metroProc = spawn("npx", ["expo", "start", "--localhost"], {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        EXPO_PACKAGER_PROXY_URL: `https://${devDomain}`,
+        REACT_NATIVE_PACKAGER_HOSTNAME: devDomain,
+        EXPO_PUBLIC_DOMAIN: `${devDomain}:5000`,
+      },
+    });
+    metroProc.on("error", (err) => log("Metro spawn error:", err));
+    metroProc.on("exit", (code) => log("Metro exited with code:", code));
+    process.on("exit", () => metroProc.kill());
+    log("Spawned Metro bundler as child process");
+  }
 
   configureExpoAndLanding(app);
 
