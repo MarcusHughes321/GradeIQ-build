@@ -599,55 +599,86 @@ function enforceGradingScales(result: any): any {
   return result;
 }
 
+async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string; bottomStrip: string }> {
+  const base64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, "");
+  const buffer = Buffer.from(base64, "base64");
+  const metadata = await sharp(buffer).metadata();
+  const w = metadata.width || 1000;
+  const h = metadata.height || 1400;
+
+  const topH = Math.round(h * 0.12);
+  const bottomH = Math.round(h * 0.12);
+
+  const [topBuf, bottomBuf] = await Promise.all([
+    sharp(buffer).extract({ left: 0, top: 0, width: w, height: topH }).jpeg({ quality: 95 }).toBuffer(),
+    sharp(buffer).extract({ left: 0, top: h - bottomH, width: w, height: bottomH }).jpeg({ quality: 95 }).toBuffer(),
+  ]);
+
+  return {
+    topStrip: `data:image/jpeg;base64,${topBuf.toString("base64")}`,
+    bottomStrip: `data:image/jpeg;base64,${bottomBuf.toString("base64")}`,
+  };
+}
+
 async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
   try {
-    console.log(`[card-id] Running dedicated card identification...`);
+    console.log(`[card-id] Cropping card regions for focused text reading...`);
+    const { topStrip, bottomStrip } = await cropCardRegions(frontImageUrl);
+
     const response = await openai.chat.completions.create({
       model: "gpt-5.2",
       max_completion_tokens: 512,
       messages: [
         {
           role: "system",
-          content: `You are an OCR specialist for Pokemon trading cards. Your job is to READ TEXT from the card image — do NOT guess based on artwork.
+          content: `You are an OCR specialist. You will receive two cropped strips from a Pokemon trading card:
+1. The TOP strip — contains the Pokemon name
+2. The BOTTOM strip — contains the card number and set code
 
-CRITICAL RULE: You must READ the printed text on the card. Do NOT identify the Pokemon by its appearance or artwork. ONLY identify it by READING the name text printed on the card.
+Your job is to READ the text in these images. There is NO artwork visible — only text.
 
-STEP 1 — READ THE POKEMON NAME (top of card):
-- The Pokemon name is printed prominently near the top of the card.
-- For JAPANESE cards: the name is in katakana (カタカナ). Read the katakana and translate to English.
-  Examples: コロトック = Kricketune, リザードン = Charizard, ゲノセクト = Genesect, ピカチュウ = Pikachu, ミュウ = Mew, ルカリオ = Lucario
-- For other languages: read the printed name and provide the English equivalent.
-- Include suffixes: V, VMAX, VSTAR, ex, EX, GX, etc. These are usually printed in Latin letters even on Japanese cards.
+READING THE TOP STRIP (Pokemon name):
+- The Pokemon name is the large text in this strip.
+- It may be in Japanese (katakana/kanji), Korean, or another language. Translate to English.
+- Common Japanese Pokemon names in katakana:
+  コロトック = Kricketune, ゲノセクト = Genesect, リザードン = Charizard, ピカチュウ = Pikachu,
+  ミュウツー = Mewtwo, ルカリオ = Lucario, レックウザ = Rayquaza, ミュウ = Mew,
+  ザシアン = Zacian, ザマゼンタ = Zamazenta, ジガルデ = Zygarde, ゼラオラ = Zeraora,
+  ゲッコウガ = Greninja, ガブリアス = Garchomp, サーナイト = Gardevoir,
+  バシャーモ = Blaziken, エースバーン = Cinderace, ドラパルト = Dragapult,
+  パルキア = Palkia, ディアルガ = Dialga, ギラティナ = Giratina,
+  アルセウス = Arceus, ミミッキュ = Mimikyu, ドダイトス = Torterra
+- Include any suffix (V, VMAX, VSTAR, ex, EX, GX) — these are usually in Latin characters.
 
-STEP 2 — READ THE CARD NUMBER (bottom of card):
-- Look at the very bottom of the card for small text.
-- The card number is typically formatted as "XXX/YYY" (e.g., "004/184").
-- On Japanese cards, look at the bottom-LEFT area for the number.
-- READ each digit carefully. Common misreads: 0↔8, 3↔8, 6↔9, 1↔7.
+READING THE BOTTOM STRIP (card number + set code):
+- Look for a number in format "XXX/YYY" (e.g., "004/184", "012/220").
+- Also look for a set code like "s6b", "s12a", "sv1", "SV5K", etc.
+- The set code is typically a short alphanumeric string near the card number.
+- READ every character carefully. Watch for: 0↔8, 3↔8, 6↔9, 1↔7.
+- Also read the rarity symbol if visible (e.g., "RRR", "SR", "RR", "C", "U", "R").
 
-STEP 3 — READ THE SET CODE (bottom of card, near the card number):
-- Japanese cards have a SET CODE like "s6b", "s12a", "sv1", "S12", "SV5K" printed near the card number.
-- English cards may have set codes too, or just the set symbol icon.
-- This set code is CRITICAL for identifying which set the card belongs to.
+SET NAME from set code:
+- s6b = VMAX Climax, s8b = VMAX Climax, s12a = VSTAR Universe
+- sv1 = Scarlet ex, sv2a = Pokemon Card 151, sv3 = Ruler of the Black Flame
+- S1a = VMAX Rising, S5a = Matchless Fighters, S11a = Incandescent Arcana
 
-STEP 4 — DETERMINE THE SET NAME:
-- Use the set code to identify the English set name.
-- Common Japanese set codes: s6b = VMAX Climax, s8b = VMAX Climax, s12a = VSTAR Universe, sv1 = Scarlet ex, sv2a = Pokemon Card 151, etc.
-- If unsure of exact set name, provide your best guess based on the set code and card design era.
-
-Respond ONLY with JSON:
-{"cardName": "English Pokemon name with suffix", "setNumber": "XXX/YYY as printed", "setCode": "set code like s6b if visible", "setName": "English set name"}`,
+Respond with JSON ONLY:
+{"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name"}`,
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "READ the text on this Pokemon card. Do NOT guess from the artwork. Read the Pokemon name at the top, the card number at the bottom, and the set code at the bottom. For Japanese cards, transliterate the katakana name to English.",
+              text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips.",
             },
             {
               type: "image_url",
-              image_url: { url: frontImageUrl, detail: "high" },
+              image_url: { url: topStrip, detail: "high" },
+            },
+            {
+              type: "image_url",
+              image_url: { url: bottomStrip, detail: "high" },
             },
           ],
         },
@@ -658,7 +689,7 @@ Respond ONLY with JSON:
     const jsonMatch = content.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      console.log(`[card-id] Dedicated read: name="${parsed.cardName}" number="${parsed.setNumber}" set="${parsed.setName}" code="${parsed.setCode || "none"}"`);
+      console.log(`[card-id] Cropped OCR result: name="${parsed.cardName}" number="${parsed.setNumber}" set="${parsed.setName}" code="${parsed.setCode || "none"}"`);
       return parsed;
     }
   } catch (err: any) {
