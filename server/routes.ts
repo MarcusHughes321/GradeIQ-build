@@ -586,24 +586,34 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return avgX;
     };
 
-    const findEdgeRow = (startY: number, endY: number, step: number): number => {
-      const scanXStart = Math.round(sw * 0.1);
-      const scanXEnd = Math.round(sw * 0.9);
-      const totalScanCols = Math.floor((scanXEnd - scanXStart) / 1);
-      const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
+    const findEdgeRow = (startY: number, endY: number, step: number, leftX: number, rightX: number): number => {
+      const edgeZoneWidth = Math.max(8, Math.round((rightX - leftX) * 0.12));
+      const leftZoneStart = Math.max(1, Math.round(leftX - edgeZoneWidth * 0.5));
+      const leftZoneEnd = Math.round(leftX + edgeZoneWidth);
+      const rightZoneStart = Math.round(rightX - edgeZoneWidth);
+      const rightZoneEnd = Math.min(sw - 1, Math.round(rightX + edgeZoneWidth * 0.5));
 
       const rows: { y: number; score: number; votes: number }[] = [];
 
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let x = scanXStart; x < scanXEnd; x += 1) {
+        for (let x = leftZoneStart; x < leftZoneEnd; x++) {
           const gy = Math.abs(sobelY(x, y));
           if (gy >= EDGE_THRESHOLD) {
             votes++;
             totalGrad += gy;
           }
         }
+        for (let x = rightZoneStart; x < rightZoneEnd; x++) {
+          const gy = Math.abs(sobelY(x, y));
+          if (gy >= EDGE_THRESHOLD) {
+            votes++;
+            totalGrad += gy;
+          }
+        }
+        const totalZoneWidth = (leftZoneEnd - leftZoneStart) + (rightZoneEnd - rightZoneStart);
+        const minVotes = Math.max(2, Math.round(totalZoneWidth * 0.12));
         if (votes >= minVotes) {
           rows.push({ y, score: totalGrad, votes });
         }
@@ -611,7 +621,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
       if (rows.length === 0) return startY;
 
-      const scoreThreshold = rows.reduce((max, r) => Math.max(max, r.score), 0) * 0.4;
+      const scoreThreshold = rows.reduce((max, r) => Math.max(max, r.score), 0) * 0.35;
       const strong = rows.filter(r => r.score >= scoreThreshold);
 
       if (step > 0) {
@@ -633,8 +643,8 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
     const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
     const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
-    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1);
-    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1);
+    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1, leftCol, rightCol);
+    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1, leftCol, rightCol);
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;
