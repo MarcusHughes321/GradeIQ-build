@@ -62,21 +62,43 @@ function findSetsByTotal(printedTotal: number): CachedSet[] {
 }
 
 function findSetByName(name: string): CachedSet | null {
-  const lower = name.toLowerCase().replace(/[—–-]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+  const cleanName = (n: string) => n.toLowerCase()
+    .replace(/\(english\)|\(unlimited\)|\(1st edition\)|\(japanese\)/gi, "")
+    .replace(/[—–-]/g, " ")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const lower = cleanName(name);
+  if (!lower) return null;
+
   let best: CachedSet | null = null;
   let bestScore = 0;
   for (const s of cachedSets) {
-    const sLower = s.name.toLowerCase().replace(/[—–-]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+    const sLower = cleanName(s.name);
     if (sLower === lower) return s;
-    if (sLower.includes(lower) || lower.includes(sLower)) {
-      const score = Math.min(sLower.length, lower.length) / Math.max(sLower.length, lower.length);
-      if (score > bestScore) { bestScore = score; best = s; }
+
+    let score = 0;
+    if (lower === sLower) {
+      score = 1.0;
+    } else if (sLower === lower || lower.startsWith(sLower + " ") || sLower.startsWith(lower + " ")) {
+      score = Math.min(sLower.length, lower.length) / Math.max(sLower.length, lower.length);
+      score = Math.min(score + 0.1, 1.0);
+    } else if (sLower.includes(lower) || lower.includes(sLower)) {
+      score = Math.min(sLower.length, lower.length) / Math.max(sLower.length, lower.length);
+    } else {
+      const sWords = sLower.split(/\s+/);
+      const nWords = lower.split(/\s+/);
+      const overlap = sWords.filter((w: string) => nWords.includes(w)).length;
+      if (overlap > 0) {
+        score = overlap / Math.max(sWords.length, nWords.length);
+        if (score < 0.5) score = 0;
+      }
     }
-    const sWords = sLower.split(/\s+/);
-    const nWords = lower.split(/\s+/);
-    const overlap = sWords.filter((w: string) => nWords.includes(w)).length;
-    const wordScore = overlap / Math.max(sWords.length, nWords.length);
-    if (wordScore > 0.5 && wordScore > bestScore) { bestScore = wordScore; best = s; }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = s;
+    }
   }
   return bestScore > 0.4 ? best : null;
 }
@@ -323,8 +345,20 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
     const numericNumber = parseInt(rawNumber) || 0;
 
     const resolvedSet = setCode ? findSetByCode(setCode) : null;
-    const namedSet = setName ? findSetByName(setName) : null;
+    let namedSet = setName ? findSetByName(setName) : null;
     const matchingSets = numericTotal > 0 ? findSetsByTotal(numericTotal) : [];
+
+    if (namedSet && numericTotal > 0 && namedSet.printedTotal !== numericTotal && namedSet.total !== numericTotal) {
+      const betterMatch = matchingSets.find(s => {
+        const sClean = s.name.toLowerCase().replace(/[—–-]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+        const nClean = (setName || "").toLowerCase().replace(/\(english\)|\(unlimited\)|\(1st edition\)|\(japanese\)/gi, "").replace(/[—–-]/g, " ").replace(/[^a-z0-9\s]/g, "").trim();
+        return sClean.includes(nClean) || nClean.includes(sClean);
+      });
+      if (betterMatch) {
+        console.log(`[card-lookup] Set name "${setName}" initially matched "${namedSet.name}" (total=${namedSet.printedTotal}), but total ${numericTotal} matches "${betterMatch.name}" better`);
+        namedSet = betterMatch;
+      }
+    }
 
     const isKnownSet = !!(resolvedSet || namedSet || matchingSets.length > 0);
     const setIsJapaneseOnly = setCode && !resolvedSet && /^s\d|^sv\d|^sm\d/.test(setCode.toLowerCase());
