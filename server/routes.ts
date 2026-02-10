@@ -1168,23 +1168,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market analyst specialising in the UK eBay market.
+            content: `You are a Pokemon TCG market price estimator specialising in UK eBay values.
 
-Your job is to estimate what each version of a card has ACTUALLY SOLD FOR on eBay UK recently. Think of it as: if someone searched eBay UK sold listings for each of these exact search terms, what prices would they find?
+Your job is to ESTIMATE the market value of graded and ungraded Pokemon cards based on your knowledge of the Pokemon TCG market, eBay sold prices, and card rarity/desirability.
 
-You will be given:
-- The card name, set name, and card number (from the bottom of the card)
-- The specific PSA, BGS, and Ace grades the card received
+You will be given: card name, set name, card number, and specific grades from PSA, BGS, and Ace.
 
-For EACH grading company, imagine searching eBay UK sold listings with a search like:
-  "[Card Name] [Set Name] [Card Number] PSA [grade]"
-  "[Card Name] [Set Name] [Card Number] BGS [grade]"
-  "[Card Name] [Set Name] [Card Number] Ace [grade]"
-  "[Card Name] [Set Name] [Card Number]" (for raw/ungraded)
+JAPANESE SET NAME CROSS-REFERENCE:
+If the set name is Japanese, identify the English equivalent:
+- Phantasmal Flames / Wild Blaze = Flashfire (XY series)
+- VMAX Climax = VMAX Climax (s8b)
+- VSTAR Universe = VSTAR Universe (s12a)
+- Raging Surf = Raging Surf (sv3a)
+- Shiny Treasure ex = Shiny Treasure ex (sv4a)
+- 151 / Pokemon Card 151 = Pokemon Card 151 (sv2a)
+- Mask of Change = Mask of Change (sv6)
+- Stellar Miracle = Stellar Miracle (sv7)
+Japanese printings of popular cards (especially Charizard, Pikachu, Mewtwo) are commonly sold on eBay UK and have clear market values. The Japanese version is usually worth LESS than the English equivalent but still has significant value.
 
-The card number is CRITICAL for finding the right card - many Pokemon appear in multiple sets with very different values.
+CARD RARITY INDICATORS:
+- Card number HIGHER than set total (e.g., 125/094) = Secret Rare / Ultra Rare = PREMIUM prices
+- Full art, alt art, illustration rare = higher value
+- EX, GX, V, VMAX, VSTAR suffix = typically more valuable than regular cards
+- First edition, shadowless = vintage premium
 
-A graded card is ALWAYS worth more than a raw card. A PSA 10 or BGS 10 is worth significantly more than lower grades. The grading company slab and grade adds value on top of the raw card price.
+PRICING KNOWLEDGE:
+You have extensive knowledge of Pokemon TCG market prices. Use it. Consider:
+- The Pokemon species (Charizard is always premium)
+- The card type (secret rare, full art, etc.)
+- The era (vintage WOTC, modern, etc.)
+- The grade (higher = more valuable)
+- Grading company premiums (PSA typically commands highest premium, then BGS, then Ace)
+
+CRITICAL RULES:
+1. You MUST provide price estimates for ALL categories. "No value data found" is only acceptable for extremely obscure cards that genuinely have no market presence.
+2. ANY card featuring Charizard, Pikachu, Mewtwo, Rayquaza, Lugia, Umbreon, or other popular Pokemon WILL have market data — you MUST provide estimates.
+3. Even common cards have value: raw commons ~£0.50-£2, graded commons ~£5-£15.
+4. Price ranges should reflect realistic market variation (e.g., "£150 - £250").
+5. All prices in GBP (£).
 
 Respond ONLY with valid JSON:
 {
@@ -1196,13 +1217,11 @@ Respond ONLY with valid JSON:
   "bgs10Value": "£XX - £XX",
   "ace10Value": "£XX - £XX",
   "source": "Based on recent eBay UK sold listings"
-}
-
-If no data exists for a category, use "No value data found". All prices MUST be in GBP (£).`,
+}`,
           },
           {
             role: "user",
-            content: `Look up eBay UK sold prices for this Pokemon card. Use the card name, set, AND card number together to identify the exact card.\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\n\nSearch eBay UK sold listings for each of these:\n1. "${cardName} ${setNumber || ""} ${setName || ""} PSA ${psaGrade}" → psaValue\n2. "${cardName} ${setNumber || ""} ${setName || ""} BGS ${bgsGrade}" → bgsValue\n3. "${cardName} ${setNumber || ""} ${setName || ""} Ace ${aceGrade}" → aceValue\n4. "${cardName} ${setNumber || ""} ${setName || ""}" raw/ungraded → rawValue\n5. "${cardName} ${setNumber || ""} ${setName || ""} PSA 10" → psa10Value\n6. "${cardName} ${setNumber || ""} ${setName || ""} BGS 10" → bgs10Value\n7. "${cardName} ${setNumber || ""} ${setName || ""} Ace 10" → ace10Value\n\nRemember: graded cards sell for MORE than raw cards. PSA 10 sells for MORE than PSA 9. Grade 10 versions are the most valuable. All prices in GBP (£).`,
+            content: `Look up eBay UK sold prices for this Pokemon card:\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nGrades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}\n\nNote: If the set name appears to be Japanese (e.g., "Phantasmal Flames", "Wild Blaze", "VMAX Climax"), also consider the English equivalent set name when estimating prices. Sellers on eBay UK list Japanese Pokemon cards frequently.\n\nIf the card number is higher than the set total (e.g., 125/094), this is a secret rare / ultra rare and commands premium prices.\n\nProvide price estimates for:\n1. PSA ${psaGrade} → psaValue\n2. BGS ${bgsGrade} → bgsValue\n3. Ace ${aceGrade} → aceValue\n4. Raw/ungraded → rawValue\n5. PSA 10 → psa10Value\n6. BGS 10 → bgs10Value\n7. Ace 10 → ace10Value\n\nAll prices in GBP (£). Graded cards sell for MORE than raw. Grade 10 is the most valuable.`,
           },
         ],
       });
