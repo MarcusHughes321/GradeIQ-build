@@ -231,22 +231,33 @@ export default function ResultsScreen() {
       if (needsUpdate) {
         updateGrading(found.id, { result: updatedResult });
       }
-      detectBoundsForOldCard(updatedGrading);
+      const hasFrontBounds = updatedResult.frontCardBounds &&
+        updatedResult.frontCardBounds.leftPercent > 1 &&
+        updatedResult.frontCardBounds.rightPercent < 99 &&
+        (updatedResult.frontCardBounds.rightPercent - updatedResult.frontCardBounds.leftPercent) < 95;
+      const hasBackBounds = updatedResult.backCardBounds &&
+        updatedResult.backCardBounds.leftPercent > 1 &&
+        updatedResult.backCardBounds.rightPercent < 99 &&
+        (updatedResult.backCardBounds.rightPercent - updatedResult.backCardBounds.leftPercent) < 95;
+
+      if (!hasFrontBounds || !hasBackBounds) {
+        detectBoundsForOldCard(updatedGrading, !hasFrontBounds, !hasBackBounds);
+      }
       fetchCardValue(updatedResult);
     }
   };
 
-  const detectBoundsForOldCard = async (g: SavedGrading) => {
+  const detectBoundsForOldCard = async (g: SavedGrading, needFront: boolean, needBack: boolean) => {
     try {
       const [frontBounds, backBounds] = await Promise.all([
-        detectBoundsForImage(g.frontImage),
-        detectBoundsForImage(g.backImage),
+        needFront ? detectBoundsForImage(g.frontImage) : Promise.resolve(null),
+        needBack ? detectBoundsForImage(g.backImage) : Promise.resolve(null),
       ]);
       if (frontBounds || backBounds) {
         const updatedResult = {
           ...g.result,
-          frontCardBounds: frontBounds || g.result.frontCardBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
-          backCardBounds: backBounds || g.result.backCardBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
+          frontCardBounds: (needFront && frontBounds) ? frontBounds : g.result.frontCardBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
+          backCardBounds: (needBack && backBounds) ? backBounds : g.result.backCardBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
         };
         const updatedGrading = { ...g, result: updatedResult };
         setGrading(updatedGrading);

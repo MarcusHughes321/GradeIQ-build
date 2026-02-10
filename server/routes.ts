@@ -1342,6 +1342,7 @@ If no data exists for a category, use "No value data found". All prices MUST be 
       }
       const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
       const bounds = await detectCardBounds(uri);
+      console.log(`[detect-bounds] Result: L=${bounds.leftPercent.toFixed(1)} T=${bounds.topPercent.toFixed(1)} R=${bounds.rightPercent.toFixed(1)} B=${bounds.bottomPercent.toFixed(1)}`);
       res.json(bounds);
     } catch (error: any) {
       console.error("Error detecting bounds:", error);
