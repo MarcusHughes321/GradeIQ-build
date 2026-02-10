@@ -502,22 +502,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market analyst specialising in the UK market. Provide estimated recent eBay UK sold prices (in GBP, £) for graded Pokemon cards. Use your knowledge of Pokemon card values from eBay UK sold listings. Be realistic with prices based on the card's rarity, popularity, and condition.
+            content: `You are a Pokemon TCG market analyst specialising in the UK market. Provide estimated recent eBay UK sold prices (in GBP, £) for graded Pokemon cards based on their SPECIFIC grade. Use your knowledge of Pokemon card values from eBay UK sold listings. Be realistic with prices based on the card's rarity, popularity, condition, and the EXACT grade received.
+
+IMPORTANT: The prices must reflect the SPECIFIC grade the card received, not just a generic graded price. For example:
+- A PSA 10 is worth significantly more than a PSA 8
+- A BGS 9.5 is worth more than a BGS 8
+- An Ace 10 is worth more than an Ace 8
+- Higher grades command premium prices, especially PSA 10 and BGS 10/Black Label
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "psaValue": "Estimated eBay UK sold price for PSA graded version (e.g. '£35 - £50')",
-  "bgsValue": "Estimated eBay UK sold price for BGS graded version (e.g. '£40 - £55')",
-  "aceValue": "Estimated eBay UK sold price for Ace graded version (e.g. '£25 - £40')",
+  "psaValue": "Estimated eBay UK sold price for this card at the SPECIFIC PSA grade given (e.g. '£35 - £50')",
+  "bgsValue": "Estimated eBay UK sold price for this card at the SPECIFIC BGS grade given (e.g. '£40 - £55')",
+  "aceValue": "Estimated eBay UK sold price for this card at the SPECIFIC Ace grade given (e.g. '£25 - £40')",
   "rawValue": "Estimated eBay UK sold price for raw/ungraded version (e.g. '£10 - £20')",
   "source": "Based on recent eBay UK sold listings"
 }
 
-If you cannot determine a reasonable price estimate for any category, use "No value data found" for that field. For very common cards, prices may be low (£1-£10). For rare/chase cards, prices can be much higher. The grade significantly affects value. All prices MUST be in GBP (£).`,
+If you cannot determine a reasonable price estimate for any category, use "No value data found" for that field. For very common cards, prices may be low (£1-£10). For rare/chase cards, prices can be much higher. The specific grade significantly affects value - always price for the exact grade provided. All prices MUST be in GBP (£).`,
           },
           {
             role: "user",
-            content: `What are the estimated recent eBay UK sold prices (in GBP, £) for this Pokemon card?\n\nCard Name: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nFull Description: ${cardDesc}\nPSA Grade: ${psaGrade}\nBGS Grade: ${bgsGrade}\nAce Grade: ${aceGrade}\n\nIMPORTANT: Use the card number (${setNumber}) and set name to identify the EXACT card for accurate pricing. Different printings of the same Pokemon can have very different values. All prices must be in GBP (£).`,
+            content: `What are the estimated recent eBay UK sold prices (in GBP, £) for this Pokemon card at these SPECIFIC grades?\n\nCard Name: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nFull Description: ${cardDesc}\n\nSPECIFIC GRADES TO PRICE:\n- PSA ${psaGrade} (look up eBay UK sold prices specifically for "PSA ${psaGrade} ${cardName}")\n- BGS ${bgsGrade} (look up eBay UK sold prices specifically for "BGS ${bgsGrade} ${cardName}")\n- Ace ${aceGrade} (look up eBay UK sold prices specifically for "Ace ${aceGrade} ${cardName}")\n- Raw/ungraded\n\nIMPORTANT: Use the card number (${setNumber}) and set name to identify the EXACT card for accurate pricing. Different printings of the same Pokemon can have very different values. Price each graded version at the EXACT grade listed above. All prices must be in GBP (£).`,
           },
         ],
       });
