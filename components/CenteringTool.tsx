@@ -953,17 +953,35 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             </View>
           )}
 
-          <Pressable
-            style={[styles.lockFloatingBtn, panLocked && styles.lockFloatingBtnActive]}
-            onPress={() => setPanLocked(p => !p)}
-          >
-            <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={16} color="#fff" />
-            <Text style={styles.lockFloatingText}>{panLocked ? "Move Lines" : "Pan / Zoom"}</Text>
-          </Pressable>
+          {zoomScale > 1 && (
+            <Pressable
+              style={[styles.lockFloatingBtn, panLocked && styles.lockFloatingBtnActive]}
+              onPress={() => setPanLocked(p => !p)}
+            >
+              <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={14} color="#fff" />
+            </Pressable>
+          )}
         </View>
       </View>
 
       <View style={styles.controls}>
+        <View style={styles.modeToggle}>
+          <Pressable
+            style={[styles.modeBtn, panLocked && styles.modeBtnActive]}
+            onPress={() => setPanLocked(true)}
+          >
+            <Ionicons name="move-outline" size={16} color={panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
+            <Text style={[styles.modeBtnText, panLocked && styles.modeBtnTextActive]}>Lines</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.modeBtn, !panLocked && styles.modeBtnActive]}
+            onPress={() => setPanLocked(false)}
+          >
+            <Ionicons name="hand-left-outline" size={16} color={!panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
+            <Text style={[styles.modeBtnText, !panLocked && styles.modeBtnTextActive]}>Pan / Zoom</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.controlRow}>
           <View style={styles.sideToggle}>
             <Pressable style={[styles.sideBtn, showFront && styles.sideBtnActive]} onPress={() => setShowFront(true)}>
@@ -973,15 +991,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
               <Text style={[styles.sideBtnText, !showFront && styles.sideBtnTextActive]}>Back</Text>
             </Pressable>
           </View>
-          <Pressable
-            onPress={() => setPanLocked(p => !p)}
-            style={({ pressed }) => [styles.labelBtn, panLocked && styles.labelBtnActive, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={15} color={panLocked ? "#fff" : Colors.textMuted} />
-            <Text style={[styles.labelBtnText, panLocked && styles.labelBtnTextActive]}>
-              {panLocked ? "Lines" : "Pan"}
-            </Text>
-          </Pressable>
           <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.labelBtn, showRotation && styles.labelBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
             <Ionicons name="sync-outline" size={15} color={showRotation ? "#fff" : Colors.textMuted} />
             <Text style={[styles.labelBtnText, showRotation && styles.labelBtnTextActive]}>Rotate</Text>
@@ -1032,8 +1041,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         <Text style={styles.hint}>
           {panLocked
-            ? "Drag the coloured handles on each line to adjust \u00B7 Tap button to switch to Pan"
-            : "Pinch to zoom in \u00B7 Drag to pan around \u00B7 Tap button to switch to Move Lines"}
+            ? "Drag the coloured handles to adjust lines"
+            : "Pinch to zoom \u00B7 Drag to pan around"}
         </Text>
       </View>
 
@@ -1063,6 +1072,11 @@ const styles = StyleSheet.create({
   lockFloatingBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   lockFloatingText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
   controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
+  modeToggle: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, padding: 3, marginBottom: 6 },
+  modeBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: 8 },
+  modeBtnActive: { backgroundColor: Colors.primary },
+  modeBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "rgba(255,255,255,0.4)" },
+  modeBtnTextActive: { color: "#fff" },
   controlRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sideToggle: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, padding: 2 },
   sideBtn: { flex: 1, paddingVertical: 6, alignItems: "center", borderRadius: 6 },
