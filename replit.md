@@ -48,9 +48,10 @@ server/
 - `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns estimated eBay sold prices for PSA, BGS, and ACE graded cards plus raw/ungraded value
 
 ## Key Features
-- **AI Card Boundary Detection**: AI returns card edge positions as percentages (frontCardBounds, backCardBounds) so centering lines auto-position on actual card borders
+- **AI Card Boundary Detection**: Sobel edge detection with 400px sampling, multi-row voting, and sub-pixel clustering for precise card edge positions
 - **Pinch-to-Zoom**: Two-finger pinch gestures zoom 1x-4x in centering tool, single-finger pan when zoomed
-- **Draggable Lines**: Single-finger drag moves centering measurement lines
+- **Lock/Unlock Pan**: Toggle button locks panning so lines can be dragged without interference when zoomed; floating button appears on image when zoomed
+- **Draggable Lines**: Single-finger drag on handles moves centering measurement lines; when pan is locked, hit area doubles for easier line grabbing
 - **Progress UI**: 8-stage animated progress bar shows real-time analysis status during grading
 - **Image Rotation**: Fine rotation control for aligning card images in centering tool
 
@@ -78,3 +79,6 @@ server/
 - Implemented Ace special grading: 3 sub-grades at 10 + one at 9 = overall 10 (centering must be 10)
 - Updated results page with prominent card name, set name, set number display and condition summary
 - Updated home screen to display setName and setNumber in history list
+- Upgraded card boundary detection: Sobel operator, 400px sampling (was 200px), sub-pixel precision, multi-row voting with MIN_VOTE_RATIO
+- Added lock/unlock pan button in centering tool controls and as floating overlay when zoomed
+- When pan locked, dragging is always prioritized over panning; hit area doubles for easier line grabbing
