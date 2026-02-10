@@ -95,73 +95,72 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
     <View style={styles.container}>
       <CameraView
         ref={cameraRef}
-        style={styles.camera}
+        style={StyleSheet.absoluteFill}
         facing="back"
-      >
-        <View style={[styles.overlay, { paddingTop: insets.top + 8 }]}>
-          <View style={styles.topBar}>
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                { opacity: pressed ? 0.6 : 1 },
-              ]}
-            >
-              <Ionicons name="close" size={28} color="#fff" />
-            </Pressable>
-            <Text style={styles.sideLabel}>
-              {side === "front" ? "Front of Card" : "Back of Card"}
-            </Text>
-            <View style={{ width: 44 }} />
-          </View>
+      />
+      <View style={[styles.overlay, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.closeBtn,
+              { opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <Ionicons name="close" size={28} color="#fff" />
+          </Pressable>
+          <Text style={styles.sideLabel}>
+            {side === "front" ? "Front of Card" : "Back of Card"}
+          </Text>
+          <View style={{ width: 44 }} />
+        </View>
 
-          <View style={styles.cardGuide}>
-            <View style={[styles.cardFrame, { borderColor: frameBorderColor }]}>
-              <View style={[styles.corner, styles.cornerTL, { borderTopColor: frameColor, borderLeftColor: frameColor }]} />
-              <View style={[styles.corner, styles.cornerTR, { borderTopColor: frameColor, borderRightColor: frameColor }]} />
-              <View style={[styles.corner, styles.cornerBL, { borderBottomColor: frameColor, borderLeftColor: frameColor }]} />
-              <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
-            </View>
-          </View>
-
-          <View style={styles.spiritLevelOverlay}>
-            <SpiritLevel visible={true} onLevelChange={handleLevelChange} />
-          </View>
-
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
-            <View style={styles.hintRow}>
-              <Text style={styles.hintText}>
-                {isLevel
-                  ? "Phone is level. Take the photo!"
-                  : "Align the card within the frame. Bubble turns green when level."}
-              </Text>
-            </View>
-            <View style={styles.captureRow}>
-              <View style={{ width: 60 }} />
-              <Pressable
-                onPress={handleCapture}
-                disabled={capturing}
-                style={({ pressed }) => [
-                  styles.captureBtn,
-                  {
-                    opacity: capturing ? 0.5 : pressed ? 0.8 : 1,
-                    borderColor: isLevel ? "#10B981" : "#fff",
-                  },
-                ]}
-              >
-                <View style={[styles.captureBtnInner, isLevel && { backgroundColor: "#10B981" }]}>
-                  {capturing ? (
-                    <ActivityIndicator color={Colors.background} size="small" />
-                  ) : (
-                    <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }]} />
-                  )}
-                </View>
-              </Pressable>
-              <View style={{ width: 60 }} />
-            </View>
+        <View style={styles.cardGuide} pointerEvents="none">
+          <View style={[styles.cardFrame, { borderColor: frameBorderColor }]}>
+            <View style={[styles.corner, styles.cornerTL, { borderTopColor: frameColor, borderLeftColor: frameColor }]} />
+            <View style={[styles.corner, styles.cornerTR, { borderTopColor: frameColor, borderRightColor: frameColor }]} />
+            <View style={[styles.corner, styles.cornerBL, { borderBottomColor: frameColor, borderLeftColor: frameColor }]} />
+            <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
           </View>
         </View>
-      </CameraView>
+
+        <View style={styles.spiritLevelOverlay} pointerEvents="none">
+          <SpiritLevel visible={true} onLevelChange={handleLevelChange} />
+        </View>
+
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={styles.hintRow}>
+            <Text style={styles.hintText}>
+              {isLevel
+                ? "Phone is level. Take the photo!"
+                : "Align the card within the frame. Bubble turns green when level."}
+            </Text>
+          </View>
+          <View style={styles.captureRow}>
+            <View style={{ width: 60 }} />
+            <Pressable
+              onPress={handleCapture}
+              disabled={capturing}
+              style={({ pressed }) => [
+                styles.captureBtn,
+                {
+                  opacity: capturing ? 0.5 : pressed ? 0.8 : 1,
+                  borderColor: isLevel ? "#10B981" : "#fff",
+                },
+              ]}
+            >
+              <View style={[styles.captureBtnInner, isLevel && { backgroundColor: "#10B981" }]}>
+                {capturing ? (
+                  <ActivityIndicator color={Colors.background} size="small" />
+                ) : (
+                  <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }]} />
+                )}
+              </View>
+            </Pressable>
+            <View style={{ width: 60 }} />
+          </View>
+        </View>
+      </View>
     </View>
   );
 }
@@ -179,7 +178,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: "space-between",
   },
   topBar: {
