@@ -651,17 +651,18 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     setAutoStraightening(true);
     try {
       const base64 = await getBase64FromUri(imageUri);
-      const response = await apiRequest("POST", "/api/detect-angle", { image: base64 });
+      const bounds = showFront ? frontCardBounds : backCardBounds;
+      const response = await apiRequest("POST", "/api/detect-angle", { image: base64, bounds });
       const data = await response.json();
       const angle = data.angle || 0;
 
-      if (Math.abs(angle) > 0.1) {
-        const correctedAngle = -angle;
-        setRotation(Math.max(-15, Math.min(15, Math.round(correctedAngle * 10) / 10)));
-        setShowRotation(true);
-      }
+      const correctedAngle = -angle;
+      const newRotation = Math.max(-15, Math.min(15, Math.round(correctedAngle * 10) / 10));
+      setRotation(newRotation);
+      setShowRotation(true);
     } catch (err) {
       console.error("Auto-straighten failed:", err);
+      setShowRotation(true);
     } finally {
       setAutoStraightening(false);
     }

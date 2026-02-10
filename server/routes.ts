@@ -332,7 +332,92 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
   }
 }
 
-async function detectCardAngle(dataUri: string): Promise<number> {
+interface CardBoundsHint {
+  leftPercent?: number;
+  topPercent?: number;
+  rightPercent?: number;
+  bottomPercent?: number;
+}
+
+function fitLineToEdge(
+  pixels: Buffer, sw: number, sh: number,
+  scanXStart: number, scanXEnd: number,
+  scanYFrom: number, scanYTo: number,
+  direction: "down" | "up"
+): number {
+  const getPixel = (x: number, y: number) => {
+    if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+    return pixels[y * sw + x];
+  };
+
+  const sobelY = (x: number, y: number): number => {
+    return (
+      -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
+      getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
+    );
+  };
+
+  const EDGE_THRESHOLD = 15;
+  const NUM_SAMPLES = 30;
+  const edgePoints: { x: number; y: number }[] = [];
+  const xStep = (scanXEnd - scanXStart) / (NUM_SAMPLES - 1);
+
+  for (let i = 0; i < NUM_SAMPLES; i++) {
+    const sampleX = Math.round(scanXStart + i * xStep);
+    let bestY = -1;
+    let bestGrad = 0;
+
+    if (direction === "up") {
+      for (let y = scanYFrom; y >= scanYTo; y--) {
+        const gy = Math.abs(sobelY(sampleX, y));
+        if (gy >= EDGE_THRESHOLD && gy > bestGrad) {
+          bestGrad = gy;
+          bestY = y;
+        }
+        if (bestY >= 0 && y < bestY - 10) break;
+      }
+    } else {
+      for (let y = scanYFrom; y <= scanYTo; y++) {
+        const gy = Math.abs(sobelY(sampleX, y));
+        if (gy >= EDGE_THRESHOLD && gy > bestGrad) {
+          bestGrad = gy;
+          bestY = y;
+        }
+        if (bestY >= 0 && y > bestY + 10) break;
+      }
+    }
+
+    if (bestY >= 0) {
+      edgePoints.push({ x: sampleX, y: bestY });
+    }
+  }
+
+  if (edgePoints.length < 6) return NaN;
+
+  const sortedByY = [...edgePoints].sort((a, b) => a.y - b.y);
+  const q1 = sortedByY[Math.floor(edgePoints.length * 0.25)].y;
+  const q3 = sortedByY[Math.floor(edgePoints.length * 0.75)].y;
+  const iqr = q3 - q1;
+  const tolerance = Math.max(iqr * 2, sh * 0.04);
+  const medianY = sortedByY[Math.floor(edgePoints.length / 2)].y;
+  const filtered = edgePoints.filter(p => Math.abs(p.y - medianY) <= tolerance);
+
+  if (filtered.length < 5) return NaN;
+
+  const n = filtered.length;
+  const sumX = filtered.reduce((s, p) => s + p.x, 0);
+  const sumY = filtered.reduce((s, p) => s + p.y, 0);
+  const sumXY = filtered.reduce((s, p) => s + p.x * p.y, 0);
+  const sumX2 = filtered.reduce((s, p) => s + p.x * p.x, 0);
+
+  const denom = n * sumX2 - sumX * sumX;
+  if (Math.abs(denom) < 0.001) return 0;
+
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  return Math.atan(slope) * (180 / Math.PI);
+}
+
+async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Promise<number> {
   try {
     const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
@@ -352,70 +437,38 @@ async function detectCardAngle(dataUri: string): Promise<number> {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const getPixel = (x: number, y: number) => {
-      if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
-      return pixels[y * sw + x];
-    };
+    const left = boundsHint?.leftPercent ?? 15;
+    const right = boundsHint?.rightPercent ?? 85;
+    const top = boundsHint?.topPercent ?? 10;
+    const bottom = boundsHint?.bottomPercent ?? 90;
 
-    const sobelY = (x: number, y: number): number => {
-      return (
-        -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
-        getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
-      );
-    };
+    const scanXStart = Math.round(sw * (left + 5) / 100);
+    const scanXEnd = Math.round(sw * (right - 5) / 100);
 
-    const EDGE_THRESHOLD = 18;
-    const NUM_SAMPLES = 30;
-    const scanXStart = Math.round(sw * 0.2);
-    const scanXEnd = Math.round(sw * 0.8);
-    const scanYStart = Math.round(sh * 0.5);
-    const scanYEnd = Math.round(sh * 0.98);
+    const bottomEdgeCenter = Math.round(sh * bottom / 100);
+    const bottomScanFrom = Math.min(sh - 2, Math.round(bottomEdgeCenter + sh * 0.08));
+    const bottomScanTo = Math.max(1, Math.round(bottomEdgeCenter - sh * 0.08));
+    const bottomAngle = fitLineToEdge(pixels as any, sw, sh, scanXStart, scanXEnd, bottomScanFrom, bottomScanTo, "up");
 
-    const edgePoints: { x: number; y: number }[] = [];
-    const xStep = (scanXEnd - scanXStart) / (NUM_SAMPLES - 1);
+    const topEdgeCenter = Math.round(sh * top / 100);
+    const topScanFrom = Math.max(1, Math.round(topEdgeCenter - sh * 0.08));
+    const topScanTo = Math.min(sh - 2, Math.round(topEdgeCenter + sh * 0.08));
+    const topAngle = fitLineToEdge(pixels as any, sw, sh, scanXStart, scanXEnd, topScanFrom, topScanTo, "down");
 
-    for (let i = 0; i < NUM_SAMPLES; i++) {
-      const sampleX = Math.round(scanXStart + i * xStep);
-      let bestY = -1;
-      let bestGrad = 0;
-
-      for (let y = scanYEnd; y >= scanYStart; y--) {
-        const gy = Math.abs(sobelY(sampleX, y));
-        if (gy >= EDGE_THRESHOLD && gy > bestGrad) {
-          bestGrad = gy;
-          bestY = y;
-        }
-        if (bestY >= 0 && y < bestY - 8) break;
-      }
-
-      if (bestY >= 0) {
-        edgePoints.push({ x: sampleX, y: bestY });
-      }
+    let angleDeg: number;
+    if (!isNaN(bottomAngle) && !isNaN(topAngle)) {
+      angleDeg = (bottomAngle + topAngle) / 2;
+      console.log(`[detect-angle] Bottom edge: ${bottomAngle.toFixed(3)}°, Top edge: ${topAngle.toFixed(3)}°, Average: ${angleDeg.toFixed(3)}°`);
+    } else if (!isNaN(bottomAngle)) {
+      angleDeg = bottomAngle;
+      console.log(`[detect-angle] Bottom edge only: ${angleDeg.toFixed(3)}°`);
+    } else if (!isNaN(topAngle)) {
+      angleDeg = topAngle;
+      console.log(`[detect-angle] Top edge only: ${angleDeg.toFixed(3)}°`);
+    } else {
+      console.log(`[detect-angle] No edges detected`);
+      return 0;
     }
-
-    if (edgePoints.length < 6) return 0;
-
-    const sortedByY = [...edgePoints].sort((a, b) => a.y - b.y);
-    const q1 = sortedByY[Math.floor(edgePoints.length * 0.25)].y;
-    const q3 = sortedByY[Math.floor(edgePoints.length * 0.75)].y;
-    const iqr = q3 - q1;
-    const tolerance = Math.max(iqr * 1.5, sh * 0.03);
-    const medianY = sortedByY[Math.floor(edgePoints.length / 2)].y;
-    const filtered = edgePoints.filter(p => Math.abs(p.y - medianY) < tolerance);
-
-    if (filtered.length < 5) return 0;
-
-    const n = filtered.length;
-    const sumX = filtered.reduce((s, p) => s + p.x, 0);
-    const sumY = filtered.reduce((s, p) => s + p.y, 0);
-    const sumXY = filtered.reduce((s, p) => s + p.x * p.y, 0);
-    const sumX2 = filtered.reduce((s, p) => s + p.x * p.x, 0);
-
-    const denom = n * sumX2 - sumX * sumX;
-    if (Math.abs(denom) < 0.001) return 0;
-
-    const slope = (n * sumXY - sumX * sumY) / denom;
-    const angleDeg = Math.atan(slope) * (180 / Math.PI);
 
     const clamped = Math.max(-10, Math.min(10, angleDeg));
     return parseFloat(clamped.toFixed(2));
@@ -1037,12 +1090,12 @@ If no data exists for a category, use "No value data found". All prices MUST be 
 
   app.post("/api/detect-angle", async (req, res) => {
     try {
-      const { image } = req.body;
+      const { image, bounds } = req.body;
       if (!image) {
         return res.status(400).json({ error: "Image is required" });
       }
       const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
-      const angle = await detectCardAngle(uri);
+      const angle = await detectCardAngle(uri, bounds);
       console.log(`[detect-angle] Detected angle: ${angle} degrees`);
       res.json({ angle });
     } catch (error: any) {
