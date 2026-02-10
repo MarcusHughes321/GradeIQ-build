@@ -1099,31 +1099,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Card name is required" });
       }
 
-      const cardDesc = [cardName, setName, setNumber].filter(Boolean).join(" - ");
+      const searchTerms: string[] = [];
+      if (cardName) searchTerms.push(cardName);
+      if (setNumber) searchTerms.push(setNumber);
+      if (setName) searchTerms.push(setName);
+      const baseSearch = searchTerms.join(" ");
 
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
-        max_completion_tokens: 1024,
+        max_completion_tokens: 1500,
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market analyst specialising in the UK eBay market.
+            content: `You are a Pokemon TCG market price expert. Your job is to find REAL recent sold prices from eBay for Pokemon cards.
 
-Your job is to estimate what each version of a card has ACTUALLY SOLD FOR on eBay UK recently. Think of it as: if someone searched eBay UK sold listings for each of these exact search terms, what prices would they find?
+SEARCH STRATEGY - Try these approaches in order until you find results:
+1. Search eBay sold listings: "${baseSearch} PSA [grade]" etc.
+2. If no results, try shorter searches: just the card name + card number + grading company
+3. Try common abbreviations and alternate names (e.g. "Charizard VMAX" vs "Charizard V-MAX", Japanese vs English names)
+4. Check eBay.co.uk first, then eBay.com (convert USD to GBP if needed, £1 ≈ $1.25)
+5. Try searching with just the set number (e.g. "071/073 PSA 10 pokemon") as sellers often list by number
+6. If the card is from a Japanese set, also try Japanese card name searches
 
-You will be given:
-- The card name, set name, and card number (from the bottom of the card)
-- The specific PSA, BGS, and Ace grades the card received
+IMPORTANT RULES:
+- Graded cards are ALWAYS worth more than raw cards
+- PSA 10 / BGS 10 commands a significant premium over lower grades
+- BGS 10 (Black Label) is rarer and more valuable than PSA 10 for most cards
+- Ace graded cards typically sell for less than PSA/BGS equivalent grades
+- NEVER say "No value data found" if you can make a reasonable estimate from similar cards or nearby grades
+- If you can't find the exact grade, estimate from nearby grades (e.g. PSA 9 price from PSA 8 and PSA 10 data)
+- For very common cards worth under £5 raw, still provide an estimate rather than "no data"
 
-For EACH grading company, imagine searching eBay UK sold listings with a search like:
-  "[Card Name] [Set Name] [Card Number] PSA [grade]"
-  "[Card Name] [Set Name] [Card Number] BGS [grade]"
-  "[Card Name] [Set Name] [Card Number] Ace [grade]"
-  "[Card Name] [Set Name] [Card Number]" (for raw/ungraded)
-
-The card number is CRITICAL for finding the right card - many Pokemon appear in multiple sets with very different values.
-
-A graded card is ALWAYS worth more than a raw card. A PSA 10 or BGS 10 is worth significantly more than lower grades. The grading company slab and grade adds value on top of the raw card price.
+All prices in GBP (£). Give a price range where possible.
 
 Respond ONLY with valid JSON:
 {
@@ -1134,14 +1141,31 @@ Respond ONLY with valid JSON:
   "psa10Value": "£XX - £XX",
   "bgs10Value": "£XX - £XX",
   "ace10Value": "£XX - £XX",
-  "source": "Based on recent eBay UK sold listings"
+  "source": "Based on recent eBay sold listings"
 }
 
-If no data exists for a category, use "No value data found". All prices MUST be in GBP (£).`,
+Only use "No value data found" as an absolute last resort when you truly cannot estimate any value.`,
           },
           {
             role: "user",
-            content: `Look up eBay UK sold prices for this Pokemon card. Use the card name, set, AND card number together to identify the exact card.\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\n\nSearch eBay UK sold listings for each of these:\n1. "${cardName} ${setNumber || ""} ${setName || ""} PSA ${psaGrade}" → psaValue\n2. "${cardName} ${setNumber || ""} ${setName || ""} BGS ${bgsGrade}" → bgsValue\n3. "${cardName} ${setNumber || ""} ${setName || ""} Ace ${aceGrade}" → aceValue\n4. "${cardName} ${setNumber || ""} ${setName || ""}" raw/ungraded → rawValue\n5. "${cardName} ${setNumber || ""} ${setName || ""} PSA 10" → psa10Value\n6. "${cardName} ${setNumber || ""} ${setName || ""} BGS 10" → bgs10Value\n7. "${cardName} ${setNumber || ""} ${setName || ""} Ace 10" → ace10Value\n\nRemember: graded cards sell for MORE than raw cards. PSA 10 sells for MORE than PSA 9. Grade 10 versions are the most valuable. All prices in GBP (£).`,
+            content: `Find eBay sold prices for this Pokemon card:
+
+Card Name: ${cardName}
+Set: ${setName || "Unknown"}
+Card Number: ${setNumber || "Unknown"}
+
+Grades received: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}
+
+Search eBay sold/completed listings for:
+- PSA ${psaGrade} version → psaValue
+- BGS ${bgsGrade} version → bgsValue  
+- Ace ${aceGrade} version → aceValue
+- Raw/ungraded version → rawValue
+- PSA 10 version → psa10Value
+- BGS 10 version → bgs10Value
+- Ace 10 version → ace10Value
+
+Try multiple search variations if your first search doesn't find results. All prices in GBP (£).`,
           },
         ],
       });
