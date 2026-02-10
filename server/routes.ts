@@ -212,12 +212,16 @@ function scoreName(apiName: string, aiName: string): number {
   if (a === b) return 100;
   const aBase = stripSuffix(a);
   const bBase = stripSuffix(b);
-  if (aBase === bBase) return 90;
-  if (a.includes(bBase) || bBase.includes(aBase)) return 70;
+  const aSuffix = a.replace(aBase, "").trim();
+  const bSuffix = b.replace(bBase, "").trim();
+  const suffixMatch = aSuffix === bSuffix;
+  if (aBase === bBase && suffixMatch) return 100;
+  if (aBase === bBase) return 75;
+  if (a.includes(bBase) || bBase.includes(aBase)) return suffixMatch ? 65 : 50;
   const aWords = aBase.split(/\s+/);
   const bWords = bBase.split(/\s+/);
   const overlap = aWords.filter(w => bWords.includes(w)).length;
-  if (overlap > 0) return 30 + (overlap / Math.max(aWords.length, bWords.length)) * 40;
+  if (overlap > 0) return 20 + (overlap / Math.max(aWords.length, bWords.length)) * 30;
   return 0;
 }
 
@@ -278,15 +282,21 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       let score = scoreName(card.name || "", cardName);
 
       const cardNum = String(card.number || "").replace(/^0+/, "");
-      if (cardNum === rawNumber) score += 50;
+      if (cardNum === rawNumber) score += 40;
 
       const cardSetName = (card.set?.name || "").toLowerCase();
-      if (setName && cardSetName.includes(setName.toLowerCase().substring(0, 6))) score += 20;
+      if (setName && cardSetName.includes(setName.toLowerCase().substring(0, 6))) score += 25;
 
       const cardTotal = String(card.set?.printedTotal || "");
-      if (setTotal && cardTotal === setTotal) score += 15;
+      if (setTotal) {
+        if (cardTotal === setTotal) {
+          score += 30;
+        } else {
+          score -= 40;
+        }
+      }
 
-      console.log(`[card-lookup]   Candidate: ${card.name} #${card.number} (${card.set?.name}) score=${score}`);
+      console.log(`[card-lookup]   Candidate: ${card.name} #${card.number} (${card.set?.name}, total=${cardTotal}) score=${score}`);
 
       if (score > bestScore) {
         bestScore = score;
@@ -294,8 +304,8 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       }
     }
 
-    if (bestScore < 30) {
-      console.log(`[card-lookup] Best score too low (${bestScore}), rejecting`);
+    if (bestScore < 50) {
+      console.log(`[card-lookup] Best score too low (${bestScore}), rejecting — trusting AI identification`);
       return null;
     }
 
@@ -606,8 +616,8 @@ async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string
   const w = metadata.width || 1000;
   const h = metadata.height || 1400;
 
-  const topH = Math.round(h * 0.12);
-  const bottomH = Math.round(h * 0.12);
+  const topH = Math.round(h * 0.18);
+  const bottomH = Math.round(h * 0.18);
 
   const [topBuf, bottomBuf] = await Promise.all([
     sharp(buffer).extract({ left: 0, top: 0, width: w, height: topH }).jpeg({ quality: 95 }).toBuffer(),
