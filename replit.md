@@ -106,7 +106,10 @@ server/
 - Created fast /api/regrade-card endpoint for re-analysis after straightening (skips card ID + online lookup, condition-only grading)
 - Added progress stages to re-analysis overlay (Preparing → Analysing → Grading → Calculating → Done)
 - Added "If Grade 10" pricing column to eBay values card showing PSA 10, BGS 10, ACE 10 estimated prices
-- 2026-02-10: Added bulk grading feature (up to 20 cards, processed 3 at a time in parallel)
-- Bulk grade skips online card database lookup for speed (~10s per card vs ~15-20s for single grading)
+- 2026-02-10: Added bulk grading feature (up to 20 cards)
+- Bulk grading now uses full-quality individual /api/grade-card endpoint per card (includes online lookup, bounds detection, multi-candidate verification)
 - Bulk results screen shows average PSA/BGS/ACE grades across all cards
 - Tapping individual cards in bulk results navigates to full detailed results
+- Bulk grading UI shows realistic time estimates (~20s per card) with live countdown
+- eBay pricing scrapes last 5 sold items per search (simplified: card name + number + grading company)
+- Fixed progress bar bouncing on last stage — now smoothly fills to 95% and holds
