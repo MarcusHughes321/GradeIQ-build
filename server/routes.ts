@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
+import sharp from "sharp";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -43,20 +44,6 @@ Analyze the card images carefully. Look for:
 3. Edges - look for whitening, chipping, or rough cuts along all edges
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects
 
-CARD BOUNDARY DETECTION - CRITICAL:
-For each image (front and back), you MUST detect where the physical card edges are within the photograph. The card may not fill the entire photo - there could be background (table, sleeve, etc.) around it. Report the boundaries as percentages of the image dimensions:
-- leftPercent: percentage from the left edge of the image to the left edge of the card (0-100)
-- topPercent: percentage from the top edge of the image to the top edge of the card (0-100)
-- rightPercent: percentage from the left edge of the image to the right edge of the card (0-100)
-- bottomPercent: percentage from the top edge of the image to the bottom edge of the card (0-100)
-
-For example, if the card takes up the middle 80% of the image horizontally and 90% vertically:
-leftPercent=10, topPercent=5, rightPercent=90, bottomPercent=95
-
-If the card fills almost the entire image: leftPercent=1, topPercent=1, rightPercent=99, bottomPercent=99
-
-Be PRECISE about the card boundaries. Look at where the actual physical card edge meets the background.
-
 Respond ONLY with valid JSON in this exact format:
 {
   "cardName": "Name of the Pokemon card if identifiable",
@@ -67,18 +54,6 @@ Respond ONLY with valid JSON in this exact format:
     "frontTopBottom": 54,
     "backLeftRight": 55,
     "backTopBottom": 53
-  },
-  "frontCardBounds": {
-    "leftPercent": 5,
-    "topPercent": 3,
-    "rightPercent": 95,
-    "bottomPercent": 97
-  },
-  "backCardBounds": {
-    "leftPercent": 4,
-    "topPercent": 2,
-    "rightPercent": 96,
-    "bottomPercent": 98
   },
   "psa": {
     "grade": 8,
@@ -110,7 +85,6 @@ CRITICAL REMINDERS:
 - PSA grade: valid values are 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10 (NO 9.5)
 - BGS grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10)
 - Ace grades: WHOLE NUMBERS ONLY (1-10, never 8.5 or 9.5)
-- Card bounds: percentages 0-100 for where the card physically sits in each photo
 
 Be realistic and conservative in your grading. Most cards in circulation are not PSA 10 or BGS 10.`;
 
@@ -139,6 +113,116 @@ function roundToWhole(value: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }> {
+  try {
+    const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+
+    const { width, height } = await sharp(buffer).metadata() as { width: number; height: number };
+    if (!width || !height) throw new Error("Could not get image dimensions");
+
+    const SAMPLE_SIZE = 200;
+    const scaleW = Math.min(1, SAMPLE_SIZE / width);
+    const scaleH = Math.min(1, SAMPLE_SIZE / height);
+    const sw = Math.round(width * scaleW);
+    const sh = Math.round(height * scaleH);
+
+    const { data: pixels } = await sharp(buffer)
+      .resize(sw, sh, { fit: "fill" })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const getPixel = (x: number, y: number) => pixels[y * sw + x];
+
+    const computeEdgeGradient = (x: number, y: number): number => {
+      let grad = 0;
+      let count = 0;
+      if (x > 0) { grad += Math.abs(getPixel(x, y) - getPixel(x - 1, y)); count++; }
+      if (x < sw - 1) { grad += Math.abs(getPixel(x, y) - getPixel(x + 1, y)); count++; }
+      if (y > 0) { grad += Math.abs(getPixel(x, y) - getPixel(x, y - 1)); count++; }
+      if (y < sh - 1) { grad += Math.abs(getPixel(x, y) - getPixel(x, y + 1)); count++; }
+      return count > 0 ? grad / count : 0;
+    };
+
+    const SCAN_RANGE = 0.4;
+    const EDGE_THRESHOLD = 15;
+    const MIN_VOTES = 3;
+
+    const findEdgeColumn = (startX: number, endX: number, step: number): number => {
+      const scanYStart = Math.round(sh * 0.15);
+      const scanYEnd = Math.round(sh * 0.85);
+      let bestCol = startX;
+      let bestScore = 0;
+
+      for (let x = startX; step > 0 ? x < endX : x > endX; x += step) {
+        let votes = 0;
+        let totalGrad = 0;
+        for (let y = scanYStart; y < scanYEnd; y += 2) {
+          const g = computeEdgeGradient(x, y);
+          if (g >= EDGE_THRESHOLD) {
+            votes++;
+            totalGrad += g;
+          }
+        }
+        if (votes >= MIN_VOTES && totalGrad > bestScore) {
+          bestScore = totalGrad;
+          bestCol = x;
+        }
+      }
+      return bestCol;
+    };
+
+    const findEdgeRow = (startY: number, endY: number, step: number): number => {
+      const scanXStart = Math.round(sw * 0.15);
+      const scanXEnd = Math.round(sw * 0.85);
+      let bestRow = startY;
+      let bestScore = 0;
+
+      for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
+        let votes = 0;
+        let totalGrad = 0;
+        for (let x = scanXStart; x < scanXEnd; x += 2) {
+          const g = computeEdgeGradient(x, y);
+          if (g >= EDGE_THRESHOLD) {
+            votes++;
+            totalGrad += g;
+          }
+        }
+        if (votes >= MIN_VOTES && totalGrad > bestScore) {
+          bestScore = totalGrad;
+          bestRow = y;
+        }
+      }
+      return bestRow;
+    };
+
+    const leftCol = findEdgeColumn(0, Math.round(sw * SCAN_RANGE), 1);
+    const rightCol = findEdgeColumn(sw - 1, Math.round(sw * (1 - SCAN_RANGE)), -1);
+    const topRow = findEdgeRow(0, Math.round(sh * SCAN_RANGE), 1);
+    const bottomRow = findEdgeRow(sh - 1, Math.round(sh * (1 - SCAN_RANGE)), -1);
+
+    const leftPercent = Math.round((leftCol / sw) * 100);
+    const rightPercent = Math.round((rightCol / sw) * 100);
+    const topPercent = Math.round((topRow / sh) * 100);
+    const bottomPercent = Math.round((bottomRow / sh) * 100);
+
+    if (rightPercent - leftPercent < 30 || bottomPercent - topPercent < 30) {
+      return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
+    }
+
+    return {
+      leftPercent: clamp(leftPercent, 0, 45),
+      topPercent: clamp(topPercent, 0, 45),
+      rightPercent: clamp(rightPercent, 55, 100),
+      bottomPercent: clamp(bottomPercent, 55, 100),
+    };
+  } catch (err) {
+    console.error("Card bounds detection failed:", err);
+    return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
+  }
 }
 
 function enforceCardBounds(bounds: any): any {
@@ -211,7 +295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content: [
               {
                 type: "text",
-                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back. Be sure to detect the exact card boundaries in each photo.",
+                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.",
               },
               {
                 type: "image_url",
@@ -245,6 +329,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       gradingResult = enforceGradingScales(gradingResult);
+
+      const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+      const [detectedFront, detectedBack] = await Promise.all([
+        detectCardBounds(frontUri),
+        detectCardBounds(backUri),
+      ]);
+      gradingResult.frontCardBounds = detectedFront;
+      gradingResult.backCardBounds = detectedBack;
 
       res.json(gradingResult);
     } catch (error: any) {
