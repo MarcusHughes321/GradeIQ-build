@@ -79,6 +79,7 @@ export default function ResultsScreen() {
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [centeringToolVisible, setCenteringToolVisible] = useState(false);
+  const [originalCentering, setOriginalCentering] = useState<CenteringMeasurement | null>(null);
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -93,6 +94,9 @@ export default function ResultsScreen() {
     const found = all.find((g) => g.id === gradingId);
     if (found) {
       setGrading(found);
+      if (!originalCentering && found.result.centering) {
+        setOriginalCentering({ ...found.result.centering });
+      }
     }
   };
 
@@ -478,6 +482,7 @@ export default function ResultsScreen() {
           frontImage={grading.frontImage}
           backImage={grading.backImage}
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
+          originalCentering={originalCentering || result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
           frontCardBounds={result.frontCardBounds}
           backCardBounds={result.backCardBounds}
           onSave={(newCentering) => {

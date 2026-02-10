@@ -22,6 +22,7 @@ interface CenteringToolProps {
   frontImage: string;
   backImage: string;
   centering: CenteringMeasurement;
+  originalCentering: CenteringMeasurement;
   frontCardBounds?: CardBounds;
   backCardBounds?: CardBounds;
   onSave: (centering: CenteringMeasurement) => void;
@@ -52,6 +53,8 @@ const DEFAULT_CARD_BOUNDS: CardBounds = {
   rightPercent: 98,
   bottomPercent: 97,
 };
+
+const CARD_ASPECT_RATIO = 0.714;
 
 const MIN_LINE_MARGIN = 12;
 
@@ -322,7 +325,7 @@ function renderHatchOverlay(pos: BorderPositions, _containerSize: { width: numbe
   );
 }
 
-export default function CenteringTool({ frontImage, backImage, centering, frontCardBounds, backCardBounds, onSave, onClose }: CenteringToolProps) {
+export default function CenteringTool({ frontImage, backImage, centering, originalCentering, frontCardBounds, backCardBounds, onSave, onClose }: CenteringToolProps) {
   const insets = useSafeAreaInsets();
   const [showFront, setShowFront] = useState(true);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -332,6 +335,8 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
   const [backPos, setBackPos] = useState<BorderPositions | null>(null);
   const frontPosInitRef = useRef(false);
   const backPosInitRef = useRef(false);
+  const frontUsedFallbackRef = useRef(false);
+  const backUsedFallbackRef = useRef(false);
   const frontLoadLoggedRef = useRef(false);
   const backLoadLoggedRef = useRef(false);
   const [frontRotation, setFrontRotation] = useState(0);
@@ -357,28 +362,32 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     loadDimensions(backImage, setBackNatural);
   }, [frontImage, backImage]);
 
-  const doInitFront = useCallback((cw: number, ch: number, nw: number, nh: number) => {
-    if (frontPosInitRef.current) return;
+  const doInitFront = useCallback((cw: number, ch: number, nw: number, nh: number, isFallback?: boolean) => {
+    if (frontPosInitRef.current && !frontUsedFallbackRef.current) return;
+    if (frontPosInitRef.current && frontUsedFallbackRef.current && isFallback) return;
     frontPosInitRef.current = true;
+    frontUsedFallbackRef.current = !!isFallback;
     const bounds = calcContainBounds(cw, ch, nw, nh);
     setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, bounds, frontCardBounds));
   }, [centering, frontCardBounds]);
 
-  const doInitBack = useCallback((cw: number, ch: number, nw: number, nh: number) => {
-    if (backPosInitRef.current) return;
+  const doInitBack = useCallback((cw: number, ch: number, nw: number, nh: number, isFallback?: boolean) => {
+    if (backPosInitRef.current && !backUsedFallbackRef.current) return;
+    if (backPosInitRef.current && backUsedFallbackRef.current && isFallback) return;
     backPosInitRef.current = true;
+    backUsedFallbackRef.current = !!isFallback;
     const bounds = calcContainBounds(cw, ch, nw, nh);
     setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
   }, [centering, backCardBounds]);
 
   useEffect(() => {
-    if (containerSize.width > 0 && !frontPosInitRef.current && frontNatural.w > 0) {
+    if (containerSize.width > 0 && frontNatural.w > 0) {
       doInitFront(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
     }
   }, [containerSize, frontNatural]);
 
   useEffect(() => {
-    if (containerSize.width > 0 && !backPosInitRef.current && backNatural.w > 0) {
+    if (containerSize.width > 0 && backNatural.w > 0) {
       doInitBack(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
     }
   }, [containerSize, backNatural]);
@@ -387,10 +396,12 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
     if (containerSize.width > 0) {
       const timer = setTimeout(() => {
         if (!frontPosInitRef.current) {
-          doInitFront(containerSize.width, containerSize.height, 0, 0);
+          const fallbackW = containerSize.height * CARD_ASPECT_RATIO;
+          doInitFront(containerSize.width, containerSize.height, fallbackW, containerSize.height, true);
         }
         if (!backPosInitRef.current) {
-          doInitBack(containerSize.width, containerSize.height, 0, 0);
+          const fallbackW = containerSize.height * CARD_ASPECT_RATIO;
+          doInitBack(containerSize.width, containerSize.height, fallbackW, containerSize.height, true);
         }
       }, 800);
       return () => clearTimeout(timer);
@@ -440,22 +451,29 @@ export default function CenteringTool({ frontImage, backImage, centering, frontC
 
   const handleReset = () => {
     if (containerSize.width === 0) return;
-    const fw = frontNatural.w || 0;
-    const fh = frontNatural.h || 0;
-    const bw = backNatural.w || 0;
-    const bh = backNatural.h || 0;
+    const fallbackW = containerSize.height * CARD_ASPECT_RATIO;
+    const fw = frontNatural.w || fallbackW;
+    const fh = frontNatural.h || containerSize.height;
+    const bw = backNatural.w || fallbackW;
+    const bh = backNatural.h || containerSize.height;
     const fb = calcContainBounds(containerSize.width, containerSize.height, fw, fh);
     const bb = calcContainBounds(containerSize.width, containerSize.height, bw, bh);
     frontPosInitRef.current = false;
     backPosInitRef.current = false;
-    setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, fb, frontCardBounds));
-    setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bb, backCardBounds));
+    frontUsedFallbackRef.current = false;
+    backUsedFallbackRef.current = false;
+    const oc = originalCentering;
+    setFrontPos(initPositions(oc.frontLeftRight, oc.frontTopBottom, fb, frontCardBounds));
+    setBackPos(initPositions(oc.backLeftRight, oc.backTopBottom, bb, backCardBounds));
     frontPosInitRef.current = true;
     backPosInitRef.current = true;
     setFrontRotation(0);
     setBackRotation(0);
     setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
+    const fr = computeRatio(initPositions(oc.frontLeftRight, oc.frontTopBottom, fb, frontCardBounds));
+    const br = computeRatio(initPositions(oc.backLeftRight, oc.backTopBottom, bb, backCardBounds));
+    onSave({ frontLeftRight: fr.lr, frontTopBottom: fr.tb, backLeftRight: br.lr, backTopBottom: br.tb });
   };
 
   const pinchStartDistRef = useRef(0);
