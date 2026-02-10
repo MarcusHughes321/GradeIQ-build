@@ -43,8 +43,9 @@ server/
 ```
 
 ## API Endpoints
-- `POST /api/grade-card` - Accepts frontImage and backImage (base64 data URIs), returns grading results from PSA, Beckett, and Ace Grading, plus frontCardBounds and backCardBounds for centering tool line placement
+- `POST /api/grade-card` - Accepts frontImage and backImage (base64 data URIs), returns grading results from PSA, Beckett, and Ace Grading, plus frontCardBounds and backCardBounds for centering tool line placement. Also returns cardName, setName, setNumber.
 - `POST /api/detect-bounds` - Accepts { image: base64 }, returns CardBounds for on-demand card boundary re-detection (used for old gradings missing bounds data)
+- `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns estimated eBay sold prices for PSA, BGS, and ACE graded cards plus raw/ungraded value
 
 ## Key Features
 - **AI Card Boundary Detection**: AI returns card edge positions as percentages (frontCardBounds, backCardBounds) so centering lines auto-position on actual card borders
@@ -70,3 +71,10 @@ server/
 - Created /api/detect-bounds endpoint for on-demand card boundary re-detection
 - Implemented auto-detection of card bounds for older graded cards that lack frontCardBounds/backCardBounds data
 - Updated CompanyCard to display centering-specific grade for PSA instead of showing overall grade for all sub-categories
+- Added red→yellow→green gradient color system for all grade displays (GradeCircle, SubGradeRow, CompanyCard)
+- Added cardName, setName, setNumber fields to GradingResult type and AI prompt
+- Created /api/card-value endpoint for estimated eBay sold prices via OpenAI
+- Added eBay values card to results page showing PSA/BGS/ACE/raw card values
+- Implemented Ace special grading: 3 sub-grades at 10 + one at 9 = overall 10 (centering must be 10)
+- Updated results page with prominent card name, set name, set number display and condition summary
+- Updated home screen to display setName and setNumber in history list
