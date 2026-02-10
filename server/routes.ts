@@ -53,14 +53,17 @@ LANGUAGE HANDLING:
 
 CRITICAL FOR CARD IDENTIFICATION — MULTI-STEP VERIFICATION:
 
-Step 1: IDENTIFY THE POKEMON
-- Look at the artwork and the Pokemon name printed on the card (in ANY language).
+Step 1: READ THE POKEMON NAME FROM THE CARD TEXT (do NOT guess from artwork)
+- READ the Pokemon name that is PRINTED on the card (in ANY language). Do NOT identify the Pokemon from the artwork alone.
+- For JAPANESE cards: READ the katakana/kanji name at the top of the card and translate to English.
+  Key translations: コロトック = Kricketune, ゲノセクト = Genesect, リザードン = Charizard, ピカチュウ = Pikachu, ルカリオ = Lucario, ミュウツー = Mewtwo, レックウザ = Rayquaza
 - Determine the ENGLISH name of the Pokemon (e.g., Japanese "リザードンex" = "Charizard ex").
 - Note any suffix like "ex", "EX", "GX", "V", "VMAX", "VSTAR", etc.
 
-Step 2: READ THE CARD NUMBER
+Step 2: READ THE CARD NUMBER AND SET CODE
 - The card number is printed at the bottom of the card, usually bottom-left or bottom-right.
 - It typically follows the format "XXX/YYY" (e.g., "012/220").
+- Japanese cards also have a SET CODE like "s6b", "s12a", "sv1" printed near the card number — READ this too.
 - Card numbers can be hard to read due to glare, angle, small font, or holographic effects. Use these strategies:
   * Look for the "/" character that separates card number from set total
   * Japanese cards may use formats like "003/007" or "S1a 003/007" or "sv1 003/007"
@@ -69,6 +72,7 @@ Step 2: READ THE CARD NUMBER
 
 Step 3: IDENTIFY THE SET
 - Look at the set symbol/logo on the card (usually bottom-right area near the card number)
+- Use the SET CODE if visible (e.g., s6b = VMAX Climax, s8b = VMAX Climax, s12a = VSTAR Universe, sv2a = Pokemon Card 151)
 - Cross-reference the set symbol with the card number to identify the exact set
 - Consider the card's era (vintage WOTC, modern Scarlet & Violet, etc.) based on card design/border style
 
@@ -217,24 +221,28 @@ function scoreName(apiName: string, aiName: string): number {
   return 0;
 }
 
-async function lookupCardOnline(cardName: string, setNumber: string, setName: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
+async function lookupCardOnline(cardName: string, setNumber: string, setName: string, setCode?: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
   try {
     const rawNumber = setNumber?.split("/")[0]?.replace(/^0+/, "") || "";
     const setTotal = setNumber?.split("/")[1]?.replace(/^0+/, "") || "";
     const baseName = stripSuffix(cardName);
 
-    console.log(`[card-lookup] Looking up: name="${cardName}" number="${rawNumber}" total="${setTotal}" set="${setName}"`);
+    console.log(`[card-lookup] Looking up: name="${cardName}" number="${rawNumber}" total="${setTotal}" set="${setName}" code="${setCode || "none"}"`);
 
     const queries: string[] = [];
 
+    if (setCode && rawNumber) {
+      queries.push(`set.id:"${setCode}*" number:${rawNumber}`);
+      queries.push(`set.ptcgoCode:"${setCode}*" number:${rawNumber}`);
+    }
     if (rawNumber && baseName) {
       queries.push(`number:${rawNumber} name:"${baseName}*"`);
     }
-    if (rawNumber && setName) {
-      queries.push(`number:${rawNumber} set.name:"${setName}*"`);
-    }
     if (rawNumber && setTotal) {
       queries.push(`number:${rawNumber} set.printedTotal:${setTotal}`);
+    }
+    if (rawNumber && setName) {
+      queries.push(`number:${rawNumber} set.name:"${setName}*"`);
     }
     if (baseName && setName) {
       queries.push(`name:"${baseName}*" set.name:"${setName}*"`);
@@ -591,7 +599,7 @@ function enforceGradingScales(result: any): any {
   return result;
 }
 
-async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
+async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
   try {
     console.log(`[card-id] Running dedicated card identification...`);
     const response = await openai.chat.completions.create({
@@ -600,31 +608,42 @@ async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; 
       messages: [
         {
           role: "system",
-          content: `You are an expert at reading Pokemon trading cards. Your ONLY job is to read the card details from the image as accurately as possible.
+          content: `You are an OCR specialist for Pokemon trading cards. Your job is to READ TEXT from the card image — do NOT guess based on artwork.
 
-TASK: Read these three things from the card image:
-1. CARD NAME - The Pokemon name printed on the card. Include any suffix (ex, EX, GX, V, VMAX, VSTAR, etc.). If the card is in Japanese, Korean, or another language, provide the ENGLISH name.
-2. CARD NUMBER - The number printed at the bottom of the card (e.g., "004/184", "255/264", "SWSH039"). Look at BOTH the bottom-left and bottom-right corners. The number typically has a "/" separating the card number from the set total.
-3. SET NAME - The English name of the set this card belongs to, based on the set symbol and card design.
+CRITICAL RULE: You must READ the printed text on the card. Do NOT identify the Pokemon by its appearance or artwork. ONLY identify it by READING the name text printed on the card.
 
-READING THE CARD NUMBER - this is the hardest part:
-- Zoom in mentally on the bottom of the card
-- Card numbers are very small text, often in grey, white, or black
-- Look for the "/" character - digits before it are the card number, after it are the set total
-- Some cards have a set code prefix (e.g., "SV1" or "S12a") before the number
-- Watch for easily confused digits: 0/8, 3/8, 6/9, 1/7, 5/6
-- If you see "I" or "l" it's probably a "1"
-- Japanese cards: number format is usually "XXX/YYY" at the bottom-left
+STEP 1 — READ THE POKEMON NAME (top of card):
+- The Pokemon name is printed prominently near the top of the card.
+- For JAPANESE cards: the name is in katakana (カタカナ). Read the katakana and translate to English.
+  Examples: コロトック = Kricketune, リザードン = Charizard, ゲノセクト = Genesect, ピカチュウ = Pikachu, ミュウ = Mew, ルカリオ = Lucario
+- For other languages: read the printed name and provide the English equivalent.
+- Include suffixes: V, VMAX, VSTAR, ex, EX, GX, etc. These are usually printed in Latin letters even on Japanese cards.
+
+STEP 2 — READ THE CARD NUMBER (bottom of card):
+- Look at the very bottom of the card for small text.
+- The card number is typically formatted as "XXX/YYY" (e.g., "004/184").
+- On Japanese cards, look at the bottom-LEFT area for the number.
+- READ each digit carefully. Common misreads: 0↔8, 3↔8, 6↔9, 1↔7.
+
+STEP 3 — READ THE SET CODE (bottom of card, near the card number):
+- Japanese cards have a SET CODE like "s6b", "s12a", "sv1", "S12", "SV5K" printed near the card number.
+- English cards may have set codes too, or just the set symbol icon.
+- This set code is CRITICAL for identifying which set the card belongs to.
+
+STEP 4 — DETERMINE THE SET NAME:
+- Use the set code to identify the English set name.
+- Common Japanese set codes: s6b = VMAX Climax, s8b = VMAX Climax, s12a = VSTAR Universe, sv1 = Scarlet ex, sv2a = Pokemon Card 151, etc.
+- If unsure of exact set name, provide your best guess based on the set code and card design era.
 
 Respond ONLY with JSON:
-{"cardName": "...", "setNumber": "...", "setName": "..."}`,
+{"cardName": "English Pokemon name with suffix", "setNumber": "XXX/YYY as printed", "setCode": "set code like s6b if visible", "setName": "English set name"}`,
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Read the EXACT card name, card number, and set from this Pokemon card. Focus carefully on the small text at the bottom of the card for the card number.",
+              text: "READ the text on this Pokemon card. Do NOT guess from the artwork. Read the Pokemon name at the top, the card number at the bottom, and the set code at the bottom. For Japanese cards, transliterate the katakana name to English.",
             },
             {
               type: "image_url",
@@ -639,7 +658,7 @@ Respond ONLY with JSON:
     const jsonMatch = content.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      console.log(`[card-id] Dedicated read: name="${parsed.cardName}" number="${parsed.setNumber}" set="${parsed.setName}"`);
+      console.log(`[card-id] Dedicated read: name="${parsed.cardName}" number="${parsed.setNumber}" set="${parsed.setName}" code="${parsed.setCode || "none"}"`);
       return parsed;
     }
   } catch (err: any) {
@@ -713,16 +732,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const idName = cardIdResult?.cardName || "";
       const idNumber = cardIdResult?.setNumber || "";
       const idSet = cardIdResult?.setName || "";
+      const idCode = cardIdResult?.setCode || "";
 
       console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}"`);
-      console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}"`);
+      console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}" code="${idCode}"`);
 
       const bestName = idName || gradingName;
       const bestNumber = idNumber || gradingNumber;
       const bestSet = idSet || gradingSet;
 
       try {
-        const verified = await lookupCardOnline(bestName, bestNumber, bestSet);
+        const verified = await lookupCardOnline(bestName, bestNumber, bestSet, idCode);
         if (verified) {
           console.log(`[grade-card] Verified online: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
           gradingResult.cardName = verified.cardName;
