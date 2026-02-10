@@ -386,6 +386,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [showRotation, setShowRotation] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [panLocked, setPanLocked] = useState(false);
 
   const rotation = showFront ? frontRotation : backRotation;
   const setRotation = showFront ? setFrontRotation : setBackRotation;
@@ -523,6 +524,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const panStartOffRef = useRef({ x: 0, y: 0 });
   const zoomScaleRef = useRef(1);
   const panOffsetRef = useRef({ x: 0, y: 0 });
+  const panLockedRef = useRef(false);
   const containerSizeRef = useRef(containerSize);
   const posRef = useRef(pos);
   const showFrontRef = useRef(showFront);
@@ -533,6 +535,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const backPosRef = useRef(backPos);
   zoomScaleRef.current = zoomScale;
   panOffsetRef.current = panOffset;
+  panLockedRef.current = panLocked;
   containerSizeRef.current = containerSize;
   posRef.current = pos;
   showFrontRef.current = showFront;
@@ -585,8 +588,9 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
 
         const currentPos = posRef.current;
+        const locked = panLockedRef.current;
         if (currentPos) {
-          const hitDist = HANDLE_HIT_PX / scale;
+          const hitDist = locked ? HANDLE_HIT_PX * 2 / scale : HANDLE_HIT_PX / scale;
           const nearest = findNearestLine(containerX, containerY, currentPos, hitDist, cs.width, cs.height);
           if (nearest) {
             const lineVal = currentPos[nearest.key];
@@ -595,8 +599,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
               : lineVal - containerY;
             tentativeLineRef.current = { key: nearest.key, offset };
 
-            const closeEnough = nearest.dist < (hitDist * 0.5);
-            if (scale <= 1.05 || closeEnough) {
+            if (locked || scale <= 1.05 || nearest.dist < (hitDist * 0.5)) {
               gestureMode.current = "drag";
               dragLineKey.current = nearest.key;
               dragTouchOffset.current = offset;
@@ -607,7 +610,9 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           }
         }
 
-        if (scale > 1.05) {
+        if (locked) {
+          gestureMode.current = "none";
+        } else if (scale > 1.05) {
           gestureMode.current = "pan";
         } else {
           gestureMode.current = "none";
@@ -640,7 +645,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           const paraMovement = isV ? Math.abs(g.dy) : Math.abs(g.dx);
 
           if (perpMovement > DISAMBIG_THRESHOLD || paraMovement > DISAMBIG_THRESHOLD) {
-            if (perpMovement >= paraMovement) {
+            if (panLockedRef.current || perpMovement >= paraMovement) {
               gestureMode.current = "drag";
               dragLineKey.current = lineKey;
               dragTouchOffset.current = tentativeLineRef.current.offset;
@@ -689,7 +694,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           return;
         }
 
-        if (gestureMode.current === "none" && zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)) {
+        if (gestureMode.current === "none" && !panLockedRef.current && zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)) {
           gestureMode.current = "pan";
         }
       },
@@ -798,6 +803,16 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
               <Text style={styles.zoomIndicatorText}>{zoomScale.toFixed(1)}x</Text>
             </View>
           )}
+
+          {zoomScale > 1 && (
+            <Pressable
+              style={[styles.lockFloatingBtn, panLocked && styles.lockFloatingBtnActive]}
+              onPress={() => setPanLocked(p => !p)}
+            >
+              <Ionicons name={panLocked ? "lock-closed" : "lock-open-outline"} size={18} color="#fff" />
+              <Text style={styles.lockFloatingText}>{panLocked ? "Lines" : "Pan"}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -811,6 +826,15 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
               <Text style={[styles.sideBtnText, !showFront && styles.sideBtnTextActive]}>Back</Text>
             </Pressable>
           </View>
+          <Pressable
+            onPress={() => setPanLocked(p => !p)}
+            style={({ pressed }) => [styles.lockBtn, panLocked && styles.lockBtnActive, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Ionicons name={panLocked ? "lock-closed" : "lock-open-outline"} size={14} color={panLocked ? "#fff" : Colors.textMuted} />
+            <Text style={[styles.lockBtnText, panLocked && styles.lockBtnTextActive]}>
+              {panLocked ? "Lines" : "Pan"}
+            </Text>
+          </Pressable>
           <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.toolBtn, showRotation && styles.toolBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
             <Ionicons name="sync-outline" size={16} color={showRotation ? "#fff" : Colors.textMuted} />
           </Pressable>
@@ -845,7 +869,11 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           </View>
         )}
 
-        <Text style={styles.hint}>Pinch to zoom {"\u00B7"} Drag lines to adjust {"\u00B7"} Updates grades live</Text>
+        <Text style={styles.hint}>
+          {panLocked
+            ? "Pan locked \u2014 drag handles to move lines freely"
+            : "Pinch to zoom \u00B7 Tap lock to move lines while zoomed"}
+        </Text>
       </View>
     </View>
   );
@@ -868,6 +896,9 @@ const styles = StyleSheet.create({
   linesOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 },
   zoomIndicator: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, zIndex: 20 },
   zoomIndicatorText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
+  lockFloatingBtn: { position: "absolute" as const, top: 8, left: 8, flexDirection: "row" as const, alignItems: "center" as const, gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, zIndex: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  lockFloatingBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  lockFloatingText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
   controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
   controlRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sideToggle: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, padding: 2 },
@@ -875,6 +906,10 @@ const styles = StyleSheet.create({
   sideBtnActive: { backgroundColor: Colors.primary },
   sideBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.textMuted },
   sideBtnTextActive: { color: "#fff" },
+  lockBtn: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, height: 36, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)" },
+  lockBtnActive: { backgroundColor: Colors.primary },
+  lockBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textMuted },
+  lockBtnTextActive: { color: "#fff" },
   toolBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
   toolBtnActive: { backgroundColor: "rgba(255,255,255,0.18)" },
   rotRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, paddingHorizontal: 4 },
