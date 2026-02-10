@@ -18,7 +18,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
-import SpiritLevel from "@/components/SpiritLevel";
+import CardCamera from "@/components/CardCamera";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
@@ -39,6 +39,7 @@ export default function GradeScreen() {
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState<"front" | "back" | null>(null);
   const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,31 +107,37 @@ export default function GradeScreen() {
   };
 
   const launchCamera = async (side: "front" | "back") => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission Required", "Camera access is needed to take photos of your card.");
-      return;
+    if (Platform.OS !== "web") {
+      setCameraOpen(side);
+    } else {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Camera access is needed to take photos of your card.");
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        base64: true,
+        allowsEditing: true,
+        aspect: [63, 88],
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        if (side === "front") setFrontImage(uri);
+        else setBackImage(uri);
+      }
     }
+  };
 
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      base64: true,
-      allowsEditing: true,
-      aspect: [63, 88],
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      const uri = asset.uri;
-      if (side === "front") {
-        setFrontImage(uri);
-      } else {
-        setBackImage(uri);
-      }
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
+  const handleCameraCapture = (uri: string) => {
+    if (cameraOpen === "front") setFrontImage(uri);
+    else if (cameraOpen === "back") setBackImage(uri);
+    setCameraOpen(null);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
@@ -332,21 +339,6 @@ export default function GradeScreen() {
               />
             </View>
 
-            {Platform.OS !== "web" && (
-              <View style={styles.spiritLevelCard}>
-                <View style={styles.spiritLevelHeader}>
-                  <Ionicons name="compass-outline" size={18} color={Colors.text} />
-                  <Text style={styles.spiritLevelTitle}>Alignment Guide</Text>
-                </View>
-                <Text style={styles.spiritLevelDesc}>
-                  Hold your phone flat above the card. The bubble turns green when level.
-                </Text>
-                <View style={styles.spiritLevelWrap}>
-                  <SpiritLevel visible={!loading} />
-                </View>
-              </View>
-            )}
-
             <View style={styles.tipsCard}>
               <Text style={styles.tipsTitle}>Tips for best results</Text>
               <View style={styles.tipRow}>
@@ -355,7 +347,7 @@ export default function GradeScreen() {
               </View>
               <View style={styles.tipRow}>
                 <Ionicons name="compass" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Hold phone flat and parallel to card</Text>
+                <Text style={styles.tipText}>Use the spirit level when taking photos</Text>
               </View>
               <View style={styles.tipRow}>
                 <Ionicons name="resize" size={16} color={Colors.accent} />
@@ -389,6 +381,14 @@ export default function GradeScreen() {
             </Pressable>
           </View>
         </>
+      )}
+
+      {cameraOpen && (
+        <CardCamera
+          side={cameraOpen}
+          onCapture={handleCameraCapture}
+          onClose={() => setCameraOpen(null)}
+        />
       )}
     </View>
   );
@@ -561,33 +561,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     marginTop: 16,
-  },
-  spiritLevelCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 16,
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  spiritLevelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  spiritLevelTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.text,
-  },
-  spiritLevelDesc: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: "center",
-  },
-  spiritLevelWrap: {
-    marginTop: 4,
   },
 });
