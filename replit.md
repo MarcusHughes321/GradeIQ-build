@@ -45,7 +45,8 @@ server/
 ## API Endpoints
 - `POST /api/grade-card` - Accepts frontImage and backImage (base64 data URIs), returns grading results from PSA, Beckett, and Ace Grading, plus frontCardBounds and backCardBounds for centering tool line placement. Also returns cardName, setName, setNumber.
 - `POST /api/detect-bounds` - Accepts { image: base64 }, returns CardBounds for on-demand card boundary re-detection (used for old gradings missing bounds data)
-- `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns estimated eBay sold prices for PSA, BGS, and ACE graded cards plus raw/ungraded value
+- `POST /api/regrade-card` - Fast re-grade endpoint accepting { frontImage, backImage, cardName, setName, setNumber }. Skips card identification and online lookup, only re-assesses condition. Used after straightening.
+- `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns estimated eBay sold prices for PSA, BGS, and ACE graded cards plus raw/ungraded value AND Grade 10 prices (psa10Value, bgs10Value, ace10Value)
 
 ## Key Features
 - **AI Card Boundary Detection**: Sobel edge detection with 400px sampling, multi-row voting, and sub-pixel clustering for precise card edge positions
@@ -99,3 +100,6 @@ server/
 - Created /api/detect-angle endpoint for server-side card rotation detection via linear regression on bottom edge points
 - Improved card lookup scoring: set total mismatch penalty increased to -80, exact set name match required for full bonus, threshold raised to 80
 - Multi-candidate lookup: tries primary, grading-alt, and OCR-alt numbers when they disagree
+- Created fast /api/regrade-card endpoint for re-analysis after straightening (skips card ID + online lookup, condition-only grading)
+- Added progress stages to re-analysis overlay (Preparing → Analysing → Grading → Calculating → Done)
+- Added "If Grade 10" pricing column to eBay values card showing PSA 10, BGS 10, ACE 10 estimated prices
