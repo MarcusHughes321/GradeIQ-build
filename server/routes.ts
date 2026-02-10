@@ -1229,6 +1229,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const idIsUnknown = !idName || idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
       const gradingIsUnknown = !gradingName || gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
 
+      const isJapaneseCard = idCode && /^s\d|^sv\d|^sm\d/i.test(idCode);
+
+      const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+
+      if (isJapaneseCard && !idIsUnknown) {
+        console.log(`[grade-card] Japanese set code "${idCode}" detected — using OCR + full-image double-check (skipping English API lookup)`);
+
+        const [detectedFront, detectedBack, fullImageId] = await Promise.all([
+          detectCardBounds(frontUri),
+          detectCardBounds(backUri),
+          identifyCardWithFullImage(frontUri).catch(() => null),
+        ]);
+        gradingResult.frontCardBounds = detectedFront;
+        gradingResult.backCardBounds = detectedBack;
+
+        const fullName = fullImageId?.cardName || "";
+        const fullIsUnknown = !fullName || fullName.toLowerCase() === "unknown" || fullName.toLowerCase() === "n/a";
+        console.log(`[grade-card] Japanese card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}"`);
+
+        const candidates = [idName, fullName, gradingName].filter(n => n && n.toLowerCase() !== "unknown");
+        const nameCounts = new Map<string, number>();
+        for (const n of candidates) {
+          const key = stripSuffix(n.toLowerCase());
+          nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+        }
+        let bestJpName = idName;
+        let bestJpCount = 0;
+        for (const [key, count] of nameCounts) {
+          if (count > bestJpCount) {
+            bestJpCount = count;
+            bestJpName = candidates.find(n => stripSuffix(n.toLowerCase()) === key) || idName;
+          }
+        }
+        if (bestJpCount >= 2) {
+          console.log(`[grade-card] Majority vote (${bestJpCount}/3): "${bestJpName}"`);
+        } else {
+          bestJpName = !fullIsUnknown ? fullName : idName;
+          console.log(`[grade-card] No majority — preferring ${!fullIsUnknown ? "full-image" : "OCR"}: "${bestJpName}"`);
+        }
+
+        gradingResult.cardName = bestJpName;
+        gradingResult.setNumber = idNumber || (fullImageId?.setNumber) || gradingNumber;
+        gradingResult.setName = idSet || (fullImageId?.setName) || gradingSet;
+      } else {
       const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
 
       if (namesAgree) {
@@ -1256,9 +1301,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — trying both lookups`);
       }
-
-      const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
       const [boundsResults, ...lookupResults] = await Promise.all([
         Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]),
@@ -1297,6 +1339,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
+      } // end else (non-Japanese)
 
       gradingResult = syncCenteringToGrades(gradingResult);
 
