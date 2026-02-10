@@ -332,6 +332,94 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
   }
 }
 
+async function detectCardAngle(dataUri: string): Promise<number> {
+  try {
+    const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+
+    const { width, height } = await sharp(buffer).metadata() as { width: number; height: number };
+    if (!width || !height) return 0;
+
+    const SAMPLE_SIZE = 400;
+    const scaleW = Math.min(1, SAMPLE_SIZE / width);
+    const scaleH = Math.min(1, SAMPLE_SIZE / height);
+    const sw = Math.round(width * scaleW);
+    const sh = Math.round(height * scaleH);
+
+    const { data: pixels } = await sharp(buffer)
+      .resize(sw, sh, { fit: "fill" })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const getPixel = (x: number, y: number) => {
+      if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+      return pixels[y * sw + x];
+    };
+
+    const sobelY = (x: number, y: number): number => {
+      return (
+        -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
+        getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
+      );
+    };
+
+    const EDGE_THRESHOLD = 25;
+    const NUM_SAMPLES = 20;
+    const scanXStart = Math.round(sw * 0.15);
+    const scanXEnd = Math.round(sw * 0.85);
+    const scanYStart = Math.round(sh * 0.55);
+    const scanYEnd = Math.round(sh * 0.95);
+
+    const edgePoints: { x: number; y: number }[] = [];
+    const xStep = (scanXEnd - scanXStart) / (NUM_SAMPLES - 1);
+
+    for (let i = 0; i < NUM_SAMPLES; i++) {
+      const sampleX = Math.round(scanXStart + i * xStep);
+      let bestY = -1;
+      let bestGrad = 0;
+
+      for (let y = scanYEnd; y >= scanYStart; y--) {
+        const gy = Math.abs(sobelY(sampleX, y));
+        if (gy >= EDGE_THRESHOLD && gy > bestGrad) {
+          bestGrad = gy;
+          bestY = y;
+        }
+        if (bestY >= 0 && y < bestY - 5) break;
+      }
+
+      if (bestY >= 0) {
+        edgePoints.push({ x: sampleX, y: bestY });
+      }
+    }
+
+    if (edgePoints.length < 5) return 0;
+
+    const medianY = [...edgePoints].sort((a, b) => a.y - b.y)[Math.floor(edgePoints.length / 2)].y;
+    const filtered = edgePoints.filter(p => Math.abs(p.y - medianY) < sh * 0.05);
+
+    if (filtered.length < 4) return 0;
+
+    const n = filtered.length;
+    const sumX = filtered.reduce((s, p) => s + p.x, 0);
+    const sumY = filtered.reduce((s, p) => s + p.y, 0);
+    const sumXY = filtered.reduce((s, p) => s + p.x * p.y, 0);
+    const sumX2 = filtered.reduce((s, p) => s + p.x * p.x, 0);
+
+    const denom = n * sumX2 - sumX * sumX;
+    if (Math.abs(denom) < 0.001) return 0;
+
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const angleDeg = Math.atan(slope) * (180 / Math.PI);
+
+    const clamped = Math.max(-10, Math.min(10, angleDeg));
+    return parseFloat(clamped.toFixed(2));
+  } catch (err) {
+    console.error("Card angle detection failed:", err);
+    return 0;
+  }
+}
+
 async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }> {
   try {
     const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
@@ -939,6 +1027,22 @@ If no data exists for a category, use "No value data found". All prices MUST be 
     } catch (error: any) {
       console.error("Error detecting bounds:", error);
       res.status(500).json({ error: error.message || "Failed to detect bounds" });
+    }
+  });
+
+  app.post("/api/detect-angle", async (req, res) => {
+    try {
+      const { image } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: "Image is required" });
+      }
+      const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+      const angle = await detectCardAngle(uri);
+      console.log(`[detect-angle] Detected angle: ${angle} degrees`);
+      res.json({ angle });
+    } catch (error: any) {
+      console.error("Error detecting angle:", error);
+      res.status(500).json({ error: error.message || "Failed to detect angle" });
     }
   });
 

@@ -9,12 +9,15 @@ import {
   LayoutChangeEvent,
   Platform,
   Image as RNImage,
+  ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "@/constants/colors";
 import type { CenteringMeasurement, CardBounds } from "@/lib/types";
+import { apiRequest } from "@/lib/query-client";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -385,6 +388,96 @@ function renderHatchOverlay(pos: BorderPositions, _containerSize: { width: numbe
   );
 }
 
+function HelpOverlay({ onClose }: { onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const webTopInset = Platform.OS === "web" ? 67 : 0;
+  const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  const steps = [
+    {
+      icon: "move-outline" as const,
+      title: "Move the lines",
+      desc: "Switch to \"Move Lines\" mode, then drag the coloured handles to align the outer lines with the card edge and inner lines with the artwork border.",
+    },
+    {
+      icon: "hand-left-outline" as const,
+      title: "Pan & Zoom",
+      desc: "Switch to \"Pan / Zoom\" mode to pinch-zoom in for precision. Drag with one finger to pan around the image when zoomed.",
+    },
+    {
+      icon: "sync-outline" as const,
+      title: "Rotate",
+      desc: "Tap the rotate icon to show the rotation slider. Use it to straighten your card if the photo is slightly tilted.",
+    },
+    {
+      icon: "magnet-outline" as const,
+      title: "Auto-Straighten",
+      desc: "Tap the magic wand icon to automatically detect and correct the card's tilt based on the bottom edge.",
+    },
+    {
+      icon: "refresh" as const,
+      title: "Reset",
+      desc: "Tap the reset icon to restore the original line positions and rotation from the AI analysis.",
+    },
+  ];
+
+  return (
+    <View style={helpStyles.overlay}>
+      <View style={[helpStyles.container, { paddingTop: insets.top + webTopInset + 20, paddingBottom: insets.bottom + webBottomInset + 20 }]}>
+        <View style={helpStyles.header}>
+          <Text style={helpStyles.title}>How to use the Centering Tool</Text>
+          <Pressable onPress={onClose} style={({ pressed }) => [helpStyles.closeBtn, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="close" size={22} color="#fff" />
+          </Pressable>
+        </View>
+
+        <ScrollView style={helpStyles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+          {steps.map((step, i) => (
+            <View key={i} style={helpStyles.stepRow}>
+              <View style={helpStyles.stepIconWrap}>
+                <Ionicons name={step.icon} size={20} color={Colors.primary} />
+              </View>
+              <View style={helpStyles.stepContent}>
+                <Text style={helpStyles.stepTitle}>{step.title}</Text>
+                <Text style={helpStyles.stepDesc}>{step.desc}</Text>
+              </View>
+            </View>
+          ))}
+
+          <View style={helpStyles.tipBox}>
+            <Ionicons name="bulb-outline" size={16} color="#F59E0B" />
+            <Text style={helpStyles.tipText}>
+              For the most accurate centering measurement, zoom in close and align lines precisely with the card edges. The L/R and T/B ratios update in real-time as you adjust.
+            </Text>
+          </View>
+        </ScrollView>
+
+        <Pressable onPress={onClose} style={({ pressed }) => [helpStyles.gotItBtn, { opacity: pressed ? 0.85 : 1 }]}>
+          <Text style={helpStyles.gotItText}>Got it</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const helpStyles = StyleSheet.create({
+  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.85)", zIndex: 100, justifyContent: "center" },
+  container: { flex: 1, paddingHorizontal: 24 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 },
+  title: { fontFamily: "Inter_700Bold", fontSize: 20, color: "#fff", flex: 1 },
+  closeBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  scrollArea: { flex: 1 },
+  stepRow: { flexDirection: "row", gap: 14, marginBottom: 18 },
+  stepIconWrap: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(255,60,49,0.12)", alignItems: "center", justifyContent: "center", marginTop: 2 },
+  stepContent: { flex: 1 },
+  stepTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff", marginBottom: 4 },
+  stepDesc: { fontFamily: "Inter_400Regular", fontSize: 13, color: "rgba(255,255,255,0.65)", lineHeight: 19 },
+  tipBox: { flexDirection: "row", gap: 10, backgroundColor: "rgba(245,158,11,0.1)", borderRadius: 12, padding: 14, marginTop: 8, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)" },
+  tipText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 18 },
+  gotItBtn: { backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
+  gotItText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff" },
+});
+
 export default function CenteringTool({ frontImage, backImage, centering, originalCentering, frontCardBounds, backCardBounds, onSave, onClose }: CenteringToolProps) {
   const insets = useSafeAreaInsets();
   const [showFront, setShowFront] = useState(true);
@@ -405,6 +498,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [panLocked, setPanLocked] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [autoStraightening, setAutoStraightening] = useState(false);
 
   const rotation = showFront ? frontRotation : backRotation;
   const setRotation = showFront ? setFrontRotation : setBackRotation;
@@ -535,6 +630,28 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     const fr = computeRatio(initPositions(oc.frontLeftRight, oc.frontTopBottom, fb, frontCardBounds));
     const br = computeRatio(initPositions(oc.backLeftRight, oc.backTopBottom, bb, backCardBounds));
     onSave({ frontLeftRight: fr.lr, frontTopBottom: fr.tb, backLeftRight: br.lr, backTopBottom: br.tb });
+  };
+
+  const handleAutoStraighten = async () => {
+    const imageUri = showFront ? frontImage : backImage;
+    if (!imageUri || autoStraightening) return;
+
+    setAutoStraightening(true);
+    try {
+      const response = await apiRequest("POST", "/api/detect-angle", { image: imageUri });
+      const data = await response.json();
+      const angle = data.angle || 0;
+
+      if (Math.abs(angle) > 0.1) {
+        const correctedAngle = -angle;
+        setRotation(Math.max(-15, Math.min(15, Math.round(correctedAngle * 10) / 10)));
+        setShowRotation(true);
+      }
+    } catch (err) {
+      console.error("Auto-straighten failed:", err);
+    } finally {
+      setAutoStraightening(false);
+    }
   };
 
   const pinchStartDistRef = useRef(0);
@@ -733,8 +850,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset, paddingBottom: insets.bottom + webBottomInset }]}>
       <View style={styles.header}>
-        <Pressable onPress={onClose} style={({ pressed }) => [styles.headerBtn, { opacity: pressed ? 0.6 : 1 }]}>
-          <Ionicons name="close" size={22} color="#fff" />
+        <Pressable onPress={() => setShowHelp(true)} style={({ pressed }) => [styles.headerBtn, { opacity: pressed ? 0.6 : 1 }]}>
+          <Ionicons name="help-circle-outline" size={22} color="#fff" />
         </Pressable>
         <View style={styles.ratioInline}>
           <Text style={[styles.ratioText, { color: lrColor }]}>L/R {formatRatio(ratio.lr)}</Text>
@@ -829,6 +946,17 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.toolBtn, showRotation && styles.toolBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
             <Ionicons name="sync-outline" size={16} color={showRotation ? "#fff" : Colors.textMuted} />
           </Pressable>
+          <Pressable
+            onPress={handleAutoStraighten}
+            disabled={autoStraightening}
+            style={({ pressed }) => [styles.toolBtn, { opacity: autoStraightening ? 0.4 : pressed ? 0.6 : 1 }]}
+          >
+            {autoStraightening ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Ionicons name="magnet-outline" size={16} color={Colors.textMuted} />
+            )}
+          </Pressable>
           <Pressable onPress={handleReset} style={({ pressed }) => [styles.toolBtn, { opacity: pressed ? 0.6 : 1 }]}>
             <Ionicons name="refresh" size={16} color={Colors.textMuted} />
           </Pressable>
@@ -866,6 +994,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             : "Pinch to zoom in \u00B7 Drag to pan around \u00B7 Tap button to switch to Move Lines"}
         </Text>
       </View>
+
+      {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
     </View>
   );
 }
