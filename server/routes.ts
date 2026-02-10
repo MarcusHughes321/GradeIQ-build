@@ -648,43 +648,37 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     const cardWidthPx = rightCol - leftCol;
     const expectedCardHeightPx = cardWidthPx * CARD_RATIO;
 
-    const findVerticalEdge = (scanX: number, startY: number, endY: number, step: number): number => {
-      const zone = Math.max(4, Math.round(cardWidthPx * 0.06));
-      const xFrom = Math.max(1, Math.round(scanX - zone));
-      const xTo = Math.min(sw - 1, Math.round(scanX + zone));
+    const findCardVerticalExtent = (edgeX: number): { top: number; bottom: number } => {
+      const x = Math.round(edgeX);
+      const vertEdgeScores: number[] = new Array(sh).fill(0);
 
-      const scores: { y: number; score: number }[] = [];
-      for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
-        let score = 0;
-        for (let x = xFrom; x <= xTo; x++) {
-          score += Math.abs(sobelY(x, y));
-        }
-        scores.push({ y, score });
+      for (let y = 1; y < sh - 1; y++) {
+        vertEdgeScores[y] = Math.abs(sobelX(x, y));
       }
 
-      if (scores.length === 0) return startY;
+      const maxVert = Math.max(...vertEdgeScores);
+      const activeThreshold = maxVert * 0.15;
 
-      const maxScore = scores.reduce((max, s) => Math.max(max, s.score), 0);
-      const threshold = maxScore * 0.3;
+      let top = -1;
+      let bottom = -1;
 
-      for (const s of scores) {
-        if (s.score >= threshold) {
-          return s.y;
+      for (let y = 1; y < sh - 1; y++) {
+        if (vertEdgeScores[y] >= activeThreshold) {
+          if (top < 0) top = y;
+          bottom = y;
         }
       }
 
-      return startY;
+      return { top: top >= 0 ? top : 1, bottom: bottom >= 0 ? bottom : sh - 2 };
     };
 
-    const topFromLeft = findVerticalEdge(Math.round(leftCol), 1, Math.round(sh * 0.5), 1);
-    const topFromRight = findVerticalEdge(Math.round(rightCol), 1, Math.round(sh * 0.5), 1);
-    const bottomFromLeft = findVerticalEdge(Math.round(leftCol), sh - 2, Math.round(sh * 0.5), -1);
-    const bottomFromRight = findVerticalEdge(Math.round(rightCol), sh - 2, Math.round(sh * 0.5), -1);
+    const leftExtent = findCardVerticalExtent(leftCol);
+    const rightExtent = findCardVerticalExtent(rightCol);
 
-    console.log(`[detect-bounds] Vertical edges: topL=${topFromLeft} topR=${topFromRight} botL=${bottomFromLeft} botR=${bottomFromRight}`);
+    const rawTop = Math.min(leftExtent.top, rightExtent.top);
+    const rawBottom = Math.max(leftExtent.bottom, rightExtent.bottom);
 
-    const rawTop = Math.min(topFromLeft, topFromRight);
-    const rawBottom = Math.max(bottomFromLeft, bottomFromRight);
+    console.log(`[detect-bounds] Vertical extent: leftT=${leftExtent.top} leftB=${leftExtent.bottom} rightT=${rightExtent.top} rightB=${rightExtent.bottom}`);
 
     const detectedHeight = rawBottom - rawTop;
     const heightRatio = cardWidthPx > 0 ? detectedHeight / cardWidthPx : 0;
@@ -695,12 +689,12 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     if (heightRatio >= 1.25 && heightRatio <= 1.55) {
       finalTop = rawTop;
       finalBottom = rawBottom;
-      console.log(`[detect-bounds] Using detected T/B: ${finalTop}-${finalBottom} (ratio ${heightRatio.toFixed(2)})`);
+      console.log(`[detect-bounds] Using vertical extent T/B: ${finalTop}-${finalBottom} (ratio ${heightRatio.toFixed(2)})`);
     } else {
       const centerY = (rawTop + rawBottom) / 2;
       finalTop = Math.round(centerY - expectedCardHeightPx / 2);
       finalBottom = Math.round(centerY + expectedCardHeightPx / 2);
-      console.log(`[detect-bounds] Ratio ${heightRatio.toFixed(2)} out of range, using aspect-corrected T/B: ${finalTop}-${finalBottom}`);
+      console.log(`[detect-bounds] Ratio ${heightRatio.toFixed(2)} out of range, using aspect-corrected T/B: ${finalTop}-${finalBottom} (center=${centerY.toFixed(0)})`);
     }
 
     const leftPercent = (leftCol / sw) * 100;
