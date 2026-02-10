@@ -188,7 +188,7 @@ async function queryPokemonTcgApi(q: string): Promise<any[]> {
     console.log(`[card-lookup] Querying: ${q}`);
     const resp = await fetch(url, {
       headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!resp.ok) {
       console.log(`[card-lookup] API returned ${resp.status}`);
@@ -591,6 +591,63 @@ function enforceGradingScales(result: any): any {
   return result;
 }
 
+async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
+  try {
+    console.log(`[card-id] Running dedicated card identification...`);
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 512,
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert at reading Pokemon trading cards. Your ONLY job is to read the card details from the image as accurately as possible.
+
+TASK: Read these three things from the card image:
+1. CARD NAME - The Pokemon name printed on the card. Include any suffix (ex, EX, GX, V, VMAX, VSTAR, etc.). If the card is in Japanese, Korean, or another language, provide the ENGLISH name.
+2. CARD NUMBER - The number printed at the bottom of the card (e.g., "004/184", "255/264", "SWSH039"). Look at BOTH the bottom-left and bottom-right corners. The number typically has a "/" separating the card number from the set total.
+3. SET NAME - The English name of the set this card belongs to, based on the set symbol and card design.
+
+READING THE CARD NUMBER - this is the hardest part:
+- Zoom in mentally on the bottom of the card
+- Card numbers are very small text, often in grey, white, or black
+- Look for the "/" character - digits before it are the card number, after it are the set total
+- Some cards have a set code prefix (e.g., "SV1" or "S12a") before the number
+- Watch for easily confused digits: 0/8, 3/8, 6/9, 1/7, 5/6
+- If you see "I" or "l" it's probably a "1"
+- Japanese cards: number format is usually "XXX/YYY" at the bottom-left
+
+Respond ONLY with JSON:
+{"cardName": "...", "setNumber": "...", "setName": "..."}`,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Read the EXACT card name, card number, and set from this Pokemon card. Focus carefully on the small text at the bottom of the card for the card number.",
+            },
+            {
+              type: "image_url",
+              image_url: { url: frontImageUrl, detail: "high" },
+            },
+          ],
+        },
+      ],
+    });
+
+    const content = response.choices[0]?.message?.content || "";
+    const jsonMatch = content.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      console.log(`[card-id] Dedicated read: name="${parsed.cardName}" number="${parsed.setNumber}" set="${parsed.setName}"`);
+      return parsed;
+    }
+  } catch (err: any) {
+    console.log(`[card-id] Dedicated identification failed:`, err?.message);
+  }
+  return null;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/grade-card", async (req, res) => {
     try {
@@ -600,41 +657,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Both front and back card images are required" });
       }
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-5.2",
-        max_completion_tokens: 4096,
-        messages: [
-          {
-            role: "system",
-            content: GRADING_SYSTEM_PROMPT,
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`,
-                  detail: "high",
-                },
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`,
-                  detail: "high",
-                },
-              },
-            ],
-          },
-        ],
-      });
+      const frontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const backUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
-      const content = response.choices[0]?.message?.content || "";
+      const [gradingResponse, cardIdResult] = await Promise.all([
+        openai.chat.completions.create({
+          model: "gpt-5.2",
+          max_completion_tokens: 4096,
+          messages: [
+            {
+              role: "system",
+              content: GRADING_SYSTEM_PROMPT,
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: frontUrl, detail: "high" },
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: backUrl, detail: "high" },
+                },
+              ],
+            },
+          ],
+        }),
+        identifyCard(frontUrl),
+      ]);
+
+      const content = gradingResponse.choices[0]?.message?.content || "";
 
       let gradingResult;
       try {
@@ -650,21 +707,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       gradingResult = enforceGradingScales(gradingResult);
 
-      const aiCardName = gradingResult.cardName || "";
-      const aiSetNumber = gradingResult.setNumber || "";
-      const aiSetName = gradingResult.setName || "";
-      console.log(`[grade-card] AI identified: "${aiCardName}" from "${aiSetName}" (${aiSetNumber})`);
+      const gradingName = gradingResult.cardName || "";
+      const gradingNumber = gradingResult.setNumber || "";
+      const gradingSet = gradingResult.setName || "";
+      const idName = cardIdResult?.cardName || "";
+      const idNumber = cardIdResult?.setNumber || "";
+      const idSet = cardIdResult?.setName || "";
+
+      console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}"`);
+      console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}"`);
+
+      const bestName = idName || gradingName;
+      const bestNumber = idNumber || gradingNumber;
+      const bestSet = idSet || gradingSet;
 
       try {
-        const verified = await lookupCardOnline(aiCardName, aiSetNumber, aiSetName);
+        const verified = await lookupCardOnline(bestName, bestNumber, bestSet);
         if (verified) {
           console.log(`[grade-card] Verified online: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
           gradingResult.cardName = verified.cardName;
           gradingResult.setName = verified.setName;
           gradingResult.setNumber = verified.setNumber;
+        } else {
+          gradingResult.cardName = bestName;
+          gradingResult.setNumber = bestNumber;
+          gradingResult.setName = bestSet;
         }
       } catch (lookupErr) {
-        console.log(`[grade-card] Online lookup failed, using AI identification`);
+        console.log(`[grade-card] Online lookup failed, using best AI identification`);
+        gradingResult.cardName = bestName;
+        gradingResult.setNumber = bestNumber;
+        gradingResult.setName = bestSet;
       }
 
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
