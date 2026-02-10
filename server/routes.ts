@@ -502,28 +502,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market analyst specialising in the UK market. Provide estimated recent eBay UK sold prices (in GBP, £) for graded Pokemon cards based on their SPECIFIC grade. Use your knowledge of Pokemon card values from eBay UK sold listings. Be realistic with prices based on the card's rarity, popularity, condition, and the EXACT grade received.
+            content: `You are a Pokemon TCG market analyst specialising in the UK eBay market.
 
-IMPORTANT: The prices must reflect the SPECIFIC grade the card received, not just a generic graded price. For example:
-- A PSA 10 is worth significantly more than a PSA 8
-- A BGS 9.5 is worth more than a BGS 8
-- An Ace 10 is worth more than an Ace 8
-- Higher grades command premium prices, especially PSA 10 and BGS 10/Black Label
+Your job is to estimate what each version of a card has ACTUALLY SOLD FOR on eBay UK recently. Think of it as: if someone searched eBay UK sold listings for each of these exact search terms, what prices would they find?
 
-Respond ONLY with valid JSON in this exact format:
+You will be given:
+- The card name, set name, and card number (from the bottom of the card)
+- The specific PSA, BGS, and Ace grades the card received
+
+For EACH grading company, imagine searching eBay UK sold listings with a search like:
+  "[Card Name] [Set Name] [Card Number] PSA [grade]"
+  "[Card Name] [Set Name] [Card Number] BGS [grade]"
+  "[Card Name] [Set Name] [Card Number] Ace [grade]"
+  "[Card Name] [Set Name] [Card Number]" (for raw/ungraded)
+
+The card number is CRITICAL for finding the right card - many Pokemon appear in multiple sets with very different values.
+
+A graded card is ALWAYS worth more than a raw card. A PSA 10 or BGS 10 is worth significantly more than lower grades. The grading company slab and grade adds value on top of the raw card price.
+
+Respond ONLY with valid JSON:
 {
-  "psaValue": "Estimated eBay UK sold price for this card at the SPECIFIC PSA grade given (e.g. '£35 - £50')",
-  "bgsValue": "Estimated eBay UK sold price for this card at the SPECIFIC BGS grade given (e.g. '£40 - £55')",
-  "aceValue": "Estimated eBay UK sold price for this card at the SPECIFIC Ace grade given (e.g. '£25 - £40')",
-  "rawValue": "Estimated eBay UK sold price for raw/ungraded version (e.g. '£10 - £20')",
+  "psaValue": "£XX - £XX",
+  "bgsValue": "£XX - £XX",
+  "aceValue": "£XX - £XX",
+  "rawValue": "£XX - £XX",
   "source": "Based on recent eBay UK sold listings"
 }
 
-If you cannot determine a reasonable price estimate for any category, use "No value data found" for that field. For very common cards, prices may be low (£1-£10). For rare/chase cards, prices can be much higher. The specific grade significantly affects value - always price for the exact grade provided. All prices MUST be in GBP (£).`,
+If no data exists for a category, use "No value data found". All prices MUST be in GBP (£).`,
           },
           {
             role: "user",
-            content: `What are the estimated recent eBay UK sold prices (in GBP, £) for this Pokemon card at these SPECIFIC grades?\n\nCard Name: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nFull Description: ${cardDesc}\n\nSPECIFIC GRADES TO PRICE:\n- PSA ${psaGrade} (look up eBay UK sold prices specifically for "PSA ${psaGrade} ${cardName}")\n- BGS ${bgsGrade} (look up eBay UK sold prices specifically for "BGS ${bgsGrade} ${cardName}")\n- Ace ${aceGrade} (look up eBay UK sold prices specifically for "Ace ${aceGrade} ${cardName}")\n- Raw/ungraded\n\nIMPORTANT: Use the card number (${setNumber}) and set name to identify the EXACT card for accurate pricing. Different printings of the same Pokemon can have very different values. Price each graded version at the EXACT grade listed above. All prices must be in GBP (£).`,
+            content: `Look up eBay UK sold prices for this Pokemon card. Use the card name, set, AND card number together to identify the exact card.\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\n\nSearch eBay UK sold listings for each of these:\n1. "${cardName} ${setNumber || ""} ${setName || ""} PSA ${psaGrade}" → psaValue\n2. "${cardName} ${setNumber || ""} ${setName || ""} BGS ${bgsGrade}" → bgsValue\n3. "${cardName} ${setNumber || ""} ${setName || ""} Ace ${aceGrade}" → aceValue\n4. "${cardName} ${setNumber || ""} ${setName || ""}" raw/ungraded → rawValue\n\nRemember: graded cards sell for MORE than raw cards. PSA 10 sells for MORE than PSA 9. All prices in GBP (£).`,
           },
         ],
       });
