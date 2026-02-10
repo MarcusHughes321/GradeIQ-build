@@ -1101,29 +1101,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const cardDesc = [cardName, setName, setNumber].filter(Boolean).join(" - ");
 
+      const setNumberClean = setNumber ? setNumber.replace(/^0+/, '') : "";
+      const setNumberPadded = setNumber || "";
+
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
-        max_completion_tokens: 1024,
+        max_completion_tokens: 1500,
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market analyst specialising in the UK eBay market.
+            content: `You are a Pokemon TCG market analyst specialising in the UK eBay market. You have deep knowledge of Pokemon card values across all eras and sets.
 
-Your job is to estimate what each version of a card has ACTUALLY SOLD FOR on eBay UK recently. Think of it as: if someone searched eBay UK sold listings for each of these exact search terms, what prices would they find?
+Your job is to estimate realistic eBay UK sold prices for a specific Pokemon card. You should consider:
+1. The card's rarity (common, uncommon, rare, holo rare, ultra rare, secret rare, etc.)
+2. The set it's from (vintage sets like Base Set are worth more than modern sets)
+3. The specific card variant (regular, reverse holo, full art, alt art, etc.)
+4. The current market for that card's era and popularity
 
-You will be given:
-- The card name, set name, and card number (from the bottom of the card)
-- The specific PSA, BGS, and Ace grades the card received
+SEARCH STRATEGY - Try MULTIPLE search approaches to find the card:
+- Primary: "[Pokemon Name] [Card Number] [Set Name]"
+- Simplified: "[Pokemon Name] [Set Name]" (drop card number if it's causing confusion)
+- By number: "[Card Number] [Set Name]" (some sellers list by number only)
+- Alternative set names: Try common abbreviations (e.g., "Obsidian Flames" = "OBF", "Paldea Evolved" = "PAL", "151" = "Pokemon 151" or "MEW")
+- With and without leading zeros on card numbers (e.g., "003/007" AND "3/7")
+- Try both English and Japanese market terms if the card is Japanese
 
-For EACH grading company, imagine searching eBay UK sold listings with a search like:
-  "[Card Name] [Set Name] [Card Number] PSA [grade]"
-  "[Card Name] [Set Name] [Card Number] BGS [grade]"
-  "[Card Name] [Set Name] [Card Number] Ace [grade]"
-  "[Card Name] [Set Name] [Card Number]" (for raw/ungraded)
-
-The card number is CRITICAL for finding the right card - many Pokemon appear in multiple sets with very different values.
-
-A graded card is ALWAYS worth more than a raw card. A PSA 10 or BGS 10 is worth significantly more than lower grades. The grading company slab and grade adds value on top of the raw card price.
+IMPORTANT RULES:
+- Even common cards have SOME value when graded. A PSA 10 of any card is worth at minimum £5-10 even for the most common cards.
+- Raw common modern cards may be worth less than £1, but still provide a realistic estimate rather than "No value data found".
+- Only use "No value data found" if the card genuinely cannot be identified or doesn't exist.
+- Ace Grading is a newer UK-based company - their slabs typically sell for slightly less than PSA/BGS equivalent grades.
+- BGS (Beckett) 9.5 is roughly equivalent to PSA 10 in market value.
+- All prices MUST be in GBP (£).
 
 Respond ONLY with valid JSON:
 {
@@ -1135,13 +1144,31 @@ Respond ONLY with valid JSON:
   "bgs10Value": "£XX - £XX",
   "ace10Value": "£XX - £XX",
   "source": "Based on recent eBay UK sold listings"
-}
-
-If no data exists for a category, use "No value data found". All prices MUST be in GBP (£).`,
+}`,
           },
           {
             role: "user",
-            content: `Look up eBay UK sold prices for this Pokemon card. Use the card name, set, AND card number together to identify the exact card.\n\nCard: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\n\nSearch eBay UK sold listings for each of these:\n1. "${cardName} ${setNumber || ""} ${setName || ""} PSA ${psaGrade}" → psaValue\n2. "${cardName} ${setNumber || ""} ${setName || ""} BGS ${bgsGrade}" → bgsValue\n3. "${cardName} ${setNumber || ""} ${setName || ""} Ace ${aceGrade}" → aceValue\n4. "${cardName} ${setNumber || ""} ${setName || ""}" raw/ungraded → rawValue\n5. "${cardName} ${setNumber || ""} ${setName || ""} PSA 10" → psa10Value\n6. "${cardName} ${setNumber || ""} ${setName || ""} BGS 10" → bgs10Value\n7. "${cardName} ${setNumber || ""} ${setName || ""} Ace 10" → ace10Value\n\nRemember: graded cards sell for MORE than raw cards. PSA 10 sells for MORE than PSA 9. Grade 10 versions are the most valuable. All prices in GBP (£).`,
+            content: `Estimate eBay UK sold prices for this Pokemon card. Try multiple search variations to find the best match.
+
+Card: ${cardName}
+Set: ${setName || "Unknown"}
+Card Number: ${setNumberPadded || "Unknown"}${setNumberClean ? ` (also try: ${setNumberClean})` : ""}
+
+Find sold prices for:
+1. PSA ${psaGrade} graded version → psaValue
+2. BGS ${bgsGrade} graded version → bgsValue
+3. Ace ${aceGrade} graded version → aceValue
+4. Raw/ungraded version → rawValue
+5. PSA 10 (gem mint) version → psa10Value
+6. BGS 10 (pristine) version → bgs10Value
+7. Ace 10 version → ace10Value
+
+Key context:
+- Graded cards are ALWAYS worth more than raw cards
+- PSA 10 / BGS 10 commands a significant premium over lower grades
+- If this is a vintage or popular card, values will be higher
+- Even bulk/common cards have some value when professionally graded
+- Provide realistic price ranges in GBP (£), not "No value data found" unless the card truly cannot be identified`,
           },
         ],
       });
