@@ -812,18 +812,7 @@ async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string
   };
 }
 
-async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
-  try {
-    console.log(`[card-id] Cropping card regions for focused text reading...`);
-    const { topStrip, bottomStrip } = await cropCardRegions(frontImageUrl);
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 512,
-      messages: [
-        {
-          role: "system",
-          content: `You are an OCR specialist. You will receive two cropped strips from a Pokemon trading card:
+const CARD_ID_SYSTEM_PROMPT = `You are an OCR specialist. You will receive two cropped strips from a Pokemon trading card:
 1. The TOP strip — contains the Pokemon name
 2. The BOTTOM strip — contains the card number and set code
 
@@ -839,7 +828,12 @@ READING THE TOP STRIP (Pokemon name):
   ゲッコウガ = Greninja, ガブリアス = Garchomp, サーナイト = Gardevoir,
   バシャーモ = Blaziken, エースバーン = Cinderace, ドラパルト = Dragapult,
   パルキア = Palkia, ディアルガ = Dialga, ギラティナ = Giratina,
-  アルセウス = Arceus, ミミッキュ = Mimikyu, ドダイトス = Torterra
+  アルセウス = Arceus, ミミッキュ = Mimikyu, ドダイトス = Torterra,
+  エルフーン = Whimsicott, レシラム = Reshiram, ゼクロム = Zekrom,
+  キュレム = Kyurem, メタグロス = Metagross, バンギラス = Tyranitar,
+  カイリュー = Dragonite, ゲンガー = Gengar, ハッサム = Scizor,
+  ニンフィア = Sylveon, グレイシア = Glaceon, リーフィア = Leafeon,
+  ブラッキー = Umbreon, エーフィ = Espeon, シャワーズ = Vaporeon
 - Include any suffix (V, VMAX, VSTAR, ex, EX, GX) — these are usually in Latin characters.
 
 READING THE BOTTOM STRIP (card number + set code):
@@ -855,44 +849,101 @@ SET NAME from set code:
 - s11 = Lost Abyss, s11a = Incandescent Arcana, s12 = Silver Tempest, s12a = VSTAR Universe
 - sv1 = Scarlet ex, sv2a = Pokemon Card 151, sv3 = Ruler of the Black Flame
 - S1a = VMAX Rising, S5a = Matchless Fighters
+- S5I = Single Strike / Rapid Strike, S6H = Silver Lance, S6K = Jet Black Spirit
 
 CRITICAL RULES:
 - NEVER return "Unknown", "N/A", or "Unreadable" for cardName. If you cannot read the name, try your best guess based on partial characters, artwork context, or set/number cross-reference.
 - For Japanese cards, sound out the katakana characters and translate to the English Pokemon name.
 
 Respond with JSON ONLY:
-{"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name"}`,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips.",
-            },
-            {
-              type: "image_url",
-              image_url: { url: topStrip, detail: "high" },
-            },
-            {
-              type: "image_url",
-              image_url: { url: bottomStrip, detail: "high" },
-            },
-          ],
-        },
-      ],
-    });
+{"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name"}`;
 
-    const content = response.choices[0]?.message?.content || "";
-    const jsonMatch = content.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      console.log(`[card-id] Cropped OCR result: name="${parsed.cardName}" number="${parsed.setNumber}" set="${parsed.setName}" code="${parsed.setCode || "none"}"`);
-      return parsed;
+async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
+  const { topStrip, bottomStrip } = await cropCardRegions(frontImageUrl);
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.2",
+    max_completion_tokens: 512,
+    messages: [
+      { role: "system", content: CARD_ID_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips." },
+          { type: "image_url", image_url: { url: topStrip, detail: "high" } },
+          { type: "image_url", image_url: { url: bottomStrip, detail: "high" } },
+        ],
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content || "";
+  const jsonMatch = content.match(/\{[\s\S]*?\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+  return null;
+}
+
+async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.2",
+    max_completion_tokens: 512,
+    messages: [
+      {
+        role: "system",
+        content: `You are a Pokemon card identification expert. Identify this card by reading the name and card number from the image.
+For Japanese/Korean cards, translate the name to English.
+Common Japanese names: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon
+Include any suffix (V, VMAX, VSTAR, ex, EX, GX).
+Read the card number (format XXX/YYY) from the bottom of the card.
+Also read the set code (e.g. s8a, sv2a) near the card number.
+Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCode":"code","setName":"English set name"}`,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Identify this Pokemon card. Read the name and card number carefully." },
+          { type: "image_url", image_url: { url: frontImageUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content || "";
+  const jsonMatch = content.match(/\{[\s\S]*?\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+  return null;
+}
+
+async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
+  try {
+    console.log(`[card-id] Cropping card regions for focused text reading...`);
+    const result = await identifyCardWithCrops(frontImageUrl);
+    if (result) {
+      console.log(`[card-id] Cropped OCR result: name="${result.cardName}" number="${result.setNumber}" set="${result.setName}" code="${result.setCode || "none"}"`);
+      const nameIsUnknown = !result.cardName || result.cardName.toLowerCase() === "unknown" || result.cardName.toLowerCase() === "n/a" || result.cardName.toLowerCase() === "unreadable";
+      if (!nameIsUnknown) {
+        return result;
+      }
+      console.log(`[card-id] Cropped OCR returned unknown name, trying full image fallback...`);
     }
   } catch (err: any) {
-    console.log(`[card-id] Dedicated identification failed:`, err?.message);
+    console.log(`[card-id] Cropped identification failed: ${err?.message}, trying full image fallback...`);
   }
+
+  try {
+    const result = await identifyCardWithFullImage(frontImageUrl);
+    if (result) {
+      console.log(`[card-id] Full image fallback result: name="${result.cardName}" number="${result.setNumber}" set="${result.setName}" code="${result.setCode || "none"}"`);
+      return result;
+    }
+  } catch (err: any) {
+    console.log(`[card-id] Full image identification also failed: ${err?.message}`);
+  }
+
   return null;
 }
 
@@ -1314,142 +1365,6 @@ Respond ONLY with valid JSON:
         ace10Value: "No value data found",
         source: "Error fetching values",
       });
-    }
-  });
-
-  app.post("/api/bulk-grade", async (req, res) => {
-    try {
-      const { cards } = req.body;
-
-      if (!cards || !Array.isArray(cards) || cards.length === 0) {
-        return res.status(400).json({ error: "Cards array is required" });
-      }
-      if (cards.length > 20) {
-        return res.status(400).json({ error: "Maximum 20 cards per bulk upload" });
-      }
-
-      console.log(`[bulk-grade] Starting bulk grade for ${cards.length} cards`);
-
-      const BATCH_SIZE = 3;
-      const results: Array<{ index: number; result?: any; error?: string }> = [];
-
-      const gradeOneCard = async (card: { frontImage: string; backImage: string }, index: number) => {
-        try {
-          const frontUrl = card.frontImage.startsWith("data:") ? card.frontImage : `data:image/jpeg;base64,${card.frontImage}`;
-          const backUrl = card.backImage.startsWith("data:") ? card.backImage : `data:image/jpeg;base64,${card.backImage}`;
-
-          console.log(`[bulk-grade] Grading card ${index + 1}/${cards.length}`);
-
-          const [gradingResponse, cardIdResult] = await Promise.all([
-            openai.chat.completions.create({
-              model: "gpt-5.2",
-              max_completion_tokens: 4096,
-              messages: [
-                {
-                  role: "system",
-                  content: GRADING_SYSTEM_PROMPT,
-                },
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
-                    },
-                    {
-                      type: "image_url",
-                      image_url: { url: frontUrl, detail: "high" },
-                    },
-                    {
-                      type: "image_url",
-                      image_url: { url: backUrl, detail: "high" },
-                    },
-                  ],
-                },
-              ],
-            }),
-            identifyCard(frontUrl),
-          ]);
-
-          const content = gradingResponse.choices[0]?.message?.content || "";
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) {
-            return { index, error: "Failed to parse grading results" };
-          }
-
-          let gradingResult = JSON.parse(jsonMatch[0]);
-          gradingResult = enforceGradingScales(gradingResult);
-
-          const gradingName = gradingResult.cardName || "";
-          const gradingNumber = gradingResult.setNumber || "";
-          const gradingSet = gradingResult.setName || "";
-          const idName = cardIdResult?.cardName || "";
-          const idNumber = cardIdResult?.setNumber || "";
-          const idSet = cardIdResult?.setName || "";
-
-          if (idName && gradingName) {
-            const idHasNumber = idNumber && idNumber.includes("/");
-            const gradingHasNumber = gradingNumber && gradingNumber.includes("/");
-            const namesAgree = stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
-
-            if (namesAgree) {
-              gradingResult.cardName = idName;
-              gradingResult.setNumber = idHasNumber ? idNumber : gradingNumber;
-              gradingResult.setName = idSet || gradingSet;
-            } else {
-              const idIsUnknown = idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
-              const gradingIsUnknown = gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
-
-              if (idIsUnknown && !gradingIsUnknown) {
-                gradingResult.setNumber = gradingNumber || idNumber;
-                gradingResult.setName = gradingSet || idSet;
-              } else if (gradingIsUnknown && !idIsUnknown) {
-                gradingResult.cardName = idName;
-                gradingResult.setNumber = idNumber || gradingNumber;
-                gradingResult.setName = idSet || gradingSet;
-              } else {
-                const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (cardIdResult?.setCode ? 1 : 0);
-                const gScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
-                if (idScore >= gScore) {
-                  gradingResult.cardName = idName;
-                  gradingResult.setNumber = idNumber || gradingNumber;
-                  gradingResult.setName = idSet || gradingSet;
-                }
-              }
-              console.log(`[bulk-grade] Card ${index + 1} names disagree: OCR="${idName}" vs Grading="${gradingName}"`);
-            }
-          } else if (idName) {
-            gradingResult.cardName = idName;
-            gradingResult.setNumber = idNumber || gradingNumber;
-            gradingResult.setName = idSet || gradingSet;
-          }
-
-          gradingResult = syncCenteringToGrades(gradingResult);
-
-          console.log(`[bulk-grade] Card ${index + 1} done: "${gradingResult.cardName}" (${gradingResult.setNumber})`);
-          return { index, result: gradingResult };
-        } catch (err: any) {
-          console.error(`[bulk-grade] Card ${index + 1} failed:`, err?.message);
-          return { index, error: err?.message || "Failed to grade card" };
-        }
-      };
-
-      for (let i = 0; i < cards.length; i += BATCH_SIZE) {
-        const batch = cards.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map((card: { frontImage: string; backImage: string }, batchIdx: number) =>
-          gradeOneCard(card, i + batchIdx)
-        );
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
-      }
-
-      results.sort((a, b) => a.index - b.index);
-
-      console.log(`[bulk-grade] Complete. ${results.filter(r => r.result).length}/${cards.length} successful`);
-      res.json({ results });
-    } catch (error: any) {
-      console.error("Error in bulk grade:", error);
-      res.status(500).json({ error: error.message || "Failed to bulk grade cards" });
     }
   });
 
