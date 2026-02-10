@@ -181,10 +181,9 @@ function findNearestHandle(
 ): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
-  const padX = HANDLE_W / 2 + 14;
-  const padY = HANDLE_H / 2 + 14;
-  const padXH = HANDLE_H / 2 + 14;
-  const padYH = HANDLE_W / 2 + 14;
+  const perpPad = 30;
+  const alongPadV = Math.max(80, containerH * 0.35);
+  const alongPadH = Math.max(80, containerW * 0.35);
 
   for (const config of LINE_CONFIGS) {
     const linePos = pos[config.key];
@@ -195,8 +194,8 @@ function findNearestHandle(
       const hy = containerH * offset;
       const dx = Math.abs(x - hx);
       const dy = Math.abs(y - hy);
-      if (dx <= padX && dy <= padY) {
-        const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dx <= perpPad && dy <= alongPadV) {
+        const dist = dx + dy * 0.1;
         if (!best || dist < best.dist) {
           best = { key: config.key, dist };
         }
@@ -206,8 +205,8 @@ function findNearestHandle(
       const hy = linePos;
       const dx = Math.abs(x - hx);
       const dy = Math.abs(y - hy);
-      if (dx <= padXH && dy <= padYH) {
-        const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dy <= perpPad && dx <= alongPadH) {
+        const dist = dy + dx * 0.1;
         if (!best || dist < best.dist) {
           best = { key: config.key, dist };
         }
