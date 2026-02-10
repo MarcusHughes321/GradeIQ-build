@@ -78,28 +78,11 @@ export default function GradeScreen() {
       const isLastStage = stage === ANALYSIS_STAGES.length - 1;
 
       if (isLastStage) {
-        const pulse = () => {
-          pulseAnimation = Animated.sequence([
-            Animated.timing(progressAnim, {
-              toValue: 0.98,
-              duration: 1500,
-              useNativeDriver: false,
-            }),
-            Animated.timing(progressAnim, {
-              toValue: 0.88,
-              duration: 1500,
-              useNativeDriver: false,
-            }),
-          ]);
-          pulseAnimation.start(({ finished }) => {
-            if (finished) pulse();
-          });
-        };
         Animated.timing(progressAnim, {
-          toValue: 0.9,
-          duration: 800,
+          toValue: 0.95,
+          duration: 2000,
           useNativeDriver: false,
-        }).start(() => pulse());
+        }).start();
       } else {
         Animated.timing(progressAnim, {
           toValue: (stage + 1) / ANALYSIS_STAGES.length,
