@@ -38,7 +38,7 @@ export default function CompanyCard({ company, grade, color }: CompanyCardProps)
           <Image source={LOGO_MAP[company]} style={styles.companyLogo} contentFit="contain" />
           <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
         </View>
-        <GradeCircle grade={overallGrade} size={50} color={color} />
+        <GradeCircle grade={overallGrade} size={50} />
       </View>
 
       <View style={styles.divider} />

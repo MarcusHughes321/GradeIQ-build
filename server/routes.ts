@@ -428,7 +428,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/card-value", async (req, res) => {
     try {
       const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade } = req.body;
+      console.log("[card-value] Request received:", { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade });
       if (!cardName) {
+        console.log("[card-value] Missing cardName, returning 400");
         return res.status(400).json({ error: "Card name is required" });
       }
 
@@ -464,8 +466,10 @@ If you cannot determine a reasonable price estimate for any category, use "No va
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const valueData = JSON.parse(jsonMatch[0]);
+        console.log("[card-value] Success, returning:", valueData);
         res.json(valueData);
       } else {
+        console.log("[card-value] No JSON found in response. Raw content:", content);
         res.json({
           psaValue: "No value data found",
           bgsValue: "No value data found",
@@ -475,7 +479,7 @@ If you cannot determine a reasonable price estimate for any category, use "No va
         });
       }
     } catch (error: any) {
-      console.error("Error fetching card value:", error);
+      console.error("[card-value] Error fetching card value:", error?.message || error);
       res.json({
         psaValue: "No value data found",
         bgsValue: "No value data found",

@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import Colors from "@/constants/colors";
 
 interface SubGradeRowProps {
@@ -30,6 +30,8 @@ function getBarColor(grade: number): string {
 }
 
 export default function SubGradeRow({ label, grade, notes, color }: SubGradeRowProps) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -49,7 +51,17 @@ export default function SubGradeRow({ label, grade, notes, color }: SubGradeRowP
           ]}
         />
       </View>
-      <Text style={styles.notes} numberOfLines={2}>{notes}</Text>
+      <Pressable
+        onPress={() => setExpanded(prev => !prev)}
+        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      >
+        <Text
+          style={styles.notes}
+          numberOfLines={expanded ? undefined : 2}
+        >
+          {notes}
+        </Text>
+      </Pressable>
     </View>
   );
 }

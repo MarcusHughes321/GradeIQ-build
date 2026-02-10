@@ -139,7 +139,7 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const LINE_HIT_PX = 35;
+const HANDLE_HIT_PX = 40;
 const DISAMBIG_THRESHOLD = 3;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
@@ -171,7 +171,8 @@ function getTouchDistance(touches: any[]): number {
 }
 
 function findNearestLine(
-  x: number, y: number, pos: BorderPositions, hitDist: number
+  x: number, y: number, pos: BorderPositions, hitDist: number,
+  containerW: number, containerH: number
 ): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
@@ -179,16 +180,20 @@ function findNearestLine(
   const hLines: LineKey[] = ["outerTop", "innerTop", "outerBottom", "innerBottom"];
 
   for (const k of vLines) {
-    const d = Math.abs(x - pos[k]);
-    if (d < hitDist && (!best || d < best.dist)) {
-      best = { key: k, dist: d };
+    const dx = Math.abs(x - pos[k]);
+    const handleCenterY = containerH / 2;
+    const dy = Math.abs(y - handleCenterY);
+    if (dx < hitDist && dy < hitDist && (!best || dx < best.dist)) {
+      best = { key: k, dist: dx };
     }
   }
 
   for (const k of hLines) {
-    const d = Math.abs(y - pos[k]);
-    if (d < hitDist && (!best || d < best.dist)) {
-      best = { key: k, dist: d };
+    const dy = Math.abs(y - pos[k]);
+    const handleCenterX = containerW / 2;
+    const dx = Math.abs(x - handleCenterX);
+    if (dy < hitDist && dx < hitDist && (!best || dy < best.dist)) {
+      best = { key: k, dist: dy };
     }
   }
 
@@ -223,44 +228,81 @@ function viewportToContainer(
   };
 }
 
+const HANDLE_W = 16;
+const HANDLE_H = 32;
+
 function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
   const lineW = config.isOuter ? 2 : 2.5;
   const opacity = config.isOuter ? 0.7 : 1;
 
   if (config.orientation === "v") {
+    const handleTop = containerSize.height / 2 - HANDLE_H / 2;
     return (
+      <React.Fragment key={config.key}>
+        <View
+          style={{
+            position: "absolute" as const,
+            top: 0,
+            left: pos - lineW / 2,
+            width: lineW,
+            height: containerSize.height,
+            backgroundColor: config.color,
+            opacity,
+            zIndex: config.isOuter ? 8 : 12,
+          }}
+          pointerEvents="none"
+        />
+        <View
+          style={{
+            position: "absolute" as const,
+            left: pos - HANDLE_W / 2,
+            top: handleTop,
+            width: HANDLE_W,
+            height: HANDLE_H,
+            borderRadius: HANDLE_W / 2,
+            backgroundColor: config.color + "55",
+            borderWidth: 1.5,
+            borderColor: config.color + "AA",
+            zIndex: config.isOuter ? 9 : 13,
+          }}
+          pointerEvents="none"
+        />
+      </React.Fragment>
+    );
+  }
+
+  const handleLeft = containerSize.width / 2 - HANDLE_H / 2;
+  return (
+    <React.Fragment key={config.key}>
       <View
-        key={config.key}
         style={{
           position: "absolute" as const,
-          top: 0,
-          left: pos - lineW / 2,
-          width: lineW,
-          height: containerSize.height,
+          left: 0,
+          top: pos - lineW / 2,
+          width: containerSize.width,
+          height: lineW,
           backgroundColor: config.color,
           opacity,
           zIndex: config.isOuter ? 8 : 12,
         }}
         pointerEvents="none"
       />
-    );
-  }
-
-  return (
-    <View
-      key={config.key}
-      style={{
-        position: "absolute" as const,
-        left: 0,
-        top: pos - lineW / 2,
-        width: containerSize.width,
-        height: lineW,
-        backgroundColor: config.color,
-        opacity,
-        zIndex: config.isOuter ? 8 : 12,
-      }}
-      pointerEvents="none"
-    />
+      <View
+        style={{
+          position: "absolute" as const,
+          left: handleLeft,
+          top: pos - HANDLE_W / 2,
+          width: HANDLE_H,
+          height: HANDLE_W,
+          borderRadius: HANDLE_W / 2,
+          backgroundColor: config.color + "55",
+          borderWidth: 1.5,
+          borderColor: config.color + "AA",
+          zIndex: config.isOuter ? 9 : 13,
+        }}
+        pointerEvents="none"
+      />
+    </React.Fragment>
   );
 }
 
@@ -544,8 +586,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         const currentPos = posRef.current;
         if (currentPos) {
-          const hitDist = LINE_HIT_PX / scale;
-          const nearest = findNearestLine(containerX, containerY, currentPos, hitDist);
+          const hitDist = HANDLE_HIT_PX / scale;
+          const nearest = findNearestLine(containerX, containerY, currentPos, hitDist, cs.width, cs.height);
           if (nearest) {
             const lineVal = currentPos[nearest.key];
             const offset = isVLine(nearest.key)
