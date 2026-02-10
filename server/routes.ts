@@ -643,15 +643,36 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
     const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
     const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
-    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1, leftCol, rightCol);
-    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1, leftCol, rightCol);
+
+    const CARD_RATIO = 7 / 5;
+    const cardWidthPx = rightCol - leftCol;
+    const expectedCardHeightPx = cardWidthPx * CARD_RATIO;
+    const imageCenterY = sh / 2;
+    const expectedTop = Math.round(imageCenterY - expectedCardHeightPx / 2);
+    const expectedBottom = Math.round(imageCenterY + expectedCardHeightPx / 2);
+
+    const searchMargin = Math.round(expectedCardHeightPx * 0.08);
+    const topSearchFrom = Math.max(1, expectedTop - searchMargin);
+    const topSearchTo = Math.min(sh - 2, expectedTop + searchMargin);
+    const bottomSearchFrom = Math.min(sh - 2, expectedBottom + searchMargin);
+    const bottomSearchTo = Math.max(1, expectedBottom - searchMargin);
+
+    const topRow = findEdgeRow(topSearchFrom, topSearchTo, 1, leftCol, rightCol);
+    const bottomRow = findEdgeRow(bottomSearchFrom, bottomSearchTo, -1, leftCol, rightCol);
+
+    const detectedTop = (topRow >= topSearchFrom && topRow <= topSearchTo) ? topRow : expectedTop;
+    const detectedBottom = (bottomRow >= bottomSearchTo && bottomRow <= bottomSearchFrom) ? bottomRow : expectedBottom;
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;
-    const topPercent = (topRow / sh) * 100;
-    const bottomPercent = (bottomRow / sh) * 100;
+    const topPercent = (detectedTop / sh) * 100;
+    const bottomPercent = (detectedBottom / sh) * 100;
 
-    if (rightPercent - leftPercent < 30 || bottomPercent - topPercent < 30) {
+    console.log(`[detect-bounds] L/R cols: ${leftCol.toFixed(1)}-${rightCol.toFixed(1)}, cardW: ${cardWidthPx.toFixed(1)}px, expectedH: ${expectedCardHeightPx.toFixed(1)}px`);
+    console.log(`[detect-bounds] Expected T/B: ${expectedTop}-${expectedBottom}, Detected T/B: ${detectedTop.toFixed(1)}-${detectedBottom.toFixed(1)}`);
+    console.log(`[detect-bounds] Result: L${leftPercent.toFixed(1)}% T${topPercent.toFixed(1)}% R${rightPercent.toFixed(1)}% B${bottomPercent.toFixed(1)}%`);
+
+    if (rightPercent - leftPercent < 30) {
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
     }
 
