@@ -20,7 +20,7 @@ interface CardCameraProps {
   onClose: () => void;
 }
 
-const LEVEL_THRESHOLD = 3;
+const LEVEL_THRESHOLD = 5;
 const BUBBLE_RANGE = 22;
 
 export default function CardCamera({ side, onCapture, onClose }: CardCameraProps) {
@@ -60,8 +60,12 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
         subscriptionRef.current = Accelerometer.addListener(
           (data: { x: number; y: number; z: number }) => {
             if (!mounted) return;
-            const tx = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
-            const ty = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
+            const tx = Math.round(
+              Math.atan2(data.x, Math.sqrt(data.y * data.y + data.z * data.z)) * (180 / Math.PI)
+            );
+            const ty = Math.round(
+              Math.atan2(data.y, Math.sqrt(data.x * data.x + data.z * data.z)) * (180 / Math.PI)
+            );
             setTiltX(tx);
             setTiltY(ty);
             setIsLevel(Math.abs(tx) <= LEVEL_THRESHOLD && Math.abs(ty) <= LEVEL_THRESHOLD);
