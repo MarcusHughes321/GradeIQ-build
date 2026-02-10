@@ -190,7 +190,7 @@ export default function BulkScreen() {
     setLoading(true);
     setCompletedCount(0);
     setTotalToGrade(readyCards.length);
-    setCurrentCardName("");
+    setCurrentCardName(`Preparing card 1 of ${readyCards.length}...`);
     progressAnim.setValue(0);
 
     try {
@@ -198,49 +198,56 @@ export default function BulkScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      const cardsPayload = await Promise.all(
-        readyCards.map(async (card) => ({
-          frontImage: await getBase64FromUri(card.frontImage!),
-          backImage: await getBase64FromUri(card.backImage!),
-          originalFrontUri: card.frontImage!,
-          originalBackUri: card.backImage!,
-        }))
-      );
-
-      const response = await apiRequest("POST", "/api/bulk-grade", {
-        cards: cardsPayload.map((c) => ({
-          frontImage: c.frontImage,
-          backImage: c.backImage,
-        })),
-      });
-
-      const data = await response.json();
       const savedIds: string[] = [];
+      let failedCount = 0;
 
-      for (const item of data.results) {
-        if (item.result) {
-          const payload = cardsPayload[item.index];
-          const saved = await saveGrading(
-            payload.originalFrontUri,
-            payload.originalBackUri,
-            item.result as GradingResult
-          );
-          savedIds.push(saved.id);
-          setCompletedCount((prev) => prev + 1);
-          setCurrentCardName(item.result.cardName || `Card ${item.index + 1}`);
-          Animated.timing(progressAnim, {
-            toValue: savedIds.length / readyCards.length,
-            duration: 300,
-            useNativeDriver: false,
-          }).start();
+      for (let i = 0; i < readyCards.length; i++) {
+        const card = readyCards[i];
+        setCurrentCardName(`Grading card ${i + 1} of ${readyCards.length}...`);
+
+        try {
+          const frontBase64 = await getBase64FromUri(card.frontImage!);
+          const backBase64 = await getBase64FromUri(card.backImage!);
+
+          const response = await apiRequest("POST", "/api/grade-card", {
+            frontImage: frontBase64,
+            backImage: backBase64,
+          });
+
+          const result = await response.json();
+
+          if (result.error) {
+            console.error(`Card ${i + 1} failed:`, result.error);
+            failedCount++;
+          } else {
+            const saved = await saveGrading(
+              card.frontImage!,
+              card.backImage!,
+              result as GradingResult
+            );
+            savedIds.push(saved.id);
+            setCurrentCardName(result.cardName || `Card ${i + 1}`);
+          }
+        } catch (cardErr: any) {
+          console.error(`Card ${i + 1} error:`, cardErr?.message);
+          failedCount++;
+        }
+
+        setCompletedCount(i + 1);
+        Animated.timing(progressAnim, {
+          toValue: (i + 1) / readyCards.length,
+          duration: 400,
+          useNativeDriver: false,
+        }).start();
+
+        if (Platform.OS !== "web" && i < readyCards.length - 1) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       }
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-
-      const failedCount = data.results.filter((r: any) => r.error).length;
 
       router.replace({
         pathname: "/bulk-results",
@@ -293,7 +300,7 @@ export default function BulkScreen() {
             </View>
 
             <Text style={styles.loadingTitle}>Grading {totalToGrade} cards...</Text>
-            <Text style={styles.loadingSubtitle}>Processing 3 cards at a time</Text>
+            <Text style={styles.loadingSubtitle}>Full analysis on each card</Text>
 
             {currentCardName ? (
               <Text style={styles.loadingCardName}>{currentCardName}</Text>
@@ -318,7 +325,7 @@ export default function BulkScreen() {
             </Text>
 
             <Text style={styles.estimateText}>
-              Estimated: ~{Math.ceil((totalToGrade / 3) * 15)}s total
+              ~{Math.max(0, (totalToGrade - completedCount))} {totalToGrade - completedCount === 1 ? "card" : "cards"} remaining ({"\u2248"}{Math.max(0, (totalToGrade - completedCount) * 20)}s)
             </Text>
           </View>
         </View>
@@ -462,9 +469,14 @@ export default function BulkScreen() {
                   Grade {readyCards.length} {readyCards.length === 1 ? "Card" : "Cards"}
                 </Text>
               </Pressable>
+              {readyCards.length > 0 && (
+                <Text style={styles.bottomHint}>
+                  Estimated time: ~{readyCards.length * 20}s ({"\u2248"}{Math.ceil(readyCards.length * 20 / 60)} min)
+                </Text>
+              )}
               {incompleteCards.length > 0 && (
                 <Text style={styles.bottomHint}>
-                  {incompleteCards.length} card{incompleteCards.length > 1 ? "s" : ""} missing back photo — tap to add
+                  {incompleteCards.length} card{incompleteCards.length > 1 ? "s" : ""} missing back photo
                 </Text>
               )}
             </View>

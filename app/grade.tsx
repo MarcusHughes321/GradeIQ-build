@@ -69,8 +69,6 @@ export default function GradeScreen() {
       return;
     }
 
-    let pulseAnimation: Animated.CompositeAnimation | null = null;
-
     const advanceStage = (stage: number) => {
       if (stage >= ANALYSIS_STAGES.length) return;
       setAnalysisStage(stage);
@@ -101,9 +99,6 @@ export default function GradeScreen() {
     return () => {
       if (stageTimerRef.current) {
         clearTimeout(stageTimerRef.current);
-      }
-      if (pulseAnimation) {
-        pulseAnimation.stop();
       }
     };
   }, [loading]);
