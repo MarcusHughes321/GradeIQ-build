@@ -44,6 +44,7 @@ server/
 
 ## API Endpoints
 - `POST /api/grade-card` - Accepts frontImage and backImage (base64 data URIs), returns grading results from PSA, Beckett, and Ace Grading, plus frontCardBounds and backCardBounds for centering tool line placement
+- `POST /api/detect-bounds` - Accepts { image: base64 }, returns CardBounds for on-demand card boundary re-detection (used for old gradings missing bounds data)
 
 ## Key Features
 - **AI Card Boundary Detection**: AI returns card edge positions as percentages (frontCardBounds, backCardBounds) so centering lines auto-position on actual card borders
@@ -64,3 +65,8 @@ server/
 - Tightened default card bounds to 4/3/96/97 for better auto-snap when AI bounds unavailable
 - Fixed stale closure bug in fallback timer using refs to prevent overwriting correct positions
 - Fixed expo-image onLoad spam with guard refs
+- 2026-02-10: Added server-side `syncCenteringToGrades()` to recalculate PSA/BGS/Ace centering sub-grades from measured centering values
+- Added PSAGrade.centeringGrade field to separate centering-specific grade from overall PSA grade
+- Created /api/detect-bounds endpoint for on-demand card boundary re-detection
+- Implemented auto-detection of card bounds for older graded cards that lack frontCardBounds/backCardBounds data
+- Updated CompanyCard to display centering-specific grade for PSA instead of showing overall grade for all sub-categories
