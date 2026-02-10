@@ -653,27 +653,35 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       const xFrom = Math.max(1, Math.round(scanX - zone));
       const xTo = Math.min(sw - 1, Math.round(scanX + zone));
 
-      let bestY = -1;
-      let bestScore = 0;
-
+      const scores: { y: number; score: number }[] = [];
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let score = 0;
         for (let x = xFrom; x <= xTo; x++) {
           score += Math.abs(sobelY(x, y));
         }
-        if (score > bestScore) {
-          bestScore = score;
-          bestY = y;
+        scores.push({ y, score });
+      }
+
+      if (scores.length === 0) return startY;
+
+      const maxScore = scores.reduce((max, s) => Math.max(max, s.score), 0);
+      const threshold = maxScore * 0.3;
+
+      for (const s of scores) {
+        if (s.score >= threshold) {
+          return s.y;
         }
       }
 
-      return bestY >= 0 ? bestY : startY;
+      return startY;
     };
 
     const topFromLeft = findVerticalEdge(Math.round(leftCol), 1, Math.round(sh * 0.5), 1);
     const topFromRight = findVerticalEdge(Math.round(rightCol), 1, Math.round(sh * 0.5), 1);
     const bottomFromLeft = findVerticalEdge(Math.round(leftCol), sh - 2, Math.round(sh * 0.5), -1);
     const bottomFromRight = findVerticalEdge(Math.round(rightCol), sh - 2, Math.round(sh * 0.5), -1);
+
+    console.log(`[detect-bounds] Vertical edges: topL=${topFromLeft} topR=${topFromRight} botL=${bottomFromLeft} botR=${bottomFromRight}`);
 
     const rawTop = Math.min(topFromLeft, topFromRight);
     const rawBottom = Math.max(bottomFromLeft, bottomFromRight);
@@ -687,7 +695,6 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     if (heightRatio >= 1.25 && heightRatio <= 1.55) {
       finalTop = rawTop;
       finalBottom = rawBottom;
-      console.log(`[detect-bounds] Vertical edges: topL=${topFromLeft} topR=${topFromRight} botL=${bottomFromLeft} botR=${bottomFromRight}`);
       console.log(`[detect-bounds] Using detected T/B: ${finalTop}-${finalBottom} (ratio ${heightRatio.toFixed(2)})`);
     } else {
       const centerY = (rawTop + rawBottom) / 2;
