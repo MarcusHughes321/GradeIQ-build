@@ -67,9 +67,9 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
         <Text style={styles.histDate}>{dateStr}</Text>
       </View>
       <View style={styles.historyGrades}>
-        <GradeCircle grade={item.result.psa.grade} size={36} color={Colors.cardPSA} label="PSA" />
-        <GradeCircle grade={item.result.beckett.overallGrade} size={36} color={Colors.cardBeckett} label="BGS" />
-        <GradeCircle grade={item.result.ace.overallGrade} size={36} color={Colors.cardAce} label="ACE" />
+        <GradeCircle grade={item.result.psa.grade} size={36} label="PSA" />
+        <GradeCircle grade={item.result.beckett.overallGrade} size={36} label="BGS" />
+        <GradeCircle grade={item.result.ace.overallGrade} size={36} label="ACE" />
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>

@@ -497,22 +497,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market analyst. Provide estimated recent eBay sold prices for graded Pokemon cards. Use your knowledge of Pokemon card values from eBay sold listings. Be realistic with prices based on the card's rarity, popularity, and condition.
+            content: `You are a Pokemon TCG market analyst specialising in the UK market. Provide estimated recent eBay UK sold prices (in GBP, £) for graded Pokemon cards. Use your knowledge of Pokemon card values from eBay UK sold listings. Be realistic with prices based on the card's rarity, popularity, and condition.
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "psaValue": "Estimated eBay sold price for PSA graded version (e.g. '$45 - $65')",
-  "bgsValue": "Estimated eBay sold price for BGS graded version (e.g. '$50 - $70')",
-  "aceValue": "Estimated eBay sold price for Ace graded version (e.g. '$30 - $50')",
-  "rawValue": "Estimated eBay sold price for raw/ungraded version (e.g. '$15 - $25')",
-  "source": "Based on recent eBay sold listings"
+  "psaValue": "Estimated eBay UK sold price for PSA graded version (e.g. '£35 - £50')",
+  "bgsValue": "Estimated eBay UK sold price for BGS graded version (e.g. '£40 - £55')",
+  "aceValue": "Estimated eBay UK sold price for Ace graded version (e.g. '£25 - £40')",
+  "rawValue": "Estimated eBay UK sold price for raw/ungraded version (e.g. '£10 - £20')",
+  "source": "Based on recent eBay UK sold listings"
 }
 
-If you cannot determine a reasonable price estimate for any category, use "No value data found" for that field. For very common cards, prices may be low ($1-$10). For rare/chase cards, prices can be much higher. The grade significantly affects value.`,
+If you cannot determine a reasonable price estimate for any category, use "No value data found" for that field. For very common cards, prices may be low (£1-£10). For rare/chase cards, prices can be much higher. The grade significantly affects value. All prices MUST be in GBP (£).`,
           },
           {
             role: "user",
-            content: `What are the estimated recent eBay sold prices for this Pokemon card?\n\nCard Name: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nFull Description: ${cardDesc}\nPSA Grade: ${psaGrade}\nBGS Grade: ${bgsGrade}\nAce Grade: ${aceGrade}\n\nIMPORTANT: Use the card number (${setNumber}) and set name to identify the EXACT card for accurate pricing. Different printings of the same Pokemon can have very different values.`,
+            content: `What are the estimated recent eBay UK sold prices (in GBP, £) for this Pokemon card?\n\nCard Name: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nFull Description: ${cardDesc}\nPSA Grade: ${psaGrade}\nBGS Grade: ${bgsGrade}\nAce Grade: ${aceGrade}\n\nIMPORTANT: Use the card number (${setNumber}) and set name to identify the EXACT card for accurate pricing. Different printings of the same Pokemon can have very different values. All prices must be in GBP (£).`,
           },
         ],
       });
