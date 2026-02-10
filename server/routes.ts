@@ -291,16 +291,16 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       const querySetName = (setName || "").toLowerCase();
       if (querySetName && cardSetName === querySetName) {
         score += 25;
-      } else if (querySetName && cardSetName.includes(querySetName)) {
-        score += 10;
+      } else if (querySetName && (cardSetName.includes(querySetName) || querySetName.includes(cardSetName))) {
+        score += 15;
       }
 
       const cardTotal = String(card.set?.printedTotal || "");
       if (setTotal) {
         if (cardTotal === setTotal) {
-          score += 30;
+          score += 20;
         } else {
-          score -= 80;
+          score -= 20;
         }
       }
 
@@ -312,7 +312,7 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       }
     }
 
-    if (bestScore < 80) {
+    if (bestScore < 50) {
       console.log(`[card-lookup] Best score too low (${bestScore}), rejecting — trusting AI identification`);
       return null;
     }
