@@ -168,66 +168,141 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function stripSuffix(name: string): string {
+  return name.replace(/\s*(ex|EX|gx|GX|v|V|vmax|VMAX|vstar|VSTAR|☆)\s*$/i, "").trim();
+}
+
+function formatSetNumber(num: string | number, total: string | number): string {
+  const n = String(num);
+  const t = String(total);
+  if (t && parseInt(t) > 0) {
+    const padLen = Math.max(3, t.length);
+    return `${n.padStart(padLen, "0")}/${t.padStart(padLen, "0")}`;
+  }
+  return n;
+}
+
+async function queryPokemonTcgApi(q: string): Promise<any[]> {
+  try {
+    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=15&select=name,set,number`;
+    console.log(`[card-lookup] Querying: ${q}`);
+    const resp = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) {
+      console.log(`[card-lookup] API returned ${resp.status}`);
+      return [];
+    }
+    const data = await resp.json() as any;
+    return data?.data || [];
+  } catch (e: any) {
+    console.log(`[card-lookup] Query failed: ${e?.message}`);
+    return [];
+  }
+}
+
+function scoreName(apiName: string, aiName: string): number {
+  const a = apiName.toLowerCase();
+  const b = aiName.toLowerCase();
+  if (a === b) return 100;
+  const aBase = stripSuffix(a);
+  const bBase = stripSuffix(b);
+  if (aBase === bBase) return 90;
+  if (a.includes(bBase) || bBase.includes(aBase)) return 70;
+  const aWords = aBase.split(/\s+/);
+  const bWords = bBase.split(/\s+/);
+  const overlap = aWords.filter(w => bWords.includes(w)).length;
+  if (overlap > 0) return 30 + (overlap / Math.max(aWords.length, bWords.length)) * 40;
+  return 0;
+}
+
 async function lookupCardOnline(cardName: string, setNumber: string, setName: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
   try {
-    const number = setNumber?.split("/")[0]?.replace(/^0+/, "") || "";
-    const setTotal = setNumber?.split("/")[1] || "";
+    const rawNumber = setNumber?.split("/")[0]?.replace(/^0+/, "") || "";
+    const setTotal = setNumber?.split("/")[1]?.replace(/^0+/, "") || "";
+    const baseName = stripSuffix(cardName);
+
+    console.log(`[card-lookup] Looking up: name="${cardName}" number="${rawNumber}" total="${setTotal}" set="${setName}"`);
 
     const queries: string[] = [];
 
-    if (number) {
-      if (setName) {
-        queries.push(`number:"${number}" set.name:"${setName}"`);
-      }
-      if (setTotal) {
-        queries.push(`number:"${number}" set.printedTotal:${setTotal}`);
-      }
-      queries.push(`number:"${number}" name:"${cardName.replace(/ ex$/i, "").replace(/ gx$/i, "").replace(/ v$/i, "").replace(/ vmax$/i, "").replace(/ vstar$/i, "")}*"`);
+    if (rawNumber && baseName) {
+      queries.push(`number:${rawNumber} name:"${baseName}*"`);
     }
+    if (rawNumber && setName) {
+      queries.push(`number:${rawNumber} set.name:"${setName}*"`);
+    }
+    if (rawNumber && setTotal) {
+      queries.push(`number:${rawNumber} set.printedTotal:${setTotal}`);
+    }
+    if (baseName && setName) {
+      queries.push(`name:"${baseName}*" set.name:"${setName}*"`);
+    }
+    if (baseName) {
+      queries.push(`name:"${baseName}"`);
+    }
+
+    let allCards: any[] = [];
+    const seenIds = new Set<string>();
 
     for (const q of queries) {
-      try {
-        const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=10&select=name,set,number`;
-        const resp = await fetch(url, {
-          headers: { "Accept": "application/json" },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (!resp.ok) continue;
-
-        const data = await resp.json() as any;
-        const cards = data?.data;
-        if (!cards || cards.length === 0) continue;
-
-        const nameLower = cardName.toLowerCase().replace(/ ex$/i, "").replace(/ gx$/i, "").replace(/ v$/i, "").trim();
-
-        let best = cards[0];
-        for (const card of cards) {
-          const cn = (card.name || "").toLowerCase();
-          if (cn.includes(nameLower) || nameLower.includes(cn.replace(/-ex|-gx|-v$/g, "").trim())) {
-            best = card;
-            break;
-          }
+      const cards = await queryPokemonTcgApi(q);
+      for (const c of cards) {
+        const id = c.id || `${c.name}-${c.number}-${c.set?.name}`;
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          allCards.push(c);
         }
+      }
+      if (allCards.length >= 5) break;
+    }
 
-        const verifiedNumber = best.number || number;
-        const verifiedSetTotal = best.set?.printedTotal || setTotal;
-        const verifiedSetNumber = verifiedSetTotal ? `${verifiedNumber.padStart(3, "0")}/${verifiedSetTotal.toString().padStart(3, "0")}` : verifiedNumber;
+    if (allCards.length === 0) {
+      console.log(`[card-lookup] No results from API`);
+      return null;
+    }
 
-        console.log(`[card-lookup] Found match: ${best.name} - ${best.set?.name} (${verifiedSetNumber})`);
-        return {
-          cardName: best.name || cardName,
-          setName: best.set?.name || setName,
-          setNumber: verifiedSetNumber,
-        };
-      } catch (e) {
-        continue;
+    let bestCard = allCards[0];
+    let bestScore = -1;
+
+    for (const card of allCards) {
+      let score = scoreName(card.name || "", cardName);
+
+      const cardNum = String(card.number || "").replace(/^0+/, "");
+      if (cardNum === rawNumber) score += 50;
+
+      const cardSetName = (card.set?.name || "").toLowerCase();
+      if (setName && cardSetName.includes(setName.toLowerCase().substring(0, 6))) score += 20;
+
+      const cardTotal = String(card.set?.printedTotal || "");
+      if (setTotal && cardTotal === setTotal) score += 15;
+
+      console.log(`[card-lookup]   Candidate: ${card.name} #${card.number} (${card.set?.name}) score=${score}`);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestCard = card;
       }
     }
 
-    console.log(`[card-lookup] No API match found for "${cardName}" ${setNumber}, falling back to AI identification`);
-    return null;
-  } catch (err) {
-    console.log(`[card-lookup] Lookup failed:`, err);
+    if (bestScore < 30) {
+      console.log(`[card-lookup] Best score too low (${bestScore}), rejecting`);
+      return null;
+    }
+
+    const verifiedNumber = bestCard.number || rawNumber;
+    const verifiedTotal = bestCard.set?.printedTotal || setTotal;
+    const verifiedSetNumber = formatSetNumber(verifiedNumber, verifiedTotal);
+
+    console.log(`[card-lookup] Best match: ${bestCard.name} - ${bestCard.set?.name} (${verifiedSetNumber}) score=${bestScore}`);
+    return {
+      cardName: bestCard.name || cardName,
+      setName: bestCard.set?.name || setName,
+      setNumber: verifiedSetNumber,
+    };
+  } catch (err: any) {
+    console.log(`[card-lookup] Lookup failed:`, err?.message);
     return null;
   }
 }
@@ -544,12 +619,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 type: "image_url",
                 image_url: {
                   url: frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`,
+                  detail: "high",
                 },
               },
               {
                 type: "image_url",
                 image_url: {
                   url: backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`,
+                  detail: "high",
                 },
               },
             ],

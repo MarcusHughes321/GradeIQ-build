@@ -93,7 +93,7 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
     setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
+        quality: 0.92,
         base64: false,
       });
       if (photo?.uri) {
