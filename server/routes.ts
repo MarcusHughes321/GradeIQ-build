@@ -235,6 +235,75 @@ function enforceCardBounds(bounds: any): any {
   };
 }
 
+function computeCenteringGrades(centering: any) {
+  const frontWorst = Math.max(centering.frontLeftRight, centering.frontTopBottom);
+  const backWorst = Math.max(centering.backLeftRight, centering.backTopBottom);
+
+  let psaCentering: number;
+  if (frontWorst <= 55 && backWorst <= 75) psaCentering = 10;
+  else if (frontWorst <= 60 && backWorst <= 75) psaCentering = 9;
+  else if (frontWorst <= 65 && backWorst <= 90) psaCentering = 8;
+  else if (frontWorst <= 70 && backWorst <= 90) psaCentering = 7;
+  else psaCentering = 6;
+
+  let bgsCentering: number;
+  if (frontWorst <= 50 && backWorst <= 50) bgsCentering = 10;
+  else if (frontWorst <= 55 && backWorst <= 55) bgsCentering = 9.5;
+  else if (frontWorst <= 60 && backWorst <= 60) bgsCentering = 9;
+  else if (frontWorst <= 65 && backWorst <= 65) bgsCentering = 8.5;
+  else if (frontWorst <= 70 && backWorst <= 70) bgsCentering = 8;
+  else bgsCentering = 7;
+
+  let aceCentering: number;
+  if (frontWorst <= 60 && backWorst <= 60) aceCentering = 10;
+  else if (frontWorst <= 65 && backWorst <= 65) aceCentering = 9;
+  else if (frontWorst <= 70 && backWorst <= 70) aceCentering = 8;
+  else aceCentering = 7;
+
+  return { psaCentering, bgsCentering, aceCentering };
+}
+
+function syncCenteringToGrades(result: any): any {
+  if (!result.centering) return result;
+
+  const { psaCentering, bgsCentering, aceCentering } = computeCenteringGrades(result.centering);
+  const centeringNote = `Front: ${result.centering.frontLeftRight}/${100 - result.centering.frontLeftRight} LR, ${result.centering.frontTopBottom}/${100 - result.centering.frontTopBottom} TB. Back: ${result.centering.backLeftRight}/${100 - result.centering.backLeftRight} LR, ${result.centering.backTopBottom}/${100 - result.centering.backTopBottom} TB.`;
+
+  if (result.psa) {
+    result.psa.centeringGrade = psaCentering;
+    const minOtherBgs = Math.min(
+      result.beckett?.corners?.grade ?? 10,
+      result.beckett?.edges?.grade ?? 10,
+      result.beckett?.surface?.grade ?? 10
+    );
+    let psaNonCenteringMax: number;
+    if (minOtherBgs >= 9.5) psaNonCenteringMax = 10;
+    else if (minOtherBgs >= 8.5) psaNonCenteringMax = 9;
+    else if (minOtherBgs >= 7.5) psaNonCenteringMax = 8;
+    else if (minOtherBgs >= 6.5) psaNonCenteringMax = 7;
+    else if (minOtherBgs >= 5.5) psaNonCenteringMax = 6;
+    else psaNonCenteringMax = Math.max(1, Math.round(minOtherBgs));
+    result.psa.grade = roundToNearest(Math.min(psaCentering, psaNonCenteringMax), VALID_PSA_GRADES);
+    result.psa.centering = centeringNote;
+  }
+
+  if (result.beckett) {
+    result.beckett.centering.grade = bgsCentering;
+    result.beckett.centering.notes = centeringNote;
+    const avg = (bgsCentering + result.beckett.corners.grade + result.beckett.edges.grade + result.beckett.surface.grade) / 4;
+    result.beckett.overallGrade = roundToHalf(avg);
+  }
+
+  if (result.ace) {
+    result.ace.centering.grade = aceCentering;
+    result.ace.centering.notes = centeringNote;
+    const avg = (aceCentering + result.ace.corners.grade + result.ace.edges.grade + result.ace.surface.grade) / 4;
+    result.ace.overallGrade = roundToWhole(avg);
+  }
+
+  return result;
+}
+
 function enforceGradingScales(result: any): any {
   if (result.centering) {
     result.centering.frontLeftRight = clamp(Math.round(result.centering.frontLeftRight || 50), 50, 95);
@@ -339,10 +408,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
 
+      gradingResult = syncCenteringToGrades(gradingResult);
+
       res.json(gradingResult);
     } catch (error: any) {
       console.error("Error grading card:", error);
       res.status(500).json({ error: error.message || "Failed to grade card" });
+    }
+  });
+
+  app.post("/api/detect-bounds", async (req, res) => {
+    try {
+      const { image } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: "Image is required" });
+      }
+      const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+      const bounds = await detectCardBounds(uri);
+      res.json(bounds);
+    } catch (error: any) {
+      console.error("Error detecting bounds:", error);
+      res.status(500).json({ error: error.message || "Failed to detect bounds" });
     }
   });
 

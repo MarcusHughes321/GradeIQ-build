@@ -16,7 +16,8 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { getGradings, updateGrading } from "@/lib/storage";
-import type { SavedGrading, GradingResult, CenteringMeasurement } from "@/lib/types";
+import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds } from "@/lib/types";
+import { apiRequest } from "@/lib/query-client";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
@@ -85,6 +86,29 @@ export default function ResultsScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
+  const getBase64FromUri = async (uri: string): Promise<string> => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const detectBoundsForImage = async (imageUri: string): Promise<CardBounds | null> => {
+    try {
+      const base64 = await getBase64FromUri(imageUri);
+      const resp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
+      const bounds = await resp.json();
+      if (bounds && bounds.leftPercent !== undefined) return bounds;
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   useEffect(() => {
     loadGrading();
   }, [gradingId]);
@@ -93,11 +117,82 @@ export default function ResultsScreen() {
     const all = await getGradings();
     const found = all.find((g) => g.id === gradingId);
     if (found) {
-      setGrading(found);
-      if (!originalCentering && found.result.centering) {
-        setOriginalCentering({ ...found.result.centering });
+      let needsUpdate = false;
+      let updatedResult = { ...found.result };
+
+      if (found.result.centering && !found.result.psa?.centeringGrade) {
+        const c = found.result.centering;
+        const frontWorst = Math.max(c.frontLeftRight, c.frontTopBottom);
+        const backWorst = Math.max(c.backLeftRight, c.backTopBottom);
+
+        let psaCG: number;
+        if (frontWorst <= 55 && backWorst <= 75) psaCG = 10;
+        else if (frontWorst <= 60 && backWorst <= 75) psaCG = 9;
+        else if (frontWorst <= 65 && backWorst <= 90) psaCG = 8;
+        else if (frontWorst <= 70 && backWorst <= 90) psaCG = 7;
+        else psaCG = 6;
+
+        let bgsCG: number;
+        if (frontWorst <= 50 && backWorst <= 50) bgsCG = 10;
+        else if (frontWorst <= 55 && backWorst <= 55) bgsCG = 9.5;
+        else if (frontWorst <= 60 && backWorst <= 60) bgsCG = 9;
+        else if (frontWorst <= 65 && backWorst <= 65) bgsCG = 8.5;
+        else if (frontWorst <= 70 && backWorst <= 70) bgsCG = 8;
+        else bgsCG = 7;
+
+        let aceCG: number;
+        if (frontWorst <= 60 && backWorst <= 60) aceCG = 10;
+        else if (frontWorst <= 65 && backWorst <= 65) aceCG = 9;
+        else if (frontWorst <= 70 && backWorst <= 70) aceCG = 8;
+        else aceCG = 7;
+
+        updatedResult.psa = { ...updatedResult.psa, centeringGrade: psaCG };
+        if (updatedResult.beckett) {
+          updatedResult.beckett = {
+            ...updatedResult.beckett,
+            centering: { ...updatedResult.beckett.centering, grade: bgsCG },
+          };
+        }
+        if (updatedResult.ace) {
+          updatedResult.ace = {
+            ...updatedResult.ace,
+            centering: { ...updatedResult.ace.centering, grade: aceCG },
+          };
+        }
+        needsUpdate = true;
+      }
+
+      const updatedGrading = { ...found, result: updatedResult };
+      setGrading(updatedGrading);
+      if (!originalCentering && updatedResult.centering) {
+        setOriginalCentering({ ...updatedResult.centering });
+      }
+      if (needsUpdate) {
+        updateGrading(found.id, { result: updatedResult });
+      }
+      if (!updatedResult.frontCardBounds || !updatedResult.backCardBounds) {
+        detectBoundsForOldCard(updatedGrading);
       }
     }
+  };
+
+  const detectBoundsForOldCard = async (g: SavedGrading) => {
+    try {
+      const [frontBounds, backBounds] = await Promise.all([
+        g.result.frontCardBounds ? Promise.resolve(g.result.frontCardBounds) : detectBoundsForImage(g.frontImage),
+        g.result.backCardBounds ? Promise.resolve(g.result.backCardBounds) : detectBoundsForImage(g.backImage),
+      ]);
+      if (frontBounds || backBounds) {
+        const updatedResult = {
+          ...g.result,
+          frontCardBounds: frontBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
+          backCardBounds: backBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
+        };
+        const updatedGrading = { ...g, result: updatedResult };
+        setGrading(updatedGrading);
+        await updateGrading(g.id, { result: updatedResult });
+      }
+    } catch {}
   };
 
   const openImageViewer = (front: boolean) => {
@@ -177,6 +272,7 @@ export default function ResultsScreen() {
       psa: {
         ...prevResult.psa,
         grade: psaGrade,
+        centeringGrade: psaCenteringGrade,
         centering: centeringNote,
       },
       beckett: {

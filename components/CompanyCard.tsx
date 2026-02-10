@@ -45,7 +45,7 @@ export default function CompanyCard({ company, grade, color }: CompanyCardProps)
 
       {isPSA ? (
         <View style={styles.subGrades}>
-          <SubGradeRow label="Centering" grade={overallGrade} notes={psaGrade.centering} color={color} />
+          <SubGradeRow label="Centering" grade={psaGrade.centeringGrade ?? overallGrade} notes={psaGrade.centering} color={color} />
           <SubGradeRow label="Corners" grade={overallGrade} notes={psaGrade.corners} color={color} />
           <SubGradeRow label="Edges" grade={overallGrade} notes={psaGrade.edges} color={color} />
           <SubGradeRow label="Surface" grade={overallGrade} notes={psaGrade.surface} color={color} />

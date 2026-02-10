@@ -19,6 +19,7 @@ export interface CardBounds {
 
 export interface PSAGrade {
   grade: number;
+  centeringGrade?: number;
   centering: string;
   corners: string;
   edges: string;
