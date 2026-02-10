@@ -124,7 +124,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     const { width, height } = await sharp(buffer).metadata() as { width: number; height: number };
     if (!width || !height) throw new Error("Could not get image dimensions");
 
-    const SAMPLE_SIZE = 200;
+    const SAMPLE_SIZE = 400;
     const scaleW = Math.min(1, SAMPLE_SIZE / width);
     const scaleH = Math.min(1, SAMPLE_SIZE / height);
     const sw = Math.round(width * scaleW);
@@ -136,89 +136,139 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const getPixel = (x: number, y: number) => pixels[y * sw + x];
+    const getPixel = (x: number, y: number) => {
+      if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+      return pixels[y * sw + x];
+    };
 
-    const computeEdgeGradient = (x: number, y: number): number => {
-      let grad = 0;
-      let count = 0;
-      if (x > 0) { grad += Math.abs(getPixel(x, y) - getPixel(x - 1, y)); count++; }
-      if (x < sw - 1) { grad += Math.abs(getPixel(x, y) - getPixel(x + 1, y)); count++; }
-      if (y > 0) { grad += Math.abs(getPixel(x, y) - getPixel(x, y - 1)); count++; }
-      if (y < sh - 1) { grad += Math.abs(getPixel(x, y) - getPixel(x, y + 1)); count++; }
-      return count > 0 ? grad / count : 0;
+    const sobelX = (x: number, y: number): number => {
+      return (
+        -getPixel(x - 1, y - 1) + getPixel(x + 1, y - 1) +
+        -2 * getPixel(x - 1, y) + 2 * getPixel(x + 1, y) +
+        -getPixel(x - 1, y + 1) + getPixel(x + 1, y + 1)
+      );
+    };
+
+    const sobelY = (x: number, y: number): number => {
+      return (
+        -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
+        getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
+      );
     };
 
     const SCAN_RANGE = 0.4;
-    const EDGE_THRESHOLD = 15;
-    const MIN_VOTES = 3;
+    const EDGE_THRESHOLD = 25;
+    const MIN_VOTE_RATIO = 0.15;
 
     const findEdgeColumn = (startX: number, endX: number, step: number): number => {
-      const scanYStart = Math.round(sh * 0.15);
-      const scanYEnd = Math.round(sh * 0.85);
-      let bestCol = startX;
-      let bestScore = 0;
+      const scanYStart = Math.round(sh * 0.1);
+      const scanYEnd = Math.round(sh * 0.9);
+      const totalScanRows = Math.floor((scanYEnd - scanYStart) / 1);
+      const minVotes = Math.max(3, Math.round(totalScanRows * MIN_VOTE_RATIO));
+
+      const columns: { x: number; score: number; votes: number }[] = [];
 
       for (let x = startX; step > 0 ? x < endX : x > endX; x += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let y = scanYStart; y < scanYEnd; y += 2) {
-          const g = computeEdgeGradient(x, y);
-          if (g >= EDGE_THRESHOLD) {
+        for (let y = scanYStart; y < scanYEnd; y += 1) {
+          const gx = Math.abs(sobelX(x, y));
+          if (gx >= EDGE_THRESHOLD) {
             votes++;
-            totalGrad += g;
+            totalGrad += gx;
           }
         }
-        if (votes >= MIN_VOTES && totalGrad > bestScore) {
-          bestScore = totalGrad;
-          bestCol = x;
+        if (votes >= minVotes) {
+          columns.push({ x, score: totalGrad, votes });
         }
       }
-      return bestCol;
+
+      if (columns.length === 0) return startX;
+
+      columns.sort((a, b) => b.score - a.score);
+      const topN = columns.slice(0, Math.max(1, Math.ceil(columns.length * 0.1)));
+
+      if (step > 0) {
+        topN.sort((a, b) => a.x - b.x);
+      } else {
+        topN.sort((a, b) => b.x - a.x);
+      }
+
+      let cluster: number[] = [topN[0].x];
+      for (let i = 1; i < topN.length; i++) {
+        if (Math.abs(topN[i].x - topN[0].x) <= 3) {
+          cluster.push(topN[i].x);
+        }
+      }
+
+      const avgX = cluster.reduce((s, v) => s + v, 0) / cluster.length;
+      return avgX;
     };
 
     const findEdgeRow = (startY: number, endY: number, step: number): number => {
-      const scanXStart = Math.round(sw * 0.15);
-      const scanXEnd = Math.round(sw * 0.85);
-      let bestRow = startY;
-      let bestScore = 0;
+      const scanXStart = Math.round(sw * 0.1);
+      const scanXEnd = Math.round(sw * 0.9);
+      const totalScanCols = Math.floor((scanXEnd - scanXStart) / 1);
+      const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
+
+      const rows: { y: number; score: number; votes: number }[] = [];
 
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let x = scanXStart; x < scanXEnd; x += 2) {
-          const g = computeEdgeGradient(x, y);
-          if (g >= EDGE_THRESHOLD) {
+        for (let x = scanXStart; x < scanXEnd; x += 1) {
+          const gy = Math.abs(sobelY(x, y));
+          if (gy >= EDGE_THRESHOLD) {
             votes++;
-            totalGrad += g;
+            totalGrad += gy;
           }
         }
-        if (votes >= MIN_VOTES && totalGrad > bestScore) {
-          bestScore = totalGrad;
-          bestRow = y;
+        if (votes >= minVotes) {
+          rows.push({ y, score: totalGrad, votes });
         }
       }
-      return bestRow;
+
+      if (rows.length === 0) return startY;
+
+      rows.sort((a, b) => b.score - a.score);
+      const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.1)));
+
+      if (step > 0) {
+        topN.sort((a, b) => a.y - b.y);
+      } else {
+        topN.sort((a, b) => b.y - a.y);
+      }
+
+      let cluster: number[] = [topN[0].y];
+      for (let i = 1; i < topN.length; i++) {
+        if (Math.abs(topN[i].y - topN[0].y) <= 3) {
+          cluster.push(topN[i].y);
+        }
+      }
+
+      const avgY = cluster.reduce((s, v) => s + v, 0) / cluster.length;
+      return avgY;
     };
 
-    const leftCol = findEdgeColumn(0, Math.round(sw * SCAN_RANGE), 1);
-    const rightCol = findEdgeColumn(sw - 1, Math.round(sw * (1 - SCAN_RANGE)), -1);
-    const topRow = findEdgeRow(0, Math.round(sh * SCAN_RANGE), 1);
-    const bottomRow = findEdgeRow(sh - 1, Math.round(sh * (1 - SCAN_RANGE)), -1);
+    const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
+    const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
+    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1);
+    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1);
 
-    const leftPercent = Math.round((leftCol / sw) * 100);
-    const rightPercent = Math.round((rightCol / sw) * 100);
-    const topPercent = Math.round((topRow / sh) * 100);
-    const bottomPercent = Math.round((bottomRow / sh) * 100);
+    const leftPercent = (leftCol / sw) * 100;
+    const rightPercent = (rightCol / sw) * 100;
+    const topPercent = (topRow / sh) * 100;
+    const bottomPercent = (bottomRow / sh) * 100;
 
     if (rightPercent - leftPercent < 30 || bottomPercent - topPercent < 30) {
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
     }
 
     return {
-      leftPercent: clamp(leftPercent, 0, 45),
-      topPercent: clamp(topPercent, 0, 45),
-      rightPercent: clamp(rightPercent, 55, 100),
-      bottomPercent: clamp(bottomPercent, 55, 100),
+      leftPercent: parseFloat(clamp(leftPercent, 0, 45).toFixed(1)),
+      topPercent: parseFloat(clamp(topPercent, 0, 45).toFixed(1)),
+      rightPercent: parseFloat(clamp(rightPercent, 55, 100).toFixed(1)),
+      bottomPercent: parseFloat(clamp(bottomPercent, 55, 100).toFixed(1)),
     };
   } catch (err) {
     console.error("Card bounds detection failed:", err);
@@ -229,10 +279,10 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 function enforceCardBounds(bounds: any): any {
   if (!bounds) return { leftPercent: 4, topPercent: 3, rightPercent: 96, bottomPercent: 97 };
   return {
-    leftPercent: clamp(Math.round(bounds.leftPercent ?? 5), 3, 45),
-    topPercent: clamp(Math.round(bounds.topPercent ?? 3), 2, 45),
-    rightPercent: clamp(Math.round(bounds.rightPercent ?? 95), 55, 97),
-    bottomPercent: clamp(Math.round(bounds.bottomPercent ?? 97), 55, 98),
+    leftPercent: parseFloat(clamp(bounds.leftPercent ?? 5, 1, 45).toFixed(1)),
+    topPercent: parseFloat(clamp(bounds.topPercent ?? 3, 1, 45).toFixed(1)),
+    rightPercent: parseFloat(clamp(bounds.rightPercent ?? 95, 55, 99).toFixed(1)),
+    bottomPercent: parseFloat(clamp(bounds.bottomPercent ?? 97, 55, 99).toFixed(1)),
   };
 }
 
