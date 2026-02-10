@@ -586,13 +586,8 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return avgX;
     };
 
-    const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
-    const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
-
-    const findEdgeRow = (startY: number, endY: number, step: number): number => {
-      const scanXStart = Math.round(sw * 0.1);
-      const scanXEnd = Math.round(sw * 0.9);
-      const totalScanCols = Math.floor((scanXEnd - scanXStart) / 1);
+    const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): number => {
+      const totalScanCols = Math.floor((xEnd - xStart) / 1);
       const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
 
       const rows: { y: number; score: number; votes: number }[] = [];
@@ -600,7 +595,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let x = scanXStart; x < scanXEnd; x += 1) {
+        for (let x = xStart; x < xEnd; x += 1) {
           const gy = Math.abs(sobelY(x, y));
           if (gy >= EDGE_THRESHOLD) {
             votes++;
@@ -630,32 +625,26 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
         }
       }
 
-      return cluster.reduce((s, v) => s + v, 0) / cluster.length;
+      const avgY = cluster.reduce((s, v) => s + v, 0) / cluster.length;
+      return avgY;
     };
 
-    const rawTopRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1);
-    const rawBottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1);
+    const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
+    const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
 
-    const CARD_RATIO = 7 / 5;
-    const cardWidthPx = rightCol - leftCol;
-    const expectedCardHeightPx = cardWidthPx * CARD_RATIO;
-    const detectedCenter = (rawTopRow + rawBottomRow) / 2;
-    const expectedTop = detectedCenter - expectedCardHeightPx / 2;
-    const expectedBottom = detectedCenter + expectedCardHeightPx / 2;
+    const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
+    const rowScanXStart = Math.round(leftCol + cardInsetX);
+    const rowScanXEnd = Math.round(rightCol - cardInsetX);
 
-    const finalTop = Math.min(rawTopRow, expectedTop);
-    const finalBottom = Math.max(rawBottomRow, expectedBottom);
-
-    console.log(`[detect-bounds] Raw T/B: ${rawTopRow.toFixed(1)}-${rawBottomRow.toFixed(1)}, Expected T/B: ${expectedTop.toFixed(1)}-${expectedBottom.toFixed(1)}, Final T/B: ${finalTop.toFixed(1)}-${finalBottom.toFixed(1)}`);
+    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1, rowScanXStart, rowScanXEnd);
+    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1, rowScanXStart, rowScanXEnd);
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;
-    const topPercent = (finalTop / sh) * 100;
-    const bottomPercent = (finalBottom / sh) * 100;
+    const topPercent = (topRow / sh) * 100;
+    const bottomPercent = (bottomRow / sh) * 100;
 
-    console.log(`[detect-bounds] Result: L${leftPercent.toFixed(1)}% T${topPercent.toFixed(1)}% R${rightPercent.toFixed(1)}% B${bottomPercent.toFixed(1)}%`);
-
-    if (rightPercent - leftPercent < 30) {
+    if (rightPercent - leftPercent < 30 || bottomPercent - topPercent < 30) {
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
     }
 
