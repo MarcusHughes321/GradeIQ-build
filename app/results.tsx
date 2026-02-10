@@ -534,19 +534,22 @@ export default function ResultsScreen() {
 
         <View style={styles.valueCard}>
           <View style={styles.valueHeader}>
-            <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
+            <View style={styles.valueIconCircle}>
+              <Ionicons name="cash-outline" size={14} color="#10B981" />
+            </View>
             <Text style={styles.valueTitle}>Estimated eBay Values</Text>
           </View>
           {loadingValue ? (
             <View style={styles.valueLoading}>
-              <ActivityIndicator color={Colors.primary} size="small" />
-              <Text style={styles.valueLoadingText}>Looking up values...</Text>
+              <ActivityIndicator color="#10B981" size="small" />
+              <Text style={styles.valueLoadingText}>Looking up sold listings...</Text>
             </View>
           ) : cardValue ? (
             <View style={styles.valueGrid}>
               <View style={styles.valueSectionHeader}>
+                <Text style={styles.valueSectionLabel}>{" "}</Text>
                 <Text style={styles.valueSectionTitle}>Your Grade</Text>
-                <Text style={styles.valueSectionTitle}>If Grade 10</Text>
+                <Text style={styles.valueSectionTitle10}>10</Text>
               </View>
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>PSA {result.psa.grade}</Text>
@@ -576,7 +579,7 @@ export default function ResultsScreen() {
                 </Text>
               </View>
               <View style={[styles.valueRow, styles.valueRowLast]}>
-                <Text style={styles.valueLabel}>Raw (Ungraded)</Text>
+                <Text style={styles.valueLabel}>Raw</Text>
                 <Text style={[styles.valueAmount, cardValue.rawValue.includes("No value") && styles.valueNA]}>
                   {cardValue.rawValue}
                 </Text>
@@ -1028,7 +1031,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: "#1a3a2a",
     gap: 12,
   },
   valueHeader: {
@@ -1036,10 +1039,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  valueIconCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#0d2e1a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   valueTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: "#10B981",
   },
   valueLoading: {
     flexDirection: "row",
@@ -1062,17 +1073,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: "#1a3a2a",
   },
   valueRowLast: {
     borderBottomWidth: 0,
   },
   valueSectionHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
     paddingBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: "#1a3a2a",
+  },
+  valueSectionLabel: {
+    flex: 1,
   },
   valueSectionTitle: {
     fontFamily: "Inter_600SemiBold",
@@ -1080,6 +1094,15 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textTransform: "uppercase" as const,
     letterSpacing: 0.5,
+    flex: 1,
+    textAlign: "right" as const,
+  },
+  valueSectionTitle10: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: "#F59E0B",
+    flex: 1,
+    textAlign: "right" as const,
   },
   valueLabel: {
     fontFamily: "Inter_500Medium",
