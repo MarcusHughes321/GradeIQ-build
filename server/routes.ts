@@ -965,18 +965,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bestNumber = idHasNumber ? idNumber : gradingNumber;
           bestSet = idSet || gradingSet;
         } else {
-          const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (idCode ? 1 : 0);
-          const gradingScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
-          if (idScore >= gradingScore) {
-            bestName = idName;
-            bestNumber = idNumber || gradingNumber;
-            bestSet = idSet || gradingSet;
-          } else {
+          const idIsUnknown = idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
+          const gradingIsUnknown = gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
+
+          if (idIsUnknown && !gradingIsUnknown) {
             bestName = gradingName;
             bestNumber = gradingNumber || idNumber;
             bestSet = gradingSet || idSet;
+            console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose Grading (OCR returned unknown)`);
+          } else if (gradingIsUnknown && !idIsUnknown) {
+            bestName = idName;
+            bestNumber = idNumber || gradingNumber;
+            bestSet = idSet || gradingSet;
+            console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose OCR (Grading returned unknown)`);
+          } else {
+            const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (idCode ? 1 : 0);
+            const gradingScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
+            if (idScore >= gradingScore) {
+              bestName = idName;
+              bestNumber = idNumber || gradingNumber;
+              bestSet = idSet || gradingSet;
+            } else {
+              bestName = gradingName;
+              bestNumber = gradingNumber || idNumber;
+              bestSet = gradingSet || idSet;
+            }
+            console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose ${idScore >= gradingScore ? "OCR" : "Grading"} (scores: ${idScore} vs ${gradingScore})`);
           }
-          console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — chose ${idScore >= gradingScore ? "OCR" : "Grading"} (scores: ${idScore} vs ${gradingScore})`);
         }
       } else {
         bestName = idName || gradingName;
@@ -1290,12 +1305,24 @@ If no data exists for a category, use "No value data found". All prices MUST be 
               gradingResult.setNumber = idHasNumber ? idNumber : gradingNumber;
               gradingResult.setName = idSet || gradingSet;
             } else {
-              const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (cardIdResult?.setCode ? 1 : 0);
-              const gScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
-              if (idScore >= gScore) {
+              const idIsUnknown = idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
+              const gradingIsUnknown = gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
+
+              if (idIsUnknown && !gradingIsUnknown) {
+                gradingResult.setNumber = gradingNumber || idNumber;
+                gradingResult.setName = gradingSet || idSet;
+              } else if (gradingIsUnknown && !idIsUnknown) {
                 gradingResult.cardName = idName;
                 gradingResult.setNumber = idNumber || gradingNumber;
                 gradingResult.setName = idSet || gradingSet;
+              } else {
+                const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (cardIdResult?.setCode ? 1 : 0);
+                const gScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
+                if (idScore >= gScore) {
+                  gradingResult.cardName = idName;
+                  gradingResult.setNumber = idNumber || gradingNumber;
+                  gradingResult.setName = idSet || gradingSet;
+                }
               }
               console.log(`[bulk-grade] Card ${index + 1} names disagree: OCR="${idName}" vs Grading="${gradingName}"`);
             }
