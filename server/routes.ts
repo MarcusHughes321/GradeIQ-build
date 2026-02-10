@@ -304,7 +304,7 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       }
     }
 
-    if (bestScore < 50) {
+    if (bestScore < 80) {
       console.log(`[card-lookup] Best score too low (${bestScore}), rejecting — trusting AI identification`);
       return null;
     }
@@ -783,13 +783,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bestSet = idSet || gradingSet;
 
       try {
-        const verified = await lookupCardOnline(bestName, bestNumber, bestSet, idCode);
-        if (verified) {
-          console.log(`[grade-card] Verified online: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
-          gradingResult.cardName = verified.cardName;
-          gradingResult.setName = verified.setName;
-          gradingResult.setNumber = verified.setNumber;
+        const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
+        lookupCandidates.push({ name: bestName, number: bestNumber, set: bestSet, code: idCode, source: "primary" });
+
+        if (gradingNumber && gradingNumber !== bestNumber) {
+          lookupCandidates.push({ name: gradingName || bestName, number: gradingNumber, set: gradingSet || bestSet, source: "grading-alt" });
+        }
+        if (idNumber && idNumber !== bestNumber && idNumber !== gradingNumber) {
+          lookupCandidates.push({ name: idName || bestName, number: idNumber, set: idSet || bestSet, code: idCode, source: "ocr-alt" });
+        }
+
+        let bestVerified: { cardName: string; setName: string; setNumber: string } | null = null;
+        for (const candidate of lookupCandidates) {
+          console.log(`[grade-card] Trying lookup (${candidate.source}): name="${candidate.name}" number="${candidate.number}" set="${candidate.set}"`);
+          const verified = await lookupCardOnline(candidate.name, candidate.number, candidate.set, candidate.code);
+          if (verified) {
+            bestVerified = verified;
+            console.log(`[grade-card] Verified via ${candidate.source}: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
+            break;
+          }
+        }
+
+        if (bestVerified) {
+          gradingResult.cardName = bestVerified.cardName;
+          gradingResult.setName = bestVerified.setName;
+          gradingResult.setNumber = bestVerified.setNumber;
         } else {
+          console.log(`[grade-card] No online match found, using AI identification`);
           gradingResult.cardName = bestName;
           gradingResult.setNumber = bestNumber;
           gradingResult.setName = bestSet;

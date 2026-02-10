@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   ScrollView,
   Animated,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -46,6 +46,17 @@ export default function GradeScreen() {
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  useFocusEffect(
+    useCallback(() => {
+      setFrontImage(null);
+      setBackImage(null);
+      setLoading(false);
+      setCameraOpen(null);
+      setAnalysisStage(0);
+      progressAnim.setValue(0);
+    }, [])
+  );
 
   useEffect(() => {
     if (!loading) {
