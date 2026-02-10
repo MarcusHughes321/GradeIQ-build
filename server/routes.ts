@@ -1247,33 +1247,36 @@ If no data exists for a category, use "No value data found". All prices MUST be 
 
           console.log(`[bulk-grade] Grading card ${index + 1}/${cards.length}`);
 
-          const gradingResponse = await openai.chat.completions.create({
-            model: "gpt-5.2",
-            max_completion_tokens: 4096,
-            messages: [
-              {
-                role: "system",
-                content: GRADING_SYSTEM_PROMPT,
-              },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
-                  },
-                  {
-                    type: "image_url",
-                    image_url: { url: frontUrl, detail: "high" },
-                  },
-                  {
-                    type: "image_url",
-                    image_url: { url: backUrl, detail: "high" },
-                  },
-                ],
-              },
-            ],
-          });
+          const [gradingResponse, cardIdResult] = await Promise.all([
+            openai.chat.completions.create({
+              model: "gpt-5.2",
+              max_completion_tokens: 4096,
+              messages: [
+                {
+                  role: "system",
+                  content: GRADING_SYSTEM_PROMPT,
+                },
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+                    },
+                    {
+                      type: "image_url",
+                      image_url: { url: frontUrl, detail: "high" },
+                    },
+                    {
+                      type: "image_url",
+                      image_url: { url: backUrl, detail: "high" },
+                    },
+                  ],
+                },
+              ],
+            }),
+            identifyCard(frontUrl),
+          ]);
 
           const content = gradingResponse.choices[0]?.message?.content || "";
           const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -1283,9 +1286,42 @@ If no data exists for a category, use "No value data found". All prices MUST be 
 
           let gradingResult = JSON.parse(jsonMatch[0]);
           gradingResult = enforceGradingScales(gradingResult);
+
+          const gradingName = gradingResult.cardName || "";
+          const gradingNumber = gradingResult.setNumber || "";
+          const gradingSet = gradingResult.setName || "";
+          const idName = cardIdResult?.cardName || "";
+          const idNumber = cardIdResult?.setNumber || "";
+          const idSet = cardIdResult?.setName || "";
+
+          if (idName && gradingName) {
+            const idHasNumber = idNumber && idNumber.includes("/");
+            const gradingHasNumber = gradingNumber && gradingNumber.includes("/");
+            const namesAgree = stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
+
+            if (namesAgree) {
+              gradingResult.cardName = idName;
+              gradingResult.setNumber = idHasNumber ? idNumber : gradingNumber;
+              gradingResult.setName = idSet || gradingSet;
+            } else {
+              const idScore = (idHasNumber ? 2 : 0) + (idSet ? 1 : 0) + (cardIdResult?.setCode ? 1 : 0);
+              const gScore = (gradingHasNumber ? 2 : 0) + (gradingSet ? 1 : 0);
+              if (idScore >= gScore) {
+                gradingResult.cardName = idName;
+                gradingResult.setNumber = idNumber || gradingNumber;
+                gradingResult.setName = idSet || gradingSet;
+              }
+              console.log(`[bulk-grade] Card ${index + 1} names disagree: OCR="${idName}" vs Grading="${gradingName}"`);
+            }
+          } else if (idName) {
+            gradingResult.cardName = idName;
+            gradingResult.setNumber = idNumber || gradingNumber;
+            gradingResult.setName = idSet || gradingSet;
+          }
+
           gradingResult = syncCenteringToGrades(gradingResult);
 
-          console.log(`[bulk-grade] Card ${index + 1} done: "${gradingResult.cardName}"`);
+          console.log(`[bulk-grade] Card ${index + 1} done: "${gradingResult.cardName}" (${gradingResult.setNumber})`);
           return { index, result: gradingResult };
         } catch (err: any) {
           console.error(`[bulk-grade] Card ${index + 1} failed:`, err?.message);
