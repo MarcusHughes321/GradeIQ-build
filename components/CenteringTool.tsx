@@ -139,7 +139,8 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const HANDLE_HIT_PX = 40;
+const HANDLE_OFFSET_INNER = 0.35;
+const HANDLE_OFFSET_OUTER = 0.65;
 const DISAMBIG_THRESHOLD = 3;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
@@ -170,30 +171,47 @@ function getTouchDistance(touches: any[]): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function findNearestLine(
-  x: number, y: number, pos: BorderPositions, hitDist: number,
-  containerW: number, containerH: number
+function getHandleOffset(config: LineConfig): number {
+  return config.isOuter ? HANDLE_OFFSET_OUTER : HANDLE_OFFSET_INNER;
+}
+
+function findNearestHandle(
+  x: number, y: number, pos: BorderPositions,
+  containerW: number, containerH: number, scale: number
 ): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
-  const vLines: LineKey[] = ["outerLeft", "innerLeft", "outerRight", "innerRight"];
-  const hLines: LineKey[] = ["outerTop", "innerTop", "outerBottom", "innerBottom"];
+  const padX = (HANDLE_W / 2 + 10) / scale;
+  const padY = (HANDLE_H / 2 + 10) / scale;
+  const padXH = (HANDLE_H / 2 + 10) / scale;
+  const padYH = (HANDLE_W / 2 + 10) / scale;
 
-  for (const k of vLines) {
-    const dx = Math.abs(x - pos[k]);
-    const handleCenterY = containerH / 2;
-    const dy = Math.abs(y - handleCenterY);
-    if (dx < hitDist && dy < hitDist && (!best || dx < best.dist)) {
-      best = { key: k, dist: dx };
-    }
-  }
+  for (const config of LINE_CONFIGS) {
+    const linePos = pos[config.key];
+    const offset = getHandleOffset(config);
 
-  for (const k of hLines) {
-    const dy = Math.abs(y - pos[k]);
-    const handleCenterX = containerW / 2;
-    const dx = Math.abs(x - handleCenterX);
-    if (dy < hitDist && dx < hitDist && (!best || dy < best.dist)) {
-      best = { key: k, dist: dy };
+    if (config.orientation === "v") {
+      const hx = linePos;
+      const hy = containerH * offset;
+      const dx = Math.abs(x - hx);
+      const dy = Math.abs(y - hy);
+      if (dx <= padX && dy <= padY) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (!best || dist < best.dist) {
+          best = { key: config.key, dist };
+        }
+      }
+    } else {
+      const hx = containerW * offset;
+      const hy = linePos;
+      const dx = Math.abs(x - hx);
+      const dy = Math.abs(y - hy);
+      if (dx <= padXH && dy <= padYH) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (!best || dist < best.dist) {
+          best = { key: config.key, dist };
+        }
+      }
     }
   }
 
@@ -234,9 +252,10 @@ const HANDLE_H = 32;
 function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
   const lineW = config.isOuter ? 2 : 2.5;
   const opacity = config.isOuter ? 0.7 : 1;
+  const handleOffset = getHandleOffset(config);
 
   if (config.orientation === "v") {
-    const handleTop = containerSize.height / 2 - HANDLE_H / 2;
+    const handleTop = containerSize.height * handleOffset - HANDLE_H / 2;
     return (
       <React.Fragment key={config.key}>
         <View
@@ -271,7 +290,7 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
     );
   }
 
-  const handleLeft = containerSize.width / 2 - HANDLE_H / 2;
+  const handleLeft = containerSize.width * handleOffset - HANDLE_H / 2;
   return (
     <React.Fragment key={config.key}>
       <View
@@ -589,33 +608,28 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         const currentPos = posRef.current;
         const locked = panLockedRef.current;
-        if (currentPos) {
-          const hitDist = locked ? HANDLE_HIT_PX * 2 / scale : HANDLE_HIT_PX / scale;
-          const nearest = findNearestLine(containerX, containerY, currentPos, hitDist, cs.width, cs.height);
-          if (nearest) {
-            const lineVal = currentPos[nearest.key];
-            const offset = isVLine(nearest.key)
-              ? lineVal - containerX
-              : lineVal - containerY;
-            tentativeLineRef.current = { key: nearest.key, offset };
 
-            if (locked || scale <= 1.05 || nearest.dist < (hitDist * 0.5)) {
+        if (locked) {
+          if (currentPos) {
+            const nearest = findNearestHandle(containerX, containerY, currentPos, cs.width, cs.height, scale);
+            if (nearest) {
+              const lineVal = currentPos[nearest.key];
+              const offset = isVLine(nearest.key)
+                ? lineVal - containerX
+                : lineVal - containerY;
               gestureMode.current = "drag";
               dragLineKey.current = nearest.key;
               dragTouchOffset.current = offset;
-            } else {
-              gestureMode.current = "tentative";
+              return;
             }
-            return;
           }
-        }
-
-        if (locked) {
           gestureMode.current = "none";
-        } else if (scale > 1.05) {
-          gestureMode.current = "pan";
         } else {
-          gestureMode.current = "none";
+          if (scale > 1.05) {
+            gestureMode.current = "pan";
+          } else {
+            gestureMode.current = "none";
+          }
         }
       },
       onPanResponderMove: (evt, g) => {
@@ -636,26 +650,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             zoomScaleRef.current = newScale;
           }
           return;
-        }
-
-        if (gestureMode.current === "tentative" && tentativeLineRef.current) {
-          const lineKey = tentativeLineRef.current.key;
-          const isV = isVLine(lineKey);
-          const perpMovement = isV ? Math.abs(g.dx) : Math.abs(g.dy);
-          const paraMovement = isV ? Math.abs(g.dy) : Math.abs(g.dx);
-
-          if (perpMovement > DISAMBIG_THRESHOLD || paraMovement > DISAMBIG_THRESHOLD) {
-            if (panLockedRef.current || perpMovement >= paraMovement) {
-              gestureMode.current = "drag";
-              dragLineKey.current = lineKey;
-              dragTouchOffset.current = tentativeLineRef.current.offset;
-              tentativeLineRef.current = null;
-            } else {
-              gestureMode.current = "pan";
-              tentativeLineRef.current = null;
-            }
-          }
-          if (gestureMode.current === "tentative") return;
         }
 
         if (gestureMode.current === "pan") {
@@ -694,7 +688,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           return;
         }
 
-        if (gestureMode.current === "none" && !panLockedRef.current && zoomScaleRef.current > 1.05 && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)) {
+        if (gestureMode.current === "none" && !panLockedRef.current && zoomScaleRef.current > 1.05) {
           gestureMode.current = "pan";
         }
       },
@@ -871,8 +865,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         <Text style={styles.hint}>
           {panLocked
-            ? "Pan locked \u2014 drag handles to move lines freely"
-            : "Pinch to zoom \u00B7 Tap lock to move lines while zoomed"}
+            ? "Lines mode \u2014 drag handles to move lines \u00B7 pan disabled"
+            : "Pan mode \u2014 drag to pan when zoomed \u00B7 lines locked"}
         </Text>
       </View>
     </View>
