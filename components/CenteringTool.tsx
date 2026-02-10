@@ -798,15 +798,13 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             </View>
           )}
 
-          {zoomScale > 1 && (
-            <Pressable
-              style={[styles.lockFloatingBtn, panLocked && styles.lockFloatingBtnActive]}
-              onPress={() => setPanLocked(p => !p)}
-            >
-              <Ionicons name={panLocked ? "lock-closed" : "lock-open-outline"} size={18} color="#fff" />
-              <Text style={styles.lockFloatingText}>{panLocked ? "Lines" : "Pan"}</Text>
-            </Pressable>
-          )}
+          <Pressable
+            style={[styles.lockFloatingBtn, panLocked && styles.lockFloatingBtnActive]}
+            onPress={() => setPanLocked(p => !p)}
+          >
+            <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={16} color="#fff" />
+            <Text style={styles.lockFloatingText}>{panLocked ? "Move Lines" : "Pan / Zoom"}</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -824,7 +822,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             onPress={() => setPanLocked(p => !p)}
             style={({ pressed }) => [styles.lockBtn, panLocked && styles.lockBtnActive, { opacity: pressed ? 0.6 : 1 }]}
           >
-            <Ionicons name={panLocked ? "lock-closed" : "lock-open-outline"} size={14} color={panLocked ? "#fff" : Colors.textMuted} />
+            <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={14} color={panLocked ? "#fff" : Colors.textMuted} />
             <Text style={[styles.lockBtnText, panLocked && styles.lockBtnTextActive]}>
               {panLocked ? "Lines" : "Pan"}
             </Text>
@@ -865,8 +863,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         <Text style={styles.hint}>
           {panLocked
-            ? "Lines mode \u2014 drag handles to move lines \u00B7 pan disabled"
-            : "Pan mode \u2014 drag to pan when zoomed \u00B7 lines locked"}
+            ? "Drag the coloured handles on each line to adjust \u00B7 Tap button to switch to Pan"
+            : "Pinch to zoom in \u00B7 Drag to pan around \u00B7 Tap button to switch to Move Lines"}
         </Text>
       </View>
     </View>
