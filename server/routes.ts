@@ -357,9 +357,9 @@ function fitLineToEdge(
     );
   };
 
-  const EDGE_THRESHOLD = 15;
-  const NUM_SAMPLES = 30;
-  const edgePoints: { x: number; y: number }[] = [];
+  const EDGE_THRESHOLD = 12;
+  const NUM_SAMPLES = 50;
+  const edgePoints: { x: number; y: number; grad: number }[] = [];
   const xStep = (scanXEnd - scanXStart) / (NUM_SAMPLES - 1);
 
   for (let i = 0; i < NUM_SAMPLES; i++) {
@@ -374,7 +374,7 @@ function fitLineToEdge(
           bestGrad = gy;
           bestY = y;
         }
-        if (bestY >= 0 && y < bestY - 10) break;
+        if (bestY >= 0 && y < bestY - 8) break;
       }
     } else {
       for (let y = scanYFrom; y <= scanYTo; y++) {
@@ -383,38 +383,56 @@ function fitLineToEdge(
           bestGrad = gy;
           bestY = y;
         }
-        if (bestY >= 0 && y > bestY + 10) break;
+        if (bestY >= 0 && y > bestY + 8) break;
       }
     }
 
     if (bestY >= 0) {
-      edgePoints.push({ x: sampleX, y: bestY });
+      edgePoints.push({ x: sampleX, y: bestY, grad: bestGrad });
     }
   }
 
-  if (edgePoints.length < 6) return NaN;
+  if (edgePoints.length < 8) return NaN;
 
   const sortedByY = [...edgePoints].sort((a, b) => a.y - b.y);
   const q1 = sortedByY[Math.floor(edgePoints.length * 0.25)].y;
   const q3 = sortedByY[Math.floor(edgePoints.length * 0.75)].y;
   const iqr = q3 - q1;
-  const tolerance = Math.max(iqr * 2, sh * 0.04);
+  const tolerance = Math.max(iqr * 1.5, sh * 0.025);
   const medianY = sortedByY[Math.floor(edgePoints.length / 2)].y;
   const filtered = edgePoints.filter(p => Math.abs(p.y - medianY) <= tolerance);
 
-  if (filtered.length < 5) return NaN;
+  if (filtered.length < 6) return NaN;
 
-  const n = filtered.length;
-  const sumX = filtered.reduce((s, p) => s + p.x, 0);
-  const sumY = filtered.reduce((s, p) => s + p.y, 0);
-  const sumXY = filtered.reduce((s, p) => s + p.x * p.y, 0);
-  const sumX2 = filtered.reduce((s, p) => s + p.x * p.x, 0);
+  const bestFit = (pts: { x: number; y: number }[]) => {
+    const n = pts.length;
+    const sumX = pts.reduce((s, p) => s + p.x, 0);
+    const sumY = pts.reduce((s, p) => s + p.y, 0);
+    const sumXY = pts.reduce((s, p) => s + p.x * p.y, 0);
+    const sumX2 = pts.reduce((s, p) => s + p.x * p.x, 0);
+    const denom = n * sumX2 - sumX * sumX;
+    if (Math.abs(denom) < 0.001) return { slope: 0, residual: Infinity };
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    const residual = pts.reduce((s, p) => s + Math.abs(p.y - (slope * p.x + intercept)), 0) / n;
+    return { slope, residual };
+  };
 
-  const denom = n * sumX2 - sumX * sumX;
-  if (Math.abs(denom) < 0.001) return 0;
+  let best = bestFit(filtered);
+  for (let iter = 0; iter < 2; iter++) {
+    const fit = bestFit(filtered);
+    const intercept = (filtered.reduce((s, p) => s + p.y, 0) - fit.slope * filtered.reduce((s, p) => s + p.x, 0)) / filtered.length;
+    const residuals = filtered.map(p => Math.abs(p.y - (fit.slope * p.x + intercept)));
+    const medRes = [...residuals].sort((a, b) => a - b)[Math.floor(residuals.length / 2)];
+    const threshold = Math.max(medRes * 2.5, 2);
+    const refined = filtered.filter((_, i) => residuals[i] <= threshold);
+    if (refined.length < 5) break;
+    filtered.length = 0;
+    filtered.push(...refined);
+    best = bestFit(filtered);
+  }
 
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  return Math.atan(slope) * (180 / Math.PI);
+  return Math.atan(best.slope) * (180 / Math.PI);
 }
 
 async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Promise<number> {
@@ -442,32 +460,33 @@ async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Pr
     const top = boundsHint?.topPercent ?? 10;
     const bottom = boundsHint?.bottomPercent ?? 90;
 
-    const scanXStart = Math.round(sw * (left + 5) / 100);
-    const scanXEnd = Math.round(sw * (right - 5) / 100);
+    const scanXStart = Math.round(sw * (left + 3) / 100);
+    const scanXEnd = Math.round(sw * (right - 3) / 100);
 
     const bottomEdgeCenter = Math.round(sh * bottom / 100);
-    const bottomScanFrom = Math.min(sh - 2, Math.round(bottomEdgeCenter + sh * 0.08));
-    const bottomScanTo = Math.max(1, Math.round(bottomEdgeCenter - sh * 0.08));
+    const bottomScanFrom = Math.min(sh - 2, Math.round(bottomEdgeCenter + sh * 0.10));
+    const bottomScanTo = Math.max(1, Math.round(bottomEdgeCenter - sh * 0.10));
     const bottomAngle = fitLineToEdge(pixels as any, sw, sh, scanXStart, scanXEnd, bottomScanFrom, bottomScanTo, "up");
 
     const topEdgeCenter = Math.round(sh * top / 100);
-    const topScanFrom = Math.max(1, Math.round(topEdgeCenter - sh * 0.08));
-    const topScanTo = Math.min(sh - 2, Math.round(topEdgeCenter + sh * 0.08));
+    const topScanFrom = Math.max(1, Math.round(topEdgeCenter - sh * 0.10));
+    const topScanTo = Math.min(sh - 2, Math.round(topEdgeCenter + sh * 0.10));
     const topAngle = fitLineToEdge(pixels as any, sw, sh, scanXStart, scanXEnd, topScanFrom, topScanTo, "down");
 
+    const validAngles: number[] = [];
+    if (!isNaN(bottomAngle)) validAngles.push(bottomAngle);
+    if (!isNaN(topAngle)) validAngles.push(topAngle);
+
     let angleDeg: number;
-    if (!isNaN(bottomAngle) && !isNaN(topAngle)) {
-      angleDeg = (bottomAngle + topAngle) / 2;
-      console.log(`[detect-angle] Bottom edge: ${bottomAngle.toFixed(3)}°, Top edge: ${topAngle.toFixed(3)}°, Average: ${angleDeg.toFixed(3)}°`);
-    } else if (!isNaN(bottomAngle)) {
-      angleDeg = bottomAngle;
-      console.log(`[detect-angle] Bottom edge only: ${angleDeg.toFixed(3)}°`);
-    } else if (!isNaN(topAngle)) {
-      angleDeg = topAngle;
-      console.log(`[detect-angle] Top edge only: ${angleDeg.toFixed(3)}°`);
-    } else {
+    if (validAngles.length === 0) {
       console.log(`[detect-angle] No edges detected`);
       return 0;
+    } else if (validAngles.length === 2 && Math.abs(validAngles[0] - validAngles[1]) > 2) {
+      angleDeg = Math.abs(validAngles[0]) < Math.abs(validAngles[1]) ? validAngles[0] : validAngles[1];
+      console.log(`[detect-angle] Top: ${topAngle.toFixed(3)}°, Bottom: ${bottomAngle.toFixed(3)}°, Divergent - using smaller: ${angleDeg.toFixed(3)}°`);
+    } else {
+      angleDeg = validAngles.reduce((s, v) => s + v, 0) / validAngles.length;
+      console.log(`[detect-angle] Top: ${topAngle?.toFixed(3) ?? 'N/A'}°, Bottom: ${bottomAngle?.toFixed(3) ?? 'N/A'}°, Average: ${angleDeg.toFixed(3)}°`);
     }
 
     const clamped = Math.max(-10, Math.min(10, angleDeg));
@@ -567,10 +586,8 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return avgX;
     };
 
-    const findEdgeRow = (startY: number, endY: number, step: number): number => {
-      const scanXStart = Math.round(sw * 0.1);
-      const scanXEnd = Math.round(sw * 0.9);
-      const totalScanCols = Math.floor((scanXEnd - scanXStart) / 1);
+    const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): number => {
+      const totalScanCols = Math.floor((xEnd - xStart) / 1);
       const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
 
       const rows: { y: number; score: number; votes: number }[] = [];
@@ -578,7 +595,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
         let votes = 0;
         let totalGrad = 0;
-        for (let x = scanXStart; x < scanXEnd; x += 1) {
+        for (let x = xStart; x < xEnd; x += 1) {
           const gy = Math.abs(sobelY(x, y));
           if (gy >= EDGE_THRESHOLD) {
             votes++;
@@ -614,8 +631,13 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
     const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
     const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
-    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1);
-    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1);
+
+    const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
+    const rowScanXStart = Math.round(leftCol + cardInsetX);
+    const rowScanXEnd = Math.round(rightCol - cardInsetX);
+
+    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1, rowScanXStart, rowScanXEnd);
+    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1, rowScanXStart, rowScanXEnd);
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;

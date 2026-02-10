@@ -943,6 +943,23 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         </Pressable>
       </View>
 
+      <View style={styles.modeToggle}>
+        <Pressable
+          style={[styles.modeBtn, panLocked && styles.modeBtnActive]}
+          onPress={() => setPanLocked(true)}
+        >
+          <Ionicons name="move-outline" size={16} color={panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
+          <Text style={[styles.modeBtnText, panLocked && styles.modeBtnTextActive]}>Lines</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.modeBtn, !panLocked && styles.modeBtnActive]}
+          onPress={() => setPanLocked(false)}
+        >
+          <Ionicons name="hand-left-outline" size={16} color={!panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
+          <Text style={[styles.modeBtnText, !panLocked && styles.modeBtnTextActive]}>Pan / Zoom</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.imageArea}>
         <View style={styles.imageViewport} onLayout={onContainerLayout} {...viewportPan.panHandlers}>
           <View
@@ -1005,23 +1022,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       </View>
 
       <View style={styles.controls}>
-        <View style={styles.modeToggle}>
-          <Pressable
-            style={[styles.modeBtn, panLocked && styles.modeBtnActive]}
-            onPress={() => setPanLocked(true)}
-          >
-            <Ionicons name="move-outline" size={16} color={panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
-            <Text style={[styles.modeBtnText, panLocked && styles.modeBtnTextActive]}>Lines</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.modeBtn, !panLocked && styles.modeBtnActive]}
-            onPress={() => setPanLocked(false)}
-          >
-            <Ionicons name="hand-left-outline" size={16} color={!panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
-            <Text style={[styles.modeBtnText, !panLocked && styles.modeBtnTextActive]}>Pan / Zoom</Text>
-          </Pressable>
-        </View>
-
         <View style={styles.controlRow}>
           <View style={styles.sideToggle}>
             <Pressable style={[styles.sideBtn, showFront && styles.sideBtnActive]} onPress={() => setShowFront(true)}>
@@ -1112,7 +1112,7 @@ const styles = StyleSheet.create({
   lockFloatingBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   lockFloatingText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
   controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
-  modeToggle: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, padding: 3, marginBottom: 6 },
+  modeToggle: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, padding: 3, marginHorizontal: 8, marginBottom: 4 },
   modeBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: 8 },
   modeBtnActive: { backgroundColor: Colors.primary },
   modeBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "rgba(255,255,255,0.4)" },
