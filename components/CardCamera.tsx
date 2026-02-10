@@ -297,8 +297,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardFrame: {
-    width: 240,
-    height: 336,
+    width: 280,
+    height: 392,
     borderWidth: 1,
     borderRadius: 10,
   },
