@@ -557,7 +557,7 @@ export default function ResultsScreen() {
             <View style={styles.valueGrid}>
               <View style={styles.valueSectionHeader}>
                 <Text style={styles.valueSectionTitle}>Your Grade</Text>
-                <Text style={styles.valueSectionTitle}>In a 10</Text>
+                <Text style={styles.valueSectionTitle}>In Grade 10</Text>
               </View>
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>PSA {result.psa.grade}</Text>
