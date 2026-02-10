@@ -192,7 +192,7 @@ async function queryPokemonTcgApi(q: string): Promise<any[]> {
     console.log(`[card-lookup] Querying: ${q}`);
     const resp = await fetch(url, {
       headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!resp.ok) {
       console.log(`[card-lookup] API returned ${resp.status}`);
