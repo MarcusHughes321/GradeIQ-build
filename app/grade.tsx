@@ -69,21 +69,48 @@ export default function GradeScreen() {
       return;
     }
 
+    let pulseAnimation: Animated.CompositeAnimation | null = null;
+
     const advanceStage = (stage: number) => {
       if (stage >= ANALYSIS_STAGES.length) return;
       setAnalysisStage(stage);
 
-      Animated.timing(progressAnim, {
-        toValue: (stage + 1) / ANALYSIS_STAGES.length,
-        duration: ANALYSIS_STAGES[stage].duration * 0.8,
-        useNativeDriver: false,
-      }).start();
+      const isLastStage = stage === ANALYSIS_STAGES.length - 1;
 
-      stageTimerRef.current = setTimeout(() => {
-        if (stage < ANALYSIS_STAGES.length - 1) {
+      if (isLastStage) {
+        const pulse = () => {
+          pulseAnimation = Animated.sequence([
+            Animated.timing(progressAnim, {
+              toValue: 0.98,
+              duration: 1500,
+              useNativeDriver: false,
+            }),
+            Animated.timing(progressAnim, {
+              toValue: 0.88,
+              duration: 1500,
+              useNativeDriver: false,
+            }),
+          ]);
+          pulseAnimation.start(({ finished }) => {
+            if (finished) pulse();
+          });
+        };
+        Animated.timing(progressAnim, {
+          toValue: 0.9,
+          duration: 800,
+          useNativeDriver: false,
+        }).start(() => pulse());
+      } else {
+        Animated.timing(progressAnim, {
+          toValue: (stage + 1) / ANALYSIS_STAGES.length,
+          duration: ANALYSIS_STAGES[stage].duration * 0.8,
+          useNativeDriver: false,
+        }).start();
+
+        stageTimerRef.current = setTimeout(() => {
           advanceStage(stage + 1);
-        }
-      }, ANALYSIS_STAGES[stage].duration);
+        }, ANALYSIS_STAGES[stage].duration);
+      }
     };
 
     advanceStage(0);
@@ -91,6 +118,9 @@ export default function GradeScreen() {
     return () => {
       if (stageTimerRef.current) {
         clearTimeout(stageTimerRef.current);
+      }
+      if (pulseAnimation) {
+        pulseAnimation.stop();
       }
     };
   }, [loading]);
