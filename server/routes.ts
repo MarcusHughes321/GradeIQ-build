@@ -192,7 +192,7 @@ async function queryPokemonTcgApi(q: string): Promise<any[]> {
     console.log(`[card-lookup] Querying: ${q}`);
     const resp = await fetch(url, {
       headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!resp.ok) {
       console.log(`[card-lookup] API returned ${resp.status}`);
@@ -260,8 +260,8 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
     let allCards: any[] = [];
     const seenIds = new Set<string>();
 
-    for (const q of queries) {
-      const cards = await queryPokemonTcgApi(q);
+    const results = await Promise.all(queries.map(q => queryPokemonTcgApi(q)));
+    for (const cards of results) {
       for (const c of cards) {
         const id = c.id || `${c.name}-${c.number}-${c.set?.name}`;
         if (!seenIds.has(id)) {
@@ -269,7 +269,6 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
           allCards.push(c);
         }
       }
-      if (allCards.length >= 5) break;
     }
 
     if (allCards.length === 0) {
@@ -906,6 +905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Both front and back card images are required" });
       }
 
+      const gradeStartTime = Date.now();
       const frontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
@@ -939,6 +939,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }),
         identifyCard(frontUrl),
       ]);
+
+      const aiTime = Date.now() - gradeStartTime;
+      console.log(`[grade-card] AI calls completed in ${aiTime}ms`);
 
       const content = gradingResponse.choices[0]?.message?.content || "";
 
@@ -1018,55 +1021,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
-      const boundsPromise = Promise.all([
-        detectCardBounds(frontUri),
-        detectCardBounds(backUri),
+      const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
+      lookupCandidates.push({ name: bestName, number: bestNumber, set: bestSet, code: idCode, source: "primary" });
+
+      if (gradingNumber && gradingNumber !== bestNumber) {
+        lookupCandidates.push({ name: gradingName || bestName, number: gradingNumber, set: gradingSet || bestSet, source: "grading-alt" });
+      }
+      if (idNumber && idNumber !== bestNumber && idNumber !== gradingNumber) {
+        lookupCandidates.push({ name: idName || bestName, number: idNumber, set: idSet || bestSet, code: idCode, source: "ocr-alt" });
+      }
+
+      const [boundsResults, ...lookupResults] = await Promise.all([
+        Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]),
+        ...lookupCandidates.map(c => {
+          console.log(`[grade-card] Trying lookup (${c.source}): name="${c.name}" number="${c.number}" set="${c.set}"`);
+          return lookupCardOnline(c.name, c.number, c.set, c.code).catch(() => null);
+        }),
       ]);
 
-      try {
-        const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
-        lookupCandidates.push({ name: bestName, number: bestNumber, set: bestSet, code: idCode, source: "primary" });
+      const [detectedFront, detectedBack] = boundsResults;
 
-        if (gradingNumber && gradingNumber !== bestNumber) {
-          lookupCandidates.push({ name: gradingName || bestName, number: gradingNumber, set: gradingSet || bestSet, source: "grading-alt" });
+      let bestVerified: { cardName: string; setName: string; setNumber: string } | null = null;
+      for (let i = 0; i < lookupCandidates.length; i++) {
+        if (lookupResults[i]) {
+          bestVerified = lookupResults[i];
+          console.log(`[grade-card] Verified via ${lookupCandidates[i].source}: "${bestVerified!.cardName}" from "${bestVerified!.setName}" (${bestVerified!.setNumber})`);
+          break;
         }
-        if (idNumber && idNumber !== bestNumber && idNumber !== gradingNumber) {
-          lookupCandidates.push({ name: idName || bestName, number: idNumber, set: idSet || bestSet, code: idCode, source: "ocr-alt" });
-        }
+      }
 
-        let bestVerified: { cardName: string; setName: string; setNumber: string } | null = null;
-        for (const candidate of lookupCandidates) {
-          console.log(`[grade-card] Trying lookup (${candidate.source}): name="${candidate.name}" number="${candidate.number}" set="${candidate.set}"`);
-          const verified = await lookupCardOnline(candidate.name, candidate.number, candidate.set, candidate.code);
-          if (verified) {
-            bestVerified = verified;
-            console.log(`[grade-card] Verified via ${candidate.source}: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
-            break;
-          }
-        }
-
-        if (bestVerified) {
-          gradingResult.cardName = bestVerified.cardName;
-          gradingResult.setName = bestVerified.setName;
-          gradingResult.setNumber = bestVerified.setNumber;
-        } else {
-          console.log(`[grade-card] No online match found, using AI identification`);
-          gradingResult.cardName = bestName;
-          gradingResult.setNumber = bestNumber;
-          gradingResult.setName = bestSet;
-        }
-      } catch (lookupErr) {
-        console.log(`[grade-card] Online lookup failed, using best AI identification`);
+      if (bestVerified) {
+        gradingResult.cardName = bestVerified.cardName;
+        gradingResult.setName = bestVerified.setName;
+        gradingResult.setNumber = bestVerified.setNumber;
+      } else {
+        console.log(`[grade-card] No online match found, using AI identification`);
         gradingResult.cardName = bestName;
         gradingResult.setNumber = bestNumber;
         gradingResult.setName = bestSet;
       }
-
-      const [detectedFront, detectedBack] = await boundsPromise;
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
 
       gradingResult = syncCenteringToGrades(gradingResult);
+
+      const totalTime = Date.now() - gradeStartTime;
+      console.log(`[grade-card] Total time: ${totalTime}ms (AI: ${aiTime}ms, lookup+bounds: ${totalTime - aiTime}ms)`);
 
       res.json(gradingResult);
     } catch (error: any) {

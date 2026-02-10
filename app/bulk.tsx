@@ -325,7 +325,7 @@ export default function BulkScreen() {
             </Text>
 
             <Text style={styles.estimateText}>
-              ~{Math.max(0, (totalToGrade - completedCount))} {totalToGrade - completedCount === 1 ? "card" : "cards"} remaining ({"\u2248"}{Math.max(0, (totalToGrade - completedCount))} min)
+              {totalToGrade - completedCount > 0 ? `~${Math.max(1, Math.ceil((totalToGrade - completedCount) * 40 / 60))} min remaining` : "Finishing up..."}
             </Text>
           </View>
         </View>
@@ -471,7 +471,7 @@ export default function BulkScreen() {
               </Pressable>
               {readyCards.length > 0 && (
                 <Text style={styles.bottomHint}>
-                  Estimated time: ~{readyCards.length} min
+                  Estimated time: ~{Math.max(1, Math.ceil(readyCards.length * 40 / 60))} min ({"\u2248"}40s per card)
                 </Text>
               )}
               {incompleteCards.length > 0 && (
