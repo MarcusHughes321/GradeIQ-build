@@ -1097,7 +1097,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, height: 40 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, height: 40 },
   headerBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   ratioInline: { flexDirection: "row", alignItems: "center", gap: 10 },
   ratioText: { fontFamily: "Inter_700Bold", fontSize: 14 },
