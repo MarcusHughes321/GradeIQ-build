@@ -20,9 +20,11 @@ Grade.IQ is a mobile app that uses AI vision to estimate Pokemon card grades bas
 ```
 app/
   _layout.tsx       - Root layout with providers, fonts, stack navigation
-  index.tsx         - Home screen with history list and "Grade a Card" CTA
+  index.tsx         - Home screen with history list, "Grade a Card" CTA, and "Bulk Grade" button
   grade.tsx         - Photo capture screen with progress UI during analysis
   results.tsx       - Detailed grading results from PSA, Beckett, Ace
+  bulk.tsx          - Bulk upload screen (up to 20 cards, front+back for each)
+  bulk-results.tsx  - Bulk grading results summary with average grades and card list
 
 components/
   CompanyCard.tsx   - Grade display card for each grading company
@@ -47,6 +49,7 @@ server/
 - `POST /api/detect-bounds` - Accepts { image: base64 }, returns CardBounds for on-demand card boundary re-detection (used for old gradings missing bounds data)
 - `POST /api/regrade-card` - Fast re-grade endpoint accepting { frontImage, backImage, cardName, setName, setNumber }. Skips card identification and online lookup, only re-assesses condition. Used after straightening.
 - `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns estimated eBay sold prices for PSA, BGS, and ACE graded cards plus raw/ungraded value AND Grade 10 prices (psa10Value, bgs10Value, ace10Value)
+- `POST /api/bulk-grade` - Accepts { cards: [{ frontImage, backImage }] }, max 20 cards. Processes in parallel batches of 3, skips online lookup for speed. Returns { results: [{ index, result?, error? }] }
 
 ## Key Features
 - **AI Card Boundary Detection**: Sobel edge detection with 400px sampling, multi-row voting, and sub-pixel clustering for precise card edge positions
@@ -103,3 +106,7 @@ server/
 - Created fast /api/regrade-card endpoint for re-analysis after straightening (skips card ID + online lookup, condition-only grading)
 - Added progress stages to re-analysis overlay (Preparing → Analysing → Grading → Calculating → Done)
 - Added "If Grade 10" pricing column to eBay values card showing PSA 10, BGS 10, ACE 10 estimated prices
+- 2026-02-10: Added bulk grading feature (up to 20 cards, processed 3 at a time in parallel)
+- Bulk grade skips online card database lookup for speed (~10s per card vs ~15-20s for single grading)
+- Bulk results screen shows average PSA/BGS/ACE grades across all cards
+- Tapping individual cards in bulk results navigates to full detailed results
