@@ -94,3 +94,8 @@ server/
 - Added multi-language support: AI reads cards in any language (Japanese, Korean, etc.) and responds with English names/details
 - Enhanced card number reading: AI uses multiple strategies (set symbol cross-reference, partial digit inference, artwork matching) for better accuracy with glare/camera issues
 - Added SpiritLevel component (expo-sensors accelerometer) showing bubble level on grade screen to help users hold phone flat and parallel to card
+- Added help overlay to centering tool (? button) with step-by-step instructions for all features
+- Added auto-straighten button (magnet icon) using Sobel edge detection on bottom card edge to calculate and correct tilt angle
+- Created /api/detect-angle endpoint for server-side card rotation detection via linear regression on bottom edge points
+- Improved card lookup scoring: set total mismatch penalty increased to -80, exact set name match required for full bonus, threshold raised to 80
+- Multi-candidate lookup: tries primary, grading-alt, and OCR-alt numbers when they disagree
