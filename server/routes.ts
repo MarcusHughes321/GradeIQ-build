@@ -44,11 +44,16 @@ Analyze the card images carefully. Look for:
 3. Edges - look for whitening, chipping, or rough cuts along all edges
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects
 
+CRITICAL FOR CARD IDENTIFICATION:
+- You MUST read the card number printed at the bottom of the card (e.g., '003/007', '012/220', '151/165'). This is the definitive identifier.
+- Use this card number along with any visible set symbols/logos to determine the EXACT card, set name, and set number.
+- Do NOT guess the card based only on the Pokemon name or artwork - many Pokemon have multiple cards across different sets. The card number is the ground truth.
+
 Respond ONLY with valid JSON in this exact format:
 {
-  "cardName": "Full name of the Pokemon card (e.g. 'Charizard ex')",
-  "setName": "Name of the Pokemon TCG set (e.g. 'Obsidian Flames')",
-  "setNumber": "Card number as shown on the card (e.g. '012/220')",
+  "cardName": "Full name of the Pokemon card exactly as printed (e.g. 'Charizard ex')",
+  "setName": "Name of the Pokemon TCG set determined from set symbol and card number (e.g. 'Obsidian Flames')",
+  "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
   "centering": {
     "frontLeftRight": 52,
@@ -422,7 +427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content: [
               {
                 type: "text",
-                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.",
+                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back. IMPORTANT: Read the card number printed at the bottom of the card (e.g., '003/007') to correctly identify the exact card and set.",
               },
               {
                 type: "image_url",
@@ -507,7 +512,7 @@ If you cannot determine a reasonable price estimate for any category, use "No va
           },
           {
             role: "user",
-            content: `What are the estimated recent eBay sold prices for this Pokemon card?\n\nCard: ${cardDesc}\nPSA Grade: ${psaGrade}\nBGS Grade: ${bgsGrade}\nAce Grade: ${aceGrade}`,
+            content: `What are the estimated recent eBay sold prices for this Pokemon card?\n\nCard Name: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nFull Description: ${cardDesc}\nPSA Grade: ${psaGrade}\nBGS Grade: ${bgsGrade}\nAce Grade: ${aceGrade}\n\nIMPORTANT: Use the card number (${setNumber}) and set name to identify the EXACT card for accurate pricing. Different printings of the same Pokemon can have very different values.`,
           },
         ],
       });
