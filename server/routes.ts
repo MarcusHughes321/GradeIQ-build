@@ -192,7 +192,7 @@ async function queryPokemonTcgApi(q: string): Promise<any[]> {
     console.log(`[card-lookup] Querying: ${q}`);
     const resp = await fetch(url, {
       headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!resp.ok) {
       console.log(`[card-lookup] API returned ${resp.status}`);
@@ -233,35 +233,29 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
 
     console.log(`[card-lookup] Looking up: name="${cardName}" number="${rawNumber}" total="${setTotal}" set="${setName}" code="${setCode || "none"}"`);
 
-    const queries: string[] = [];
+    const priorityQueries: string[] = [];
+    const fallbackQueries: string[] = [];
 
     if (setCode && rawNumber) {
-      queries.push(`set.id:"${setCode}*" number:${rawNumber}`);
-      queries.push(`set.ptcgoCode:"${setCode}*" number:${rawNumber}`);
+      priorityQueries.push(`set.id:"${setCode}*" number:${rawNumber}`);
     }
     if (rawNumber && baseName) {
-      queries.push(`number:${rawNumber} name:"${baseName}*"`);
+      priorityQueries.push(`number:${rawNumber} name:"${baseName}*"`);
     }
     if (rawNumber && setTotal) {
-      queries.push(`number:${rawNumber} set.printedTotal:${setTotal}`);
+      fallbackQueries.push(`number:${rawNumber} set.printedTotal:${setTotal}`);
     }
     if (rawNumber && setName) {
-      queries.push(`number:${rawNumber} set.name:"${setName}"`);
-      queries.push(`number:${rawNumber} set.name:"${setName}*"`);
+      fallbackQueries.push(`number:${rawNumber} set.name:"${setName}*"`);
     }
     if (baseName && setName) {
-      queries.push(`name:"${baseName}*" set.name:"${setName}"`);
-      queries.push(`name:"${baseName}*" set.name:"${setName}*"`);
-    }
-    if (baseName) {
-      queries.push(`name:"${baseName}"`);
+      fallbackQueries.push(`name:"${baseName}*" set.name:"${setName}*"`);
     }
 
     let allCards: any[] = [];
     const seenIds = new Set<string>();
 
-    for (const q of queries) {
-      const cards = await queryPokemonTcgApi(q);
+    const addCards = (cards: any[]) => {
       for (const c of cards) {
         const id = c.id || `${c.name}-${c.number}-${c.set?.name}`;
         if (!seenIds.has(id)) {
@@ -269,7 +263,14 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
           allCards.push(c);
         }
       }
-      if (allCards.length >= 5) break;
+    };
+
+    const priorityResults = await Promise.all(priorityQueries.map(q => queryPokemonTcgApi(q)));
+    for (const cards of priorityResults) addCards(cards);
+
+    if (allCards.length < 3 && fallbackQueries.length > 0) {
+      const fallbackResults = await Promise.all(fallbackQueries.map(q => queryPokemonTcgApi(q)));
+      for (const cards of fallbackResults) addCards(cards);
     }
 
     if (allCards.length === 0) {
@@ -957,27 +958,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bestNumber = idNumber || gradingNumber;
       const bestSet = idSet || gradingSet;
 
+      const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+
+      const boundsPromise = Promise.all([
+        detectCardBounds(frontUri),
+        detectCardBounds(backUri),
+      ]);
+
+      const lookupWithTimeout = async (): Promise<{ cardName: string; setName: string; setNumber: string } | null> => {
+        return Promise.race([
+          (async () => {
+            const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
+            lookupCandidates.push({ name: bestName, number: bestNumber, set: bestSet, code: idCode, source: "primary" });
+
+            if (gradingNumber && gradingNumber !== bestNumber) {
+              lookupCandidates.push({ name: gradingName || bestName, number: gradingNumber, set: gradingSet || bestSet, source: "grading-alt" });
+            }
+            if (idNumber && idNumber !== bestNumber && idNumber !== gradingNumber) {
+              lookupCandidates.push({ name: idName || bestName, number: idNumber, set: idSet || bestSet, code: idCode, source: "ocr-alt" });
+            }
+
+            for (const candidate of lookupCandidates) {
+              console.log(`[grade-card] Trying lookup (${candidate.source}): name="${candidate.name}" number="${candidate.number}" set="${candidate.set}"`);
+              const verified = await lookupCardOnline(candidate.name, candidate.number, candidate.set, candidate.code);
+              if (verified) {
+                console.log(`[grade-card] Verified via ${candidate.source}: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
+                return verified;
+              }
+            }
+            return null;
+          })(),
+          new Promise<null>((resolve) => setTimeout(() => {
+            console.log(`[grade-card] Lookup timed out after 20s, using AI identification`);
+            resolve(null);
+          }, 20000)),
+        ]);
+      };
+
       try {
-        const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
-        lookupCandidates.push({ name: bestName, number: bestNumber, set: bestSet, code: idCode, source: "primary" });
-
-        if (gradingNumber && gradingNumber !== bestNumber) {
-          lookupCandidates.push({ name: gradingName || bestName, number: gradingNumber, set: gradingSet || bestSet, source: "grading-alt" });
-        }
-        if (idNumber && idNumber !== bestNumber && idNumber !== gradingNumber) {
-          lookupCandidates.push({ name: idName || bestName, number: idNumber, set: idSet || bestSet, code: idCode, source: "ocr-alt" });
-        }
-
-        let bestVerified: { cardName: string; setName: string; setNumber: string } | null = null;
-        for (const candidate of lookupCandidates) {
-          console.log(`[grade-card] Trying lookup (${candidate.source}): name="${candidate.name}" number="${candidate.number}" set="${candidate.set}"`);
-          const verified = await lookupCardOnline(candidate.name, candidate.number, candidate.set, candidate.code);
-          if (verified) {
-            bestVerified = verified;
-            console.log(`[grade-card] Verified via ${candidate.source}: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
-            break;
-          }
-        }
+        const bestVerified = await lookupWithTimeout();
 
         if (bestVerified) {
           gradingResult.cardName = bestVerified.cardName;
@@ -996,12 +1016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gradingResult.setName = bestSet;
       }
 
-      const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
-      const [detectedFront, detectedBack] = await Promise.all([
-        detectCardBounds(frontUri),
-        detectCardBounds(backUri),
-      ]);
+      const [detectedFront, detectedBack] = await boundsPromise;
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
 
