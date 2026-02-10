@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -23,7 +23,12 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
+  const [isLevel, setIsLevel] = useState(false);
   const cameraRef = useRef<any>(null);
+
+  const handleLevelChange = useCallback((level: boolean, _tiltX: number, _tiltY: number) => {
+    setIsLevel(level);
+  }, []);
 
   const handleCapture = async () => {
     if (!cameraRef.current || capturing) return;
@@ -83,6 +88,9 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
     );
   }
 
+  const frameColor = isLevel ? "#10B981" : Colors.primary;
+  const frameBorderColor = isLevel ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.3)";
+
   return (
     <View style={styles.container}>
       <CameraView
@@ -108,22 +116,24 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
           </View>
 
           <View style={styles.cardGuide}>
-            <View style={styles.cardFrame}>
-              <View style={[styles.corner, styles.cornerTL]} />
-              <View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} />
-              <View style={[styles.corner, styles.cornerBR]} />
+            <View style={[styles.cardFrame, { borderColor: frameBorderColor }]}>
+              <View style={[styles.corner, styles.cornerTL, { borderTopColor: frameColor, borderLeftColor: frameColor }]} />
+              <View style={[styles.corner, styles.cornerTR, { borderTopColor: frameColor, borderRightColor: frameColor }]} />
+              <View style={[styles.corner, styles.cornerBL, { borderBottomColor: frameColor, borderLeftColor: frameColor }]} />
+              <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
             </View>
           </View>
 
           <View style={styles.spiritLevelOverlay}>
-            <SpiritLevel visible={true} />
+            <SpiritLevel visible={true} onLevelChange={handleLevelChange} />
           </View>
 
           <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.hintRow}>
               <Text style={styles.hintText}>
-                Align the card within the frame. Bubble turns green when level.
+                {isLevel
+                  ? "Phone is level. Take the photo!"
+                  : "Align the card within the frame. Bubble turns green when level."}
               </Text>
             </View>
             <View style={styles.captureRow}>
@@ -133,14 +143,17 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
                 disabled={capturing}
                 style={({ pressed }) => [
                   styles.captureBtn,
-                  { opacity: capturing ? 0.5 : pressed ? 0.8 : 1 },
+                  {
+                    opacity: capturing ? 0.5 : pressed ? 0.8 : 1,
+                    borderColor: isLevel ? "#10B981" : "#fff",
+                  },
                 ]}
               >
-                <View style={styles.captureBtnInner}>
+                <View style={[styles.captureBtnInner, isLevel && { backgroundColor: "#10B981" }]}>
                   {capturing ? (
                     <ActivityIndicator color={Colors.background} size="small" />
                   ) : (
-                    <View style={styles.captureDot} />
+                    <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }]} />
                   )}
                 </View>
               </Pressable>
@@ -199,7 +212,6 @@ const styles = StyleSheet.create({
     width: 240,
     height: 336,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
     borderRadius: 8,
     position: "relative",
   },
@@ -213,8 +225,6 @@ const styles = StyleSheet.create({
     left: -1,
     borderTopWidth: CORNER_WIDTH,
     borderLeftWidth: CORNER_WIDTH,
-    borderTopColor: Colors.primary,
-    borderLeftColor: Colors.primary,
     borderTopLeftRadius: 8,
   },
   cornerTR: {
@@ -222,8 +232,6 @@ const styles = StyleSheet.create({
     right: -1,
     borderTopWidth: CORNER_WIDTH,
     borderRightWidth: CORNER_WIDTH,
-    borderTopColor: Colors.primary,
-    borderRightColor: Colors.primary,
     borderTopRightRadius: 8,
   },
   cornerBL: {
@@ -231,8 +239,6 @@ const styles = StyleSheet.create({
     left: -1,
     borderBottomWidth: CORNER_WIDTH,
     borderLeftWidth: CORNER_WIDTH,
-    borderBottomColor: Colors.primary,
-    borderLeftColor: Colors.primary,
     borderBottomLeftRadius: 8,
   },
   cornerBR: {
@@ -240,8 +246,6 @@ const styles = StyleSheet.create({
     right: -1,
     borderBottomWidth: CORNER_WIDTH,
     borderRightWidth: CORNER_WIDTH,
-    borderBottomColor: Colors.primary,
-    borderRightColor: Colors.primary,
     borderBottomRightRadius: 8,
   },
   spiritLevelOverlay: {

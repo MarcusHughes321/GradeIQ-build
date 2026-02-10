@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Platform, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Accelerometer from "expo-sensors/build/Accelerometer";
@@ -6,6 +6,7 @@ import Colors from "@/constants/colors";
 
 interface SpiritLevelProps {
   visible: boolean;
+  onLevelChange?: (isLevel: boolean, tiltX: number, tiltY: number) => void;
 }
 
 interface TiltData {
@@ -16,12 +17,14 @@ interface TiltData {
 const LEVEL_THRESHOLD = 2;
 const BUBBLE_RANGE = 40;
 
-export default function SpiritLevel({ visible }: SpiritLevelProps) {
+export default function SpiritLevel({ visible, onLevelChange }: SpiritLevelProps) {
   const [tilt, setTilt] = useState<TiltData>({ x: 0, y: 0 });
   const [isLevel, setIsLevel] = useState(false);
   const [sensorAvailable, setSensorAvailable] = useState(true);
   const subscriptionRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const onLevelChangeRef = useRef(onLevelChange);
+  onLevelChangeRef.current = onLevelChange;
 
   useEffect(() => {
     if (!visible || Platform.OS === "web") {
@@ -29,26 +32,41 @@ export default function SpiritLevel({ visible }: SpiritLevelProps) {
       return;
     }
 
-    try {
-      Accelerometer.setUpdateInterval(100);
+    let mounted = true;
 
-      subscriptionRef.current = Accelerometer.addListener(
-        (data: { x: number; y: number; z: number }) => {
-          const tiltX = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
-          const tiltY = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
-          setTilt({ x: tiltX, y: tiltY });
-
-          const level =
-            Math.abs(tiltX) <= LEVEL_THRESHOLD &&
-            Math.abs(tiltY) <= LEVEL_THRESHOLD;
-          setIsLevel(level);
+    const startListening = async () => {
+      try {
+        const available = await Accelerometer.isAvailableAsync();
+        if (!available || !mounted) {
+          if (mounted) setSensorAvailable(false);
+          return;
         }
-      );
-    } catch {
-      setSensorAvailable(false);
-    }
+
+        Accelerometer.setUpdateInterval(80);
+
+        subscriptionRef.current = Accelerometer.addListener(
+          (data: { x: number; y: number; z: number }) => {
+            if (!mounted) return;
+            const tiltX = Math.round(Math.atan2(data.x, data.z) * (180 / Math.PI));
+            const tiltY = Math.round(Math.atan2(data.y, data.z) * (180 / Math.PI));
+            setTilt({ x: tiltX, y: tiltY });
+
+            const level =
+              Math.abs(tiltX) <= LEVEL_THRESHOLD &&
+              Math.abs(tiltY) <= LEVEL_THRESHOLD;
+            setIsLevel(level);
+            onLevelChangeRef.current?.(level, tiltX, tiltY);
+          }
+        );
+      } catch {
+        if (mounted) setSensorAvailable(false);
+      }
+    };
+
+    startListening();
 
     return () => {
+      mounted = false;
       if (subscriptionRef.current) {
         subscriptionRef.current.remove();
         subscriptionRef.current = null;
