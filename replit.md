@@ -52,6 +52,7 @@ server/
 - **Pinch-to-Zoom**: Two-finger pinch gestures zoom 1x-4x in centering tool, single-finger pan when zoomed
 - **Lock/Unlock Pan**: Toggle button locks panning so lines can be dragged without interference when zoomed; floating button appears on image when zoomed
 - **Draggable Lines**: Single-finger drag on handles moves centering measurement lines; when pan is locked, hit area doubles for easier line grabbing
+- **Card Number Detection**: AI reads card number (e.g., 003/007) from bottom of card for accurate identification
 - **Progress UI**: 8-stage animated progress bar shows real-time analysis status during grading
 - **Image Rotation**: Fine rotation control for aligning card images in centering tool
 
@@ -82,3 +83,9 @@ server/
 - Upgraded card boundary detection: Sobel operator, 400px sampling (was 200px), sub-pixel precision, multi-row voting with MIN_VOTE_RATIO
 - Added lock/unlock pan button in centering tool controls and as floating overlay when zoomed
 - When pan locked, dragging is always prioritized over panning; hit area doubles for easier line grabbing
+- Fixed line hit detection to ONLY detect handle areas (not along the line), preventing wrong line from moving
+- Offset inner handles higher (35%) and outer handles lower (65%) vertically to prevent overlap on parallel lines
+- Strict lock/unlock: locked = ONLY move lines (no pan), unlocked = ONLY pan (no line moving)
+- Always re-detect card bounds when loading a grading result, improving auto-alignment for previously analyzed cards
+- Card number detection: AI prompt now emphasizes reading card number (e.g., 003/007) from bottom of card for accurate identification
+- Card value endpoint uses card number prominently for more accurate eBay pricing
