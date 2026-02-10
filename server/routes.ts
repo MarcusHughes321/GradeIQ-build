@@ -647,29 +647,60 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     const CARD_RATIO = 7 / 5;
     const cardWidthPx = rightCol - leftCol;
     const expectedCardHeightPx = cardWidthPx * CARD_RATIO;
-    const imageCenterY = sh / 2;
-    const expectedTop = Math.round(imageCenterY - expectedCardHeightPx / 2);
-    const expectedBottom = Math.round(imageCenterY + expectedCardHeightPx / 2);
 
-    const searchMargin = Math.round(expectedCardHeightPx * 0.08);
-    const topSearchFrom = Math.max(1, expectedTop - searchMargin);
-    const topSearchTo = Math.min(sh - 2, expectedTop + searchMargin);
-    const bottomSearchFrom = Math.min(sh - 2, expectedBottom + searchMargin);
-    const bottomSearchTo = Math.max(1, expectedBottom - searchMargin);
+    const findVerticalEdge = (scanX: number, startY: number, endY: number, step: number): number => {
+      const zone = Math.max(4, Math.round(cardWidthPx * 0.06));
+      const xFrom = Math.max(1, Math.round(scanX - zone));
+      const xTo = Math.min(sw - 1, Math.round(scanX + zone));
 
-    const topRow = findEdgeRow(topSearchFrom, topSearchTo, 1, leftCol, rightCol);
-    const bottomRow = findEdgeRow(bottomSearchFrom, bottomSearchTo, -1, leftCol, rightCol);
+      let bestY = -1;
+      let bestScore = 0;
 
-    const detectedTop = (topRow >= topSearchFrom && topRow <= topSearchTo) ? topRow : expectedTop;
-    const detectedBottom = (bottomRow >= bottomSearchTo && bottomRow <= bottomSearchFrom) ? bottomRow : expectedBottom;
+      for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
+        let score = 0;
+        for (let x = xFrom; x <= xTo; x++) {
+          score += Math.abs(sobelY(x, y));
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestY = y;
+        }
+      }
+
+      return bestY >= 0 ? bestY : startY;
+    };
+
+    const topFromLeft = findVerticalEdge(Math.round(leftCol), 1, Math.round(sh * 0.5), 1);
+    const topFromRight = findVerticalEdge(Math.round(rightCol), 1, Math.round(sh * 0.5), 1);
+    const bottomFromLeft = findVerticalEdge(Math.round(leftCol), sh - 2, Math.round(sh * 0.5), -1);
+    const bottomFromRight = findVerticalEdge(Math.round(rightCol), sh - 2, Math.round(sh * 0.5), -1);
+
+    const rawTop = Math.min(topFromLeft, topFromRight);
+    const rawBottom = Math.max(bottomFromLeft, bottomFromRight);
+
+    const detectedHeight = rawBottom - rawTop;
+    const heightRatio = cardWidthPx > 0 ? detectedHeight / cardWidthPx : 0;
+
+    let finalTop: number;
+    let finalBottom: number;
+
+    if (heightRatio >= 1.25 && heightRatio <= 1.55) {
+      finalTop = rawTop;
+      finalBottom = rawBottom;
+      console.log(`[detect-bounds] Vertical edges: topL=${topFromLeft} topR=${topFromRight} botL=${bottomFromLeft} botR=${bottomFromRight}`);
+      console.log(`[detect-bounds] Using detected T/B: ${finalTop}-${finalBottom} (ratio ${heightRatio.toFixed(2)})`);
+    } else {
+      const centerY = (rawTop + rawBottom) / 2;
+      finalTop = Math.round(centerY - expectedCardHeightPx / 2);
+      finalBottom = Math.round(centerY + expectedCardHeightPx / 2);
+      console.log(`[detect-bounds] Ratio ${heightRatio.toFixed(2)} out of range, using aspect-corrected T/B: ${finalTop}-${finalBottom}`);
+    }
 
     const leftPercent = (leftCol / sw) * 100;
     const rightPercent = (rightCol / sw) * 100;
-    const topPercent = (detectedTop / sh) * 100;
-    const bottomPercent = (detectedBottom / sh) * 100;
+    const topPercent = (finalTop / sh) * 100;
+    const bottomPercent = (finalBottom / sh) * 100;
 
-    console.log(`[detect-bounds] L/R cols: ${leftCol.toFixed(1)}-${rightCol.toFixed(1)}, cardW: ${cardWidthPx.toFixed(1)}px, expectedH: ${expectedCardHeightPx.toFixed(1)}px`);
-    console.log(`[detect-bounds] Expected T/B: ${expectedTop}-${expectedBottom}, Detected T/B: ${detectedTop.toFixed(1)}-${detectedBottom.toFixed(1)}`);
     console.log(`[detect-bounds] Result: L${leftPercent.toFixed(1)}% T${topPercent.toFixed(1)}% R${rightPercent.toFixed(1)}% B${bottomPercent.toFixed(1)}%`);
 
     if (rightPercent - leftPercent < 30) {
