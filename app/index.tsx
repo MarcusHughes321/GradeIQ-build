@@ -16,7 +16,7 @@ import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
-import { getGradings, deleteGrading } from "@/lib/storage";
+import { getGradings, deleteGrading, clearAllGradings } from "@/lib/storage";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 
@@ -111,6 +111,31 @@ export default function HomeScreen() {
     loadGradings();
   };
 
+  const handleClearAll = () => {
+    if (Platform.OS === "web") {
+      if (confirm("Clear all grading history? This cannot be undone.")) {
+        clearAllGradings().then(() => {
+          setGradings([]);
+          setSearchQuery("");
+        });
+      }
+    } else {
+      Alert.alert("Clear All", "Clear all grading history? This cannot be undone.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: () => {
+            clearAllGradings().then(() => {
+              setGradings([]);
+              setSearchQuery("");
+            });
+          },
+        },
+      ]);
+    }
+  };
+
   const renderHeader = () => (
     <>
       <View style={styles.heroSection}>
@@ -148,9 +173,17 @@ export default function HomeScreen() {
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent Grades</Text>
-        {gradings.length > 0 && (
-          <Text style={styles.sectionCount}>{searchQuery ? `${filteredGradings.length} of ${gradings.length}` : `${gradings.length} cards`}</Text>
-        )}
+        <View style={styles.sectionHeaderRight}>
+          {gradings.length > 0 && (
+            <Text style={styles.sectionCount}>{searchQuery ? `${filteredGradings.length} of ${gradings.length}` : `${gradings.length} cards`}</Text>
+          )}
+          {gradings.length > 0 && (
+            <Pressable onPress={handleClearAll} style={({ pressed }) => [styles.clearAllBtn, { opacity: pressed ? 0.6 : 1 }]}>
+              <Ionicons name="trash-outline" size={14} color={Colors.primary} />
+              <Text style={styles.clearAllText}>Clear All</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {gradings.length > 0 && (
@@ -311,10 +344,29 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: Colors.text,
   },
+  sectionHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   sectionCount: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
+  },
+  clearAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,60,49,0.1)",
+  },
+  clearAllText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.primary,
   },
   searchContainer: {
     flexDirection: "row",

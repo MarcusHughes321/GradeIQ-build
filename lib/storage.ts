@@ -47,3 +47,7 @@ export async function updateGrading(id: string, updates: Partial<SavedGrading>):
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
   }
 }
+
+export async function clearAllGradings(): Promise<void> {
+  await AsyncStorage.removeItem(STORAGE_KEY);
+}
