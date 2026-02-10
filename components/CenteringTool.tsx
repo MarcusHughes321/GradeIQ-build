@@ -181,10 +181,10 @@ function findNearestHandle(
 ): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
-  const padX = (HANDLE_W / 2 + 10) / scale;
-  const padY = (HANDLE_H / 2 + 10) / scale;
-  const padXH = (HANDLE_H / 2 + 10) / scale;
-  const padYH = (HANDLE_W / 2 + 10) / scale;
+  const padX = HANDLE_W / 2 + 14;
+  const padY = HANDLE_H / 2 + 14;
+  const padXH = HANDLE_H / 2 + 14;
+  const padYH = HANDLE_W / 2 + 14;
 
   for (const config of LINE_CONFIGS) {
     const linePos = pos[config.key];
