@@ -51,18 +51,40 @@ LANGUAGE HANDLING:
 - For example: a Japanese card showing "リザードンex" should be reported as "Charizard ex" in cardName.
 - Use the artwork, card number, set symbol, and your knowledge of Pokemon TCG releases across all languages to identify the card.
 
-CRITICAL FOR CARD IDENTIFICATION:
-- You MUST read the card number printed at the bottom of the card (e.g., '003/007', '012/220', '151/165'). This is the definitive identifier.
-- The card number is typically in the bottom-left or bottom-right corner of the card face. Look carefully at BOTH corners.
-- Card numbers can be hard to read due to camera angle, glare, small font, or holographic effects. Use these strategies:
-  * Look for the "/" character that separates the card number from the set total (e.g., 012/220)
-  * Japanese cards may use different formatting (e.g., '003/007' or 'S1a 003/007')
-  * Some promo cards have different numbering (e.g., 'SWSH039' or 'SVP 050')
-  * If the number is partially obscured, use the visible digits plus the set symbol to narrow down the exact card
-  * Cross-reference the Pokemon shown, the artwork style, and any visible set symbols to confirm the card number
-- Use this card number along with any visible set symbols/logos to determine the EXACT card, set name, and set number.
-- Do NOT guess the card based only on the Pokemon name or artwork - many Pokemon have multiple cards across different sets. The card number is the ground truth.
-- If you genuinely cannot read the card number, state what you CAN see and make your best determination from the artwork, set symbol, and other visible details.
+CRITICAL FOR CARD IDENTIFICATION — MULTI-STEP VERIFICATION:
+
+Step 1: IDENTIFY THE POKEMON
+- Look at the artwork and the Pokemon name printed on the card (in ANY language).
+- Determine the ENGLISH name of the Pokemon (e.g., Japanese "リザードンex" = "Charizard ex").
+- Note any suffix like "ex", "EX", "GX", "V", "VMAX", "VSTAR", etc.
+
+Step 2: READ THE CARD NUMBER
+- The card number is printed at the bottom of the card, usually bottom-left or bottom-right.
+- It typically follows the format "XXX/YYY" (e.g., "012/220").
+- Card numbers can be hard to read due to glare, angle, small font, or holographic effects. Use these strategies:
+  * Look for the "/" character that separates card number from set total
+  * Japanese cards may use formats like "003/007" or "S1a 003/007" or "sv1 003/007"
+  * Some promo cards have formats like "SWSH039" or "SVP 050"
+  * If partially obscured, use visible digits + set symbol to narrow it down
+
+Step 3: IDENTIFY THE SET
+- Look at the set symbol/logo on the card (usually bottom-right area near the card number)
+- Cross-reference the set symbol with the card number to identify the exact set
+- Consider the card's era (vintage WOTC, modern Scarlet & Violet, etc.) based on card design/border style
+
+Step 4: CROSS-REFERENCE AND VERIFY
+- This is the MOST IMPORTANT step. You MUST verify that the card number matches the Pokemon:
+  * Does this Pokemon actually exist at this card number in the identified set?
+  * For example, if you see Pikachu artwork but read card number "006/165" from a set where card 006 is Charizard, you likely misread the number.
+  * Common misreads: 0 vs 8, 3 vs 8, 6 vs 9, 1 vs 7. If the number doesn't match the Pokemon, try alternate readings.
+  * If the set total (the number after /) doesn't match any known set, reconsider which set it is.
+- Use your knowledge of Pokemon TCG card lists to verify: "Is [Pokemon name] actually card #[number] in [set name]?"
+- If there's a conflict, trust the Pokemon identity (name + artwork is hard to misread) and adjust the card number to match.
+- Only report a card number you are confident is correct. If uncertain, try your best reading but note the uncertainty.
+
+Step 5: FINAL DETERMINATION
+- Combine all evidence: Pokemon name + card number + set symbol + artwork style + card design era
+- Report the verified cardName, setName, and setNumber in the JSON response.
 
 Respond ONLY with valid JSON in this exact format:
 {
@@ -452,7 +474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content: [
               {
                 type: "text",
-                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back. IMPORTANT: Read the card number printed at the bottom of the card (e.g., '003/007') to correctly identify the exact card and set.",
+                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
               },
               {
                 type: "image_url",
