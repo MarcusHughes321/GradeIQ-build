@@ -101,7 +101,7 @@ server/
 - Added help overlay to centering tool (? button) with step-by-step instructions for all features
 - Added auto-straighten button (magnet icon) using Sobel edge detection on bottom card edge to calculate and correct tilt angle
 - Created /api/detect-angle endpoint for server-side card rotation detection via linear regression on bottom edge points
-- Improved card lookup scoring: set total mismatch penalty increased to -80, exact set name match required for full bonus, threshold raised to 80
+- Improved card lookup scoring: set total mismatch penalty reduced to -20, partial set name matching improved, acceptance threshold lowered to 50 for better match rates
 - Multi-candidate lookup: tries primary, grading-alt, and OCR-alt numbers when they disagree
 - Created fast /api/regrade-card endpoint for re-analysis after straightening (skips card ID + online lookup, condition-only grading)
 - Added progress stages to re-analysis overlay (Preparing → Analysing → Grading → Calculating → Done)
