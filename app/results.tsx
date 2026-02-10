@@ -110,6 +110,7 @@ export default function ResultsScreen() {
   const [originalCentering, setOriginalCentering] = useState<CenteringMeasurement | null>(null);
   const [cardValue, setCardValue] = useState<CardValueEstimate | null>(null);
   const [loadingValue, setLoadingValue] = useState(false);
+  const [reAnalysing, setReAnalysing] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -263,6 +264,31 @@ export default function ResultsScreen() {
   const closeImageViewer = () => {
     setImageViewerVisible(false);
     setSelectedArea(null);
+  };
+
+  const handleReAnalyse = async () => {
+    if (!grading || reAnalysing) return;
+    setReAnalysing(true);
+    try {
+      const [frontBase64, backBase64] = await Promise.all([
+        getBase64FromUri(grading.frontImage),
+        getBase64FromUri(grading.backImage),
+      ]);
+      const resp = await apiRequest("POST", "/api/grade-card", {
+        frontImage: frontBase64,
+        backImage: backBase64,
+      });
+      const newResult: GradingResult = await resp.json();
+      const updatedGrading = { ...grading, result: newResult };
+      setGrading(updatedGrading);
+      await updateGrading(grading.id, { result: newResult });
+      setCardValue(null);
+      fetchCardValue(newResult);
+    } catch (err) {
+      console.error("Re-analysis failed:", err);
+    } finally {
+      setReAnalysing(false);
+    }
   };
 
   const handleCenteringChange = async (newCentering: CenteringMeasurement) => {
@@ -717,6 +743,16 @@ export default function ResultsScreen() {
         </View>
       </Modal>
 
+      {reAnalysing && (
+        <View style={styles.reAnalyseOverlay}>
+          <View style={styles.reAnalyseBox}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.reAnalyseTitle}>Re-analysing card...</Text>
+            <Text style={styles.reAnalyseSubtitle}>Updating grades based on straightened image</Text>
+          </View>
+        </View>
+      )}
+
       <Modal
         visible={centeringToolVisible}
         animationType="slide"
@@ -732,7 +768,12 @@ export default function ResultsScreen() {
           onSave={(newCentering) => {
             handleCenteringChange(newCentering);
           }}
-          onClose={() => setCenteringToolVisible(false)}
+          onClose={(wasStraightened) => {
+            setCenteringToolVisible(false);
+            if (wasStraightened) {
+              handleReAnalyse();
+            }
+          }}
         />
       </Modal>
     </View>
@@ -1275,5 +1316,35 @@ const styles = StyleSheet.create({
   },
   modalTabTextActive: {
     color: "#fff",
+  },
+  reAnalyseOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    zIndex: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reAnalyseBox: {
+    alignItems: "center",
+    gap: 12,
+    padding: 32,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    marginHorizontal: 40,
+  },
+  reAnalyseTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.text,
+  },
+  reAnalyseSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    textAlign: "center",
   },
 });
