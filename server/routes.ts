@@ -168,6 +168,70 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+async function lookupCardOnline(cardName: string, setNumber: string, setName: string): Promise<{ cardName: string; setName: string; setNumber: string } | null> {
+  try {
+    const number = setNumber?.split("/")[0]?.replace(/^0+/, "") || "";
+    const setTotal = setNumber?.split("/")[1] || "";
+
+    const queries: string[] = [];
+
+    if (number) {
+      if (setName) {
+        queries.push(`number:"${number}" set.name:"${setName}"`);
+      }
+      if (setTotal) {
+        queries.push(`number:"${number}" set.printedTotal:${setTotal}`);
+      }
+      queries.push(`number:"${number}" name:"${cardName.replace(/ ex$/i, "").replace(/ gx$/i, "").replace(/ v$/i, "").replace(/ vmax$/i, "").replace(/ vstar$/i, "")}*"`);
+    }
+
+    for (const q of queries) {
+      try {
+        const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=10&select=name,set,number`;
+        const resp = await fetch(url, {
+          headers: { "Accept": "application/json" },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!resp.ok) continue;
+
+        const data = await resp.json() as any;
+        const cards = data?.data;
+        if (!cards || cards.length === 0) continue;
+
+        const nameLower = cardName.toLowerCase().replace(/ ex$/i, "").replace(/ gx$/i, "").replace(/ v$/i, "").trim();
+
+        let best = cards[0];
+        for (const card of cards) {
+          const cn = (card.name || "").toLowerCase();
+          if (cn.includes(nameLower) || nameLower.includes(cn.replace(/-ex|-gx|-v$/g, "").trim())) {
+            best = card;
+            break;
+          }
+        }
+
+        const verifiedNumber = best.number || number;
+        const verifiedSetTotal = best.set?.printedTotal || setTotal;
+        const verifiedSetNumber = verifiedSetTotal ? `${verifiedNumber.padStart(3, "0")}/${verifiedSetTotal.toString().padStart(3, "0")}` : verifiedNumber;
+
+        console.log(`[card-lookup] Found match: ${best.name} - ${best.set?.name} (${verifiedSetNumber})`);
+        return {
+          cardName: best.name || cardName,
+          setName: best.set?.name || setName,
+          setNumber: verifiedSetNumber,
+        };
+      } catch (e) {
+        continue;
+      }
+    }
+
+    console.log(`[card-lookup] No API match found for "${cardName}" ${setNumber}, falling back to AI identification`);
+    return null;
+  } catch (err) {
+    console.log(`[card-lookup] Lookup failed:`, err);
+    return null;
+  }
+}
+
 async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }> {
   try {
     const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
@@ -508,6 +572,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       gradingResult = enforceGradingScales(gradingResult);
+
+      const aiCardName = gradingResult.cardName || "";
+      const aiSetNumber = gradingResult.setNumber || "";
+      const aiSetName = gradingResult.setName || "";
+      console.log(`[grade-card] AI identified: "${aiCardName}" from "${aiSetName}" (${aiSetNumber})`);
+
+      try {
+        const verified = await lookupCardOnline(aiCardName, aiSetNumber, aiSetName);
+        if (verified) {
+          console.log(`[grade-card] Verified online: "${verified.cardName}" from "${verified.setName}" (${verified.setNumber})`);
+          gradingResult.cardName = verified.cardName;
+          gradingResult.setName = verified.setName;
+          gradingResult.setNumber = verified.setNumber;
+        }
+      } catch (lookupErr) {
+        console.log(`[grade-card] Online lookup failed, using AI identification`);
+      }
 
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
