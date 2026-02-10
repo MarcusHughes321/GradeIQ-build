@@ -40,9 +40,9 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 
 Analyze the card images carefully. Look for:
 1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
-2. Corners - check all four corners for whitening, dings, or damage
-3. Edges - look for whitening, chipping, or rough cuts along all edges
-4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects
+2. Corners - check all four corners for whitening, dings, or damage. Minor imperfections only visible under magnification should not significantly lower grades.
+3. Edges - look for whitening, chipping, or rough cuts along all edges. Factory-level minor edge variation is acceptable for high grades.
+4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects. Minor factory print texture or very faint print lines common to modern Pokemon cards should not lower surface grades below 9.
 
 CRITICAL FOR CARD IDENTIFICATION:
 - You MUST read the card number printed at the bottom of the card (e.g., '003/007', '012/220', '151/165'). This is the definitive identifier.
@@ -92,7 +92,12 @@ CRITICAL REMINDERS:
 - BGS grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10)
 - Ace grades: WHOLE NUMBERS ONLY (1-10, never 8.5 or 9.5)
 
-Be realistic and conservative in your grading. Most cards in circulation are not PSA 10 or BGS 10.`;
+GRADING PHILOSOPHY:
+- You are grading from PHONE PHOTOS, not lab-quality scans. Be fair and generous when image quality limits your ability to detect flaws. If you cannot clearly see a defect, assume it is not there.
+- A card in good condition pulled from a modern pack should typically score 9s and 10s across most categories. Grades of 10 are achievable and should be given when no visible flaws are present in the photos.
+- Only downgrade a sub-category if you can point to a SPECIFIC, VISIBLE flaw in the image. Do not speculatively lower grades "just in case."
+- Modern Pokemon cards from recent sets (2020+) generally have high print quality. A fresh pack-pulled card with no handling damage should be graded 9-10 in most sub-categories.
+- Reserve grades of 7 or below for cards with clearly visible damage, significant whitening, or obvious defects.`;
 
 const VALID_PSA_GRADES = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
 
