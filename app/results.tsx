@@ -229,9 +229,7 @@ export default function ResultsScreen() {
       if (needsUpdate) {
         updateGrading(found.id, { result: updatedResult });
       }
-      if (!updatedResult.frontCardBounds || !updatedResult.backCardBounds) {
-        detectBoundsForOldCard(updatedGrading);
-      }
+      detectBoundsForOldCard(updatedGrading);
       fetchCardValue(updatedResult);
     }
   };
@@ -239,14 +237,14 @@ export default function ResultsScreen() {
   const detectBoundsForOldCard = async (g: SavedGrading) => {
     try {
       const [frontBounds, backBounds] = await Promise.all([
-        g.result.frontCardBounds ? Promise.resolve(g.result.frontCardBounds) : detectBoundsForImage(g.frontImage),
-        g.result.backCardBounds ? Promise.resolve(g.result.backCardBounds) : detectBoundsForImage(g.backImage),
+        detectBoundsForImage(g.frontImage),
+        detectBoundsForImage(g.backImage),
       ]);
       if (frontBounds || backBounds) {
         const updatedResult = {
           ...g.result,
-          frontCardBounds: frontBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
-          backCardBounds: backBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
+          frontCardBounds: frontBounds || g.result.frontCardBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
+          backCardBounds: backBounds || g.result.backCardBounds || { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 },
         };
         const updatedGrading = { ...g, result: updatedResult };
         setGrading(updatedGrading);
