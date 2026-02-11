@@ -16,8 +16,8 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
 - **Backend**: An Express.js server written in TypeScript handles API requests.
 - **AI Integration**: OpenAI GPT-5.2 vision is used for AI analysis, integrated via Replit AI Integrations.
 - **Image Processing**:
-    - **AI Card Boundary Detection**: Employs Sobel edge detection with 400px sampling, multi-row voting, and sub-pixel clustering for precise card edge identification.
-    - **Pinch-to-Zoom & Draggable Lines**: Interactive centering tool with pinch-to-zoom (1x-4x) and draggable measurement lines for fine-tuning. A lock/unlock pan feature prevents interference while adjusting lines.
+    - **AI Card Boundary Detection**: Multi-resolution Sobel edge detection (coarse 200px → fine 600px) with adaptive thresholding (percentile-based contrast analysis), gradient direction filtering (rejects artwork false positives), multi-row voting, and sub-pixel clustering for precise card edge identification.
+    - **Pinch-to-Zoom & Draggable Lines**: Interactive centering tool with pinch-to-zoom (1x-4x) and intelligent gesture detection — touch near a handle and drag perpendicular to move it, parallel movement pans instead. Haptic feedback on handle grab, zoom-scaled 44x44pt hit areas.
     - **Image Optimization**: Server-side image resizing (max 1024px) and JPEG compression occur before AI processing. HEIF/HEIC image format support is included, with automatic conversion to JPEG.
     - **Auto-Straighten**: Detects and corrects card tilt angle using Sobel edge detection.
 - **Grading Logic**:
