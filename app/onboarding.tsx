@@ -8,6 +8,7 @@ import {
   FlatList,
   Platform,
   ViewToken,
+  Image,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +29,8 @@ import Animated, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Colors from "@/constants/colors";
 import CompanyLabel, { getCompanyColor } from "@/components/CompanyLabel";
+
+const logoImage = require("@/assets/grade-iq-logo.png");
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
@@ -144,7 +147,9 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
         <View style={styles.iconArea}>
           <Animated.View style={[styles.iconGlow, glowStyle, { backgroundColor: item.color }]} />
           <Animated.View style={[styles.iconCircle, iconStyle, { borderColor: item.color + "40" }]}>
-            {item.iconSet === "ionicons" ? (
+            {item.key === "welcome" ? (
+              <Image source={logoImage} style={styles.logoImage} resizeMode="contain" />
+            ) : item.iconSet === "ionicons" ? (
               <Ionicons name={item.icon as any} size={52} color={item.color} />
             ) : (
               <MaterialCommunityIcons name={item.icon as any} size={52} color={item.color} />
@@ -235,17 +240,7 @@ export default function OnboardingScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
-      <View style={styles.topBar}>
-        {!isLast ? (
-          <Pressable onPress={skip} style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.5 : 0.7 }]}>
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
-        ) : (
-          <View style={{ width: 60 }} />
-        )}
-      </View>
-
+    <View style={styles.container}>
       <FlatList
         ref={flatListRef}
         data={SLIDES}
@@ -288,6 +283,14 @@ export default function OnboardingScreen() {
           <Ionicons name={isLast ? "arrow-forward" : "chevron-forward"} size={20} color="#fff" />
         </Pressable>
       </View>
+
+      {!isLast && (
+        <View style={[styles.topBar, { top: insets.top + webTopInset }]}>
+          <Pressable onPress={skip} style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.5 : 0.7 }]}>
+            <Text style={styles.skipText}>Skip</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -298,11 +301,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   topBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
     flexDirection: "row",
     justifyContent: "flex-end",
     paddingHorizontal: 20,
     paddingVertical: 8,
     zIndex: 10,
+  },
+  logoImage: {
+    width: 80,
+    height: 80,
   },
   skipBtn: {
     paddingVertical: 6,
