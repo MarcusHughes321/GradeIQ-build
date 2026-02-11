@@ -181,6 +181,13 @@ function getHandleOffset(config: LineConfig): number {
 
 interface LineCandidate { key: LineKey; dist: number; orientation: "v" | "h"; }
 
+const LINE_PAIRS: [LineKey, LineKey][] = [
+  ["outerLeft", "innerLeft"],
+  ["outerRight", "innerRight"],
+  ["outerTop", "innerTop"],
+  ["outerBottom", "innerBottom"],
+];
+
 function findNearLines(
   x: number, y: number, pos: BorderPositions,
   containerW: number, containerH: number, scale: number
@@ -200,6 +207,28 @@ function findNearLines(
       const dy = Math.abs(y - linePos);
       if (dy <= lineTouchPad && x >= 0 && x <= containerW) {
         candidates.push({ key: config.key, dist: dy, orientation: "h" });
+      }
+    }
+  }
+
+  for (const [outerKey, innerKey] of LINE_PAIRS) {
+    const outerCand = candidates.find(c => c.key === outerKey);
+    const innerCand = candidates.find(c => c.key === innerKey);
+    if (outerCand && innerCand) {
+      const outerPos = pos[outerKey];
+      const innerPos = pos[innerKey];
+      const midpoint = (outerPos + innerPos) / 2;
+      const touchCoord = outerCand.orientation === "v" ? x : y;
+
+      const outerIsLarger = outerPos > innerPos;
+      const touchOnOuterSide = outerIsLarger ? touchCoord >= midpoint : touchCoord <= midpoint;
+
+      if (touchOnOuterSide) {
+        const idx = candidates.indexOf(innerCand);
+        if (idx >= 0) candidates.splice(idx, 1);
+      } else {
+        const idx = candidates.indexOf(outerCand);
+        if (idx >= 0) candidates.splice(idx, 1);
       }
     }
   }
