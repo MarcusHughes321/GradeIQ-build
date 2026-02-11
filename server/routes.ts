@@ -1719,8 +1719,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bothCodesAsian = idCodeIsAsian && gradingCodeIsAsian;
       const eitherCodeAsian = idCodeIsAsian || gradingCodeIsAsian;
       const hasNonLatinName = /[^\u0000-\u007F]/.test(gradingName) || /[^\u0000-\u007F]/.test(idName);
-      const gradingSetIsEnglish = gradingSet && /^(Base|Jungle|Fossil|Team Rocket|Gym|Neo|Legendary|Expedition|Aquapolis|Skyridge|Ruby|Sapphire|Sandstorm|Dragon|Hidden Legends|FireRed|LeafGreen|Deoxys|Emerald|Unseen Forces|Delta Species|Legend Maker|Holon Phantoms|Crystal Guardians|Dragon Frontiers|Power Keepers|Diamond|Pearl|Mysterious Treasures|Secret Wonders|Great Encounters|Majestic Dawn|Legends Awakened|Stormfront|Platinum|Rising Rivals|Supreme Victors|Arceus|HeartGold|SoulSilver|Unleashed|Undaunted|Triumphant|Call of Legends|Black|White|Emerging Powers|Noble Victories|Next Destinies|Dark Explorers|Dragons Exalted|Boundaries Crossed|Plasma Storm|Plasma Freeze|Plasma Blast|Legendary Treasures|XY|Flashfire|Furious Fists|Phantom Forces|Primal Clash|Roaring Skies|Ancient Origins|BREAKthrough|BREAKpoint|Fates Collide|Steam Siege|Evolutions|Sun|Moon|Guardians Rising|Burning Shadows|Shining Legends|Crimson Invasion|Ultra Prism|Forbidden Light|Celestial Storm|Dragon Majesty|Lost Thunder|Team Up|Unbroken Bonds|Unified Minds|Hidden Fates|Cosmic Eclipse|Sword|Shield|Rebel Clash|Darkness Ablaze|Champion's Path|Vivid Voltage|Shining Fates|Battle Styles|Chilling Reign|Evolving Skies|Celebrations|Fusion Strike|Brilliant Stars|Astral Radiance|Pokemon GO|Lost Origin|Silver Tempest|Crown Zenith|Scarlet|Violet|Paldea|Obsidian|Paradox|Temporal|Stellar|Shrouded|Surging|Prismatic)/i.test(gradingSet);
-      const isAsianCard = eitherCodeAsian && !gradingSetIsEnglish && (bothCodesAsian || hasNonLatinName || (!namesAgree && !gradingSetIsEnglish));
+      const gradingNameIsLatin = gradingName && !/[^\u0000-\u007F]/.test(gradingName);
+      const onlyOcrSaysAsian = idCodeIsAsian && !gradingCodeIsAsian && gradingNameIsLatin;
+      const isAsianCard = eitherCodeAsian && !onlyOcrSaysAsian && (bothCodesAsian || hasNonLatinName);
       if (eitherCodeAsian && !isAsianCard) {
         console.log(`[grade-card] Asian set code "${effectiveCode}" detected but card appears English (set="${gradingSet}", name="${gradingName}") — skipping Bulbapedia`);
       }
