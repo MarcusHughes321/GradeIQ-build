@@ -179,13 +179,14 @@ function getHandleOffset(config: LineConfig): number {
   return config.isOuter ? HANDLE_OFFSET_OUTER : HANDLE_OFFSET_INNER;
 }
 
-function findNearestHandle(
+interface LineCandidate { key: LineKey; dist: number; orientation: "v" | "h"; }
+
+function findNearLines(
   x: number, y: number, pos: BorderPositions,
   containerW: number, containerH: number, scale: number
-): { key: LineKey; dist: number } | null {
-  let best: { key: LineKey; dist: number } | null = null;
-
+): LineCandidate[] {
   const lineTouchPad = 30 / scale;
+  const candidates: LineCandidate[] = [];
 
   for (const config of LINE_CONFIGS) {
     const linePos = pos[config.key];
@@ -193,23 +194,18 @@ function findNearestHandle(
     if (config.orientation === "v") {
       const dx = Math.abs(x - linePos);
       if (dx <= lineTouchPad && y >= 0 && y <= containerH) {
-        const dist = dx;
-        if (!best || dist < best.dist) {
-          best = { key: config.key, dist };
-        }
+        candidates.push({ key: config.key, dist: dx, orientation: "v" });
       }
     } else {
       const dy = Math.abs(y - linePos);
       if (dy <= lineTouchPad && x >= 0 && x <= containerW) {
-        const dist = dy;
-        if (!best || dist < best.dist) {
-          best = { key: config.key, dist };
-        }
+        candidates.push({ key: config.key, dist: dy, orientation: "h" });
       }
     }
   }
 
-  return best;
+  candidates.sort((a, b) => a.dist - b.dist);
+  return candidates;
 }
 
 function getLineMinMax(key: LineKey, pos: BorderPositions, cw: number, ch: number): { min: number; max: number } {
@@ -769,7 +765,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const dragLineKey = useRef<LineKey | null>(null);
   const dragTouchOffset = useRef(0);
   const viewportOriginRef = useRef({ x: 0, y: 0 });
-  const tentativeLineRef = useRef<{ key: LineKey; offset: number; orientation: "h" | "v" } | null>(null);
+  const tentativeCandidatesRef = useRef<LineCandidate[]>([]);
+  const tentativeTouchRef = useRef<{ containerX: number; containerY: number }>({ containerX: 0, containerY: 0 });
   const didDragRef = useRef(false);
   const hapticFiredRef = useRef(false);
 
@@ -817,16 +814,12 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         const currentPos = posRef.current;
         if (currentPos) {
-          const nearest = findNearestHandle(containerX, containerY, currentPos, cs.width, cs.height, scale);
-          if (nearest) {
-            const lineVal = currentPos[nearest.key];
-            const offset = isVLine(nearest.key)
-              ? lineVal - containerX
-              : lineVal - containerY;
-            const lineConfig = LINE_CONFIGS.find(c => c.key === nearest.key);
+          const candidates = findNearLines(containerX, containerY, currentPos, cs.width, cs.height, scale);
+          if (candidates.length > 0) {
             gestureMode.current = "tentative";
-            tentativeLineRef.current = { key: nearest.key, offset, orientation: lineConfig?.orientation || "v" };
-            setActiveHandleRef.current(nearest.key);
+            tentativeCandidatesRef.current = candidates;
+            tentativeTouchRef.current = { containerX, containerY };
+            setActiveHandleRef.current(candidates[0].key);
             return;
           }
         }
@@ -847,7 +840,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             pinchStartDistRef.current = getTouchDistance(touches);
             pinchStartScaleRef.current = zoomScaleRef.current;
             panStartOffRef.current = { ...panOffsetRef.current };
-            tentativeLineRef.current = null;
+            tentativeCandidatesRef.current = [];
             setActiveHandleRef.current(null);
           }
           const dist = getTouchDistance(touches);
@@ -859,21 +852,45 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           return;
         }
 
-        if (gestureMode.current === "tentative" && tentativeLineRef.current) {
+        if (gestureMode.current === "tentative" && tentativeCandidatesRef.current.length > 0) {
           const totalMove = Math.sqrt(g.dx * g.dx + g.dy * g.dy);
           if (totalMove >= TENTATIVE_MOVE_THRESHOLD) {
-            const orient = tentativeLineRef.current.orientation;
-            const perpMove = orient === "v" ? Math.abs(g.dx) : Math.abs(g.dy);
-            const paraMove = orient === "v" ? Math.abs(g.dy) : Math.abs(g.dx);
+            const movesMoreHorizontal = Math.abs(g.dx) >= Math.abs(g.dy);
 
-            if (perpMove >= paraMove * 0.6) {
+            const hCandidates = tentativeCandidatesRef.current.filter(c => c.orientation === "h");
+            const vCandidates = tentativeCandidatesRef.current.filter(c => c.orientation === "v");
+
+            let chosen: LineCandidate | null = null;
+            if (movesMoreHorizontal) {
+              chosen = vCandidates[0] || null;
+            } else {
+              chosen = hCandidates[0] || null;
+            }
+
+            if (!chosen) {
+              chosen = tentativeCandidatesRef.current[0];
+            }
+
+            const chosenOrient = chosen.orientation;
+            const perpMove = chosenOrient === "v" ? Math.abs(g.dx) : Math.abs(g.dy);
+            const paraMove = chosenOrient === "v" ? Math.abs(g.dy) : Math.abs(g.dx);
+
+            if (perpMove >= paraMove * 0.5) {
+              const currentPos = posRef.current;
+              if (currentPos) {
+                const lineVal = currentPos[chosen.key];
+                const touchCoord = chosenOrient === "v"
+                  ? tentativeTouchRef.current.containerX
+                  : tentativeTouchRef.current.containerY;
+                dragTouchOffset.current = lineVal - touchCoord;
+              }
               gestureMode.current = "drag";
-              dragLineKey.current = tentativeLineRef.current.key;
-              dragTouchOffset.current = tentativeLineRef.current.offset;
+              dragLineKey.current = chosen.key;
+              setActiveHandleRef.current(chosen.key);
               fireHaptic();
             } else {
               gestureMode.current = "pan";
-              tentativeLineRef.current = null;
+              tentativeCandidatesRef.current = [];
               setActiveHandleRef.current(null);
             }
           }
@@ -945,7 +962,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         }
         gestureMode.current = "none";
         dragLineKey.current = null;
-        tentativeLineRef.current = null;
+        tentativeCandidatesRef.current = [];
         didDragRef.current = false;
         hapticFiredRef.current = false;
         setActiveHandleRef.current(null);
