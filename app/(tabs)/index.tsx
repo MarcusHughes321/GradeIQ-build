@@ -833,6 +833,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginHorizontal: 20,
     marginTop: 12,
+    marginBottom: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 12,
