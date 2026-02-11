@@ -1463,24 +1463,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
       if (isJapaneseCard) {
-        console.log(`[grade-card] Japanese set code "${effectiveCode}" detected — trying Bulbapedia database lookup first`);
+        console.log(`[grade-card] Japanese set code "${effectiveCode}" detected — trying Bulbapedia database lookup`);
 
-        const cardNum = parseInt((idNumber || gradingNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+        const idNum = parseInt((idNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+        const gradingNum = parseInt((gradingNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+        const numbersToTry = new Set<number>();
+        if (idNum > 0) numbersToTry.add(idNum);
+        if (gradingNum > 0) numbersToTry.add(gradingNum);
         const aiSetNameForLookup = idSet || gradingSet || "";
 
-        const [detectedFront, detectedBack, bulbapediaName] = await Promise.all([
-          detectCardBounds(frontUri),
-          detectCardBounds(backUri),
-          cardNum > 0 ? lookupJapaneseCard(effectiveCode, cardNum, aiSetNameForLookup) : Promise.resolve(null),
-        ]);
+        const aiNameCandidates = [idName, gradingName]
+          .filter(n => n && n.toLowerCase() !== "unknown" && n.toLowerCase() !== "n/a")
+          .map(n => stripSuffix(n.toLowerCase()));
+
+        const boundsPromise = Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]);
+        const lookupPromises = [...numbersToTry].map(num =>
+          lookupJapaneseCard(effectiveCode, num, aiSetNameForLookup).then(name => ({ num, name }))
+        );
+
+        const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
+        const [detectedFront, detectedBack] = boundsResults;
         gradingResult.frontCardBounds = detectedFront;
         gradingResult.backCardBounds = detectedBack;
 
-        if (bulbapediaName) {
-          console.log(`[grade-card] Bulbapedia verified: "${bulbapediaName}" for ${effectiveCode} #${cardNum}`);
+        const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+        console.log(`[grade-card] Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
 
-          gradingResult.cardName = bulbapediaName;
-          gradingResult.setNumber = idNumber || gradingNumber;
+        let bestBulbapedia: { num: number; name: string } | null = null;
+
+        if (foundResults.length === 1) {
+          bestBulbapedia = foundResults[0];
+        } else if (foundResults.length > 1) {
+          for (const r of foundResults) {
+            const rBase = stripSuffix(r.name.toLowerCase());
+            if (aiNameCandidates.some(c => c === rBase || c.includes(rBase) || rBase.includes(c))) {
+              bestBulbapedia = r;
+              console.log(`[grade-card] Bulbapedia #${r.num}="${r.name}" matches AI candidates — choosing this`);
+              break;
+            }
+          }
+          if (!bestBulbapedia) {
+            bestBulbapedia = foundResults.find(r => r.num === gradingNum) || foundResults[0];
+            console.log(`[grade-card] No AI match — using grading number #${bestBulbapedia.num}="${bestBulbapedia.name}"`);
+          }
+        }
+
+        if (bestBulbapedia) {
+          console.log(`[grade-card] Bulbapedia verified: "${bestBulbapedia.name}" for ${effectiveCode} #${bestBulbapedia.num}`);
+
+          gradingResult.cardName = bestBulbapedia.name;
+          const padLen = Math.max(3, String(bestBulbapedia.num).length);
+          const setTotal = (idNumber || gradingNumber || "").split("/")[1] || "";
+          gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
           gradingResult.setName = aiSetNameForLookup;
 
           const cachedSetPage = japaneseSetCards.get(effectiveCode.toLowerCase());
