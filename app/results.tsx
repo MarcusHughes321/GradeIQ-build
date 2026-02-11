@@ -14,7 +14,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import Colors from "@/constants/colors";
 import { getGradings, updateGrading } from "@/lib/storage";
 import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate } from "@/lib/types";
@@ -599,12 +598,18 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
-        <View style={[styles.valueCard, { overflow: "hidden" as const }]}>
+        <View style={styles.valueCard}>
           <View style={styles.valueHeader}>
             <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
             <Text style={styles.valueTitle}>Estimated Card Values</Text>
           </View>
-          {loadingValue ? (
+          {isGateEnabled && !isSubscribed ? (
+            <Pressable onPress={() => router.push("/paywall")} style={styles.proLockedValueContent}>
+              <Ionicons name="lock-closed" size={22} color="#F59E0B" />
+              <Text style={styles.proLockedValueTitle}>Pro Feature</Text>
+              <Text style={styles.proLockedValueSubtitle}>Upgrade to see market values for your graded cards</Text>
+            </Pressable>
+          ) : loadingValue ? (
             <View style={styles.valueLoading}>
               <ActivityIndicator color={Colors.primary} size="small" />
               <Text style={styles.valueLoadingText}>Looking up values...</Text>
@@ -681,20 +686,6 @@ export default function ResultsScreen() {
             </View>
           ) : (
             <Text style={styles.valueNA}>No value data found</Text>
-          )}
-          {isGateEnabled && !isSubscribed && (
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={() => router.push("/paywall")}
-            >
-              <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
-                <View style={styles.proBlurContent}>
-                  <Ionicons name="lock-closed" size={20} color="#F59E0B" />
-                  <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                  <Text style={styles.proBlurSubtitle}>Full portfolio tracking & market values</Text>
-                </View>
-              </BlurView>
-            </Pressable>
           )}
         </View>
 
@@ -1514,28 +1505,22 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: "center",
   },
-  proBlurOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  proLockedValueContent: {
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 16,
+    gap: 6,
+    paddingVertical: 24,
   },
-  proBlurContent: {
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  proBlurTitle: {
+  proLockedValueTitle: {
     fontFamily: "Inter_700Bold",
     fontSize: 14,
     color: "#F59E0B",
   },
-  proBlurSubtitle: {
+  proLockedValueSubtitle: {
     fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "center" as const,
+    paddingHorizontal: 20,
   },
 });
