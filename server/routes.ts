@@ -493,18 +493,15 @@ Step 3: READ THE SET CODE AND IDENTIFY THE SET
 - If the set code is not in the mapping above, still report the exact set code — do NOT invent a set name.
 - Consider the card's era (vintage WOTC, modern Scarlet & Violet, etc.) based on card design/border style
 
-Step 4: CROSS-REFERENCE AND VERIFY
-- This is the MOST IMPORTANT step. You MUST verify that the card number matches the Pokemon:
-  * Does this Pokemon actually exist at this card number in the identified set?
-  * For example, if you see Pikachu artwork but read card number "006/165" from a set where card 006 is Charizard, you likely misread the number.
-  * Common misreads: 0 vs 8, 3 vs 8, 6 vs 9, 1 vs 7. If the number doesn't match the Pokemon, try alternate readings.
-  * If the set total (the number after /) doesn't match any known set, reconsider which set it is.
-- Use your knowledge of Pokemon TCG card lists to verify: "Is [Pokemon name] actually card #[number] in [set name]?"
-- If there's a conflict, trust the Pokemon identity (name + artwork is hard to misread) and adjust the card number to match.
-- Only report a card number you are confident is correct. If uncertain, try your best reading but note the uncertainty.
+Step 4: REPORT WHAT YOU READ
+- The set code and card number you READ from the card are the source of truth.
+- Do NOT substitute a different set code or card number based on your knowledge.
+- Secret rares have numbers ABOVE the set total (e.g., "125/094") — this is normal, do NOT "fix" it.
+- If the set code is "PFLen", report "PFLen" — do NOT change it to "EVO" or any other code.
+- If you cannot read a digit clearly, note the uncertainty but report your best reading.
 
 Step 5: FINAL DETERMINATION
-- Combine all evidence: Pokemon name + card number + set symbol + artwork style + card design era
+- Combine: Pokemon name (from text + artwork) + card number (as read) + set code (as read)
 - Report the verified cardName, setName, and setNumber in the JSON response.
 
 Respond ONLY with valid JSON in this exact format:
