@@ -384,7 +384,7 @@ export default function BulkScreen() {
           onCapture={handleBulkCameraCapture}
           onClose={handleBulkCameraClose}
         />
-        <View style={[styles.bulkCameraTopRow, { top: insets.top + 110 }]}>
+        <View style={[styles.bulkCameraTopRow, { top: insets.top + 145 }]}>
           <View style={styles.bulkCameraBanner}>
             <Text style={styles.bulkCameraBannerText}>
               Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
