@@ -1402,251 +1402,6 @@ function enforceGradingScales(result: any): any {
   return result;
 }
 
-async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string; bottomStrip: string }> {
-  const base64 = imageDataUrl.replace(/^data:image\/\w+;base64,/, "");
-  const buffer = Buffer.from(base64, "base64");
-  const metadata = await sharp(buffer).metadata();
-  const w = metadata.width || 1000;
-  const h = metadata.height || 1400;
-
-  let cardLeft = 0;
-  let cardTop = 0;
-  let cardRight = w;
-  let cardBottom = h;
-
-  try {
-    const bounds = await detectCardBounds(imageDataUrl);
-    cardLeft = Math.round(w * bounds.leftPercent / 100);
-    cardTop = Math.round(h * bounds.topPercent / 100);
-    cardRight = Math.round(w * bounds.rightPercent / 100);
-    cardBottom = Math.round(h * bounds.bottomPercent / 100);
-    console.log(`[crop] Card bounds detected: L=${cardLeft} T=${cardTop} R=${cardRight} B=${cardBottom} (image ${w}x${h})`);
-  } catch (e) {
-    console.log(`[crop] Bounds detection failed, using full image`);
-  }
-
-  const cardW = Math.max(cardRight - cardLeft, 100);
-  const cardH = Math.max(cardBottom - cardTop, 100);
-
-  const topStripH = Math.round(cardH * 0.30);
-  const bottomStripH = Math.round(cardH * 0.22);
-
-  const topExtract = {
-    left: Math.max(0, cardLeft),
-    top: Math.max(0, cardTop),
-    width: Math.min(cardW, w - cardLeft),
-    height: Math.min(topStripH, h - cardTop),
-  };
-  const bottomExtract = {
-    left: Math.max(0, cardLeft),
-    top: Math.max(0, cardBottom - bottomStripH),
-    width: Math.min(cardW, w - cardLeft),
-    height: Math.min(bottomStripH, h - (cardBottom - bottomStripH)),
-  };
-
-  const [topBuf, bottomBuf] = await Promise.all([
-    sharp(buffer).extract(topExtract).jpeg({ quality: 95 }).toBuffer(),
-    sharp(buffer).extract(bottomExtract).jpeg({ quality: 95 }).toBuffer(),
-  ]);
-
-  return {
-    topStrip: `data:image/jpeg;base64,${topBuf.toString("base64")}`,
-    bottomStrip: `data:image/jpeg;base64,${bottomBuf.toString("base64")}`,
-  };
-}
-
-const CARD_ID_SYSTEM_PROMPT = `You are a Pokemon card TEXT READER. Your job is to READ what is PHYSICALLY PRINTED on the card — nothing else.
-
-You will receive two cropped strips from a Pokemon trading card:
-1. The TOP strip — contains the Pokemon name
-2. The BOTTOM strip — contains the card number and set code
-
-YOUR ONLY JOB IS TO READ TEXT. Do NOT guess, infer, or use your knowledge of Pokemon TCG card lists. Report EXACTLY what you see printed.
-
-STEP 1: DETERMINE LANGUAGE from the printed text
-- English text → "en", Japanese (katakana/hiragana/kanji) → "ja", Korean (Hangul) → "ko", Chinese → "zh"
-
-STEP 2: READ THE CARD NUMBER from the bottom strip
-- Find the number in format "XXX/YYY" (e.g., "125/094", "004/184", "013/108")
-- Read EACH DIGIT carefully. Common misreads: 0↔8, 3↔8, 6↔9, 1↔7
-- Report EXACTLY what is printed — do NOT change it even if it seems wrong
-- Secret rares have numbers ABOVE the total (e.g., "125/094") — this is normal, do NOT "fix" it
-
-STEP 3: READ THE SET CODE from the bottom strip
-- The set code is a short alphanumeric string near the card number (e.g., "PFLen", "s8b", "EVO", "sv2a", "OBF")
-- READ it character by character — do NOT substitute a different code
-- If you see "PFLen" do NOT change it to "EVO" or any other code
-- The set code you READ determines the set name (see mapping below)
-
-STEP 4: READ THE POKEMON NAME from the top strip
-- Read the name text as printed
-- For non-English cards, translate to English:
-  Japanese: リザードン=Charizard, ピカチュウ=Pikachu, ミュウツー=Mewtwo, ルカリオ=Lucario, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, ゲノセクト=Genesect, コロトック=Kricketune, フシギバナ=Venusaur, カメックス=Blastoise, ギャラドス=Gyarados, カイリュー=Dragonite, ミュウ=Mew, ガブリアス=Garchomp, メタグロス=Metagross
-  Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
-  Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar, 仙子伊布=Sylveon, 月亮伊布=Umbreon
-- Include any suffix (V, VMAX, VSTAR, ex, EX, GX) as printed
-- If artwork is visible and text is hard to read, use artwork to help identify — but still report what you can read
-
-SET NAME MAPPING (derive set name ONLY from the set code you READ):
-Japanese/Asian: s6a=Eevee Heroes, s6b=Fusion Arts, s8b=VMAX Climax, s9=Star Birth, s11=Lost Abyss, s12a=VSTAR Universe, sv1=Scarlet ex, sv2a=Pokemon Card 151, sv3=Ruler of the Black Flame, SV5K=Wild Force, SV5M=Cyber Judge
-English: PFLen=Phantasmal Flames, SFA=Surging Sparks, PAF=Paldean Fates, OBF=Obsidian Flames, PAL=Paldea Evolved, SVI=Scarlet & Violet, CRZ=Crown Zenith, SIT=Silver Tempest, LOR=Lost Origin, ASR=Astral Radiance, BRS=Brilliant Stars, FST=Fusion Strike, EVS=Evolving Skies, CRE=Chilling Reign, BST=Battle Styles, VIV=Vivid Voltage, DAA=Darkness Ablaze, RCL=Rebel Clash, SSH=Sword & Shield, PRE=Prismatic Evolutions, TEF=Temporal Forces, TWM=Twilight Masquerade, SCR=Stellar Crown, SSP=Surging Sparks, EVO=Evolutions, XY=XY Base Set
-If the code is not listed, report the code as-is and write "Unknown Set" for setName.
-
-CRITICAL RULES:
-- READ what is printed. Do NOT guess or infer from your knowledge.
-- If the set code says "PFLen", the set is Phantasmal Flames — not Evolutions, not any other set.
-- If the card number says "125/094", report "125/094" — do NOT change it to a different number.
-- NEVER return "Unknown" or "N/A" for cardName — use artwork if text is unreadable.
-- The set code is the ONLY source of truth for the set. Do NOT derive the set from the Pokemon name.
-
-Respond with JSON ONLY:
-{"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code as read", "setName": "set name from code mapping", "cardLanguage": "en|ja|ko|zh"}`;
-
-async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string; cardLanguage?: string } | null> {
-  const { topStrip, bottomStrip } = await cropCardRegions(frontImageUrl);
-
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 512,
-    messages: [
-      { role: "system", content: CARD_ID_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name and part of the artwork). Image 2 is the BOTTOM of the same card (contains the card number and set code). Read the name text AND use any visible artwork to identify the Pokemon. Read the card number and set code from the bottom strip." },
-          { type: "image_url", image_url: { url: topStrip, detail: "high" } },
-          { type: "image_url", image_url: { url: bottomStrip, detail: "high" } },
-        ],
-      },
-    ],
-  });
-
-  const content = response.choices[0]?.message?.content || "";
-  const jsonMatch = content.match(/\{[\s\S]*?\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  }
-  return null;
-}
-
-async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string; cardLanguage?: string } | null> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.2",
-    max_completion_tokens: 512,
-    messages: [
-      {
-        role: "system",
-        content: `You are a Pokemon card identification expert. Identify this card using ALL available evidence:
-
-1. DETERMINE LANGUAGE: Look at the printed text (name, attacks, descriptions). English text → "en", Japanese (katakana/hiragana) → "ja", Korean (Hangul) → "ko", Chinese → "zh". Judge by the PRINTED TEXT, not the set code.
-2. READ THE CARD NUMBER from the bottom of the card (format XXX/YYY). Also READ THE SET CODE (e.g. s8b, sv2a, PFLen, OBF) — this is the short alphanumeric code printed near the card number.
-3. READ THE POKEMON NAME from the top of the card. For non-English cards, translate to English.
-4. LOOK AT THE ARTWORK — every Pokemon has distinctive visual features. Use the artwork to confirm or correct your text reading.
-5. USE THE SET CODE to determine the set name:
-   Japanese: s6a=Eevee Heroes, s6b=Fusion Arts, s8b=VMAX Climax, s12a=VSTAR Universe, sv2a=Pokemon Card 151
-   English: PFLen=Phantasmal Flames, OBF=Obsidian Flames, PRE=Prismatic Evolutions, FST=Fusion Strike, SFA=Surging Sparks, PAF=Paldean Fates, PAL=Paldea Evolved, SVI=Scarlet & Violet, TEF=Temporal Forces, TWM=Twilight Masquerade, SCR=Stellar Crown, SSP=Surging Sparks
-   The set code is the PRIMARY source for the set name. Do NOT guess the set from the Pokemon name.
-6. CROSS-REFERENCE: Use card number + set code + your knowledge of Pokemon TCG card lists to verify.
-
-Common Japanese: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon, ラフレシア=Vileplume, フシギバナ=Venusaur, カメックス=Blastoise
-Common Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
-Common Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar, 仙子伊布=Sylveon, 月亮伊布=Umbreon
-Include any suffix (V, VMAX, VSTAR, ex, EX, GX).
-Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCode":"code as printed","setName":"English set name from code","cardLanguage":"en|ja|ko|zh"}`,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Identify this Pokemon card. Use the card name, card number, set code, AND the artwork together to determine the exact card." },
-          { type: "image_url", image_url: { url: frontImageUrl, detail: "high" } },
-        ],
-      },
-    ],
-  });
-
-  const content = response.choices[0]?.message?.content || "";
-  const jsonMatch = content.match(/\{[\s\S]*?\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  }
-  return null;
-}
-
-async function tiebreakerNameOnly(frontImageUrl: string): Promise<string | null> {
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 256,
-      messages: [
-        {
-          role: "system",
-          content: `You are a Pokemon card identification expert. Your job is to determine the ENGLISH name of the Pokemon on this card.
-
-Use MULTIPLE strategies to identify the Pokemon:
-1. READ the Pokemon name printed on the card (top area). For non-English cards, translate to English.
-2. LOOK AT THE ARTWORK — use the Pokemon's visual appearance to confirm your reading. Every Pokemon has distinctive features (colors, body shape, face).
-3. READ THE CARD NUMBER at the bottom if visible — use it + set code to cross-reference which Pokemon is at that number.
-
-If the printed name is hard to read (glare, holographic, non-English script), rely MORE on the artwork to identify the Pokemon.
-
-Common Japanese: コロトック=Kricketune, ラフレシア=Vileplume, ゲノセクト=Genesect, リザードン=Charizard, ピカチュウ=Pikachu, ゲンガー=Gengar, ルカリオ=Lucario, ニンフィア=Sylveon, ブラッキー=Umbreon, ミュウツー=Mewtwo, エーフィ=Espeon, ハッサム=Scizor, バンギラス=Tyranitar, カイリュー=Dragonite, メタグロス=Metagross, フシギバナ=Venusaur, カメックス=Blastoise
-Common Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
-Common Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar
-
-Include any suffix like V, VMAX, VSTAR, ex, EX, GX that appears after the name.
-
-Respond with ONLY the English name, nothing else. Example: "Kricketune V"`,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "What Pokemon is on this card? Use the printed name, artwork, and card number together to identify it." },
-            { type: "image_url", image_url: { url: frontImageUrl, detail: "high" } },
-          ],
-        },
-      ],
-    });
-    const name = (response.choices[0]?.message?.content || "").trim().replace(/^"|"$/g, "");
-    if (name && name.toLowerCase() !== "unknown" && name.toLowerCase() !== "n/a") {
-      console.log(`[tiebreaker] Name read: "${name}"`);
-      return name;
-    }
-    return null;
-  } catch (err: any) {
-    console.log(`[tiebreaker] Failed: ${err?.message}`);
-    return null;
-  }
-}
-
-async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
-  try {
-    console.log(`[card-id] Cropping card regions for focused text reading...`);
-    const result = await identifyCardWithCrops(frontImageUrl);
-    if (result) {
-      console.log(`[card-id] Cropped OCR result: name="${result.cardName}" number="${result.setNumber}" set="${result.setName}" code="${result.setCode || "none"}" lang="${(result as any).cardLanguage || "?"}"`);
-      const nameIsUnknown = !result.cardName || result.cardName.toLowerCase() === "unknown" || result.cardName.toLowerCase() === "n/a" || result.cardName.toLowerCase() === "unreadable";
-      if (!nameIsUnknown) {
-        return result;
-      }
-      console.log(`[card-id] Cropped OCR returned unknown name, trying full image fallback...`);
-    }
-  } catch (err: any) {
-    console.log(`[card-id] Cropped identification failed: ${err?.message}, trying full image fallback...`);
-  }
-
-  try {
-    const result = await identifyCardWithFullImage(frontImageUrl);
-    if (result) {
-      console.log(`[card-id] Full image fallback result: name="${result.cardName}" number="${result.setNumber}" set="${result.setName}" code="${result.setCode || "none"}"`);
-      return result;
-    }
-  } catch (err: any) {
-    console.log(`[card-id] Full image identification also failed: ${err?.message}`);
-  }
-
-  return null;
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/grade-card", async (req, res) => {
     try {
@@ -1667,36 +1422,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const optimizeTime = Date.now() - gradeStartTime;
       if (optimizeTime > 50) console.log(`[grade-card] Image optimization took ${optimizeTime}ms`);
 
-      const [gradingResponse, cardIdResult] = await Promise.all([
-        openai.chat.completions.create({
-          model: "gpt-5.2",
-          max_completion_tokens: 4096,
-          messages: [
-            {
-              role: "system",
-              content: GRADING_SYSTEM_PROMPT,
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: frontUrl, detail: "high" },
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: backUrl, detail: "high" },
-                },
-              ],
-            },
-          ],
-        }),
-        identifyCard(frontUrl),
-      ]);
+      const gradingResponse = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: GRADING_SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+              },
+              {
+                type: "image_url",
+                image_url: { url: frontUrl, detail: "high" },
+              },
+              {
+                type: "image_url",
+                image_url: { url: backUrl, detail: "high" },
+              },
+            ],
+          },
+        ],
+      });
 
       const aiTime = Date.now() - gradeStartTime;
       console.log(`[grade-card] AI calls completed in ${aiTime}ms`);
@@ -1717,57 +1469,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       gradingResult = enforceGradingScales(gradingResult);
 
-      const gradingName = gradingResult.cardName || "";
-      const gradingNumber = gradingResult.setNumber || "";
-      const gradingSet = gradingResult.setName || "";
-      const idName = cardIdResult?.cardName || "";
-      const idNumber = cardIdResult?.setNumber || "";
-      const idSet = cardIdResult?.setName || "";
-      const idCode = cardIdResult?.setCode || "";
+      const cardName = gradingResult.cardName || "";
+      const cardNumber = gradingResult.setNumber || "";
+      const setName = gradingResult.setName || "";
+      const setCode = (gradingResult as any).setCode || "";
 
-      const gradingSetCode = (gradingResult as any).setCode || "";
-      const codesDisagree = idCode && gradingSetCode && idCode.toLowerCase() !== gradingSetCode.toLowerCase();
-      const effectiveCode = codesDisagree ? gradingSetCode : (idCode || gradingSetCode);
+      console.log(`[grade-card] AI result: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
 
-      console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}" code="${gradingSetCode}"`);
-      console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}" code="${idCode}"`);
-      console.log(`[grade-card] Set codes ${codesDisagree ? "DISAGREE" : "agree"} — effective code: "${effectiveCode}"`);
-
-      const namesAgree = idName && gradingName &&
-        stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
-
-      const idIsUnknown = !idName || idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
-      const gradingIsUnknown = !gradingName || gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
-      const eitherCodeAsian = /^s\d|^sv\d|^sm\d/i.test(effectiveCode || "");
-      const cardLanguage = (cardIdResult as any)?.cardLanguage || "";
-      const aiSaysNonEnglish = cardLanguage && cardLanguage !== "en";
-      const hasNonLatinName = /[^\u0000-\u007F]/.test(gradingName) || /[^\u0000-\u007F]/.test(idName);
-      const isAsianCard = eitherCodeAsian && (aiSaysNonEnglish || hasNonLatinName);
-      console.log(`[grade-card] Language detection: cardLanguage="${cardLanguage}" hasNonLatinName=${hasNonLatinName} isAsianCard=${isAsianCard}`);
-      if (eitherCodeAsian && !isAsianCard) {
-        console.log(`[grade-card] Asian set code "${effectiveCode}" detected but card text is English — skipping Bulbapedia`);
-      }
+      const isAsianCode = /^s\d|^sv\d|^sm\d/i.test(setCode || "");
+      const hasNonLatinName = /[^\u0000-\u007F]/.test(cardName);
+      const isAsianCard = isAsianCode && hasNonLatinName;
+      console.log(`[grade-card] hasNonLatinName=${hasNonLatinName} isAsianCard=${isAsianCard}`);
 
       const frontUri = frontUrl;
       const backUri = backUrl;
 
       if (isAsianCard) {
-        console.log(`[grade-card] Asian set code "${effectiveCode}" detected — trying Bulbapedia database lookup`);
+        console.log(`[grade-card] Asian set code "${setCode}" — trying Bulbapedia database lookup`);
 
-        const idNum = parseInt((idNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
-        const gradingNum = parseInt((gradingNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+        const cardNum = parseInt((cardNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
         const numbersToTry = new Set<number>();
-        if (idNum > 0) numbersToTry.add(idNum);
-        if (gradingNum > 0) numbersToTry.add(gradingNum);
-        const aiSetNameForLookup = idSet || gradingSet || "";
-
-        const aiNameCandidates = [idName, gradingName]
-          .filter(n => n && n.toLowerCase() !== "unknown" && n.toLowerCase() !== "n/a")
-          .map(n => stripSuffix(n.toLowerCase()));
+        if (cardNum > 0) numbersToTry.add(cardNum);
 
         const boundsPromise = Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]);
         const lookupPromises = [...numbersToTry].map(num =>
-          lookupJapaneseCard(effectiveCode, num, aiSetNameForLookup).then(name => ({ num, name }))
+          lookupJapaneseCard(setCode, num, setName).then(name => ({ num, name }))
         );
 
         const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
@@ -1778,189 +1504,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
         console.log(`[grade-card] Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
 
-        let bestBulbapedia: { num: number; name: string } | null = null;
-        let bulbapediaMatchesAI = false;
-
-        for (const r of foundResults) {
-          const rBase = stripSuffix(r.name.toLowerCase());
-          if (aiNameCandidates.some(c => c === rBase || c.includes(rBase) || rBase.includes(c))) {
-            bestBulbapedia = r;
-            bulbapediaMatchesAI = true;
-            console.log(`[grade-card] Bulbapedia #${r.num}="${r.name}" matches AI candidate — confirmed`);
-            break;
-          }
-        }
-
-        if (!bulbapediaMatchesAI && foundResults.length > 0) {
-          console.log(`[grade-card] Bulbapedia results don't match any AI candidate (${aiNameCandidates.join(", ")}) — trusting AI instead`);
-          bestBulbapedia = null;
-        }
-
-        if (bestBulbapedia) {
-          console.log(`[grade-card] Bulbapedia verified: "${bestBulbapedia.name}" for ${effectiveCode} #${bestBulbapedia.num}`);
-
+        if (foundResults.length > 0) {
+          const bestBulbapedia = foundResults[0];
+          console.log(`[grade-card] Bulbapedia verified: "${bestBulbapedia.name}" for ${setCode} #${bestBulbapedia.num}`);
           gradingResult.cardName = bestBulbapedia.name;
-          const padLen = Math.max(3, String(bestBulbapedia.num).length);
-          const setTotal = (idNumber || gradingNumber || "").split("/")[1] || "";
+          const setTotal = (cardNumber || "").split("/")[1] || "";
           gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
-          gradingResult.setName = aiSetNameForLookup;
 
-          const cachedSetPage = japaneseSetCards.get(effectiveCode.toLowerCase());
+          const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
           if (cachedSetPage) {
             gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
           }
-        } else if (foundResults.length > 0) {
-          console.log(`[grade-card] Bulbapedia mismatch — using AI grading name: "${gradingName || idName}"`);
-          const preferGrading = !gradingIsUnknown;
-          gradingResult.cardName = preferGrading ? gradingName : idName;
-          gradingResult.setNumber = preferGrading ? gradingNumber : idNumber;
-          gradingResult.setName = preferGrading ? gradingSet : idSet;
         } else {
-          console.log(`[grade-card] Bulbapedia lookup missed — falling back to AI triple-check for Asian card`);
-
-          const [tiebreakerResult, fullImageId] = await Promise.all([
-            tiebreakerNameOnly(frontUri).catch(() => null),
-            identifyCardWithFullImage(frontUri).catch(() => null),
-          ]);
-          const fullName = fullImageId?.cardName || "";
-          const fullIsUnknown = !fullName || fullName.toLowerCase() === "unknown" || fullName.toLowerCase() === "n/a";
-          console.log(`[grade-card] Asian card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}" Tiebreaker="${tiebreakerResult}"`);
-
-          const candidates = [idName, fullName, gradingName, tiebreakerResult || ""].filter(n => n && n.toLowerCase() !== "unknown" && n.toLowerCase() !== "n/a");
-          const nameCounts = new Map<string, number>();
-          for (const n of candidates) {
-            const key = stripSuffix(n.toLowerCase());
-            nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
-          }
-          let bestJpName = idName || gradingName;
-          let bestJpCount = 0;
-          for (const [key, count] of nameCounts) {
-            if (count > bestJpCount) {
-              bestJpCount = count;
-              bestJpName = candidates.find(n => stripSuffix(n.toLowerCase()) === key) || bestJpName;
-            }
-          }
-          if (bestJpCount >= 2) {
-            console.log(`[grade-card] Majority vote (${bestJpCount}/${candidates.length}): "${bestJpName}"`);
-          } else {
-            bestJpName = tiebreakerResult || (!fullIsUnknown ? fullName : (idName || gradingName));
-            console.log(`[grade-card] No majority — preferring ${tiebreakerResult ? "tiebreaker" : (!fullIsUnknown ? "full-image" : "OCR")}: "${bestJpName}"`);
-          }
-
-          gradingResult.cardName = bestJpName;
-          gradingResult.setNumber = idNumber || (fullImageId?.setNumber) || gradingNumber;
-          gradingResult.setName = idSet || (fullImageId?.setName) || gradingSet;
+          console.log(`[grade-card] Bulbapedia lookup missed — using AI name as-is`);
         }
       } else {
-      const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
+      console.log(`[grade-card] Looking up card online: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
 
-      if (namesAgree) {
-        const idHasNumber = idNumber && idNumber.includes("/");
-        const mergedNumber = idHasNumber ? idNumber : gradingNumber;
-        const mergedSet = idSet || gradingSet;
-        lookupCandidates.push({ name: idName, number: mergedNumber, set: mergedSet, code: effectiveCode, source: "agreed" });
-        console.log(`[grade-card] Names agree: "${idName}"`);
-
-        const altNumber = idHasNumber ? gradingNumber : idNumber;
-        if (altNumber && altNumber !== mergedNumber) {
-          lookupCandidates.push({ name: idName, number: altNumber, set: gradingSet || idSet, code: effectiveCode, source: "agreed-alt" });
-          console.log(`[grade-card] Also trying alt number: "${altNumber}"`);
-        }
-
-        if (codesDisagree) {
-          lookupCandidates.push({ name: idName, number: idNumber || gradingNumber, set: idSet, code: idCode, source: "ocr-code-alt" });
-          console.log(`[grade-card] Set codes disagree — also trying OCR code "${idCode}" with set "${idSet}"`);
-        }
-      } else {
-        console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — running tiebreaker`);
-        const tiebreakerName = await tiebreakerNameOnly(frontUri);
-        const allCandidates = [idName, gradingName, tiebreakerName || ""].filter(n => n && n.toLowerCase() !== "unknown" && n.toLowerCase() !== "n/a");
-        const voteCounts = new Map<string, { count: number; original: string }>();
-        for (const n of allCandidates) {
-          const key = stripSuffix(n.toLowerCase());
-          const existing = voteCounts.get(key);
-          if (existing) {
-            existing.count++;
-            if (n.length > existing.original.length) existing.original = n;
-          } else {
-            voteCounts.set(key, { count: 1, original: n });
-          }
-        }
-        let bestVoteName = "";
-        let bestVoteCount = 0;
-        for (const [, v] of voteCounts) {
-          if (v.count > bestVoteCount) {
-            bestVoteCount = v.count;
-            bestVoteName = v.original;
-          }
-        }
-        const resolvedName = bestVoteCount >= 2 ? bestVoteName : (tiebreakerName || idName || gradingName);
-        console.log(`[grade-card] Tiebreaker="${tiebreakerName}" — majority vote (${bestVoteCount}): "${resolvedName}"`);
-
-        lookupCandidates.push({ name: resolvedName, number: idNumber || gradingNumber, set: idSet || gradingSet, code: idCode, source: "tiebreaker" });
-
-        const setsDisagree = idSet && gradingSet && idSet.toLowerCase() !== gradingSet.toLowerCase();
-        const numbersDisagree = idNumber && gradingNumber && idNumber !== gradingNumber;
-
-        if (setsDisagree || numbersDisagree) {
-          if (gradingNumber && gradingSet) {
-            lookupCandidates.push({ name: resolvedName, number: gradingNumber, set: gradingSet, code: gradingSetCode, source: "grading-alt" });
-          }
-        }
-
-        if (!gradingIsUnknown && stripSuffix(gradingName.toLowerCase()) !== stripSuffix(resolvedName.toLowerCase())) {
-          lookupCandidates.push({ name: gradingName, number: gradingNumber, set: gradingSet, code: gradingSetCode, source: "grading" });
-        }
-        if (!idIsUnknown && stripSuffix(idName.toLowerCase()) !== stripSuffix(resolvedName.toLowerCase())) {
-          lookupCandidates.push({ name: idName, number: idNumber, set: idSet, code: idCode, source: "ocr" });
-        }
-      }
-
-      const [boundsResults, ...lookupResults] = await Promise.all([
+      const [boundsResults, lookupResult] = await Promise.all([
         Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]),
-        ...lookupCandidates.map(c => {
-          console.log(`[grade-card] Trying lookup (${c.source}): name="${c.name}" number="${c.number}" set="${c.set}"`);
-          return lookupCardOnline(c.name, c.number, c.set, c.code).catch(() => null);
-        }),
+        lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
       ]);
 
       const [detectedFront, detectedBack] = boundsResults;
 
-      let bestVerified: { cardName: string; setName: string; setNumber: string; _score?: number } | null = null;
-      let bestVerifiedScore = -1;
-      for (let i = 0; i < lookupCandidates.length; i++) {
-        const result = lookupResults[i] as { cardName: string; setName: string; setNumber: string; _score?: number } | null;
-        if (result) {
-          const resultScore = result._score || 0;
-          console.log(`[grade-card] Verified via ${lookupCandidates[i].source}: "${result.cardName}" from "${result.setName}" (${result.setNumber}) lookupScore=${resultScore}`);
-          if (resultScore > bestVerifiedScore) {
-            bestVerified = result;
-            bestVerifiedScore = resultScore;
-          }
-        }
-      }
+      if (lookupResult) {
+        const resultScore = (lookupResult as any)._score || 0;
+        console.log(`[grade-card] Online verified: "${lookupResult.cardName}" from "${lookupResult.setName}" (${lookupResult.setNumber}) score=${resultScore}`);
 
-      if (bestVerified) {
-        let displayName = bestVerified.cardName;
-        const aiName = gradingName || idName || "";
-        if (displayName && aiName) {
+        let displayName = lookupResult.cardName;
+        if (displayName && cardName) {
           const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
-          const aiLower = aiName.toLowerCase().replace(/[-\s]/g, "");
-          const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(aiName);
+          const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
+          const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
           const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
-          if (isAbbreviated || (aiIsMoreDescriptive && aiName.length <= displayName.length * 2.5)) {
-            displayName = aiName;
+          if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
+            displayName = cardName;
           }
         }
         gradingResult.cardName = displayName;
-        gradingResult.setName = bestVerified.setName;
-        gradingResult.setNumber = bestVerified.setNumber;
+        gradingResult.setName = lookupResult.setName;
+        gradingResult.setNumber = lookupResult.setNumber;
       } else {
-        console.log(`[grade-card] No online match found, using AI identification`);
-        const preferGrading = !gradingIsUnknown;
-        gradingResult.cardName = preferGrading ? gradingName : idName;
-        gradingResult.setNumber = preferGrading ? (gradingNumber || idNumber) : (idNumber || gradingNumber);
-        gradingResult.setName = preferGrading ? (gradingSet || idSet) : (idSet || gradingSet);
+        console.log(`[grade-card] No online match found, using AI identification as-is`);
       }
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
