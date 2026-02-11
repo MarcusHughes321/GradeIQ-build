@@ -1782,14 +1782,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   function normalizeForMatch(s: string): string {
     return s.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9\s]/g, "")
       .replace(/\s+/g, " ")
       .trim();
   }
 
+  const TCGCSV_SET_ALIASES: Record<string, string> = {
+    "base": "Base Set",
+    "base set unlimited": "Base Set",
+    "pokemon base set": "Base Set",
+    "original base set": "Base Set",
+    "base set 1999": "Base Set",
+    "base set 1st edition": "Base Set (Shadowless)",
+    "base set shadowless": "Base Set (Shadowless)",
+    "jungle": "Jungle",
+    "fossil": "Fossil",
+    "team rocket": "Team Rocket",
+    "gym heroes": "Gym Heroes",
+    "gym challenge": "Gym Challenge",
+    "neo genesis": "Neo Genesis",
+    "neo discovery": "Neo Discovery",
+    "neo revelation": "Neo Revelation",
+    "neo destiny": "Neo Destiny",
+    "legendary collection": "Legendary Collection",
+    "expedition base set": "Expedition Base Set",
+    "aquapolis": "Aquapolis",
+    "skyridge": "Skyridge",
+  };
+
   function findBestGroup(groups: TCGGroup[], setName: string): TCGGroup | null {
     if (!setName) return null;
-    const norm = normalizeForMatch(setName);
+
+    const normInput = normalizeForMatch(setName);
+    const aliased = TCGCSV_SET_ALIASES[normInput];
+    const norm = aliased ? normalizeForMatch(aliased) : normInput;
 
     let bestMatch: TCGGroup | null = null;
     let bestScore = 0;
@@ -1825,6 +1852,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (normWords.length === gWords.length && matchedWords === normWords.length) {
         score += 0.1;
+      }
+
+      const normWordCount = normWords.length;
+      const gWordCount = gWords.length;
+      if (normWordCount <= 1 && gWordCount > 2) {
+        score *= 0.3;
       }
 
       if (score > bestScore && score >= 0.5) {
