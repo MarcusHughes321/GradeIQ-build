@@ -1549,10 +1549,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       gradingResult.backCardBounds = detectedBack;
       } // end else (non-Asian-code path)
 
-      if (effectiveCode) {
-        const resolvedSet = resolveSetName(effectiveCode, gradingResult.setName || "");
+      if (setCode) {
+        const resolvedSet = resolveSetName(setCode, gradingResult.setName || "");
         if (resolvedSet !== gradingResult.setName) {
-          console.log(`[grade-card] Set code correction: "${effectiveCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
+          console.log(`[grade-card] Set code correction: "${setCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
           gradingResult.setName = resolvedSet;
         }
       }
