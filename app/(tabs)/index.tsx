@@ -9,6 +9,7 @@ import {
   Platform,
   Dimensions,
   TextInput,
+  RefreshControl,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -162,6 +163,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [gradings, setGradings] = useState<SavedGrading[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
 
@@ -193,6 +195,15 @@ export default function HomeScreen() {
     setGradings(data);
     fetchMissingValues(data);
   };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    fetchingValuesRef.current = false;
+    const data = await getGradings();
+    setGradings(data);
+    await fetchMissingValues(data);
+    setRefreshing(false);
+  }, []);
 
   const fetchMissingValues = async (data: SavedGrading[]) => {
     if (fetchingValuesRef.current) return;
@@ -492,6 +503,14 @@ export default function HomeScreen() {
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 100 }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
       />
     </View>
   );
