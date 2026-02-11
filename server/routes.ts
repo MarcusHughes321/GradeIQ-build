@@ -343,7 +343,7 @@ async function lookupJapaneseCard(setCode: string, cardNumber: number, aiSetName
   return null;
 }
 
-const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), and Ace Grading. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
+const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
 
 IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 
@@ -372,6 +372,27 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - Corners: Must be sharp with no visible wear for high grades
 - Edges: Clean and consistent cuts required
 - Surface: Free from scratches and defects
+
+**TAG Grading (AI-Powered) - Scale 1-10 with HALF-GRADE sub-grades:**
+- TAG uses 0.5 increments for BOTH overall grade AND all sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
+- Uses 1000-point precision internally, but final grades are in 0.5 increments
+- Overall grade is calculated from sub-grades (weighted average)
+- Centering: Front 55/45 and Back 75/25 or better for TAG 10, Front 60/40 and Back 80/20 for TAG 9
+- Corners: Must be pristine with no whitening for 10
+- Edges: Must be clean with no chipping or wear for 10
+- Surface: Must be free from scratches, print defects, and surface damage for 10
+- TAG is known for stricter surface grading than BGS
+
+**CGC Cards - Scale 1-10 with HALF-GRADE increments, NO sub-grades:**
+- CGC uses 0.5 increments for the overall grade (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
+- CGC discontinued sub-grades in 2023. Only an overall grade is given with text descriptions per category.
+- CGC has TWO types of 10: Pristine 10 (Gold Label) and Gem Mint 10 (Silver Label)
+- Pristine 10 (Gold Label): Front centering 50/50, Back centering 55/45 or better. Absolutely flawless in all categories.
+- Gem Mint 10 (Silver Label): Front centering 55/45, Back centering 75/25 or better. Near-perfect with only the slightest imperfections.
+- Centering: Front 55/45 and Back 75/25 for Gem Mint 10, 60/40 front and 80/20 back for 9.5
+- Corners: Inspected for whitening and dings
+- Edges: Checked for chipping and rough edges
+- Surface: Examined for scratches, print defects, staining
 
 Analyze the card images carefully. Look for:
 1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
@@ -467,6 +488,22 @@ Respond ONLY with valid JSON in this exact format:
     "edges": { "grade": 8, "notes": "Assessment details" },
     "surface": { "grade": 8, "notes": "Assessment details" },
     "notes": "Any additional notes about Ace-specific grading"
+  },
+  "tag": {
+    "overallGrade": 8.5,
+    "centering": { "grade": 9.0, "notes": "Assessment details" },
+    "corners": { "grade": 8.5, "notes": "Assessment details" },
+    "edges": { "grade": 8.5, "notes": "Assessment details" },
+    "surface": { "grade": 8.0, "notes": "Assessment details - TAG is stricter on surface" },
+    "notes": "Any additional notes about TAG-specific grading"
+  },
+  "cgc": {
+    "grade": 8.5,
+    "centering": "Description of centering assessment",
+    "corners": "Description of corners assessment",
+    "edges": "Description of edges assessment",
+    "surface": "Description of surface assessment",
+    "notes": "Any additional notes about CGC-specific grading"
   }
 }
 
@@ -474,6 +511,8 @@ CRITICAL REMINDERS:
 - PSA grade: valid values are 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10 (NO 9.5)
 - BGS grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10)
 - Ace grades: WHOLE NUMBERS ONLY (1-10, never 8.5 or 9.5)
+- TAG grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - stricter on surface than BGS
+- CGC grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - no sub-grades, text descriptions only
 
 GRADING PHILOSOPHY — START AT 10, DEDUCT FOR FLAWS:
 - EVERY sub-grade (centering, corners, edges, surface) starts at 10 (Gem Mint) by default.
@@ -1172,13 +1211,28 @@ function computeCenteringGrades(centering: any) {
   else if (frontWorst <= 70 && backWorst <= 70) aceCentering = 8;
   else aceCentering = 7;
 
-  return { psaCentering, bgsCentering, aceCentering };
+  let tagCentering: number;
+  if (frontWorst <= 55 && backWorst <= 75) tagCentering = 10;
+  else if (frontWorst <= 60 && backWorst <= 80) tagCentering = 9;
+  else if (frontWorst <= 65 && backWorst <= 85) tagCentering = 8.5;
+  else if (frontWorst <= 70 && backWorst <= 90) tagCentering = 8;
+  else tagCentering = 7;
+
+  let cgcCentering: number;
+  if (frontWorst <= 50 && backWorst <= 55) cgcCentering = 10;
+  else if (frontWorst <= 55 && backWorst <= 75) cgcCentering = 10;
+  else if (frontWorst <= 60 && backWorst <= 80) cgcCentering = 9.5;
+  else if (frontWorst <= 65 && backWorst <= 85) cgcCentering = 9;
+  else if (frontWorst <= 70 && backWorst <= 90) cgcCentering = 8.5;
+  else cgcCentering = 8;
+
+  return { psaCentering, bgsCentering, aceCentering, tagCentering, cgcCentering };
 }
 
 function syncCenteringToGrades(result: any): any {
   if (!result.centering) return result;
 
-  const { psaCentering, bgsCentering, aceCentering } = computeCenteringGrades(result.centering);
+  const { psaCentering, bgsCentering, aceCentering, tagCentering, cgcCentering } = computeCenteringGrades(result.centering);
   const centeringNote = `Front: ${result.centering.frontLeftRight}/${100 - result.centering.frontLeftRight} LR, ${result.centering.frontTopBottom}/${100 - result.centering.frontTopBottom} TB. Back: ${result.centering.backLeftRight}/${100 - result.centering.backLeftRight} LR, ${result.centering.backTopBottom}/${100 - result.centering.backTopBottom} TB.`;
 
   if (result.psa) {
@@ -1220,6 +1274,25 @@ function syncCenteringToGrades(result: any): any {
     }
   }
 
+  if (result.tag) {
+    result.tag.centering.grade = tagCentering;
+    result.tag.centering.notes = centeringNote;
+    const avg = (tagCentering + result.tag.corners.grade + result.tag.edges.grade + result.tag.surface.grade) / 4;
+    result.tag.overallGrade = roundToHalf(avg);
+  }
+
+  if (result.cgc) {
+    result.cgc.centeringGrade = cgcCentering;
+    result.cgc.centering = centeringNote;
+    const minOtherCgc = Math.min(
+      result.tag?.corners?.grade ?? result.beckett?.corners?.grade ?? 10,
+      result.tag?.edges?.grade ?? result.beckett?.edges?.grade ?? 10,
+      result.tag?.surface?.grade ?? result.beckett?.surface?.grade ?? 10
+    );
+    const cgcNonCentering = roundToHalf(minOtherCgc);
+    result.cgc.grade = roundToHalf(Math.min(cgcCentering, cgcNonCentering));
+  }
+
   return result;
 }
 
@@ -1256,6 +1329,19 @@ function enforceGradingScales(result: any): any {
         result.ace[key].grade = roundToWhole(clamp(result.ace[key].grade, 1, 10));
       }
     }
+  }
+
+  if (result.tag) {
+    result.tag.overallGrade = roundToHalf(clamp(result.tag.overallGrade, 1, 10));
+    for (const key of ["centering", "corners", "edges", "surface"]) {
+      if (result.tag[key]?.grade !== undefined) {
+        result.tag[key].grade = roundToHalf(clamp(result.tag[key].grade, 1, 10));
+      }
+    }
+  }
+
+  if (result.cgc) {
+    result.cgc.grade = roundToHalf(clamp(result.cgc.grade, 1, 10));
   }
 
   return result;
@@ -1499,7 +1585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               content: [
                 {
                   type: "text",
-                  text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), and Ace Grading. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+                  text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: First identify the Pokemon from the artwork and name on the card. Then read the card number at the bottom. Then VERIFY they match — does this Pokemon actually exist at this card number in the set you identified? If not, re-read the number or adjust. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
                 },
                 {
                   type: "image_url",
@@ -1879,8 +1965,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/card-value", async (req, res) => {
     try {
-      const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade } = req.body;
-      console.log("[card-value] Request received:", { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade });
+      const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade } = req.body;
+      console.log("[card-value] Request received:", { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade });
       if (!cardName) {
         console.log("[card-value] Missing cardName, returning 400");
         return res.status(400).json({ error: "Card name is required" });
@@ -1895,10 +1981,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         searchEbaySold(`${baseSearch} BGS 10`),
         searchEbaySold(`${baseSearch} ACE ${aceGrade}`),
         searchEbaySold(`${baseSearch} ACE 10`),
+        searchEbaySold(`${baseSearch} TAG ${tagGrade}`),
+        searchEbaySold(`${baseSearch} TAG 10`),
+        searchEbaySold(`${baseSearch} CGC ${cgcGrade}`),
+        searchEbaySold(`${baseSearch} CGC 10`),
         searchEbaySold(`${baseSearch} raw`),
       ];
 
-      const [psaResults, psa10Results, bgsResults, bgs10Results, aceResults, ace10Results, rawResults] = await Promise.all(ebaySearches);
+      const [psaResults, psa10Results, bgsResults, bgs10Results, aceResults, ace10Results, tagResults, tag10Results, cgcResults, cgc10Results, rawResults] = await Promise.all(ebaySearches);
 
       const ebayData = {
         psaCurrent: summarizePrices(psaResults.prices),
@@ -1907,6 +1997,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bgs10: summarizePrices(bgs10Results.prices),
         aceCurrent: summarizePrices(aceResults.prices),
         ace10: summarizePrices(ace10Results.prices),
+        tagCurrent: summarizePrices(tagResults.prices),
+        tag10: summarizePrices(tag10Results.prices),
+        cgcCurrent: summarizePrices(cgcResults.prices),
+        cgc10: summarizePrices(cgc10Results.prices),
         raw: summarizePrices(rawResults.prices),
       };
 
@@ -1935,22 +2029,28 @@ RULES:
 5. If no eBay data was found at all, use your market knowledge to estimate — but "No value data found" should only be used for genuinely obscure cards.
 6. Price ranges should be tight when good data exists (e.g., "£700 - £800"), wider when estimating (e.g., "£400 - £600").
 7. All prices in GBP (£).
+8. TAG is a newer grading company — prices are typically lower than PSA/BGS but growing. If no TAG data found, estimate ~60-80% of BGS equivalent.
+9. CGC is well-established — prices are typically between BGS and PSA values. If no CGC data found, estimate ~80-90% of PSA equivalent.
 
 Respond ONLY with valid JSON:
 {
   "psaValue": "£XX - £XX",
   "bgsValue": "£XX - £XX",
   "aceValue": "£XX - £XX",
+  "tagValue": "£XX - £XX",
+  "cgcValue": "£XX - £XX",
   "rawValue": "£XX - £XX",
   "psa10Value": "£XX - £XX",
   "bgs10Value": "£XX - £XX",
   "ace10Value": "£XX - £XX",
+  "tag10Value": "£XX - £XX",
+  "cgc10Value": "£XX - £XX",
   "source": "Based on recent eBay UK sold listings"
 }`,
           },
           {
             role: "user",
-            content: `Card: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nGrades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}\n\n${ebayContext ? `REAL eBay UK sold data (just scraped):\n${ebayContext}` : "No eBay sold data found — use your market knowledge to estimate."}\n\nBased on the eBay data above, provide price estimates for each category.`,
+            content: `Card: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nGrades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}, TAG ${tagGrade}, CGC ${cgcGrade}\n\n${ebayContext ? `REAL eBay UK sold data (just scraped):\n${ebayContext}` : "No eBay sold data found — use your market knowledge to estimate."}\n\nBased on the eBay data above, provide price estimates for each category.`,
           },
         ],
       });
@@ -1967,10 +2067,14 @@ Respond ONLY with valid JSON:
           psaValue: "No value data found",
           bgsValue: "No value data found",
           aceValue: "No value data found",
+          tagValue: "No value data found",
+          cgcValue: "No value data found",
           rawValue: "No value data found",
           psa10Value: "No value data found",
           bgs10Value: "No value data found",
           ace10Value: "No value data found",
+          tag10Value: "No value data found",
+          cgc10Value: "No value data found",
           source: "Unable to estimate",
         });
       }
@@ -1980,10 +2084,14 @@ Respond ONLY with valid JSON:
         psaValue: "No value data found",
         bgsValue: "No value data found",
         aceValue: "No value data found",
+        tagValue: "No value data found",
+        cgcValue: "No value data found",
         rawValue: "No value data found",
         psa10Value: "No value data found",
         bgs10Value: "No value data found",
         ace10Value: "No value data found",
+        tag10Value: "No value data found",
+        cgc10Value: "No value data found",
         source: "Error fetching values",
       });
     }
