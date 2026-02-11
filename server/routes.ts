@@ -2104,16 +2104,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function searchEbaySold(query: string): Promise<{ prices: number[]; titles: string[] }> {
     try {
       const encoded = encodeURIComponent(query);
-      const url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_sop=13&_ipg=60`;
+      const url = `https://www.ebay.co.uk/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_sop=13&_ipg=120&_sacat=183454`;
       console.log(`[ebay-search] Searching: "${query}"`);
 
       const resp = await fetch(url, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-GB,en;q=0.9",
+          "Cache-Control": "no-cache",
         },
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!resp.ok) {
@@ -2122,23 +2123,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const html = await resp.text();
+
+      if (html.includes("Checking your browser") || html.includes("challenge")) {
+        console.log(`[ebay-search] Bot challenge detected, skipping`);
+        return { prices: [], titles: [] };
+      }
+
       const prices: number[] = [];
       const titles: string[] = [];
 
       const itemBlocks = html.split(/s-item__wrapper/g).slice(1);
-      for (const block of itemBlocks.slice(0, 5)) {
+      for (const block of itemBlocks.slice(0, 15)) {
         const priceMatch = block.match(/£([\d,]+\.?\d*)/);
         const titleMatch = block.match(/class="s-item__title"[^>]*>(?:<span[^>]*>)?(.*?)(?:<\/span>)?<\//);
         if (priceMatch) {
           const price = parseFloat(priceMatch[1].replace(",", ""));
-          if (price > 0 && price < 100000) {
+          if (price > 0.5 && price < 100000) {
             prices.push(price);
-            if (titleMatch) titles.push(titleMatch[1].replace(/<[^>]*>/g, "").trim());
+            const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, "").trim() : "";
+            if (title) titles.push(title);
           }
         }
       }
 
-      console.log(`[ebay-search] Found ${prices.length} sold prices for "${query}": ${prices.slice(0, 5).map(p => `£${p}`).join(", ")}${prices.length > 5 ? "..." : ""}`);
+      console.log(`[ebay-search] Found ${prices.length} sold prices for "${query}": ${prices.slice(0, 8).map(p => `£${p}`).join(", ")}${prices.length > 8 ? "..." : ""}`);
       return { prices, titles };
     } catch (err: any) {
       console.log(`[ebay-search] Failed for "${query}": ${err?.message}`);
@@ -2146,13 +2154,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  async function searchEbayWithFallback(cardName: string, setName: string, cardNumber: string, suffix: string): Promise<{ prices: number[]; titles: string[] }> {
+    const numberOnly = cardNumber ? cardNumber.split("/")[0].replace(/^0+/, "") : "";
+    const queries: string[] = [];
+
+    if (numberOnly) {
+      queries.push(`${cardName} ${numberOnly} pokemon ${suffix}`.trim());
+    }
+    queries.push(`${cardName} ${setName || ""} pokemon ${suffix}`.trim());
+    if (numberOnly && setName) {
+      queries.push(`${cardName} pokemon ${suffix}`.trim());
+    }
+
+    for (const q of queries) {
+      const result = await searchEbaySold(q);
+      if (result.prices.length >= 2) {
+        console.log(`[ebay-fallback] Got ${result.prices.length} results with query: "${q}"`);
+        return result;
+      }
+      if (result.prices.length === 1) {
+        const next = queries.indexOf(q) + 1;
+        if (next < queries.length) {
+          const result2 = await searchEbaySold(queries[next]);
+          if (result2.prices.length > result.prices.length) {
+            console.log(`[ebay-fallback] Broader query "${queries[next]}" got more: ${result2.prices.length}`);
+            return result2;
+          }
+        }
+        console.log(`[ebay-fallback] Using 1 result from: "${q}"`);
+        return result;
+      }
+    }
+
+    return { prices: [], titles: [] };
+  }
+
   function summarizePrices(prices: number[]): string {
     if (prices.length === 0) return "";
     const sorted = [...prices].sort((a, b) => a - b);
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
     const avg = sorted.reduce((a, b) => a + b, 0) / sorted.length;
-    return `${sorted.map(p => `£${p.toFixed(0)}`).join(", ")} (avg £${avg.toFixed(0)})`;
+    if (sorted.length === 1) return `£${sorted[0].toFixed(2)} (1 sold)`;
+    return `${sorted.map(p => `£${p.toFixed(2)}`).join(", ")} (avg £${avg.toFixed(2)}, ${sorted.length} sold)`;
+  }
+
+  function directPriceRange(prices: number[]): string {
+    if (prices.length === 0) return "";
+    const sorted = [...prices].sort((a, b) => a - b);
+    const filtered = sorted.length >= 4
+      ? sorted.slice(1, -1)
+      : sorted;
+    const min = filtered[0];
+    const max = filtered[filtered.length - 1];
+    if (min === max) return `£${min.toFixed(2)}`;
+    return `£${min.toFixed(2)} - £${max.toFixed(2)}`;
   }
 
   app.post("/api/card-value", async (req, res) => {
@@ -2164,23 +2218,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Card name is required" });
       }
 
-      const baseSearch = `${cardName} ${setNumber || ""} pokemon`.trim();
-      console.log(`[card-value] Base search: "${baseSearch}"`);
-      const ebaySearches = [
-        searchEbaySold(`${baseSearch} PSA ${psaGrade}`),
-        searchEbaySold(`${baseSearch} PSA 10`),
-        searchEbaySold(`${baseSearch} BGS ${bgsGrade}`),
-        searchEbaySold(`${baseSearch} BGS 10`),
-        searchEbaySold(`${baseSearch} ACE ${aceGrade}`),
-        searchEbaySold(`${baseSearch} ACE 10`),
-        searchEbaySold(`${baseSearch} TAG ${tagGrade}`),
-        searchEbaySold(`${baseSearch} TAG 10`),
-        searchEbaySold(`${baseSearch} CGC ${cgcGrade}`),
-        searchEbaySold(`${baseSearch} CGC 10`),
-        searchEbaySold(`${baseSearch} raw`),
-      ];
+      const [psaResults, psa10Results, bgsResults, bgs10Results, aceResults, ace10Results, tagResults, tag10Results, cgcResults, cgc10Results, rawResults] = await Promise.all([
+        searchEbayWithFallback(cardName, setName, setNumber, `PSA ${psaGrade}`),
+        searchEbayWithFallback(cardName, setName, setNumber, `PSA 10`),
+        searchEbayWithFallback(cardName, setName, setNumber, `BGS ${bgsGrade}`),
+        searchEbayWithFallback(cardName, setName, setNumber, `BGS 10`),
+        searchEbayWithFallback(cardName, setName, setNumber, `ACE ${aceGrade}`),
+        searchEbayWithFallback(cardName, setName, setNumber, `ACE 10`),
+        searchEbayWithFallback(cardName, setName, setNumber, `TAG ${tagGrade}`),
+        searchEbayWithFallback(cardName, setName, setNumber, `TAG 10`),
+        searchEbayWithFallback(cardName, setName, setNumber, `CGC ${cgcGrade}`),
+        searchEbayWithFallback(cardName, setName, setNumber, `CGC 10`),
+        searchEbayWithFallback(cardName, setName, setNumber, `ungraded`),
+      ]);
 
-      const [psaResults, psa10Results, bgsResults, bgs10Results, aceResults, ace10Results, tagResults, tag10Results, cgcResults, cgc10Results, rawResults] = await Promise.all(ebaySearches);
+      const hasDirectData = (r: { prices: number[] }) => r.prices.length >= 2;
+
+      const directResults: Record<string, string> = {};
+      if (hasDirectData(psaResults)) directResults.psaValue = directPriceRange(psaResults.prices);
+      if (hasDirectData(psa10Results)) directResults.psa10Value = directPriceRange(psa10Results.prices);
+      if (hasDirectData(bgsResults)) directResults.bgsValue = directPriceRange(bgsResults.prices);
+      if (hasDirectData(bgs10Results)) directResults.bgs10Value = directPriceRange(bgs10Results.prices);
+      if (hasDirectData(aceResults)) directResults.aceValue = directPriceRange(aceResults.prices);
+      if (hasDirectData(ace10Results)) directResults.ace10Value = directPriceRange(ace10Results.prices);
+      if (hasDirectData(tagResults)) directResults.tagValue = directPriceRange(tagResults.prices);
+      if (hasDirectData(tag10Results)) directResults.tag10Value = directPriceRange(tag10Results.prices);
+      if (hasDirectData(cgcResults)) directResults.cgcValue = directPriceRange(cgcResults.prices);
+      if (hasDirectData(cgc10Results)) directResults.cgc10Value = directPriceRange(cgc10Results.prices);
+      if (hasDirectData(rawResults)) directResults.rawValue = directPriceRange(rawResults.prices);
+
+      const directCount = Object.keys(directResults).length;
+      console.log("[card-value] Direct eBay data coverage:", directCount, "of 11 categories");
+      if (directCount > 0) console.log("[card-value] Direct prices:", directResults);
 
       const ebayData = {
         psaCurrent: summarizePrices(psaResults.prices),
@@ -2196,12 +2265,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         raw: summarizePrices(rawResults.prices),
       };
 
-      console.log("[card-value] eBay data:", ebayData);
-
       const ebayContext = Object.entries(ebayData)
         .filter(([, v]) => v)
         .map(([k, v]) => `- ${k}: ${v}`)
         .join("\n");
+
+      const allKeys = ["psaValue", "psa10Value", "bgsValue", "bgs10Value", "aceValue", "ace10Value", "tagValue", "tag10Value", "cgcValue", "cgc10Value", "rawValue"];
+
+      if (directCount === 11) {
+        console.log("[card-value] All categories covered by direct eBay data — skipping AI");
+        return res.json({ ...directResults, source: "Based on recent eBay UK sold listings" });
+      }
+
+      const hasAnyEbayData = ebayContext.length > 0;
 
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
@@ -2209,20 +2285,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon TCG market price analyst. You will be given a card's details AND real eBay UK sold listing data that was just scraped.
+            content: `You are an expert Pokemon TCG market price analyst specialising in the UK market (eBay UK, GBP prices).
 
-Your job is to interpret the eBay sold data and provide accurate price estimates in GBP.
+You have deep knowledge of Pokemon card values across all eras: Base Set, Jungle, Fossil, Team Rocket, Neo series, e-Series, EX era, Diamond & Pearl, HeartGold SoulSilver, Black & White, XY, Sun & Moon, Sword & Shield, Scarlet & Violet, and all special/promo sets.
 
-RULES:
-1. Use the REAL eBay data provided as your PRIMARY source. The data shows actual sold prices from eBay UK.
-2. If eBay data is available for a category, base your estimate closely on that data.
-3. If eBay data is missing for a category, estimate based on the data you DO have (e.g., if PSA 10 sold for £X, PSA ${psaGrade} should be proportionally less).
-4. Graded cards are ALWAYS worth more than raw. PSA 10 > PSA 9 > PSA 8 etc.
-5. If no eBay data was found at all, use your market knowledge to estimate — but "No value data found" should only be used for genuinely obscure cards.
-6. Price ranges should be tight when good data exists (e.g., "£700 - £800"), wider when estimating (e.g., "£400 - £600").
-7. All prices in GBP (£).
-8. TAG is a newer grading company — prices are typically lower than PSA/BGS but growing. If no TAG data found, estimate ~60-80% of BGS equivalent.
-9. CGC is well-established — prices are typically between BGS and PSA values. If no CGC data found, estimate ~80-90% of PSA equivalent.
+${hasAnyEbayData ? `You have been given REAL eBay UK sold data that was just scraped. Use it as your PRIMARY reference.
+
+Categories with direct eBay prices (DO NOT CHANGE):
+${Object.entries(directResults).map(([k, v]) => `- ${k}: ${v}`).join("\n") || "(none)"}` : `eBay sold data could not be retrieved (site access issue). Use your expert market knowledge to estimate current UK market values.`}
+
+PRICING RULES:
+1. ${hasAnyEbayData ? "Base estimates on eBay data when available." : "Use your knowledge of recent Pokemon TCG market prices (2024-2025 UK values)."}
+2. PSA is the gold standard — highest premiums. BGS Pristine 10 can exceed PSA 10 but BGS 9.5 ≈ PSA 10 in value. CGC is ~80-90% of PSA. ACE is ~70-85% of PSA. TAG is ~60-75% of PSA (newer, less established).
+3. Grade 10 commands significant premium over 9 — typically 2-5x for popular cards, sometimes 10x+ for chase cards.
+4. Raw/ungraded cards: typically 30-60% of PSA 9 value for popular cards.
+5. Use TIGHT price ranges for well-known cards (e.g. "£85 - £110"). Use wider ranges only for obscure cards.
+6. NEVER say "No value data found" — every Pokemon card has SOME value. Even common holos are worth £1-5 raw, £5-20 graded.
+7. All prices in GBP (£). Use format "£XX" for under £10 or "£XX - £XX" for ranges.
+8. Consider: rarity (common/uncommon/rare/ultra rare/secret rare), era (vintage vs modern), artwork type (full art, alt art, illustration rare), popularity of Pokemon, holo vs non-holo.
+9. Japanese/Asian cards: typically 30-70% of English equivalent depending on popularity. Some alt arts are MORE valuable in Japanese.
 
 Respond ONLY with valid JSON:
 {
@@ -2237,12 +2318,17 @@ Respond ONLY with valid JSON:
   "ace10Value": "£XX - £XX",
   "tag10Value": "£XX - £XX",
   "cgc10Value": "£XX - £XX",
-  "source": "Based on recent eBay UK sold listings"
+  "source": "${hasAnyEbayData ? "Based on recent eBay UK sold listings" : "Estimated from UK market data"}"
 }`,
           },
           {
             role: "user",
-            content: `Card: ${cardName}\nSet: ${setName || "Unknown"}\nCard Number: ${setNumber || "Unknown"}\nGrades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}, TAG ${tagGrade}, CGC ${cgcGrade}\n\n${ebayContext ? `REAL eBay UK sold data (just scraped):\n${ebayContext}` : "No eBay sold data found — use your market knowledge to estimate."}\n\nBased on the eBay data above, provide price estimates for each category.`,
+            content: `Card: ${cardName}
+Set: ${setName || "Unknown"}
+Card Number: ${setNumber || "Unknown"}
+Grades: PSA ${psaGrade}, BGS ${bgsGrade}, Ace ${aceGrade}, TAG ${tagGrade}, CGC ${cgcGrade}
+
+${ebayContext ? `REAL eBay UK sold data:\n${ebayContext}\n\nUse the real data above as primary reference. Fill in any missing categories proportionally.` : `No eBay data available. Use your expert knowledge of current UK Pokemon TCG market prices to provide accurate estimates for this specific card.`}`,
           },
         ],
       });
@@ -2250,41 +2336,25 @@ Respond ONLY with valid JSON:
       const content = response.choices[0]?.message?.content || "";
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        const valueData = JSON.parse(jsonMatch[0]);
+        const aiData = JSON.parse(jsonMatch[0]);
+        const valueData = { ...aiData, ...directResults };
+        if (hasAnyEbayData) valueData.source = "Based on recent eBay UK sold listings";
         console.log("[card-value] Success, returning:", valueData);
         res.json(valueData);
       } else {
-        console.log("[card-value] No JSON found in response. Raw content:", content);
-        res.json({
-          psaValue: "No value data found",
-          bgsValue: "No value data found",
-          aceValue: "No value data found",
-          tagValue: "No value data found",
-          cgcValue: "No value data found",
-          rawValue: "No value data found",
-          psa10Value: "No value data found",
-          bgs10Value: "No value data found",
-          ace10Value: "No value data found",
-          tag10Value: "No value data found",
-          cgc10Value: "No value data found",
-          source: "Unable to estimate",
-        });
+        console.log("[card-value] No JSON in AI response:", content);
+        const fallback: Record<string, string> = {};
+        for (const k of allKeys) fallback[k] = directResults[k] || "No value data found";
+        fallback.source = directCount > 0 ? "Based on recent eBay UK sold listings" : "Unable to estimate";
+        res.json(fallback);
       }
     } catch (error: any) {
-      console.error("[card-value] Error fetching card value:", error?.message || error);
+      console.error("[card-value] Error:", error?.message || error);
       res.json({
-        psaValue: "No value data found",
-        bgsValue: "No value data found",
-        aceValue: "No value data found",
-        tagValue: "No value data found",
-        cgcValue: "No value data found",
-        rawValue: "No value data found",
-        psa10Value: "No value data found",
-        bgs10Value: "No value data found",
-        ace10Value: "No value data found",
-        tag10Value: "No value data found",
-        cgc10Value: "No value data found",
-        source: "Error fetching values",
+        psaValue: "No value data found", bgsValue: "No value data found", aceValue: "No value data found",
+        tagValue: "No value data found", cgcValue: "No value data found", rawValue: "No value data found",
+        psa10Value: "No value data found", bgs10Value: "No value data found", ace10Value: "No value data found",
+        tag10Value: "No value data found", cgc10Value: "No value data found", source: "Error fetching values",
       });
     }
   });
