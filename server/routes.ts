@@ -2209,7 +2209,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
   app.post("/api/crop-to-card", async (req, res) => {
     try {
-      const { image, padding = 12 } = req.body;
+      const { image, padding = 20 } = req.body;
       if (!image) {
         return res.status(400).json({ error: "Image is required" });
       }
