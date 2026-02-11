@@ -146,11 +146,7 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
       <View style={styles.slideContent}>
         {item.key === "welcome" ? (
           <>
-            <Animated.View style={[styles.welcomeLogoArea, iconStyle]}>
-              <Image source={logoImage} style={styles.welcomeLogo} resizeMode="contain" />
-            </Animated.View>
-
-            <Animated.View entering={FadeIn.delay(300).duration(600)}>
+            <Animated.View entering={FadeIn.delay(200).duration(600)}>
               <Text style={styles.welcomeTitle}>
                 <Text style={{ color: "#fff" }}>Grade.</Text>
                 <Text style={{ color: Colors.primary }}>IQ</Text>
