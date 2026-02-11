@@ -77,6 +77,67 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
   );
 }
 
+function parseGBP(val: string): number | null {
+  const m = val.match(/[\u00a3]?\s*([\d,]+\.?\d*)/);
+  if (!m) return null;
+  return parseFloat(m[1].replace(/,/g, ""));
+}
+
+interface PortfolioStats {
+  avgPSA: number;
+  avgBGS: number;
+  avgACE: number;
+  totalPSA: number;
+  totalBGS: number;
+  totalACE: number;
+  cardsWithValues: number;
+}
+
+function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
+  if (gradings.length === 0) return null;
+  let sumPSA = 0, sumBGS = 0, sumACE = 0;
+  let totalPSA = 0, totalBGS = 0, totalACE = 0;
+  let cardsWithValues = 0;
+  for (const g of gradings) {
+    sumPSA += g.result.psa.grade;
+    sumBGS += g.result.beckett.overallGrade;
+    sumACE += g.result.ace.overallGrade;
+    const cv = g.result.cardValue;
+    if (cv) {
+      const p = parseGBP(cv.psaValue);
+      const b = parseGBP(cv.bgsValue);
+      const a = parseGBP(cv.aceValue);
+      if (p !== null || b !== null || a !== null) cardsWithValues++;
+      if (p !== null) totalPSA += p;
+      if (b !== null) totalBGS += b;
+      if (a !== null) totalACE += a;
+    }
+  }
+  const n = gradings.length;
+  return {
+    avgPSA: Math.round((sumPSA / n) * 10) / 10,
+    avgBGS: Math.round((sumBGS / n) * 10) / 10,
+    avgACE: Math.round((sumACE / n) * 10) / 10,
+    totalPSA, totalBGS, totalACE, cardsWithValues,
+  };
+}
+
+function getGradientColor(grade: number): string {
+  const ratio = Math.max(0, Math.min(1, (grade - 1) / 9));
+  if (ratio <= 0.5) {
+    const t = ratio * 2;
+    const r = Math.round(239 + (245 - 239) * t);
+    const g = Math.round(68 + (158 - 68) * t);
+    const b = Math.round(68 + (11 - 68) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  const t = (ratio - 0.5) * 2;
+  const r = Math.round(245 + (16 - 245) * t);
+  const g = Math.round(158 + (185 - 158) * t);
+  const b = Math.round(11 + (129 - 11) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [gradings, setGradings] = useState<SavedGrading[]>([]);
@@ -84,6 +145,8 @@ export default function HomeScreen() {
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  const stats = computeStats(gradings);
 
   const filteredGradings = searchQuery.trim()
     ? gradings.filter((g) => {
@@ -162,28 +225,77 @@ export default function HomeScreen() {
           </LinearGradient>
         </Pressable>
 
-        <View style={styles.bubbleStats}>
+        <Pressable
+          style={({ pressed }) => [styles.bubbleStats, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+          onPress={() => router.push("/bulk")}
+        >
           <View style={styles.statsIconCircle}>
-            <Ionicons name="stats-chart" size={24} color={Colors.primary} />
+            <Ionicons name="layers" size={22} color={Colors.primary} />
           </View>
           <Text style={styles.statsNumber}>{gradings.length}</Text>
           <Text style={styles.statsLabel}>Cards{"\n"}Graded</Text>
-        </View>
+          <Text style={styles.bulkHint}>Tap to bulk grade</Text>
+        </Pressable>
       </View>
 
-      <Pressable
-        style={({ pressed }) => [styles.bulkButton, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
-        onPress={() => router.push("/bulk")}
-      >
-        <View style={styles.bulkIconCircle}>
-          <Ionicons name="layers" size={20} color={Colors.primary} />
+      {stats && (
+        <View style={styles.portfolioCard}>
+          <View style={styles.portfolioHeader}>
+            <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
+            <Text style={styles.portfolioTitle}>Average Grades</Text>
+          </View>
+          <View style={styles.avgGradesRow}>
+            <View style={styles.avgGradeItem}>
+              <Image source={require("@/assets/images/logo-psa.png")} style={styles.avgLogo} contentFit="contain" />
+              <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
+              <Text style={styles.avgGradeLabel}>PSA</Text>
+            </View>
+            <View style={styles.avgDivider} />
+            <View style={styles.avgGradeItem}>
+              <Image source={require("@/assets/images/logo-bgs.png")} style={styles.avgLogo} contentFit="contain" />
+              <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
+              <Text style={styles.avgGradeLabel}>BGS</Text>
+            </View>
+            <View style={styles.avgDivider} />
+            <View style={styles.avgGradeItem}>
+              <Image source={require("@/assets/images/logo-ace.png")} style={styles.avgLogo} contentFit="contain" />
+              <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
+              <Text style={styles.avgGradeLabel}>ACE</Text>
+            </View>
+          </View>
+
+          {stats.cardsWithValues > 0 && (
+            <>
+              <View style={styles.portfolioDivider} />
+              <View style={styles.portfolioHeader}>
+                <Ionicons name="cash-outline" size={16} color={Colors.textSecondary} />
+                <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
+              </View>
+              <View style={styles.valueRows}>
+                {stats.totalPSA > 0 && (
+                  <View style={styles.portfolioValueRow}>
+                    <Text style={styles.portfolioValueLabel}>PSA Graded</Text>
+                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(2)}</Text>
+                  </View>
+                )}
+                {stats.totalBGS > 0 && (
+                  <View style={styles.portfolioValueRow}>
+                    <Text style={styles.portfolioValueLabel}>BGS Graded</Text>
+                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(2)}</Text>
+                  </View>
+                )}
+                {stats.totalACE > 0 && (
+                  <View style={styles.portfolioValueRow}>
+                    <Text style={styles.portfolioValueLabel}>ACE Graded</Text>
+                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.portfolioNote}>Based on {stats.cardsWithValues} of {gradings.length} cards with eBay data</Text>
+            </>
+          )}
         </View>
-        <View style={styles.bulkTextWrap}>
-          <Text style={styles.bulkTitle}>Bulk Grade</Text>
-          <Text style={styles.bulkSubtitle}>Grade up to 20 cards at once</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-      </Pressable>
+      )}
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent Grades</Text>
@@ -346,39 +458,87 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 16,
   },
-  bulkButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginHorizontal: BUBBLE_PAD,
-    marginBottom: 28,
+  bulkHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.primary,
+    marginTop: 2,
+  },
+  portfolioCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
-    padding: 14,
+    padding: 16,
+    marginHorizontal: BUBBLE_PAD,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
+    gap: 12,
   },
-  bulkIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary + "15",
+  portfolioHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 8,
   },
-  bulkTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  bulkTitle: {
+  portfolioTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: Colors.text,
-  },
-  bulkSubtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.textSecondary,
+  },
+  avgGradesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avgGradeItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+  },
+  avgLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+  },
+  avgGradeValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 24,
+  },
+  avgGradeLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  avgDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  portfolioDivider: {
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  valueRows: {
+    gap: 6,
+  },
+  portfolioValueRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  portfolioValueLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  portfolioValueAmount: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#10B981",
+  },
+  portfolioNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
   },
   sectionHeader: {
     flexDirection: "row",

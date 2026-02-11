@@ -157,6 +157,11 @@ export default function ResultsScreen() {
       });
       const data = await resp.json();
       setCardValue(data);
+      if (grading) {
+        const updatedResult = { ...grading.result, cardValue: data };
+        await updateGrading(grading.id, { result: updatedResult });
+        setGrading({ ...grading, result: updatedResult });
+      }
     } catch {
       setCardValue({
         psaValue: "No value data found",
