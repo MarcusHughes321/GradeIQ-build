@@ -18,7 +18,6 @@ import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut, SlideInUp } from "react-native-reanimated";
-import { BlurView } from "expo-blur";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
 import { apiRequest } from "@/lib/query-client";
@@ -33,7 +32,7 @@ const BUBBLE_GAP = 12;
 const BUBBLE_PAD = 20;
 const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_PAD * 2 - BUBBLE_GAP) / 2;
 
-function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[] }) {
+function HistoryItem({ item, onDelete, enabledCompanies, hideValues }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean }) {
   const date = new Date(item.timestamp);
   const dateStr = date.toLocaleDateString("en-US", {
     month: "short",
@@ -92,7 +91,7 @@ function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading;
             {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
           </Text>
           <Text style={styles.histDate}>{dateStr}</Text>
-          {avgValue !== null && (
+          {avgValue !== null && !hideValues && (
             <Text style={styles.histValue}>Est. £{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
           )}
         </View>
@@ -414,158 +413,158 @@ export default function HomeScreen() {
               <Text style={styles.countCircleLabel}>Cards{"\n"}Graded</Text>
             </View>
 
-            <View style={styles.portfolioCard}>
-              <View style={styles.portfolioHeader}>
-                <Ionicons name="cash-outline" size={16} color={Colors.primary} />
-                <Text style={styles.portfolioTitle}>Est. Portfolio Value</Text>
-              </View>
-              {(() => {
-                const activeValues: { label: string; total: number }[] = [];
-                if (enabledCompanies.includes("PSA") && stats.totalPSA > 0) activeValues.push({ label: "PSA", total: stats.totalPSA });
-                if (enabledCompanies.includes("Beckett") && stats.totalBGS > 0) activeValues.push({ label: "BGS", total: stats.totalBGS });
-                if (enabledCompanies.includes("Ace") && stats.totalACE > 0) activeValues.push({ label: "ACE", total: stats.totalACE });
-                if (enabledCompanies.includes("TAG") && stats.totalTAG > 0) activeValues.push({ label: "TAG", total: stats.totalTAG });
-                if (enabledCompanies.includes("CGC") && stats.totalCGC > 0) activeValues.push({ label: "CGC", total: stats.totalCGC });
-                const avgTotal = activeValues.length > 0
-                  ? activeValues.reduce((a, b) => a + b.total, 0) / activeValues.length
-                  : 0;
-                return (
-                  <View style={styles.portfolioTotalSection}>
-                    <Text style={styles.portfolioTotalAmount}>
-                      {avgTotal > 0 ? `\u00a3${avgTotal.toFixed(2)}` : "No data yet"}
-                    </Text>
-                    {avgTotal > 0 ? (
-                      <Text style={styles.portfolioTotalNote}>
-                        Avg. across {activeValues.length} {activeValues.length === 1 ? "company" : "companies"}
-                      </Text>
-                    ) : (
-                      <Text style={styles.portfolioTotalNote}>Fetching prices...</Text>
-                    )}
-                  </View>
-                );
-              })()}
-              {stats.cardsWithValues > 0 && (
-                <>
-                  <View style={styles.portfolioDivider} />
-                  <View style={styles.valueRows}>
-                    {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
-                      <View style={styles.portfolioValueRow}>
-                        <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
-                        <View style={styles.portfolioLabelRow}><CompanyLabel company="PSA" fontSize={12} /></View>
-                        <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(0)}</Text>
-                      </View>
-                    )}
-                    {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
-                      <View style={styles.portfolioValueRow}>
-                        <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
-                        <View style={styles.portfolioLabelRow}><CompanyLabel company="BGS" fontSize={12} /></View>
-                        <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(0)}</Text>
-                      </View>
-                    )}
-                    {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
-                      <View style={styles.portfolioValueRow}>
-                        <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
-                        <View style={styles.portfolioLabelRow}><CompanyLabel company="ACE" fontSize={12} /></View>
-                        <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(0)}</Text>
-                      </View>
-                    )}
-                    {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
-                      <View style={styles.portfolioValueRow}>
-                        <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
-                        <View style={styles.portfolioLabelRow}><CompanyLabel company="TAG" fontSize={12} /></View>
-                        <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(0)}</Text>
-                      </View>
-                    )}
-                    {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
-                      <View style={styles.portfolioValueRow}>
-                        <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
-                        <View style={styles.portfolioLabelRow}><CompanyLabel company="CGC" fontSize={12} /></View>
-                        <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(0)}</Text>
-                      </View>
-                    )}
-                  </View>
-                </>
-              )}
-              {isGateEnabled && !isSubscribed && (
-                <Pressable
-                  style={StyleSheet.absoluteFill}
-                  onPress={() => router.push("/paywall")}
-                >
-                  <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
-                    <View style={styles.proBlurContent}>
-                      <Ionicons name="lock-closed" size={20} color="#F59E0B" />
-                      <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                      <Text style={styles.proBlurSubtitle}>Full portfolio tracking & market values</Text>
-                    </View>
-                  </BlurView>
-                </Pressable>
-              )}
-            </View>
-          </View>
-
-          <View style={[styles.avgGradesCard, isGateEnabled && !isSubscribed && { overflow: "hidden" as const }]}>
-            <View style={styles.portfolioHeader}>
-              <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
-              <Text style={styles.portfolioTitle}>Average Grades</Text>
-            </View>
-            <View style={styles.avgGradesRow}>
-              {enabledCompanies.includes("PSA") && (
-                <>
-                  <View style={styles.avgGradeItem}>
-                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
-                    <CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_500Medium" />
-                  </View>
-                  {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
-                </>
-              )}
-              {enabledCompanies.includes("Beckett") && (
-                <>
-                  <View style={styles.avgGradeItem}>
-                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
-                    <CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_500Medium" />
-                  </View>
-                  {(enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
-                </>
-              )}
-              {enabledCompanies.includes("Ace") && (
-                <>
-                  <View style={styles.avgGradeItem}>
-                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
-                    <CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_500Medium" />
-                  </View>
-                  {((enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
-                </>
-              )}
-              {enabledCompanies.includes("TAG") && stats.countTAG > 0 && (
-                <>
-                  <View style={styles.avgGradeItem}>
-                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
-                    <CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_500Medium" />
-                  </View>
-                  {(enabledCompanies.includes("CGC") && stats.countCGC > 0) && <View style={styles.avgDivider} />}
-                </>
-              )}
-              {enabledCompanies.includes("CGC") && stats.countCGC > 0 && (
-                <View style={styles.avgGradeItem}>
-                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
-                  <CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_500Medium" />
+            {isGateEnabled && !isSubscribed ? (
+              <Pressable style={styles.portfolioCard} onPress={() => router.push("/paywall")}>
+                <View style={styles.portfolioHeader}>
+                  <Ionicons name="cash-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.portfolioTitle}>Est. Portfolio Value</Text>
                 </View>
-              )}
-            </View>
-            {isGateEnabled && !isSubscribed && (
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={() => router.push("/paywall")}
-              >
-                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
-                  <View style={styles.proBlurContent}>
-                    <Ionicons name="lock-closed" size={18} color="#F59E0B" />
-                    <Text style={styles.proBlurSubtitle}>Upgrade to view</Text>
-                  </View>
-                </BlurView>
+                <View style={styles.proLockedContent}>
+                  <Ionicons name="lock-closed" size={24} color="#F59E0B" />
+                  <Text style={styles.proBlurTitle}>Pro Feature</Text>
+                  <Text style={styles.proBlurSubtitle}>Upgrade to track portfolio values</Text>
+                </View>
               </Pressable>
+            ) : (
+              <View style={styles.portfolioCard}>
+                <View style={styles.portfolioHeader}>
+                  <Ionicons name="cash-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.portfolioTitle}>Est. Portfolio Value</Text>
+                </View>
+                {(() => {
+                  const activeValues: { label: string; total: number }[] = [];
+                  if (enabledCompanies.includes("PSA") && stats.totalPSA > 0) activeValues.push({ label: "PSA", total: stats.totalPSA });
+                  if (enabledCompanies.includes("Beckett") && stats.totalBGS > 0) activeValues.push({ label: "BGS", total: stats.totalBGS });
+                  if (enabledCompanies.includes("Ace") && stats.totalACE > 0) activeValues.push({ label: "ACE", total: stats.totalACE });
+                  if (enabledCompanies.includes("TAG") && stats.totalTAG > 0) activeValues.push({ label: "TAG", total: stats.totalTAG });
+                  if (enabledCompanies.includes("CGC") && stats.totalCGC > 0) activeValues.push({ label: "CGC", total: stats.totalCGC });
+                  const avgTotal = activeValues.length > 0
+                    ? activeValues.reduce((a, b) => a + b.total, 0) / activeValues.length
+                    : 0;
+                  return (
+                    <View style={styles.portfolioTotalSection}>
+                      <Text style={styles.portfolioTotalAmount}>
+                        {avgTotal > 0 ? `\u00a3${avgTotal.toFixed(2)}` : "No data yet"}
+                      </Text>
+                      {avgTotal > 0 ? (
+                        <Text style={styles.portfolioTotalNote}>
+                          Avg. across {activeValues.length} {activeValues.length === 1 ? "company" : "companies"}
+                        </Text>
+                      ) : (
+                        <Text style={styles.portfolioTotalNote}>Fetching prices...</Text>
+                      )}
+                    </View>
+                  );
+                })()}
+                {stats.cardsWithValues > 0 && (
+                  <>
+                    <View style={styles.portfolioDivider} />
+                    <View style={styles.valueRows}>
+                      {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
+                        <View style={styles.portfolioValueRow}>
+                          <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
+                          <View style={styles.portfolioLabelRow}><CompanyLabel company="PSA" fontSize={12} /></View>
+                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(0)}</Text>
+                        </View>
+                      )}
+                      {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
+                        <View style={styles.portfolioValueRow}>
+                          <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
+                          <View style={styles.portfolioLabelRow}><CompanyLabel company="BGS" fontSize={12} /></View>
+                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(0)}</Text>
+                        </View>
+                      )}
+                      {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
+                        <View style={styles.portfolioValueRow}>
+                          <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
+                          <View style={styles.portfolioLabelRow}><CompanyLabel company="ACE" fontSize={12} /></View>
+                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(0)}</Text>
+                        </View>
+                      )}
+                      {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
+                        <View style={styles.portfolioValueRow}>
+                          <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
+                          <View style={styles.portfolioLabelRow}><CompanyLabel company="TAG" fontSize={12} /></View>
+                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(0)}</Text>
+                        </View>
+                      )}
+                      {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
+                        <View style={styles.portfolioValueRow}>
+                          <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
+                          <View style={styles.portfolioLabelRow}><CompanyLabel company="CGC" fontSize={12} /></View>
+                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(0)}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                )}
+              </View>
             )}
           </View>
+
+          {isGateEnabled && !isSubscribed ? (
+            <Pressable style={styles.avgGradesCard} onPress={() => router.push("/paywall")}>
+              <View style={styles.portfolioHeader}>
+                <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
+                <Text style={styles.portfolioTitle}>Average Grades</Text>
+              </View>
+              <View style={styles.proLockedContentSmall}>
+                <Ionicons name="lock-closed" size={18} color="#F59E0B" />
+                <Text style={styles.proBlurSubtitle}>Upgrade to view</Text>
+              </View>
+            </Pressable>
+          ) : (
+            <View style={styles.avgGradesCard}>
+              <View style={styles.portfolioHeader}>
+                <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
+                <Text style={styles.portfolioTitle}>Average Grades</Text>
+              </View>
+              <View style={styles.avgGradesRow}>
+                {enabledCompanies.includes("PSA") && (
+                  <>
+                    <View style={styles.avgGradeItem}>
+                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
+                      <CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_500Medium" />
+                    </View>
+                    {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                  </>
+                )}
+                {enabledCompanies.includes("Beckett") && (
+                  <>
+                    <View style={styles.avgGradeItem}>
+                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
+                      <CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_500Medium" />
+                    </View>
+                    {(enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                  </>
+                )}
+                {enabledCompanies.includes("Ace") && (
+                  <>
+                    <View style={styles.avgGradeItem}>
+                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
+                      <CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_500Medium" />
+                    </View>
+                    {((enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                  </>
+                )}
+                {enabledCompanies.includes("TAG") && stats.countTAG > 0 && (
+                  <>
+                    <View style={styles.avgGradeItem}>
+                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
+                      <CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_500Medium" />
+                    </View>
+                    {(enabledCompanies.includes("CGC") && stats.countCGC > 0) && <View style={styles.avgDivider} />}
+                  </>
+                )}
+                {enabledCompanies.includes("CGC") && stats.countCGC > 0 && (
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
+                    <CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_500Medium" />
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </>
       )}
 
@@ -609,11 +608,13 @@ export default function HomeScreen() {
         <View style={styles.sortRow}>
           {([
             { key: "recent" as const, label: "Recent", icon: "time-outline" as const },
-            { key: "value-high" as const, label: "£ High", icon: "arrow-up" as const },
-            { key: "value-low" as const, label: "£ Low", icon: "arrow-down" as const },
+            ...(!isGateEnabled || isSubscribed ? [
+              { key: "value-high" as const, label: "£ High", icon: "arrow-up" as const },
+              { key: "value-low" as const, label: "£ Low", icon: "arrow-down" as const },
+            ] : []),
             { key: "a-z" as const, label: "A-Z", icon: "text-outline" as const },
             { key: "z-a" as const, label: "Z-A", icon: "text-outline" as const },
-          ]).map((opt) => (
+          ] as { key: typeof sortMode; label: string; icon: keyof typeof Ionicons.glyphMap }[]).map((opt) => (
             <Pressable
               key={opt.key}
               style={[styles.sortChip, sortMode === opt.key && styles.sortChipActive]}
@@ -635,7 +636,7 @@ export default function HomeScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.itemPad}>
-            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} />
+            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} hideValues={isGateEnabled && !isSubscribed} />
           </View>
         )}
         ListHeaderComponent={renderHeader}
@@ -1264,19 +1265,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-evenly",
     gap: 4,
   },
-  proBlurOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  proLockedContent: {
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 16,
+    gap: 6,
+    paddingVertical: 20,
   },
-  proBlurContent: {
+  proLockedContentSmall: {
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    justifyContent: "center",
+    flexDirection: "row" as const,
+    gap: 6,
+    paddingVertical: 12,
   },
   proBlurTitle: {
     fontFamily: "Inter_700Bold",
