@@ -313,6 +313,34 @@ export default function HomeScreen() {
                   </View>
                 )}
               </View>
+              {(() => {
+                let total = 0;
+                if (enabledCompanies.includes("PSA")) total += stats.totalPSA;
+                else if (enabledCompanies.includes("Beckett")) total += stats.totalBGS;
+                else if (enabledCompanies.includes("Ace")) total += stats.totalACE;
+                else if (enabledCompanies.includes("TAG")) total += stats.totalTAG;
+                else if (enabledCompanies.includes("CGC")) total += stats.totalCGC;
+                if (total <= 0) {
+                  const vals = [stats.totalPSA, stats.totalBGS, stats.totalACE, stats.totalTAG, stats.totalCGC].filter(v => v > 0);
+                  total = vals.length > 0 ? vals[0] : 0;
+                }
+                const activeValues: number[] = [];
+                if (enabledCompanies.includes("PSA") && stats.totalPSA > 0) activeValues.push(stats.totalPSA);
+                if (enabledCompanies.includes("Beckett") && stats.totalBGS > 0) activeValues.push(stats.totalBGS);
+                if (enabledCompanies.includes("Ace") && stats.totalACE > 0) activeValues.push(stats.totalACE);
+                if (enabledCompanies.includes("TAG") && stats.totalTAG > 0) activeValues.push(stats.totalTAG);
+                if (enabledCompanies.includes("CGC") && stats.totalCGC > 0) activeValues.push(stats.totalCGC);
+                const avgTotal = activeValues.length > 0 ? activeValues.reduce((a, b) => a + b, 0) / activeValues.length : 0;
+                return avgTotal > 0 ? (
+                  <>
+                    <View style={styles.portfolioDivider} />
+                    <View style={styles.portfolioTotalRow}>
+                      <Text style={styles.portfolioTotalLabel}>Est. Total Value</Text>
+                      <Text style={styles.portfolioTotalAmount}>{"\u00a3"}{avgTotal.toFixed(2)}</Text>
+                    </View>
+                  </>
+                ) : null;
+              })()}
               <Text style={styles.portfolioNote}>Based on {stats.cardsWithValues} of {gradings.length} cards with eBay data</Text>
             </View>
           )}
@@ -626,6 +654,22 @@ const styles = StyleSheet.create({
   portfolioValueAmount: {
     fontFamily: "Inter_700Bold",
     fontSize: 14,
+    color: "#10B981",
+  },
+  portfolioTotalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 4,
+  },
+  portfolioTotalLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  portfolioTotalAmount: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
     color: "#10B981",
   },
   portfolioNote: {
