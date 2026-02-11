@@ -506,29 +506,63 @@ export default function ResultsScreen() {
         <View style={styles.overallGradesCard}>
           <Text style={styles.sectionTitle}>Overall Grades</Text>
           <View style={styles.gradeChips}>
-            <View style={styles.gradeChip}>
-              <Text style={styles.gradeChipLabel}>PSA</Text>
-              <Text style={[styles.gradeChipValue, { color: getGradientColor(result.psa.grade) }]}>
-                {result.psa.grade % 1 === 0 ? result.psa.grade.toString() : result.psa.grade.toFixed(1)}
-              </Text>
-              <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.psa.grade) }]} />
-            </View>
-            <View style={styles.gradeChipDivider} />
-            <View style={styles.gradeChip}>
-              <Text style={styles.gradeChipLabel}>BGS</Text>
-              <Text style={[styles.gradeChipValue, { color: getGradientColor(result.beckett.overallGrade) }]}>
-                {result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade.toString() : result.beckett.overallGrade.toFixed(1)}
-              </Text>
-              <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.beckett.overallGrade) }]} />
-            </View>
-            <View style={styles.gradeChipDivider} />
-            <View style={styles.gradeChip}>
-              <Text style={styles.gradeChipLabel}>ACE</Text>
-              <Text style={[styles.gradeChipValue, { color: getGradientColor(result.ace.overallGrade) }]}>
-                {result.ace.overallGrade}
-              </Text>
-              <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.ace.overallGrade) }]} />
-            </View>
+            {enabledCompanies.includes("PSA") && (
+              <>
+                <View style={styles.gradeChip}>
+                  <Text style={styles.gradeChipLabel}>PSA</Text>
+                  <Text style={[styles.gradeChipValue, { color: getGradientColor(result.psa.grade) }]}>
+                    {result.psa.grade % 1 === 0 ? result.psa.grade.toString() : result.psa.grade.toFixed(1)}
+                  </Text>
+                  <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.psa.grade) }]} />
+                </View>
+                {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.gradeChipDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("Beckett") && (
+              <>
+                <View style={styles.gradeChip}>
+                  <Text style={styles.gradeChipLabel}>BGS</Text>
+                  <Text style={[styles.gradeChipValue, { color: getGradientColor(result.beckett.overallGrade) }]}>
+                    {result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade.toString() : result.beckett.overallGrade.toFixed(1)}
+                  </Text>
+                  <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.beckett.overallGrade) }]} />
+                </View>
+                {(enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.gradeChipDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("Ace") && (
+              <>
+                <View style={styles.gradeChip}>
+                  <Text style={styles.gradeChipLabel}>ACE</Text>
+                  <Text style={[styles.gradeChipValue, { color: getGradientColor(result.ace.overallGrade) }]}>
+                    {result.ace.overallGrade}
+                  </Text>
+                  <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.ace.overallGrade) }]} />
+                </View>
+                {(enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.gradeChipDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("TAG") && result.tag && (
+              <>
+                <View style={styles.gradeChip}>
+                  <Text style={styles.gradeChipLabel}>TAG</Text>
+                  <Text style={[styles.gradeChipValue, { color: getGradientColor(result.tag.overallGrade) }]}>
+                    {result.tag.overallGrade % 1 === 0 ? result.tag.overallGrade.toString() : result.tag.overallGrade.toFixed(1)}
+                  </Text>
+                  <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.tag.overallGrade) }]} />
+                </View>
+                {enabledCompanies.includes("CGC") && <View style={styles.gradeChipDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("CGC") && result.cgc && (
+              <View style={styles.gradeChip}>
+                <Text style={styles.gradeChipLabel}>CGC</Text>
+                <Text style={[styles.gradeChipValue, { color: getGradientColor(result.cgc.grade) }]}>
+                  {result.cgc.grade % 1 === 0 ? result.cgc.grade.toString() : result.cgc.grade.toFixed(1)}
+                </Text>
+                <View style={[styles.gradeBar, { backgroundColor: getGradientColor(result.cgc.grade) }]} />
+              </View>
+            )}
           </View>
         </View>
 

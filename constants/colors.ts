@@ -15,9 +15,9 @@ const Colors = {
   error: "#EF4444",
   cardPSA: "#FF3C31",
   cardBeckett: "#FFFFFF",
-  cardAce: "#A0A0A0",
-  cardTAG: "#00B4D8",
-  cardCGC: "#FFD700",
+  cardAce: "#FFD700",
+  cardTAG: "#FFFFFF",
+  cardCGC: "#FFFFFF",
   gradientStart: "#FF3C31",
   gradientEnd: "#FF6B63",
   light: {
