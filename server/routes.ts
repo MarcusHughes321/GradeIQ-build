@@ -909,21 +909,58 @@ async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Pr
 
 const boundsCache = new Map<string, { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }>();
 
+async function convertHeifToJpeg(buffer: Buffer): Promise<Buffer> {
+  const fs = await import("fs");
+  const { execSync } = await import("child_process");
+  const os = await import("os");
+  const path = await import("path");
+  const tmpDir = os.tmpdir();
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const heifPath = path.join(tmpDir, `card_${id}.heic`);
+  const jpegPath = path.join(tmpDir, `card_${id}.jpg`);
+  try {
+    fs.writeFileSync(heifPath, buffer);
+    execSync(`heif-convert "${heifPath}" "${jpegPath}"`, { timeout: 10000 });
+    const jpegBuf = fs.readFileSync(jpegPath);
+    return jpegBuf;
+  } finally {
+    try { fs.unlinkSync(heifPath); } catch {}
+    try { fs.unlinkSync(jpegPath); } catch {}
+  }
+}
+
 async function optimizeImageForAI(dataUri: string, maxDim: number = 1024): Promise<string> {
   try {
-    const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
-    const buffer = Buffer.from(base64Data, "base64");
+    const mimeMatch = dataUri.match(/^data:(image\/[^;]+);base64,/);
+    const mime = (mimeMatch?.[1] || "").toLowerCase();
+    const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
+    let buffer = Buffer.from(base64Data, "base64");
+
+    const isHeif = mime.includes("heic") || mime.includes("heif") ||
+      (buffer.length > 12 && buffer.toString("ascii", 4, 12).includes("ftyp"));
+
+    if (isHeif) {
+      console.log(`[optimize] Converting HEIF/HEIC image (${Math.round(buffer.length / 1024)}KB) to JPEG`);
+      try {
+        buffer = Buffer.from(await sharp(buffer).jpeg({ quality: 90 }).toBuffer());
+      } catch {
+        console.log(`[optimize] Sharp HEIF failed, trying heif-convert CLI...`);
+        buffer = Buffer.from(await convertHeifToJpeg(buffer));
+      }
+    }
+
     const meta = await sharp(buffer).metadata();
     const w = meta.width || 0;
     const h = meta.height || 0;
-    if (w <= maxDim && h <= maxDim && meta.format === "jpeg") return dataUri;
+    if (w <= maxDim && h <= maxDim && meta.format === "jpeg" && !isHeif) return dataUri;
     let pipeline = sharp(buffer);
     if (w > maxDim || h > maxDim) {
       pipeline = pipeline.resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true });
     }
     const optimized = await pipeline.jpeg({ quality: 85 }).toBuffer();
     return `data:image/jpeg;base64,${optimized.toString("base64")}`;
-  } catch {
+  } catch (err) {
+    console.error("[optimize] Image optimization failed:", err);
     return dataUri;
   }
 }
@@ -1519,8 +1556,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const effectiveCode = idCode || gradingSetCode;
       const isAsianCard = effectiveCode && /^s\d|^sv\d|^sm\d/i.test(effectiveCode);
 
-      const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+      const frontUri = frontUrl;
+      const backUri = backUrl;
 
       if (isAsianCard) {
         console.log(`[grade-card] Asian set code "${effectiveCode}" detected — trying Bulbapedia database lookup`);
@@ -1668,7 +1705,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (bestVerified) {
-        gradingResult.cardName = bestVerified.cardName;
+        let displayName = bestVerified.cardName;
+        const aiName = gradingName || idName || "";
+        if (displayName && aiName) {
+          const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
+          const aiLower = aiName.toLowerCase().replace(/[-\s]/g, "");
+          const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(aiName);
+          const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
+          if (isAbbreviated || (aiIsMoreDescriptive && aiName.length <= displayName.length * 2.5)) {
+            displayName = aiName;
+          }
+        }
+        gradingResult.cardName = displayName;
         gradingResult.setName = bestVerified.setName;
         gradingResult.setNumber = bestVerified.setNumber;
       } else {

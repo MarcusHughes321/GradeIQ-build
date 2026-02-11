@@ -201,6 +201,7 @@ export default function BulkScreen() {
       const savedIds: string[] = [];
       let failedCount = 0;
       let completedSoFar = 0;
+      const failedCardImages: string[] = [];
       const BATCH_SIZE = 3;
 
       for (let batchStart = 0; batchStart < readyCards.length; batchStart += BATCH_SIZE) {
@@ -229,17 +230,22 @@ export default function BulkScreen() {
               card.backImage!,
               result as GradingResult
             );
-            return { globalIdx, savedId: saved.id, cardName: result.cardName };
+            return { globalIdx, savedId: saved.id, cardName: result.cardName, frontImage: card.frontImage! };
           })
         );
 
-        for (const r of batchResults) {
+        for (let ri = 0; ri < batchResults.length; ri++) {
+          const r = batchResults[ri];
           if (r.status === "fulfilled") {
             savedIds.push(r.value.savedId);
             setCurrentCardName(r.value.cardName || `Card ${r.value.globalIdx + 1}`);
           } else {
             console.error(`Card failed:`, r.reason?.message);
             failedCount++;
+            const failedCard = batch[ri];
+            if (failedCard?.frontImage) {
+              failedCardImages.push(failedCard.frontImage);
+            }
           }
         }
 
@@ -265,6 +271,7 @@ export default function BulkScreen() {
         params: {
           gradingIds: savedIds.join(","),
           failedCount: failedCount.toString(),
+          failedImages: failedCardImages.join("|||"),
         },
       });
     } catch (error: any) {

@@ -65,6 +65,7 @@ export default function BulkResultsScreen() {
   const params = useLocalSearchParams();
   const gradingIds = (params.gradingIds as string || "").split(",").filter(Boolean);
   const failedCount = parseInt(params.failedCount as string || "0", 10);
+  const failedImages = (params.failedImages as string || "").split("|||").filter(Boolean);
 
   const [gradings, setGradings] = useState<SavedGrading[]>([]);
 
@@ -142,8 +143,36 @@ export default function BulkResultsScreen() {
               </View>
             </View>
 
-            <Text style={styles.listTitle}>All Cards</Text>
+            <Text style={styles.listTitle}>Graded Cards</Text>
           </View>
+        }
+        ListFooterComponent={
+          failedCount > 0 ? (
+            <View style={styles.failedSection}>
+              <Text style={styles.failedTitle}>Failed Cards ({failedCount})</Text>
+              <Text style={styles.failedSubtitle}>These cards could not be graded</Text>
+              {failedImages.map((uri, idx) => (
+                <View key={idx} style={styles.failedItem}>
+                  <Image source={{ uri }} style={styles.failedThumbnail} contentFit="cover" />
+                  <View style={styles.failedInfo}>
+                    <Text style={styles.failedCardLabel}>Card {idx + 1}</Text>
+                    <Text style={styles.failedReason}>Grading failed — try again individually</Text>
+                  </View>
+                  <View style={styles.failedBadge}>
+                    <Ionicons name="close-circle" size={22} color="#EF4444" />
+                  </View>
+                </View>
+              ))}
+              {failedImages.length === 0 && failedCount > 0 && (
+                <View style={styles.failedItem}>
+                  <View style={styles.failedInfo}>
+                    <Text style={styles.failedCardLabel}>{failedCount} card{failedCount > 1 ? "s" : ""} failed</Text>
+                    <Text style={styles.failedReason}>Try grading individually for better results</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          ) : null
         }
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 20 }]}
         showsVerticalScrollIndicator={false}
@@ -271,5 +300,55 @@ const styles = StyleSheet.create({
   gradesColumn: {
     flexDirection: "row",
     gap: 4,
+  },
+  failedSection: {
+    paddingHorizontal: 20,
+    marginTop: 20,
+  },
+  failedTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#EF4444",
+    marginBottom: 4,
+  },
+  failedSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    marginBottom: 12,
+  },
+  failedItem: {
+    flexDirection: "row",
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#EF444433",
+  },
+  failedThumbnail: {
+    width: 50,
+    height: 70,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceLight,
+  },
+  failedInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  failedCardLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  failedReason: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  failedBadge: {
+    paddingRight: 4,
   },
 });
