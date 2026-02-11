@@ -65,7 +65,7 @@ const SLIDES: SlideData[] = [
     icon: "analytics",
     iconSet: "ionicons",
     title: "Get Instant Grades",
-    subtitle: "AI analyses centering, corners, edges, and surface to estimate grades from PSA, Beckett, Ace, TAG, and CGC.",
+    subtitle: "AI analyses centering, corners, edges, and surface to estimate grades from all 5 companies.",
     color: "#10B981",
     gradientColors: ["#001a0d", "#000a08", "#000000"],
   },
@@ -143,12 +143,38 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
         </View>
 
         <Animated.View entering={FadeIn.delay(300).duration(600)}>
-          <Text style={styles.slideTitle}>{item.title}</Text>
+          <Text style={styles.slideTitle}>
+            {item.title.includes("Grade.IQ") ? (
+              <>
+                {item.title.replace("Grade.IQ", "")}
+                <Text style={{ color: "#fff" }}>Grade.</Text>
+                <Text style={{ color: Colors.primary }}>IQ</Text>
+              </>
+            ) : (
+              item.title
+            )}
+          </Text>
         </Animated.View>
 
         <Animated.View entering={FadeIn.delay(500).duration(600)}>
           <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
         </Animated.View>
+
+        {item.key === "grades" && (
+          <Animated.View entering={FadeIn.delay(700).duration(600)} style={styles.companyRow}>
+            {[
+              { label: "PSA", color: Colors.cardPSA },
+              { label: "BGS", color: Colors.cardBeckett },
+              { label: "ACE", color: Colors.cardAce },
+              { label: "TAG", color: Colors.cardTAG },
+              { label: "CGC", color: Colors.cardCGC },
+            ].map((c) => (
+              <View key={c.label} style={[styles.companyBadge, { borderColor: c.color + "80" }]}>
+                <Text style={[styles.companyBadgeText, { color: c.color }]}>{c.label}</Text>
+              </View>
+            ))}
+          </Animated.View>
+        )}
       </View>
     </View>
   );
@@ -332,6 +358,24 @@ const styles = StyleSheet.create({
   dotActive: {
     width: 24,
     borderRadius: 4,
+  },
+  companyRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+    justifyContent: "center",
+    flexWrap: "wrap",
+  },
+  companyBadge: {
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  companyBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
   },
   ctaBtn: {
     flexDirection: "row",
