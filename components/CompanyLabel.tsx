@@ -41,7 +41,7 @@ export default function CompanyLabel({ company, fontSize = 14, fontFamily = "Int
   }
 
   if (company === "TAG") {
-    const strokeWidth = Math.max(1, Math.round(fontSize / 10));
+    const strokeWidth = 1;
     const offsets = [
       { x: -strokeWidth, y: 0 },
       { x: strokeWidth, y: 0 },

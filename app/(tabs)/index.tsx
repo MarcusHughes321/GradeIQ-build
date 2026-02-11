@@ -261,80 +261,77 @@ export default function HomeScreen() {
 
       {stats && (
         <>
-          {stats.cardsWithValues > 0 && (
-            <View style={styles.portfolioCard}>
-              <View style={styles.portfolioHeader}>
-                <Ionicons name="cash-outline" size={16} color={Colors.primary} />
-                <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
-              </View>
-              <View style={styles.valueRows}>
-                {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
-                  <View style={styles.portfolioValueRow}>
-                    <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
-                    <View style={styles.portfolioLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
-                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(2)}</Text>
-                  </View>
-                )}
-                {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
-                  <View style={styles.portfolioValueRow}>
-                    <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
-                    <View style={styles.portfolioLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
-                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(2)}</Text>
-                  </View>
-                )}
-                {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
-                  <View style={styles.portfolioValueRow}>
-                    <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
-                    <View style={styles.portfolioLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
-                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
-                  </View>
-                )}
-                {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
-                  <View style={styles.portfolioValueRow}>
-                    <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
-                    <View style={styles.portfolioLabelRow}><CompanyLabel company="TAG" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
-                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(2)}</Text>
-                  </View>
-                )}
-                {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
-                  <View style={styles.portfolioValueRow}>
-                    <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
-                    <View style={styles.portfolioLabelRow}><CompanyLabel company="CGC" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
-                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(2)}</Text>
-                  </View>
-                )}
-              </View>
-              {(() => {
-                let total = 0;
-                if (enabledCompanies.includes("PSA")) total += stats.totalPSA;
-                else if (enabledCompanies.includes("Beckett")) total += stats.totalBGS;
-                else if (enabledCompanies.includes("Ace")) total += stats.totalACE;
-                else if (enabledCompanies.includes("TAG")) total += stats.totalTAG;
-                else if (enabledCompanies.includes("CGC")) total += stats.totalCGC;
-                if (total <= 0) {
-                  const vals = [stats.totalPSA, stats.totalBGS, stats.totalACE, stats.totalTAG, stats.totalCGC].filter(v => v > 0);
-                  total = vals.length > 0 ? vals[0] : 0;
-                }
-                const activeValues: number[] = [];
-                if (enabledCompanies.includes("PSA") && stats.totalPSA > 0) activeValues.push(stats.totalPSA);
-                if (enabledCompanies.includes("Beckett") && stats.totalBGS > 0) activeValues.push(stats.totalBGS);
-                if (enabledCompanies.includes("Ace") && stats.totalACE > 0) activeValues.push(stats.totalACE);
-                if (enabledCompanies.includes("TAG") && stats.totalTAG > 0) activeValues.push(stats.totalTAG);
-                if (enabledCompanies.includes("CGC") && stats.totalCGC > 0) activeValues.push(stats.totalCGC);
-                const avgTotal = activeValues.length > 0 ? activeValues.reduce((a, b) => a + b, 0) / activeValues.length : 0;
-                return avgTotal > 0 ? (
-                  <>
-                    <View style={styles.portfolioDivider} />
-                    <View style={styles.portfolioTotalRow}>
-                      <Text style={styles.portfolioTotalLabel}>Est. Total Value</Text>
-                      <Text style={styles.portfolioTotalAmount}>{"\u00a3"}{avgTotal.toFixed(2)}</Text>
-                    </View>
-                  </>
-                ) : null;
-              })()}
-              <Text style={styles.portfolioNote}>Based on {stats.cardsWithValues} of {gradings.length} cards with eBay data</Text>
+          <View style={styles.portfolioCard}>
+            <View style={styles.portfolioHeader}>
+              <Ionicons name="cash-outline" size={16} color={Colors.primary} />
+              <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
             </View>
-          )}
+            {(() => {
+              const activeValues: { label: string; total: number }[] = [];
+              if (enabledCompanies.includes("PSA") && stats.totalPSA > 0) activeValues.push({ label: "PSA", total: stats.totalPSA });
+              if (enabledCompanies.includes("Beckett") && stats.totalBGS > 0) activeValues.push({ label: "BGS", total: stats.totalBGS });
+              if (enabledCompanies.includes("Ace") && stats.totalACE > 0) activeValues.push({ label: "ACE", total: stats.totalACE });
+              if (enabledCompanies.includes("TAG") && stats.totalTAG > 0) activeValues.push({ label: "TAG", total: stats.totalTAG });
+              if (enabledCompanies.includes("CGC") && stats.totalCGC > 0) activeValues.push({ label: "CGC", total: stats.totalCGC });
+              const avgTotal = activeValues.length > 0
+                ? activeValues.reduce((a, b) => a + b.total, 0) / activeValues.length
+                : 0;
+              return (
+                <View style={styles.portfolioTotalSection}>
+                  <Text style={styles.portfolioTotalAmount}>
+                    {avgTotal > 0 ? `\u00a3${avgTotal.toFixed(2)}` : "No data yet"}
+                  </Text>
+                  <Text style={styles.portfolioTotalNote}>
+                    {avgTotal > 0
+                      ? `Based on ${stats.cardsWithValues} of ${gradings.length} cards with eBay data`
+                      : "Open a graded card to fetch eBay prices"}
+                  </Text>
+                </View>
+              );
+            })()}
+            {stats.cardsWithValues > 0 && (
+              <>
+                <View style={styles.portfolioDivider} />
+                <View style={styles.valueRows}>
+                  {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
+                    <View style={styles.portfolioValueRow}>
+                      <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
+                      <View style={styles.portfolioLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
+                      <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
+                    <View style={styles.portfolioValueRow}>
+                      <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
+                      <View style={styles.portfolioLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
+                      <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
+                    <View style={styles.portfolioValueRow}>
+                      <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
+                      <View style={styles.portfolioLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
+                      <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
+                    <View style={styles.portfolioValueRow}>
+                      <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
+                      <View style={styles.portfolioLabelRow}><CompanyLabel company="TAG" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
+                      <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
+                    <View style={styles.portfolioValueRow}>
+                      <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
+                      <View style={styles.portfolioLabelRow}><CompanyLabel company="CGC" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
+                      <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(2)}</Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
 
           <View style={styles.portfolioCard}>
             <View style={styles.portfolioHeader}>
@@ -647,23 +644,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#10B981",
   },
-  portfolioTotalRow: {
-    flexDirection: "row",
+  portfolioTotalSection: {
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 4,
-  },
-  portfolioTotalLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.text,
+    paddingVertical: 8,
+    gap: 4,
   },
   portfolioTotalAmount: {
     fontFamily: "Inter_700Bold",
-    fontSize: 18,
+    fontSize: 28,
     color: "#10B981",
   },
-  portfolioNote: {
+  portfolioTotalNote: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
