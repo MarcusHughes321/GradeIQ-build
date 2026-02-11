@@ -117,6 +117,232 @@ function validateCardInSet(cardNumber: number, setTotal: number): CachedSet[] {
 
 fetchAndCacheSets();
 
+// ======================================================================
+// Japanese Card Database Cache (Bulbapedia-sourced)
+// ======================================================================
+
+interface JapaneseSetCache {
+  cards: Map<number, string>; // cardNumber → English card name
+  setName: string;
+  fetchedAt: number;
+}
+
+const japaneseSetCards = new Map<string, JapaneseSetCache>();
+const JP_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+const JP_SET_CODE_TO_PAGE: Record<string, string> = {
+  "s1a": "VMAX_Rising",
+  "s1h": "Shield",
+  "s1w": "Sword",
+  "s2": "Rebellion_Crash",
+  "s2a": "Explosive_Walker",
+  "s3": "Infinity_Zone",
+  "s3a": "Legendary_Heartbeat",
+  "s4": "Amazing_Volt_Tackle",
+  "s4a": "Shiny_Star_V",
+  "s5a": "Matchless_Fighters",
+  "s5i": "Single_Strike_Master",
+  "s5r": "Rapid_Strike_Master",
+  "s6": "Silver_Lance",
+  "s6a": "Eevee_Heroes",
+  "s6h": "Silver_Lance",
+  "s6k": "Jet-Black_Poltergeist",
+  "s7": "Blue_Sky_Stream",
+  "s7d": "Skyscraping_Perfection",
+  "s7r": "Towering_Perfection",
+  "s8": "Fusion_Arts",
+  "s8a": "25th_Anniversary_Collection",
+  "s8b": "VMAX_Climax",
+  "s9": "Star_Birth",
+  "s9a": "Battle_Region",
+  "s10a": "Dark_Phantasma",
+  "s10b": "Pokémon_GO_(TCG)",
+  "s10d": "Time_Gazer",
+  "s10p": "Space_Juggler",
+  "s11": "Lost_Abyss",
+  "s11a": "Incandescent_Arcana",
+  "s12": "Paradigm_Trigger",
+  "s12a": "VSTAR_Universe",
+  "sv1s": "Scarlet_ex_(TCG)",
+  "sv1v": "Violet_ex_(TCG)",
+  "sv2a": "Pokémon_Card_151",
+  "sv2d": "Clay_Burst",
+  "sv2p": "Snow_Hazard",
+  "sv3": "Ruler_of_the_Black_Flame",
+  "sv3a": "Raging_Surf",
+  "sv4": "Ancient_Roar",
+  "sv4a": "Shiny_Treasure_ex",
+  "sv4k": "Ancient_Roar",
+  "sv4m": "Future_Flash",
+  "sv5a": "Crimson_Haze",
+  "sv5k": "Wild_Force",
+  "sv5m": "Cyber_Judge",
+  "sv6": "Transformation_Mask",
+  "sv6a": "Night_Wanderer",
+  "sv7": "Stellar_Miracle",
+  "sv7a": "Paradise_Dragona",
+  "sv8": "Super_Electric_Breaker",
+  "sv8a": "Terastal_Fest_ex",
+  "sm1": "Collection_Sun",
+  "sm1m": "Collection_Moon",
+  "sm1s": "Collection_Sun",
+  "sm2": "Alolan_Moonlight",
+  "sm3": "Darkness_that_Consumes_Light",
+  "sm3h": "To_Have_Seen_the_Battle_Rainbow",
+  "sm3n": "Darkness_that_Consumes_Light",
+  "sm4": "The_Best_of_XY",
+  "sm4a": "Ultradimensional_Beasts",
+  "sm5": "Ultra_Sun_(TCG)",
+  "sm5m": "Ultra_Moon_(TCG)",
+  "sm5s": "Ultra_Sun_(TCG)",
+  "sm6": "Forbidden_Light_(TCG)",
+  "sm6a": "Dragon_Storm",
+  "sm6b": "Champion_Road",
+  "sm7": "Charisma_of_the_Wrecked_Sky",
+  "sm7a": "Thunderclap_Spark",
+  "sm7b": "Fairy_Rise",
+  "sm8": "Super-Burst_Impact",
+  "sm8a": "Dark_Order",
+  "sm8b": "GX_Ultra_Shiny",
+  "sm9": "Tag_Bolt",
+  "sm9a": "Night_Unison",
+  "sm9b": "Full_Metal_Wall",
+  "sm10": "Double_Blaze",
+  "sm10a": "GG_End",
+  "sm10b": "Sky_Legend",
+  "sm11": "Miracle_Twin",
+  "sm11a": "Remix_Bout",
+  "sm11b": "Dream_League",
+  "sm12": "Alter_Genesis",
+  "sm12a": "Tag_All_Stars",
+};
+
+async function fetchBulbapediaSetCards(setPageName: string): Promise<Map<number, string>> {
+  try {
+    const url = `https://bulbapedia.bulbagarden.net/wiki/${encodeURIComponent(setPageName)}_(TCG)`;
+    console.log(`[jp-cache] Fetching card list from Bulbapedia: ${url}`);
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; GradeIQ/1.0)",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      const altUrl = `https://bulbapedia.bulbagarden.net/wiki/${encodeURIComponent(setPageName)}`;
+      console.log(`[jp-cache] First URL returned ${resp.status}, trying: ${altUrl}`);
+      const resp2 = await fetch(altUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; GradeIQ/1.0)", "Accept": "text/html" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!resp2.ok) {
+        console.log(`[jp-cache] Alt URL also returned ${resp2.status}`);
+        return new Map();
+      }
+      const html = await resp2.text();
+      return parseBulbapediaCardList(html);
+    }
+    const html = await resp.text();
+    return parseBulbapediaCardList(html);
+  } catch (err: any) {
+    console.log(`[jp-cache] Fetch failed: ${err?.message}`);
+    return new Map();
+  }
+}
+
+function parseBulbapediaCardList(html: string): Map<number, string> {
+  const cards = new Map<number, string>();
+  const regex = /title="([^"]+)\s+(\d+)\)"/g;
+  let m;
+  const setGroups = new Map<string, Array<{ num: number; name: string }>>();
+
+  while ((m = regex.exec(html))) {
+    const full = m[1];
+    const num = parseInt(m[2]);
+    const lastParen = full.lastIndexOf("(");
+    if (lastParen > 0) {
+      const cardName = full.substring(0, lastParen).trim();
+      const setName = full.substring(lastParen + 1).trim();
+      if (!setGroups.has(setName)) setGroups.set(setName, []);
+      setGroups.get(setName)!.push({ num, name: cardName });
+    }
+  }
+
+  let largestSetName = "";
+  let largestSetSize = 0;
+  for (const [setName, setCards] of setGroups) {
+    if (setCards.length > largestSetSize) {
+      largestSetSize = setCards.length;
+      largestSetName = setName;
+    }
+  }
+
+  if (largestSetName && largestSetSize > 5) {
+    for (const c of setGroups.get(largestSetName)!) {
+      if (!cards.has(c.num)) {
+        cards.set(c.num, c.name);
+      }
+    }
+    console.log(`[jp-cache] Parsed ${cards.size} cards from set "${largestSetName}"`);
+  }
+
+  return cards;
+}
+
+async function lookupJapaneseCard(setCode: string, cardNumber: number, aiSetName?: string): Promise<string | null> {
+  const codeKey = setCode.toLowerCase();
+
+  const cached = japaneseSetCards.get(codeKey);
+  if (cached && Date.now() - cached.fetchedAt < JP_CACHE_TTL) {
+    const name = cached.cards.get(cardNumber);
+    if (name) {
+      console.log(`[jp-cache] Cache hit: ${codeKey} #${cardNumber} = "${name}"`);
+      return name;
+    }
+    console.log(`[jp-cache] Cache hit for set ${codeKey} but card #${cardNumber} not found (set has ${cached.cards.size} cards)`);
+    return null;
+  }
+
+  const pageName = JP_SET_CODE_TO_PAGE[codeKey];
+  if (!pageName && !aiSetName) {
+    console.log(`[jp-cache] No Bulbapedia page mapping for set code "${setCode}" and no AI set name`);
+    return null;
+  }
+
+  const searchName = pageName || aiSetName!.replace(/\s+/g, "_").replace(/['']/g, "%27");
+  const cards = await fetchBulbapediaSetCards(searchName);
+
+  if (cards.size > 0) {
+    japaneseSetCards.set(codeKey, {
+      cards,
+      setName: searchName,
+      fetchedAt: Date.now(),
+    });
+    const name = cards.get(cardNumber);
+    if (name) {
+      console.log(`[jp-cache] Fetched & found: ${codeKey} #${cardNumber} = "${name}"`);
+      return name;
+    }
+    console.log(`[jp-cache] Fetched ${cards.size} cards for ${codeKey} but #${cardNumber} not found`);
+  } else if (aiSetName && pageName) {
+    const aiSearchName = aiSetName.replace(/\s+/g, "_");
+    if (aiSearchName !== searchName) {
+      console.log(`[jp-cache] Trying AI set name: "${aiSearchName}"`);
+      const cards2 = await fetchBulbapediaSetCards(aiSearchName);
+      if (cards2.size > 0) {
+        japaneseSetCards.set(codeKey, { cards: cards2, setName: aiSearchName, fetchedAt: Date.now() });
+        const name = cards2.get(cardNumber);
+        if (name) {
+          console.log(`[jp-cache] Found via AI name: ${codeKey} #${cardNumber} = "${name}"`);
+          return name;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), and Ace Grading. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
 
 IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
@@ -1229,50 +1455,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const idIsUnknown = !idName || idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
       const gradingIsUnknown = !gradingName || gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
 
-      const isJapaneseCard = idCode && /^s\d|^sv\d|^sm\d/i.test(idCode);
+      const gradingSetCode = (gradingResult as any).setCode || "";
+      const effectiveCode = idCode || gradingSetCode;
+      const isJapaneseCard = effectiveCode && /^s\d|^sv\d|^sm\d/i.test(effectiveCode);
 
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
-      if (isJapaneseCard && !idIsUnknown) {
-        console.log(`[grade-card] Japanese set code "${idCode}" detected — using OCR + full-image double-check (skipping English API lookup)`);
+      if (isJapaneseCard) {
+        console.log(`[grade-card] Japanese set code "${effectiveCode}" detected — trying Bulbapedia database lookup first`);
 
-        const [detectedFront, detectedBack, fullImageId] = await Promise.all([
+        const cardNum = parseInt((idNumber || gradingNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+        const aiSetNameForLookup = idSet || gradingSet || "";
+
+        const [detectedFront, detectedBack, bulbapediaName] = await Promise.all([
           detectCardBounds(frontUri),
           detectCardBounds(backUri),
-          identifyCardWithFullImage(frontUri).catch(() => null),
+          cardNum > 0 ? lookupJapaneseCard(effectiveCode, cardNum, aiSetNameForLookup) : Promise.resolve(null),
         ]);
         gradingResult.frontCardBounds = detectedFront;
         gradingResult.backCardBounds = detectedBack;
 
-        const fullName = fullImageId?.cardName || "";
-        const fullIsUnknown = !fullName || fullName.toLowerCase() === "unknown" || fullName.toLowerCase() === "n/a";
-        console.log(`[grade-card] Japanese card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}"`);
+        if (bulbapediaName) {
+          console.log(`[grade-card] Bulbapedia verified: "${bulbapediaName}" for ${effectiveCode} #${cardNum}`);
 
-        const candidates = [idName, fullName, gradingName].filter(n => n && n.toLowerCase() !== "unknown");
-        const nameCounts = new Map<string, number>();
-        for (const n of candidates) {
-          const key = stripSuffix(n.toLowerCase());
-          nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
-        }
-        let bestJpName = idName;
-        let bestJpCount = 0;
-        for (const [key, count] of nameCounts) {
-          if (count > bestJpCount) {
-            bestJpCount = count;
-            bestJpName = candidates.find(n => stripSuffix(n.toLowerCase()) === key) || idName;
+          gradingResult.cardName = bulbapediaName;
+          gradingResult.setNumber = idNumber || gradingNumber;
+          gradingResult.setName = aiSetNameForLookup;
+
+          const cachedSetPage = japaneseSetCards.get(effectiveCode.toLowerCase());
+          if (cachedSetPage) {
+            gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
           }
-        }
-        if (bestJpCount >= 2) {
-          console.log(`[grade-card] Majority vote (${bestJpCount}/3): "${bestJpName}"`);
         } else {
-          bestJpName = !fullIsUnknown ? fullName : idName;
-          console.log(`[grade-card] No majority — preferring ${!fullIsUnknown ? "full-image" : "OCR"}: "${bestJpName}"`);
-        }
+          console.log(`[grade-card] Bulbapedia lookup missed — falling back to AI triple-check`);
 
-        gradingResult.cardName = bestJpName;
-        gradingResult.setNumber = idNumber || (fullImageId?.setNumber) || gradingNumber;
-        gradingResult.setName = idSet || (fullImageId?.setName) || gradingSet;
+          const fullImageId = await identifyCardWithFullImage(frontUri).catch(() => null);
+          const fullName = fullImageId?.cardName || "";
+          const fullIsUnknown = !fullName || fullName.toLowerCase() === "unknown" || fullName.toLowerCase() === "n/a";
+          console.log(`[grade-card] Japanese card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}"`);
+
+          const candidates = [idName, fullName, gradingName].filter(n => n && n.toLowerCase() !== "unknown");
+          const nameCounts = new Map<string, number>();
+          for (const n of candidates) {
+            const key = stripSuffix(n.toLowerCase());
+            nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+          }
+          let bestJpName = idName || gradingName;
+          let bestJpCount = 0;
+          for (const [key, count] of nameCounts) {
+            if (count > bestJpCount) {
+              bestJpCount = count;
+              bestJpName = candidates.find(n => stripSuffix(n.toLowerCase()) === key) || bestJpName;
+            }
+          }
+          if (bestJpCount >= 2) {
+            console.log(`[grade-card] Majority vote (${bestJpCount}/3): "${bestJpName}"`);
+          } else {
+            bestJpName = !fullIsUnknown ? fullName : (idName || gradingName);
+            console.log(`[grade-card] No majority — preferring ${!fullIsUnknown ? "full-image" : "OCR"}: "${bestJpName}"`);
+          }
+
+          gradingResult.cardName = bestJpName;
+          gradingResult.setNumber = idNumber || (fullImageId?.setNumber) || gradingNumber;
+          gradingResult.setName = idSet || (fullImageId?.setName) || gradingSet;
+        }
       } else {
       const lookupCandidates: Array<{ name: string; number: string; set: string; code?: string; source: string }> = [];
 
