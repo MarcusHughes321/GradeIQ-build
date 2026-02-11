@@ -17,7 +17,7 @@ export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; 
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  enabledCompanies: ["PSA", "Beckett", "Ace", "TAG", "CGC"],
+  enabledCompanies: [],
 };
 
 export async function getSettings(): Promise<AppSettings> {

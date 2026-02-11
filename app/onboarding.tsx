@@ -224,7 +224,7 @@ export default function OnboardingScreen() {
 
   const completeOnboarding = async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, "true");
-    router.replace("/(tabs)");
+    router.replace("/company-select");
   };
 
   const goNext = () => {

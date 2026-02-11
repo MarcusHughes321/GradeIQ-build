@@ -12,6 +12,7 @@ import { SubscriptionProvider } from "@/lib/subscription";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
+import { getSettings } from "@/lib/settings";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -21,9 +22,14 @@ function RootLayoutNav() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDING_KEY).then((val) => {
-      if (val !== "true") {
+    Promise.all([
+      AsyncStorage.getItem(ONBOARDING_KEY),
+      getSettings(),
+    ]).then(([onboardingVal, settings]) => {
+      if (onboardingVal !== "true") {
         router.replace("/onboarding");
+      } else if (settings.enabledCompanies.length === 0) {
+        router.replace("/company-select");
       }
       setCheckedOnboarding(true);
     });
@@ -39,6 +45,7 @@ function RootLayoutNav() {
     >
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
+      <Stack.Screen name="company-select" options={{ animation: "fade" }} />
       <Stack.Screen name="results" />
       <Stack.Screen name="bulk" />
       <Stack.Screen name="bulk-results" />

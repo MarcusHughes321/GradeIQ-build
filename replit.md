@@ -25,6 +25,7 @@ app/
     index.tsx       - Home screen with dashboard, portfolio values, and grading history
     grade.tsx       - Photo capture screen with progress UI during analysis
     settings.tsx    - Grading company selection toggles
+  company-select.tsx - First-use grading company selection screen
   results.tsx       - Detailed grading results from PSA, Beckett, Ace (stack screen)
   bulk.tsx          - Bulk upload screen (up to 20 cards, front+back for each)
   bulk-results.tsx  - Bulk grading results summary with average grades and card list
@@ -153,3 +154,10 @@ server/
   - Help button on dashboard links back to onboarding guide
   - app/paywall.tsx — paywall modal screen
   - lib/subscription.tsx — SubscriptionProvider context with RevenueCat + usage tracking
+- 2026-02-11: Company selection flow
+  - All grading companies off by default for new users
+  - First-use company selection screen (app/company-select.tsx) appears after onboarding
+  - Users must select at least one company before proceeding to main app
+  - "Select All" convenience button available
+  - Existing users with saved settings are unaffected
+  - "Done Scanning" button added to bulk camera view
