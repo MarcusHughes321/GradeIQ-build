@@ -72,6 +72,8 @@ function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading;
         {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={36} label="PSA" />}
         {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={36} label="BGS" />}
         {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={36} label="ACE" />}
+        {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={36} label="TAG" />}
+        {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={36} label="CGC" />}
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>
@@ -88,30 +90,40 @@ interface PortfolioStats {
   avgPSA: number;
   avgBGS: number;
   avgACE: number;
+  avgTAG: number;
+  avgCGC: number;
   totalPSA: number;
   totalBGS: number;
   totalACE: number;
+  totalTAG: number;
+  totalCGC: number;
   cardsWithValues: number;
 }
 
 function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
   if (gradings.length === 0) return null;
-  let sumPSA = 0, sumBGS = 0, sumACE = 0;
-  let totalPSA = 0, totalBGS = 0, totalACE = 0;
+  let sumPSA = 0, sumBGS = 0, sumACE = 0, sumTAG = 0, sumCGC = 0;
+  let totalPSA = 0, totalBGS = 0, totalACE = 0, totalTAG = 0, totalCGC = 0;
   let cardsWithValues = 0;
   for (const g of gradings) {
     sumPSA += g.result.psa.grade;
     sumBGS += g.result.beckett.overallGrade;
     sumACE += g.result.ace.overallGrade;
+    sumTAG += g.result.tag?.overallGrade || 0;
+    sumCGC += g.result.cgc?.grade || 0;
     const cv = g.result.cardValue;
     if (cv) {
       const p = parseGBP(cv.psaValue);
       const b = parseGBP(cv.bgsValue);
       const a = parseGBP(cv.aceValue);
-      if (p !== null || b !== null || a !== null) cardsWithValues++;
+      const t = parseGBP(cv.tagValue);
+      const c = parseGBP(cv.cgcValue);
+      if (p !== null || b !== null || a !== null || t !== null || c !== null) cardsWithValues++;
       if (p !== null) totalPSA += p;
       if (b !== null) totalBGS += b;
       if (a !== null) totalACE += a;
+      if (t !== null) totalTAG += t;
+      if (c !== null) totalCGC += c;
     }
   }
   const n = gradings.length;
@@ -119,7 +131,9 @@ function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
     avgPSA: Math.round((sumPSA / n) * 10) / 10,
     avgBGS: Math.round((sumBGS / n) * 10) / 10,
     avgACE: Math.round((sumACE / n) * 10) / 10,
-    totalPSA, totalBGS, totalACE, cardsWithValues,
+    avgTAG: Math.round((sumTAG / n) * 10) / 10,
+    avgCGC: Math.round((sumCGC / n) * 10) / 10,
+    totalPSA, totalBGS, totalACE, totalTAG, totalCGC, cardsWithValues,
   };
 }
 
@@ -263,7 +277,7 @@ export default function HomeScreen() {
                   <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
                   <Text style={[styles.avgGradeLabel, { color: Colors.cardPSA }]}>PSA</Text>
                 </View>
-                {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace")) && <View style={styles.avgDivider} />}
+                {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
               </>
             )}
             {enabledCompanies.includes("Beckett") && (
@@ -272,13 +286,31 @@ export default function HomeScreen() {
                   <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
                   <Text style={styles.avgGradeLabel}>BGS</Text>
                 </View>
-                {enabledCompanies.includes("Ace") && <View style={styles.avgDivider} />}
+                {(enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
               </>
             )}
             {enabledCompanies.includes("Ace") && (
+              <>
+                <View style={styles.avgGradeItem}>
+                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
+                  <Text style={styles.avgGradeLabel}>ACE</Text>
+                </View>
+                {(enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("TAG") && (
+              <>
+                <View style={styles.avgGradeItem}>
+                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
+                  <Text style={[styles.avgGradeLabel, { color: Colors.cardTAG }]}>TAG</Text>
+                </View>
+                {enabledCompanies.includes("CGC") && <View style={styles.avgDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("CGC") && (
               <View style={styles.avgGradeItem}>
-                <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
-                <Text style={styles.avgGradeLabel}>ACE</Text>
+                <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
+                <Text style={[styles.avgGradeLabel, { color: Colors.cardCGC }]}>CGC</Text>
               </View>
             )}
           </View>
@@ -307,6 +339,18 @@ export default function HomeScreen() {
                   <View style={styles.portfolioValueRow}>
                     <Text style={styles.portfolioValueLabel}>ACE Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
+                  </View>
+                )}
+                {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
+                  <View style={styles.portfolioValueRow}>
+                    <Text style={styles.portfolioValueLabel}>TAG Graded</Text>
+                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(2)}</Text>
+                  </View>
+                )}
+                {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
+                  <View style={styles.portfolioValueRow}>
+                    <Text style={styles.portfolioValueLabel}>CGC Graded</Text>
+                    <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(2)}</Text>
                   </View>
                 )}
               </View>

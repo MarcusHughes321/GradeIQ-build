@@ -157,6 +157,8 @@ export default function ResultsScreen() {
         psaGrade: result.psa.grade,
         bgsGrade: result.beckett.overallGrade,
         aceGrade: result.ace.overallGrade,
+        tagGrade: result.tag?.overallGrade,
+        cgcGrade: result.cgc?.grade,
       });
       const data = await resp.json();
       setCardValue(data);
@@ -170,6 +172,8 @@ export default function ResultsScreen() {
         psaValue: "No value data found",
         bgsValue: "No value data found",
         aceValue: "No value data found",
+        tagValue: "No value data found",
+        cgcValue: "No value data found",
         rawValue: "No value data found",
         source: "Error fetching values",
       });
@@ -567,6 +571,7 @@ export default function ResultsScreen() {
                 <Text style={styles.valueSectionTitle}>Your Grade</Text>
                 <Text style={styles.valueSectionTitle}>In Grade 10</Text>
               </View>
+              {enabledCompanies.includes("PSA") && (
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>PSA {result.psa.grade}</Text>
                 <Text style={[styles.valueAmount, cardValue.psaValue.includes("No value") && styles.valueNA]}>
@@ -576,6 +581,8 @@ export default function ResultsScreen() {
                   {result.psa.grade === 10 ? "-" : cardValue.psa10Value || "-"}
                 </Text>
               </View>
+              )}
+              {enabledCompanies.includes("Beckett") && (
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>BGS {result.beckett.overallGrade}</Text>
                 <Text style={[styles.valueAmount, cardValue.bgsValue.includes("No value") && styles.valueNA]}>
@@ -585,6 +592,8 @@ export default function ResultsScreen() {
                   {result.beckett.overallGrade === 10 ? "-" : cardValue.bgs10Value || "-"}
                 </Text>
               </View>
+              )}
+              {enabledCompanies.includes("Ace") && (
               <View style={styles.valueRow}>
                 <Text style={styles.valueLabel}>ACE {result.ace.overallGrade}</Text>
                 <Text style={[styles.valueAmount, cardValue.aceValue.includes("No value") && styles.valueNA]}>
@@ -594,6 +603,29 @@ export default function ResultsScreen() {
                   {result.ace.overallGrade === 10 ? "-" : cardValue.ace10Value || "-"}
                 </Text>
               </View>
+              )}
+              {enabledCompanies.includes("TAG") && (
+              <View style={styles.valueRow}>
+                <Text style={styles.valueLabel}>TAG {result.tag.overallGrade}</Text>
+                <Text style={[styles.valueAmount, cardValue.tagValue?.includes("No value") && styles.valueNA]}>
+                  {cardValue.tagValue || "-"}
+                </Text>
+                <Text style={[styles.valueAmount10, cardValue.tag10Value?.includes("No value") && styles.valueNA]}>
+                  {result.tag.overallGrade === 10 ? "-" : cardValue.tag10Value || "-"}
+                </Text>
+              </View>
+              )}
+              {enabledCompanies.includes("CGC") && (
+              <View style={styles.valueRow}>
+                <Text style={styles.valueLabel}>CGC {result.cgc.grade}</Text>
+                <Text style={[styles.valueAmount, cardValue.cgcValue?.includes("No value") && styles.valueNA]}>
+                  {cardValue.cgcValue || "-"}
+                </Text>
+                <Text style={[styles.valueAmount10, cardValue.cgc10Value?.includes("No value") && styles.valueNA]}>
+                  {result.cgc.grade === 10 ? "-" : cardValue.cgc10Value || "-"}
+                </Text>
+              </View>
+              )}
               <View style={[styles.valueRow, styles.valueRowLast]}>
                 <Text style={styles.valueLabel}>Raw (Ungraded)</Text>
                 <Text style={[styles.valueAmount, cardValue.rawValue.includes("No value") && styles.valueNA]}>
@@ -616,6 +648,8 @@ export default function ResultsScreen() {
         {enabledCompanies.includes("PSA") && <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />}
         {enabledCompanies.includes("Beckett") && <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />}
         {enabledCompanies.includes("Ace") && <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />}
+        {enabledCompanies.includes("TAG") && result.tag && <CompanyCard company="TAG" grade={result.tag} color={Colors.cardTAG} />}
+        {enabledCompanies.includes("CGC") && result.cgc && <CompanyCard company="CGC" grade={result.cgc} color={Colors.cardCGC} />}
 
         <View style={styles.disclaimer}>
           <Ionicons name="information-circle" size={14} color={Colors.textMuted} />

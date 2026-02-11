@@ -4,12 +4,14 @@ import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import GradeCircle from "./GradeCircle";
 import SubGradeRow from "./SubGradeRow";
-import type { PSAGrade, BeckettGrade, AceGrade } from "@/lib/types";
+import type { PSAGrade, BeckettGrade, AceGrade, TAGGrade, CGCGrade } from "@/lib/types";
 
 const COMPANY_LABELS: Record<string, string> = {
   PSA: "PSA",
   Beckett: "BGS",
   Ace: "ACE",
+  TAG: "TAG",
+  CGC: "CGC",
 };
 
 function getGradientColor(grade: number): string {
@@ -33,8 +35,8 @@ function formatGrade(g: number): string {
 }
 
 interface CompanyCardProps {
-  company: "PSA" | "Beckett" | "Ace";
-  grade: PSAGrade | BeckettGrade | AceGrade;
+  company: "PSA" | "Beckett" | "Ace" | "TAG" | "CGC";
+  grade: PSAGrade | BeckettGrade | AceGrade | TAGGrade | CGCGrade;
   color: string;
   defaultExpanded?: boolean;
 }
@@ -45,7 +47,7 @@ interface SubGradeInfo {
   notes: string;
 }
 
-function getSubGrades(company: string, grade: PSAGrade | BeckettGrade | AceGrade): SubGradeInfo[] {
+function getSubGrades(company: string, grade: PSAGrade | BeckettGrade | AceGrade | TAGGrade | CGCGrade): SubGradeInfo[] {
   if (company === "PSA") {
     const psa = grade as PSAGrade;
     const overall = psa.grade;
@@ -56,7 +58,17 @@ function getSubGrades(company: string, grade: PSAGrade | BeckettGrade | AceGrade
       { label: "Surface", grade: overall, notes: psa.surface },
     ];
   }
-  const sub = grade as BeckettGrade | AceGrade;
+  if (company === "CGC") {
+    const cgc = grade as CGCGrade;
+    const overall = cgc.grade;
+    return [
+      { label: "Centering", grade: (cgc as any).centeringGrade ?? overall, notes: cgc.centering },
+      { label: "Corners", grade: overall, notes: cgc.corners },
+      { label: "Edges", grade: overall, notes: cgc.edges },
+      { label: "Surface", grade: overall, notes: cgc.surface },
+    ];
+  }
+  const sub = grade as BeckettGrade | AceGrade | TAGGrade;
   return [
     { label: "Centering", grade: sub.centering.grade, notes: sub.centering.notes },
     { label: "Corners", grade: sub.corners.grade, notes: sub.corners.notes },
@@ -68,9 +80,8 @@ function getSubGrades(company: string, grade: PSAGrade | BeckettGrade | AceGrade
 export default function CompanyCard({ company, grade, color, defaultExpanded = false }: CompanyCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const isPSA = company === "PSA";
-  const psaGrade = grade as PSAGrade;
-  const subGrade = grade as BeckettGrade | AceGrade;
-  const overallGrade = isPSA ? psaGrade.grade : subGrade.overallGrade;
+  const isCGC = company === "CGC";
+  const overallGrade = isPSA ? (grade as PSAGrade).grade : isCGC ? (grade as CGCGrade).grade : (grade as BeckettGrade | AceGrade | TAGGrade).overallGrade;
   const subGrades = getSubGrades(company, grade);
 
   return (
