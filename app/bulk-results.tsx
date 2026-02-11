@@ -98,11 +98,13 @@ export default function BulkResultsScreen() {
   const avgAce = gradings.length > 0
     ? Math.round((gradings.reduce((s, g) => s + g.result.ace.overallGrade, 0) / gradings.length) * 10) / 10
     : 0;
-  const avgTag = gradings.length > 0
-    ? Math.round((gradings.reduce((s, g) => s + (g.result.tag?.overallGrade || 0), 0) / gradings.length) * 10) / 10
+  const tagCards = gradings.filter(g => g.result.tag);
+  const avgTag = tagCards.length > 0
+    ? Math.round((tagCards.reduce((s, g) => s + g.result.tag!.overallGrade, 0) / tagCards.length) * 10) / 10
     : 0;
-  const avgCgc = gradings.length > 0
-    ? Math.round((gradings.reduce((s, g) => s + (g.result.cgc?.grade || 0), 0) / gradings.length) * 10) / 10
+  const cgcCards = gradings.filter(g => g.result.cgc);
+  const avgCgc = cgcCards.length > 0
+    ? Math.round((cgcCards.reduce((s, g) => s + g.result.cgc!.grade, 0) / cgcCards.length) * 10) / 10
     : 0;
 
   return (
@@ -156,26 +158,23 @@ export default function BulkResultsScreen() {
                       <Text style={styles.avgLabel}>Avg ACE</Text>
                       <Text style={[styles.avgValue, { color: getGradeColor(avgAce) }]}>{avgAce}</Text>
                     </View>
-                    {(enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
+                    {((enabledCompanies.includes("TAG") && tagCards.length > 0) || (enabledCompanies.includes("CGC") && cgcCards.length > 0)) && <View style={styles.avgDivider} />}
                   </>
                 )}
-                {enabledCompanies.includes("TAG") && (
+                {enabledCompanies.includes("TAG") && tagCards.length > 0 && (
                   <>
-                    {(enabledCompanies.includes("PSA") || enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace")) && <View style={styles.avgDivider} />}
                     <View style={styles.avgItem}>
                       <Text style={styles.avgLabel}>Avg TAG</Text>
                       <Text style={[styles.avgValue, { color: getGradeColor(avgTag) }]}>{avgTag}</Text>
                     </View>
+                    {(enabledCompanies.includes("CGC") && cgcCards.length > 0) && <View style={styles.avgDivider} />}
                   </>
                 )}
-                {enabledCompanies.includes("CGC") && (
-                  <>
-                    {(enabledCompanies.includes("PSA") || enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG")) && <View style={styles.avgDivider} />}
-                    <View style={styles.avgItem}>
-                      <Text style={styles.avgLabel}>Avg CGC</Text>
-                      <Text style={[styles.avgValue, { color: getGradeColor(avgCgc) }]}>{avgCgc}</Text>
-                    </View>
-                  </>
+                {enabledCompanies.includes("CGC") && cgcCards.length > 0 && (
+                  <View style={styles.avgItem}>
+                    <Text style={styles.avgLabel}>Avg CGC</Text>
+                    <Text style={[styles.avgValue, { color: getGradeColor(avgCgc) }]}>{avgCgc}</Text>
+                  </View>
                 )}
               </View>
             </View>

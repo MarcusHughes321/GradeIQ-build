@@ -98,19 +98,22 @@ interface PortfolioStats {
   totalTAG: number;
   totalCGC: number;
   cardsWithValues: number;
+  countTAG: number;
+  countCGC: number;
 }
 
 function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
   if (gradings.length === 0) return null;
   let sumPSA = 0, sumBGS = 0, sumACE = 0, sumTAG = 0, sumCGC = 0;
+  let countTAG = 0, countCGC = 0;
   let totalPSA = 0, totalBGS = 0, totalACE = 0, totalTAG = 0, totalCGC = 0;
   let cardsWithValues = 0;
   for (const g of gradings) {
     sumPSA += g.result.psa.grade;
     sumBGS += g.result.beckett.overallGrade;
     sumACE += g.result.ace.overallGrade;
-    sumTAG += g.result.tag?.overallGrade || 0;
-    sumCGC += g.result.cgc?.grade || 0;
+    if (g.result.tag) { sumTAG += g.result.tag.overallGrade; countTAG++; }
+    if (g.result.cgc) { sumCGC += g.result.cgc.grade; countCGC++; }
     const cv = g.result.cardValue;
     if (cv) {
       const p = parseGBP(cv.psaValue);
@@ -131,9 +134,9 @@ function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
     avgPSA: Math.round((sumPSA / n) * 10) / 10,
     avgBGS: Math.round((sumBGS / n) * 10) / 10,
     avgACE: Math.round((sumACE / n) * 10) / 10,
-    avgTAG: Math.round((sumTAG / n) * 10) / 10,
-    avgCGC: Math.round((sumCGC / n) * 10) / 10,
-    totalPSA, totalBGS, totalACE, totalTAG, totalCGC, cardsWithValues,
+    avgTAG: countTAG > 0 ? Math.round((sumTAG / countTAG) * 10) / 10 : 0,
+    avgCGC: countCGC > 0 ? Math.round((sumCGC / countCGC) * 10) / 10 : 0,
+    totalPSA, totalBGS, totalACE, totalTAG, totalCGC, cardsWithValues, countTAG, countCGC,
   };
 }
 
@@ -265,99 +268,105 @@ export default function HomeScreen() {
       </View>
 
       {stats && (
-        <View style={styles.portfolioCard}>
-          <View style={styles.portfolioHeader}>
-            <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
-            <Text style={styles.portfolioTitle}>Average Grades</Text>
-          </View>
-          <View style={styles.avgGradesRow}>
-            {enabledCompanies.includes("PSA") && (
-              <>
-                <View style={styles.avgGradeItem}>
-                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
-                  <Text style={[styles.avgGradeLabel, { color: Colors.cardPSA }]}>PSA</Text>
-                </View>
-                {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
-              </>
-            )}
-            {enabledCompanies.includes("Beckett") && (
-              <>
-                <View style={styles.avgGradeItem}>
-                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
-                  <Text style={styles.avgGradeLabel}>BGS</Text>
-                </View>
-                {(enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
-              </>
-            )}
-            {enabledCompanies.includes("Ace") && (
-              <>
-                <View style={styles.avgGradeItem}>
-                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
-                  <Text style={styles.avgGradeLabel}>ACE</Text>
-                </View>
-                {(enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
-              </>
-            )}
-            {enabledCompanies.includes("TAG") && (
-              <>
-                <View style={styles.avgGradeItem}>
-                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
-                  <Text style={[styles.avgGradeLabel, { color: Colors.cardTAG }]}>TAG</Text>
-                </View>
-                {enabledCompanies.includes("CGC") && <View style={styles.avgDivider} />}
-              </>
-            )}
-            {enabledCompanies.includes("CGC") && (
-              <View style={styles.avgGradeItem}>
-                <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
-                <Text style={[styles.avgGradeLabel, { color: Colors.cardCGC }]}>CGC</Text>
-              </View>
-            )}
-          </View>
-
+        <>
           {stats.cardsWithValues > 0 && (
-            <>
-              <View style={styles.portfolioDivider} />
+            <View style={styles.portfolioCard}>
               <View style={styles.portfolioHeader}>
-                <Ionicons name="cash-outline" size={16} color={Colors.textSecondary} />
+                <Ionicons name="cash-outline" size={16} color={Colors.primary} />
                 <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
               </View>
               <View style={styles.valueRows}>
                 {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
                   <View style={styles.portfolioValueRow}>
+                    <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
                     <Text style={styles.portfolioValueLabel}>PSA Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
                   <View style={styles.portfolioValueRow}>
+                    <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
                     <Text style={styles.portfolioValueLabel}>BGS Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
                   <View style={styles.portfolioValueRow}>
+                    <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
                     <Text style={styles.portfolioValueLabel}>ACE Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
                   <View style={styles.portfolioValueRow}>
+                    <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
                     <Text style={styles.portfolioValueLabel}>TAG Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
                   <View style={styles.portfolioValueRow}>
+                    <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
                     <Text style={styles.portfolioValueLabel}>CGC Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(2)}</Text>
                   </View>
                 )}
               </View>
               <Text style={styles.portfolioNote}>Based on {stats.cardsWithValues} of {gradings.length} cards with eBay data</Text>
-            </>
+            </View>
           )}
-        </View>
+
+          <View style={styles.portfolioCard}>
+            <View style={styles.portfolioHeader}>
+              <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
+              <Text style={styles.portfolioTitle}>Average Grades</Text>
+            </View>
+            <View style={styles.avgGradesRow}>
+              {enabledCompanies.includes("PSA") && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
+                    <Text style={[styles.avgGradeLabel, { color: Colors.cardPSA }]}>PSA</Text>
+                  </View>
+                  {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("Beckett") && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
+                    <Text style={styles.avgGradeLabel}>BGS</Text>
+                  </View>
+                  {(enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("Ace") && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
+                    <Text style={[styles.avgGradeLabel, { color: Colors.cardAce }]}>ACE</Text>
+                  </View>
+                  {((enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("TAG") && stats.countTAG > 0 && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
+                    <Text style={[styles.avgGradeLabel, { color: Colors.cardTAG }]}>TAG</Text>
+                  </View>
+                  {(enabledCompanies.includes("CGC") && stats.countCGC > 0) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("CGC") && stats.countCGC > 0 && (
+                <View style={styles.avgGradeItem}>
+                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
+                  <Text style={[styles.avgGradeLabel, { color: Colors.cardCGC }]}>CGC</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </>
       )}
 
       <View style={styles.sectionHeader}>
@@ -593,12 +602,18 @@ const styles = StyleSheet.create({
   valueRows: {
     gap: 6,
   },
+  companyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
   portfolioValueRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
   },
   portfolioValueLabel: {
+    flex: 1,
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textSecondary,
