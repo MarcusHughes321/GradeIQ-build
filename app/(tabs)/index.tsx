@@ -87,20 +87,18 @@ function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading;
           <Text style={styles.histSetInfo} numberOfLines={1}>
             {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
           </Text>
-          <View style={styles.histMetaRow}>
-            <Text style={styles.histDate}>{dateStr}</Text>
-            {avgValue !== null && (
-              <Text style={styles.histValue}>~£{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
-            )}
-          </View>
+          <Text style={styles.histDate}>{dateStr}</Text>
+          {avgValue !== null && (
+            <Text style={styles.histValue}>Est. £{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
+          )}
         </View>
-        <View style={styles.historyGrades}>
-          {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
-          {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
-          {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
-          {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
-          {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
-        </View>
+      </View>
+      <View style={styles.historyGrades}>
+        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
+        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
+        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
+        {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
+        {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
       </View>
     </Pressable>
   );
@@ -1002,24 +1000,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  histMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 1,
-  },
   histDate: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
+    marginTop: 1,
   },
   histValue: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 11,
     color: "#4CAF50",
+    marginTop: 1,
   },
   historyGrades: {
     flexDirection: "row",
+    justifyContent: "space-evenly",
     gap: 4,
   },
 });
