@@ -1,14 +1,18 @@
 import React from "react";
-import { View, Text, StyleSheet, Platform, Switch, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable } from "react-native";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
+import { useSubscription } from "@/lib/subscription";
 import { ALL_COMPANIES, type CompanyId } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { settings, toggleCompany } = useSettings();
+  const { isGateEnabled, isSubscribed, dailyUsageCount, dailyLimit, remainingFreeGrades } = useSubscription();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -51,6 +55,60 @@ export default function SettingsScreen() {
         <Text style={styles.hint}>
           At least one grading company must remain enabled. More companies coming soon.
         </Text>
+
+        {isGateEnabled && (
+          <>
+            <View style={[styles.section, { marginTop: 32 }]}>
+              <Text style={styles.sectionTitle}>Your Plan</Text>
+            </View>
+
+            <View style={styles.proCard}>
+              <View style={styles.proCardHeader}>
+                <View style={styles.proBadge}>
+                  <Ionicons name={isSubscribed ? "diamond" : "time-outline"} size={16} color={isSubscribed ? "#F59E0B" : Colors.textSecondary} />
+                  <Text style={[styles.proBadgeText, isSubscribed && { color: "#F59E0B" }]}>
+                    {isSubscribed ? "Pro" : "Free"}
+                  </Text>
+                </View>
+              </View>
+
+              {!isSubscribed && (
+                <>
+                  <View style={styles.usageBar}>
+                    <View style={styles.usageBarTrack}>
+                      <View
+                        style={[
+                          styles.usageBarFill,
+                          {
+                            width: `${(dailyUsageCount / dailyLimit) * 100}%`,
+                            backgroundColor: remainingFreeGrades === 0 ? Colors.primary : "#10B981",
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.usageLabel}>
+                      {remainingFreeGrades} of {dailyLimit} free grades remaining today
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    onPress={() => router.push("/paywall")}
+                    style={({ pressed }) => [styles.upgradeBtn, { opacity: pressed ? 0.85 : 1 }]}
+                  >
+                    <Ionicons name="diamond" size={16} color="#fff" />
+                    <Text style={styles.upgradeBtnText}>Upgrade to Pro - \u00a32.99/month</Text>
+                  </Pressable>
+                </>
+              )}
+
+              {isSubscribed && (
+                <Text style={styles.proActiveText}>
+                  You have unlimited access to all grading features.
+                </Text>
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -176,5 +234,69 @@ const styles = StyleSheet.create({
     marginTop: 12,
     lineHeight: 18,
     paddingHorizontal: 4,
+  },
+  proCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 18,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  proCardHeader: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+  },
+  proBadge: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  proBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  usageBar: {
+    gap: 8,
+  },
+  usageBarTrack: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 3,
+    overflow: "hidden" as const,
+  },
+  usageBarFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  usageLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  upgradeBtn: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 8,
+    backgroundColor: "#F59E0B",
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  upgradeBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#fff",
+  },
+  proActiveText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: "#10B981",
   },
 });
