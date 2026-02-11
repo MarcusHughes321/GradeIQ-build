@@ -1056,6 +1056,162 @@ async function optimizeImageForAI(dataUri: string, maxDim: number = 1536): Promi
   }
 }
 
+function detectBoundsAtResolution(
+  pixels: Buffer, sw: number, sh: number,
+  scanRange: number, minVoteRatio: number,
+  xConstraint?: { minPct: number; maxPct: number },
+  yConstraint?: { minPct: number; maxPct: number }
+): { leftPct: number; rightPct: number; topPct: number; bottomPct: number } {
+  const getPixel = (x: number, y: number) => {
+    if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+    return pixels[y * sw + x];
+  };
+
+  const sobelX = (x: number, y: number): number => (
+    -getPixel(x - 1, y - 1) + getPixel(x + 1, y - 1) +
+    -2 * getPixel(x - 1, y) + 2 * getPixel(x + 1, y) +
+    -getPixel(x - 1, y + 1) + getPixel(x + 1, y + 1)
+  );
+
+  const sobelY = (x: number, y: number): number => (
+    -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
+    getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
+  );
+
+  const gradSamples: number[] = [];
+  const sampleStep = Math.max(1, Math.round(sw / 40));
+  const sampleStepY = Math.max(1, Math.round(sh / 40));
+  for (let x = 2; x < sw - 2; x += sampleStep) {
+    for (let y = 2; y < sh - 2; y += sampleStepY) {
+      const gx = Math.abs(sobelX(x, y));
+      const gy = Math.abs(sobelY(x, y));
+      const mag = Math.sqrt(gx * gx + gy * gy);
+      if (mag > 3) gradSamples.push(mag);
+    }
+  }
+  gradSamples.sort((a, b) => a - b);
+  const p75 = gradSamples[Math.floor(gradSamples.length * 0.75)] || 20;
+  const p90 = gradSamples[Math.floor(gradSamples.length * 0.90)] || 30;
+  const adaptiveThreshold = Math.max(12, Math.min(50, Math.round((p75 + p90) / 2 * 0.6)));
+
+  const DIRECTION_RATIO = 1.3;
+
+  const findEdgeColumn = (startX: number, endX: number, step: number): number => {
+    const scanYStart = Math.round(sh * 0.1);
+    const scanYEnd = Math.round(sh * 0.9);
+    const totalScanRows = Math.floor((scanYEnd - scanYStart) / 1);
+    const minVotes = Math.max(3, Math.round(totalScanRows * minVoteRatio));
+
+    const columns: { x: number; score: number; votes: number }[] = [];
+
+    for (let x = startX; step > 0 ? x < endX : x > endX; x += step) {
+      let votes = 0;
+      let totalGrad = 0;
+      for (let y = scanYStart; y < scanYEnd; y += 1) {
+        const gx = Math.abs(sobelX(x, y));
+        const gy = Math.abs(sobelY(x, y));
+        if (gx >= adaptiveThreshold && gx > gy * DIRECTION_RATIO) {
+          votes++;
+          totalGrad += gx;
+        }
+      }
+      if (votes >= minVotes) {
+        columns.push({ x, score: totalGrad, votes });
+      }
+    }
+
+    if (columns.length === 0) return startX;
+
+    columns.sort((a, b) => b.score - a.score);
+    const topN = columns.slice(0, Math.max(1, Math.ceil(columns.length * 0.1)));
+
+    if (step > 0) {
+      topN.sort((a, b) => a.x - b.x);
+    } else {
+      topN.sort((a, b) => b.x - a.x);
+    }
+
+    let cluster: number[] = [topN[0].x];
+    for (let i = 1; i < topN.length; i++) {
+      if (Math.abs(topN[i].x - topN[0].x) <= 3) {
+        cluster.push(topN[i].x);
+      }
+    }
+
+    return cluster.reduce((s, v) => s + v, 0) / cluster.length;
+  };
+
+  const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): number => {
+    const totalScanCols = Math.floor((xEnd - xStart) / 1);
+    const minVotes = Math.max(3, Math.round(totalScanCols * minVoteRatio));
+
+    const rows: { y: number; score: number; votes: number }[] = [];
+
+    for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
+      let votes = 0;
+      let totalGrad = 0;
+      for (let x = xStart; x < xEnd; x += 1) {
+        const gy = Math.abs(sobelY(x, y));
+        const gx = Math.abs(sobelX(x, y));
+        if (gy >= adaptiveThreshold && gy > gx * DIRECTION_RATIO) {
+          votes++;
+          totalGrad += gy;
+        }
+      }
+      if (votes >= minVotes) {
+        rows.push({ y, score: totalGrad, votes });
+      }
+    }
+
+    if (rows.length === 0) return startY;
+
+    rows.sort((a, b) => b.score - a.score);
+    const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.1)));
+
+    if (step > 0) {
+      topN.sort((a, b) => a.y - b.y);
+    } else {
+      topN.sort((a, b) => b.y - a.y);
+    }
+
+    let cluster: number[] = [topN[0].y];
+    for (let i = 1; i < topN.length; i++) {
+      if (Math.abs(topN[i].y - topN[0].y) <= 3) {
+        cluster.push(topN[i].y);
+      }
+    }
+
+    return cluster.reduce((s, v) => s + v, 0) / cluster.length;
+  };
+
+  const xMinStart = xConstraint ? Math.max(1, Math.round(sw * xConstraint.minPct / 100)) : 1;
+  const xMaxEnd = xConstraint ? Math.min(sw - 2, Math.round(sw * xConstraint.maxPct / 100)) : Math.round(sw * scanRange);
+  const xMinEndR = xConstraint ? Math.max(1, Math.round(sw * xConstraint.minPct / 100)) : Math.round(sw * (1 - scanRange));
+  const xMaxStartR = xConstraint ? Math.min(sw - 2, Math.round(sw * xConstraint.maxPct / 100)) : sw - 2;
+
+  const leftCol = findEdgeColumn(xMinStart, xConstraint ? xMaxEnd : Math.round(sw * scanRange), 1);
+  const rightCol = findEdgeColumn(xConstraint ? xMaxStartR : sw - 2, xMinEndR, -1);
+
+  const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
+  const rowScanXStart = Math.round(leftCol + cardInsetX);
+  const rowScanXEnd = Math.round(rightCol - cardInsetX);
+
+  const yMinStart = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : 1;
+  const yMaxEnd = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : Math.round(sh * scanRange);
+  const yMinEndB = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : Math.round(sh * (1 - scanRange));
+  const yMaxStartB = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : sh - 2;
+
+  const topRow = findEdgeRow(yMinStart, yConstraint ? yMaxEnd : Math.round(sh * scanRange), 1, rowScanXStart, rowScanXEnd);
+  const bottomRow = findEdgeRow(yConstraint ? yMaxStartB : sh - 2, yMinEndB, -1, rowScanXStart, rowScanXEnd);
+
+  return {
+    leftPct: (leftCol / sw) * 100,
+    rightPct: (rightCol / sw) * 100,
+    topPct: (topRow / sh) * 100,
+    bottomPct: (bottomRow / sh) * 100,
+  };
+}
+
 async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }> {
   const cacheKey = dataUri.slice(dataUri.length - 64);
   const cached = boundsCache.get(cacheKey);
@@ -1067,144 +1223,39 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     const { width, height } = await sharp(buffer).metadata() as { width: number; height: number };
     if (!width || !height) throw new Error("Could not get image dimensions");
 
-    const SAMPLE_SIZE = 400;
-    const scaleW = Math.min(1, SAMPLE_SIZE / width);
-    const scaleH = Math.min(1, SAMPLE_SIZE / height);
-    const sw = Math.round(width * scaleW);
-    const sh = Math.round(height * scaleH);
+    const COARSE_SIZE = 200;
+    const csw = Math.max(20, Math.round(width <= COARSE_SIZE ? width : COARSE_SIZE * (width / Math.max(width, height))));
+    const csh = Math.max(20, Math.round(height <= COARSE_SIZE ? height : COARSE_SIZE * (height / Math.max(width, height))));
 
-    const { data: pixels } = await sharp(buffer)
-      .resize(sw, sh, { fit: "fill" })
+    const { data: coarsePixels } = await sharp(buffer)
+      .resize(csw, csh, { fit: "fill" })
       .greyscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const getPixel = (x: number, y: number) => {
-      if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
-      return pixels[y * sw + x];
-    };
+    const coarse = detectBoundsAtResolution(coarsePixels as any, csw, csh, 0.4, 0.12);
 
-    const sobelX = (x: number, y: number): number => {
-      return (
-        -getPixel(x - 1, y - 1) + getPixel(x + 1, y - 1) +
-        -2 * getPixel(x - 1, y) + 2 * getPixel(x + 1, y) +
-        -getPixel(x - 1, y + 1) + getPixel(x + 1, y + 1)
-      );
-    };
+    const FINE_SIZE = 600;
+    const fsw = Math.max(40, Math.round(width <= FINE_SIZE ? width : FINE_SIZE * (width / Math.max(width, height))));
+    const fsh = Math.max(40, Math.round(height <= FINE_SIZE ? height : FINE_SIZE * (height / Math.max(width, height))));
 
-    const sobelY = (x: number, y: number): number => {
-      return (
-        -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
-        getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
-      );
-    };
+    const { data: finePixels } = await sharp(buffer)
+      .resize(fsw, fsh, { fit: "fill" })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
 
-    const SCAN_RANGE = 0.4;
-    const EDGE_THRESHOLD = 25;
-    const MIN_VOTE_RATIO = 0.15;
+    const REFINE_BAND = 8;
+    const fine = detectBoundsAtResolution(
+      finePixels as any, fsw, fsh, 0.4, 0.15,
+      { minPct: Math.max(0, coarse.leftPct - REFINE_BAND), maxPct: Math.min(100, coarse.rightPct + REFINE_BAND) },
+      { minPct: Math.max(0, coarse.topPct - REFINE_BAND), maxPct: Math.min(100, coarse.bottomPct + REFINE_BAND) }
+    );
 
-    const findEdgeColumn = (startX: number, endX: number, step: number): number => {
-      const scanYStart = Math.round(sh * 0.1);
-      const scanYEnd = Math.round(sh * 0.9);
-      const totalScanRows = Math.floor((scanYEnd - scanYStart) / 1);
-      const minVotes = Math.max(3, Math.round(totalScanRows * MIN_VOTE_RATIO));
-
-      const columns: { x: number; score: number; votes: number }[] = [];
-
-      for (let x = startX; step > 0 ? x < endX : x > endX; x += step) {
-        let votes = 0;
-        let totalGrad = 0;
-        for (let y = scanYStart; y < scanYEnd; y += 1) {
-          const gx = Math.abs(sobelX(x, y));
-          if (gx >= EDGE_THRESHOLD) {
-            votes++;
-            totalGrad += gx;
-          }
-        }
-        if (votes >= minVotes) {
-          columns.push({ x, score: totalGrad, votes });
-        }
-      }
-
-      if (columns.length === 0) return startX;
-
-      columns.sort((a, b) => b.score - a.score);
-      const topN = columns.slice(0, Math.max(1, Math.ceil(columns.length * 0.1)));
-
-      if (step > 0) {
-        topN.sort((a, b) => a.x - b.x);
-      } else {
-        topN.sort((a, b) => b.x - a.x);
-      }
-
-      let cluster: number[] = [topN[0].x];
-      for (let i = 1; i < topN.length; i++) {
-        if (Math.abs(topN[i].x - topN[0].x) <= 3) {
-          cluster.push(topN[i].x);
-        }
-      }
-
-      const avgX = cluster.reduce((s, v) => s + v, 0) / cluster.length;
-      return avgX;
-    };
-
-    const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): number => {
-      const totalScanCols = Math.floor((xEnd - xStart) / 1);
-      const minVotes = Math.max(3, Math.round(totalScanCols * MIN_VOTE_RATIO));
-
-      const rows: { y: number; score: number; votes: number }[] = [];
-
-      for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
-        let votes = 0;
-        let totalGrad = 0;
-        for (let x = xStart; x < xEnd; x += 1) {
-          const gy = Math.abs(sobelY(x, y));
-          if (gy >= EDGE_THRESHOLD) {
-            votes++;
-            totalGrad += gy;
-          }
-        }
-        if (votes >= minVotes) {
-          rows.push({ y, score: totalGrad, votes });
-        }
-      }
-
-      if (rows.length === 0) return startY;
-
-      rows.sort((a, b) => b.score - a.score);
-      const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.1)));
-
-      if (step > 0) {
-        topN.sort((a, b) => a.y - b.y);
-      } else {
-        topN.sort((a, b) => b.y - a.y);
-      }
-
-      let cluster: number[] = [topN[0].y];
-      for (let i = 1; i < topN.length; i++) {
-        if (Math.abs(topN[i].y - topN[0].y) <= 3) {
-          cluster.push(topN[i].y);
-        }
-      }
-
-      const avgY = cluster.reduce((s, v) => s + v, 0) / cluster.length;
-      return avgY;
-    };
-
-    const leftCol = findEdgeColumn(1, Math.round(sw * SCAN_RANGE), 1);
-    const rightCol = findEdgeColumn(sw - 2, Math.round(sw * (1 - SCAN_RANGE)), -1);
-
-    const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
-    const rowScanXStart = Math.round(leftCol + cardInsetX);
-    const rowScanXEnd = Math.round(rightCol - cardInsetX);
-
-    const topRow = findEdgeRow(1, Math.round(sh * SCAN_RANGE), 1, rowScanXStart, rowScanXEnd);
-    const bottomRow = findEdgeRow(sh - 2, Math.round(sh * (1 - SCAN_RANGE)), -1, rowScanXStart, rowScanXEnd);
-
-    const leftPercent = (leftCol / sw) * 100;
-    const rightPercent = (rightCol / sw) * 100;
-    const topPercent = (topRow / sh) * 100;
-    const bottomPercent = (bottomRow / sh) * 100;
+    const leftPercent = fine.leftPct;
+    const rightPercent = fine.rightPct;
+    const topPercent = fine.topPct;
+    const bottomPercent = fine.bottomPct;
 
     if (rightPercent - leftPercent < 30 || bottomPercent - topPercent < 30) {
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
