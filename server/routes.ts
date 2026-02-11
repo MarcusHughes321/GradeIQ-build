@@ -8,6 +8,54 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
+const SET_CODE_TO_NAME: Record<string, string> = {
+  "s6a": "Eevee Heroes", "s6b": "Fusion Arts", "s8": "Fusion Arts",
+  "s8a": "25th Anniversary Collection", "s8b": "VMAX Climax",
+  "s9": "Star Birth", "s9a": "Battle Region",
+  "s10": "Time Gazer / Space Juggler", "s10a": "Dark Phantasma", "s10b": "Pokemon GO",
+  "s11": "Lost Abyss", "s11a": "Incandescent Arcana",
+  "s12": "Silver Tempest", "s12a": "VSTAR Universe",
+  "sv1": "Scarlet ex", "sv1a": "Triplet Beat", "sv2": "Snow Hazard / Clay Burst",
+  "sv2a": "Pokemon Card 151", "sv3": "Ruler of the Black Flame",
+  "sv3a": "Raging Surf", "sv4": "Shiny Treasure ex", "sv4a": "Ancient Roar / Future Flash",
+  "sv5k": "Wild Force", "sv5m": "Cyber Judge",
+  "sv6": "Night Wanderer", "sv6a": "Transformation Mask",
+  "sv7": "Stellar Crown", "sv7a": "Paradise Dragona",
+  "sv8": "Super Electric Breaker", "sv8a": "Terastal Fest ex",
+  "s1a": "VMAX Rising", "s1h": "Shield", "s1w": "Sword",
+  "s2": "Rebellion Crash", "s2a": "Explosive Walker",
+  "s3": "Infinity Zone", "s3a": "Legendary Heartbeat",
+  "s4": "Amazing Volt Tackle", "s4a": "Shiny Star V",
+  "s5a": "Matchless Fighters", "s5i": "Single Strike / Rapid Strike",
+  "s5r": "Rapid Strike Master", "s6h": "Silver Lance", "s6k": "Jet Black Spirit",
+  "s7d": "Skyscraping Perfection", "s7r": "Blue Sky Stream",
+  "pflen": "Phantasmal Flames", "sfa": "Surging Sparks",
+  "paf": "Paldean Fates", "obf": "Obsidian Flames",
+  "pal": "Paldea Evolved", "svi": "Scarlet & Violet",
+  "crz": "Crown Zenith", "sit": "Silver Tempest",
+  "lor": "Lost Origin", "asr": "Astral Radiance",
+  "brs": "Brilliant Stars", "fst": "Fusion Strike",
+  "evs": "Evolving Skies", "cre": "Chilling Reign",
+  "bst": "Battle Styles", "shf": "Shining Fates",
+  "viv": "Vivid Voltage", "daa": "Darkness Ablaze",
+  "rcl": "Rebel Clash", "ssh": "Sword & Shield",
+  "pre": "Prismatic Evolutions", "tef": "Temporal Forces",
+  "twm": "Twilight Masquerade", "scr": "Stellar Crown",
+  "ssp": "Surging Sparks", "mev": "Mythical Island",
+  "sm1": "Sun & Moon", "sm2": "Guardians Rising",
+  "sm3": "Burning Shadows", "sm4": "Crimson Invasion",
+  "sm5": "Ultra Prism", "sm6": "Forbidden Light",
+  "sm7": "Celestial Storm", "sm8": "Lost Thunder",
+  "sm9": "Team Up", "sm10": "Unbroken Bonds",
+  "sm11": "Unified Minds", "sm12": "Cosmic Eclipse",
+};
+
+function resolveSetName(setCode: string, aiSetName: string): string {
+  if (!setCode) return aiSetName;
+  const key = setCode.toLowerCase().trim();
+  return SET_CODE_TO_NAME[key] || aiSetName;
+}
+
 interface CachedSet {
   id: string;
   name: string;
@@ -435,10 +483,14 @@ Step 2: READ THE CARD NUMBER AND SET CODE
   * Some promo cards have formats like "SWSH039" or "SVP 050"
   * If partially obscured, use visible digits + set symbol to narrow it down
 
-Step 3: IDENTIFY THE SET
-- Look at the set symbol/logo on the card (usually bottom-right area near the card number)
-- Use the SET CODE if visible (e.g., s6b = VMAX Climax, s8b = VMAX Climax, s12a = VSTAR Universe, sv2a = Pokemon Card 151)
-- Cross-reference the set symbol with the card number to identify the exact set
+Step 3: READ THE SET CODE AND IDENTIFY THE SET
+- READ the actual set code printed on the card near the card number. This is the SHORT ALPHANUMERIC CODE like "s8b", "sv2a", "PFLen", "SV5K", etc.
+- The set code is your PRIMARY source of truth for identifying the set. Do NOT guess the set from the Pokemon name alone.
+- Report the set code EXACTLY as printed (e.g., "PFLen", "s8b", "sv2a", "SV5K").
+- Use this set code mapping to determine the English set name:
+  Japanese/Korean/Chinese sets: s6a = Eevee Heroes, s6b = Fusion Arts, s8 = Fusion Arts, s8a = 25th Anniversary Collection, s8b = VMAX Climax, s9 = Star Birth, s9a = Battle Region, s10 = Time Gazer/Space Juggler, s11 = Lost Abyss, s11a = Incandescent Arcana, s12 = Silver Tempest, s12a = VSTAR Universe, sv1 = Scarlet ex, sv2a = Pokemon Card 151, sv3 = Ruler of the Black Flame, SV5K = Wild Force, SV5M = Cyber Judge, sv6 = Night Wanderer, sv7 = Stellar Crown, sv8 = Super Electric Breaker
+  English sets: PFLen = Phantasmal Flames, SFA = Surging Sparks, PAF = Paldean Fates, OBF = Obsidian Flames, PAL = Paldea Evolved, SVI = Scarlet & Violet, CRZ = Crown Zenith, SIT = Silver Tempest, LOR = Lost Origin, ASR = Astral Radiance, BRS = Brilliant Stars, FST = Fusion Strike, EVS = Evolving Skies, CRE = Chilling Reign, BST = Battle Styles, SHF = Shining Fates, VIV = Vivid Voltage, DAA = Darkness Ablaze, RCL = Rebel Clash, SSH = Sword & Shield, PRE = Prismatic Evolutions, TEF = Temporal Forces, TWM = Twilight Masquerade, SCR = Stellar Crown, SSP = Surging Sparks
+- If the set code is not in the mapping above, still report the exact set code — do NOT invent a set name.
 - Consider the card's era (vintage WOTC, modern Scarlet & Violet, etc.) based on card design/border style
 
 Step 4: CROSS-REFERENCE AND VERIFY
@@ -458,7 +510,8 @@ Step 5: FINAL DETERMINATION
 Respond ONLY with valid JSON in this exact format:
 {
   "cardName": "ENGLISH name of the Pokemon card (e.g. 'Charizard ex') - translate if card is in another language",
-  "setName": "ENGLISH name of the Pokemon TCG set (e.g. 'Obsidian Flames') - use the international English set name",
+  "setCode": "The set code EXACTLY as printed on the card (e.g. 'PFLen', 's8b', 'sv2a', 'OBF'). READ THIS FROM THE CARD.",
+  "setName": "ENGLISH name of the set derived from the set code (e.g. PFLen = 'Phantasmal Flames', s8b = 'VMAX Climax')",
   "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
   "centering": {
@@ -1473,13 +1526,22 @@ STEP 4: CROSS-REFERENCE card number + name + artwork
 - Use your knowledge of Pokemon TCG card lists to verify the card number matches the Pokemon.
 - If set code + card number points to a specific Pokemon, and the artwork matches, that's your answer even if the name text is hard to read.
 
-SET NAME from set code:
+SET NAME from set code (READ the actual code printed on the card, do NOT guess):
+Japanese/Korean/Chinese sets:
 - s6a = Eevee Heroes, s6b = Fusion Arts, s8 = Fusion Arts, s8a = 25th Anniversary Collection
 - s8b = VMAX Climax, s9 = Star Birth, s9a = Battle Region, s10 = Time Gazer / Space Juggler
 - s11 = Lost Abyss, s11a = Incandescent Arcana, s12 = Silver Tempest, s12a = VSTAR Universe
 - sv1 = Scarlet ex, sv2a = Pokemon Card 151, sv3 = Ruler of the Black Flame
-- S1a = VMAX Rising, S5a = Matchless Fighters
+- S1a = VMAX Rising, S5a = Matchless Fighters, SV5K = Wild Force, SV5M = Cyber Judge
 - S5I = Single Strike / Rapid Strike, S6H = Silver Lance, S6K = Jet Black Spirit
+English sets:
+- PFLen = Phantasmal Flames, SFA = Surging Sparks, PAF = Paldean Fates, OBF = Obsidian Flames
+- PAL = Paldea Evolved, SVI = Scarlet & Violet, CRZ = Crown Zenith, SIT = Silver Tempest
+- LOR = Lost Origin, ASR = Astral Radiance, BRS = Brilliant Stars, FST = Fusion Strike
+- EVS = Evolving Skies, CRE = Chilling Reign, BST = Battle Styles, SHF = Shining Fates
+- VIV = Vivid Voltage, DAA = Darkness Ablaze, RCL = Rebel Clash, SSH = Sword & Shield
+- PRE = Prismatic Evolutions, TEF = Temporal Forces, TWM = Twilight Masquerade
+- SCR = Stellar Crown, SSP = Surging Sparks
 
 CRITICAL RULES:
 - NEVER return "Unknown", "N/A", or "Unreadable" for cardName.
@@ -1517,7 +1579,7 @@ async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName:
   return null;
 }
 
-async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
+async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string; cardLanguage?: string } | null> {
   const response = await openai.chat.completions.create({
     model: "gpt-5.2",
     max_completion_tokens: 512,
@@ -1526,19 +1588,21 @@ async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardN
         role: "system",
         content: `You are a Pokemon card identification expert. Identify this card using ALL available evidence:
 
-1. READ THE CARD NUMBER from the bottom of the card (format XXX/YYY). Also read the set code (e.g. s8a, sv2a) near it.
-2. READ THE POKEMON NAME from the top of the card. For non-English cards, translate to English.
-3. LOOK AT THE ARTWORK — every Pokemon has distinctive visual features. Use the artwork to confirm or correct your text reading.
-4. CROSS-REFERENCE: Use card number + set code + your knowledge of Pokemon TCG card lists to verify. If the artwork clearly shows one Pokemon but you read a different name, trust the artwork and re-examine the text.
-
-For non-English cards where the name is hard to read (glare, holographic effects, unfamiliar script), rely MORE on artwork + card number + set knowledge to identify the Pokemon.
+1. DETERMINE LANGUAGE: Look at the printed text (name, attacks, descriptions). English text → "en", Japanese (katakana/hiragana) → "ja", Korean (Hangul) → "ko", Chinese → "zh". Judge by the PRINTED TEXT, not the set code.
+2. READ THE CARD NUMBER from the bottom of the card (format XXX/YYY). Also READ THE SET CODE (e.g. s8b, sv2a, PFLen, OBF) — this is the short alphanumeric code printed near the card number.
+3. READ THE POKEMON NAME from the top of the card. For non-English cards, translate to English.
+4. LOOK AT THE ARTWORK — every Pokemon has distinctive visual features. Use the artwork to confirm or correct your text reading.
+5. USE THE SET CODE to determine the set name:
+   Japanese: s6a=Eevee Heroes, s6b=Fusion Arts, s8b=VMAX Climax, s12a=VSTAR Universe, sv2a=Pokemon Card 151
+   English: PFLen=Phantasmal Flames, OBF=Obsidian Flames, PRE=Prismatic Evolutions, FST=Fusion Strike, SFA=Surging Sparks, PAF=Paldean Fates, PAL=Paldea Evolved, SVI=Scarlet & Violet, TEF=Temporal Forces, TWM=Twilight Masquerade, SCR=Stellar Crown, SSP=Surging Sparks
+   The set code is the PRIMARY source for the set name. Do NOT guess the set from the Pokemon name.
+6. CROSS-REFERENCE: Use card number + set code + your knowledge of Pokemon TCG card lists to verify.
 
 Common Japanese: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon, ラフレシア=Vileplume, フシギバナ=Venusaur, カメックス=Blastoise
 Common Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
 Common Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar, 仙子伊布=Sylveon, 月亮伊布=Umbreon
 Include any suffix (V, VMAX, VSTAR, ex, EX, GX).
-Japanese, Korean, and Chinese cards all use the same set codes.
-Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCode":"code","setName":"English set name"}`,
+Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCode":"code as printed","setName":"English set name from code","cardLanguage":"en|ja|ko|zh"}`,
       },
       {
         role: "user",
@@ -1711,17 +1775,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const idSet = cardIdResult?.setName || "";
       const idCode = cardIdResult?.setCode || "";
 
-      console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}"`);
+      const gradingSetCode = (gradingResult as any).setCode || "";
+      const effectiveCode = idCode || gradingSetCode;
+
+      console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}" code="${gradingSetCode}"`);
       console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}" code="${idCode}"`);
+      console.log(`[grade-card] Effective set code: "${effectiveCode}"`);
 
       const namesAgree = idName && gradingName &&
         stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
 
       const idIsUnknown = !idName || idName.toLowerCase() === "unknown" || idName.toLowerCase() === "n/a" || idName.toLowerCase() === "unreadable";
       const gradingIsUnknown = !gradingName || gradingName.toLowerCase() === "unknown" || gradingName.toLowerCase() === "n/a" || gradingName.toLowerCase() === "unreadable";
-
-      const gradingSetCode = (gradingResult as any).setCode || "";
-      const effectiveCode = idCode || gradingSetCode;
       const eitherCodeAsian = /^s\d|^sv\d|^sm\d/i.test(effectiveCode || "");
       const cardLanguage = (cardIdResult as any)?.cardLanguage || "";
       const aiSaysNonEnglish = cardLanguage && cardLanguage !== "en";
@@ -1934,6 +1999,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
       } // end else (non-Asian-code path)
+
+      if (effectiveCode) {
+        const resolvedSet = resolveSetName(effectiveCode, gradingResult.setName || "");
+        if (resolvedSet !== gradingResult.setName) {
+          console.log(`[grade-card] Set code correction: "${effectiveCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
+          gradingResult.setName = resolvedSet;
+        }
+      }
 
       gradingResult = syncCenteringToGrades(gradingResult);
 
