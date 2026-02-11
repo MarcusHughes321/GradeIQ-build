@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,8 @@ import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
-import { getGradings, deleteGrading, clearAllGradings } from "@/lib/storage";
+import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
+import { apiRequest } from "@/lib/query-client";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
@@ -179,6 +180,8 @@ export default function HomeScreen() {
       })
     : gradings;
 
+  const fetchingValuesRef = useRef(false);
+
   useFocusEffect(
     useCallback(() => {
       loadGradings();
@@ -188,6 +191,36 @@ export default function HomeScreen() {
   const loadGradings = async () => {
     const data = await getGradings();
     setGradings(data);
+    fetchMissingValues(data);
+  };
+
+  const fetchMissingValues = async (data: SavedGrading[]) => {
+    if (fetchingValuesRef.current) return;
+    const missing = data.filter((g) => !g.result.cardValue && g.result.cardName);
+    if (missing.length === 0) return;
+    fetchingValuesRef.current = true;
+    try {
+      for (const g of missing) {
+        try {
+          const resp = await apiRequest("POST", "/api/card-value", {
+            cardName: g.result.cardName,
+            setName: g.result.setName || g.result.setInfo,
+            setNumber: g.result.setNumber,
+            psaGrade: g.result.psa.grade,
+            bgsGrade: g.result.beckett.overallGrade,
+            aceGrade: g.result.ace.overallGrade,
+            tagGrade: g.result.tag?.overallGrade,
+            cgcGrade: g.result.cgc?.grade,
+          });
+          const valData = await resp.json();
+          await updateGrading(g.id, { result: { ...g.result, cardValue: valData } });
+        } catch {}
+      }
+      const refreshed = await getGradings();
+      setGradings(refreshed);
+    } finally {
+      fetchingValuesRef.current = false;
+    }
   };
 
   const handleDelete = async (id: string) => {
