@@ -495,7 +495,7 @@ export default function HomeScreen() {
                     <View style={styles.proBlurContent}>
                       <Ionicons name="lock-closed" size={20} color="#F59E0B" />
                       <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                      <Text style={styles.proBlurSubtitle}>Unlock portfolio values</Text>
+                      <Text style={styles.proBlurSubtitle}>Full portfolio tracking</Text>
                     </View>
                   </BlurView>
                 </Pressable>
