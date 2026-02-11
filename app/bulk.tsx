@@ -200,47 +200,58 @@ export default function BulkScreen() {
 
       const savedIds: string[] = [];
       let failedCount = 0;
+      let completedSoFar = 0;
+      const BATCH_SIZE = 3;
 
-      for (let i = 0; i < readyCards.length; i++) {
-        const card = readyCards[i];
-        setCurrentCardName(`Grading card ${i + 1} of ${readyCards.length}...`);
+      for (let batchStart = 0; batchStart < readyCards.length; batchStart += BATCH_SIZE) {
+        const batch = readyCards.slice(batchStart, batchStart + BATCH_SIZE);
+        setCurrentCardName(`Grading cards ${batchStart + 1}-${Math.min(batchStart + batch.length, readyCards.length)} of ${readyCards.length}...`);
 
-        try {
-          const frontBase64 = await getBase64FromUri(card.frontImage!);
-          const backBase64 = await getBase64FromUri(card.backImage!);
+        const batchResults = await Promise.allSettled(
+          batch.map(async (card, batchIdx) => {
+            const globalIdx = batchStart + batchIdx;
+            const frontBase64 = await getBase64FromUri(card.frontImage!);
+            const backBase64 = await getBase64FromUri(card.backImage!);
 
-          const response = await apiRequest("POST", "/api/grade-card", {
-            frontImage: frontBase64,
-            backImage: backBase64,
-          });
+            const response = await apiRequest("POST", "/api/grade-card", {
+              frontImage: frontBase64,
+              backImage: backBase64,
+            });
 
-          const result = await response.json();
+            const result = await response.json();
 
-          if (result.error) {
-            console.error(`Card ${i + 1} failed:`, result.error);
-            failedCount++;
-          } else {
+            if (result.error) {
+              throw new Error(result.error);
+            }
+
             const saved = await saveGrading(
               card.frontImage!,
               card.backImage!,
               result as GradingResult
             );
-            savedIds.push(saved.id);
-            setCurrentCardName(result.cardName || `Card ${i + 1}`);
+            return { globalIdx, savedId: saved.id, cardName: result.cardName };
+          })
+        );
+
+        for (const r of batchResults) {
+          if (r.status === "fulfilled") {
+            savedIds.push(r.value.savedId);
+            setCurrentCardName(r.value.cardName || `Card ${r.value.globalIdx + 1}`);
+          } else {
+            console.error(`Card failed:`, r.reason?.message);
+            failedCount++;
           }
-        } catch (cardErr: any) {
-          console.error(`Card ${i + 1} error:`, cardErr?.message);
-          failedCount++;
         }
 
-        setCompletedCount(i + 1);
+        completedSoFar += batch.length;
+        setCompletedCount(completedSoFar);
         Animated.timing(progressAnim, {
-          toValue: (i + 1) / readyCards.length,
+          toValue: completedSoFar / readyCards.length,
           duration: 400,
           useNativeDriver: false,
         }).start();
 
-        if (Platform.OS !== "web" && i < readyCards.length - 1) {
+        if (Platform.OS !== "web" && completedSoFar < readyCards.length) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       }

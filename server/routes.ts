@@ -1702,8 +1702,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Both front and back card images are required" });
       }
 
-      const frontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const backUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+      const rawFront = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const rawBack = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+
+      const [frontUrl, backUrl] = await Promise.all([
+        optimizeImageForAI(rawFront),
+        optimizeImageForAI(rawBack),
+      ]);
 
       console.log(`[regrade] Starting fast re-grade for "${cardName}"`);
 
