@@ -315,7 +315,7 @@ export default function HomeScreen() {
             <View style={styles.portfolioCard}>
               <View style={styles.portfolioHeader}>
                 <Ionicons name="cash-outline" size={16} color={Colors.primary} />
-                <Text style={styles.portfolioTitle}>Portfolio Value</Text>
+                <Text style={styles.portfolioTitle}>Est. Portfolio Value</Text>
               </View>
               {(() => {
                 const activeValues: { label: string; total: number }[] = [];
@@ -334,7 +334,7 @@ export default function HomeScreen() {
                     </Text>
                     {avgTotal > 0 ? (
                       <Text style={styles.portfolioTotalNote}>
-                        {stats.cardsWithValues} of {gradings.length} cards
+                        Avg. across {activeValues.length} {activeValues.length === 1 ? "company" : "companies"}
                       </Text>
                     ) : (
                       <Text style={styles.portfolioTotalNote}>Fetching prices...</Text>
@@ -387,7 +387,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View style={styles.portfolioCard}>
+          <View style={styles.avgGradesCard}>
             <View style={styles.portfolioHeader}>
               <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
               <Text style={styles.portfolioTitle}>Average Grades</Text>
@@ -662,6 +662,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: 16,
     padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 10,
+  },
+  avgGradesCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    marginHorizontal: BUBBLE_PAD,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     gap: 10,
