@@ -1,9 +1,10 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { SettingsProvider } from "@/lib/settings-context";
@@ -13,7 +14,20 @@ import Colors from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
 
+const ONBOARDING_KEY = "gradeiq_onboarding_complete";
+
 function RootLayoutNav() {
+  const [checkedOnboarding, setCheckedOnboarding] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDING_KEY).then((val) => {
+      if (val !== "true") {
+        router.replace("/onboarding");
+      }
+      setCheckedOnboarding(true);
+    });
+  }, []);
+
   return (
     <Stack
       screenOptions={{
@@ -23,6 +37,7 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
       <Stack.Screen name="results" />
       <Stack.Screen name="bulk" />
       <Stack.Screen name="bulk-results" />
