@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import Colors from "@/constants/colors";
+import CompanyLabel from "./CompanyLabel";
 
 interface GradeCircleProps {
   grade: number;
@@ -56,7 +57,7 @@ export default function GradeCircle({ grade, size = 80, color, label }: GradeCir
         </Text>
       </View>
       {label && (
-        <Text style={[styles.label, { fontSize: labelSize < 11 ? 11 : labelSize }]}>{label}</Text>
+        <CompanyLabel company={label} fontSize={labelSize < 11 ? 11 : labelSize} fontFamily="Inter_500Medium" />
       )}
     </View>
   );

@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import GradeCircle from "./GradeCircle";
 import SubGradeRow from "./SubGradeRow";
+import CompanyLabel from "./CompanyLabel";
 import type { PSAGrade, BeckettGrade, AceGrade, TAGGrade, CGCGrade } from "@/lib/types";
 
 const COMPANY_LABELS: Record<string, string> = {
@@ -92,7 +93,7 @@ export default function CompanyCard({ company, grade, color, defaultExpanded = f
       >
         <View style={styles.companyInfo}>
           <View style={styles.companyTextWrap}>
-            <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
+            <CompanyLabel company={COMPANY_LABELS[company]} fontSize={18} />
             {!expanded && (
               <View style={styles.miniSubGrades}>
                 {subGrades.map((sg) => (

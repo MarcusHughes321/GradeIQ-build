@@ -22,6 +22,7 @@ import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
+import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -509,7 +510,7 @@ export default function ResultsScreen() {
             {enabledCompanies.includes("PSA") && (
               <>
                 <View style={styles.gradeChip}>
-                  <Text style={styles.gradeChipLabel}>PSA</Text>
+                  <CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_600SemiBold" />
                   <Text style={[styles.gradeChipValue, { color: getGradientColor(result.psa.grade) }]}>
                     {result.psa.grade % 1 === 0 ? result.psa.grade.toString() : result.psa.grade.toFixed(1)}
                   </Text>
@@ -521,7 +522,7 @@ export default function ResultsScreen() {
             {enabledCompanies.includes("Beckett") && (
               <>
                 <View style={styles.gradeChip}>
-                  <Text style={styles.gradeChipLabel}>BGS</Text>
+                  <CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_600SemiBold" />
                   <Text style={[styles.gradeChipValue, { color: getGradientColor(result.beckett.overallGrade) }]}>
                     {result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade.toString() : result.beckett.overallGrade.toFixed(1)}
                   </Text>
@@ -533,7 +534,7 @@ export default function ResultsScreen() {
             {enabledCompanies.includes("Ace") && (
               <>
                 <View style={styles.gradeChip}>
-                  <Text style={styles.gradeChipLabel}>ACE</Text>
+                  <CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_600SemiBold" />
                   <Text style={[styles.gradeChipValue, { color: getGradientColor(result.ace.overallGrade) }]}>
                     {result.ace.overallGrade}
                   </Text>
@@ -545,7 +546,7 @@ export default function ResultsScreen() {
             {enabledCompanies.includes("TAG") && result.tag && (
               <>
                 <View style={styles.gradeChip}>
-                  <Text style={styles.gradeChipLabel}>TAG</Text>
+                  <CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_600SemiBold" />
                   <Text style={[styles.gradeChipValue, { color: getGradientColor(result.tag.overallGrade) }]}>
                     {result.tag.overallGrade % 1 === 0 ? result.tag.overallGrade.toString() : result.tag.overallGrade.toFixed(1)}
                   </Text>
@@ -556,7 +557,7 @@ export default function ResultsScreen() {
             )}
             {enabledCompanies.includes("CGC") && result.cgc && (
               <View style={styles.gradeChip}>
-                <Text style={styles.gradeChipLabel}>CGC</Text>
+                <CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_600SemiBold" />
                 <Text style={[styles.gradeChipValue, { color: getGradientColor(result.cgc.grade) }]}>
                   {result.cgc.grade % 1 === 0 ? result.cgc.grade.toString() : result.cgc.grade.toFixed(1)}
                 </Text>
@@ -607,7 +608,7 @@ export default function ResultsScreen() {
               </View>
               {enabledCompanies.includes("PSA") && (
               <View style={styles.valueRow}>
-                <Text style={styles.valueLabel}>PSA {result.psa.grade}</Text>
+                <View style={styles.valueLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.valueLabel}> {result.psa.grade}</Text></View>
                 <Text style={[styles.valueAmount, cardValue.psaValue.includes("No value") && styles.valueNA]}>
                   {cardValue.psaValue}
                 </Text>
@@ -618,7 +619,7 @@ export default function ResultsScreen() {
               )}
               {enabledCompanies.includes("Beckett") && (
               <View style={styles.valueRow}>
-                <Text style={styles.valueLabel}>BGS {result.beckett.overallGrade}</Text>
+                <View style={styles.valueLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.valueLabel}> {result.beckett.overallGrade}</Text></View>
                 <Text style={[styles.valueAmount, cardValue.bgsValue.includes("No value") && styles.valueNA]}>
                   {cardValue.bgsValue}
                 </Text>
@@ -629,7 +630,7 @@ export default function ResultsScreen() {
               )}
               {enabledCompanies.includes("Ace") && (
               <View style={styles.valueRow}>
-                <Text style={styles.valueLabel}>ACE {result.ace.overallGrade}</Text>
+                <View style={styles.valueLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.valueLabel}> {result.ace.overallGrade}</Text></View>
                 <Text style={[styles.valueAmount, cardValue.aceValue.includes("No value") && styles.valueNA]}>
                   {cardValue.aceValue}
                 </Text>
@@ -640,7 +641,7 @@ export default function ResultsScreen() {
               )}
               {enabledCompanies.includes("TAG") && (
               <View style={styles.valueRow}>
-                <Text style={styles.valueLabel}>TAG {result.tag.overallGrade}</Text>
+                <View style={styles.valueLabelRow}><CompanyLabel company="TAG" fontSize={13} /><Text style={styles.valueLabel}> {result.tag.overallGrade}</Text></View>
                 <Text style={[styles.valueAmount, cardValue.tagValue?.includes("No value") && styles.valueNA]}>
                   {cardValue.tagValue || "-"}
                 </Text>
@@ -651,7 +652,7 @@ export default function ResultsScreen() {
               )}
               {enabledCompanies.includes("CGC") && (
               <View style={styles.valueRow}>
-                <Text style={styles.valueLabel}>CGC {result.cgc.grade}</Text>
+                <View style={styles.valueLabelRow}><CompanyLabel company="CGC" fontSize={13} /><Text style={styles.valueLabel}> {result.cgc.grade}</Text></View>
                 <Text style={[styles.valueAmount, cardValue.cgcValue?.includes("No value") && styles.valueNA]}>
                   {cardValue.cgcValue || "-"}
                 </Text>
@@ -1168,11 +1169,15 @@ const styles = StyleSheet.create({
     textTransform: "uppercase" as const,
     letterSpacing: 0.5,
   },
+  valueLabelRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    flex: 1,
+  },
   valueLabel: {
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     color: Colors.textSecondary,
-    flex: 1,
   },
   valueAmount: {
     fontFamily: "Inter_700Bold",

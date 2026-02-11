@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
+import CompanyLabel from "./CompanyLabel";
 import type { CenteringMeasurement } from "@/lib/types";
 
 interface CenteringCardProps {
@@ -133,11 +134,11 @@ export default function CenteringCard({ centering, onOpenTool }: CenteringCardPr
             Math.max(c.frontLeftRight, c.frontTopBottom)
           );
 
+          const displayName = standard.company === "Ace" ? "ACE" : standard.company;
+
           return (
             <View key={standard.company} style={styles.gradeItem}>
-              <Text style={[styles.gradeCompany, { color: standard.color === "#FFFFFF" ? Colors.textSecondary : standard.color }]}>
-                {standard.company}
-              </Text>
+              <CompanyLabel company={displayName} fontSize={12} fontFamily="Inter_600SemiBold" />
               <Text style={[styles.gradeValue, { color: gradeColor }]}>{result.grade}</Text>
               <Text style={styles.gradeMaxLabel}>
                 {result.passes10 ? "10 eligible" : `max ${result.grade}`}

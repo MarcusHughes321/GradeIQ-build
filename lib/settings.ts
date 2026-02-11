@@ -9,11 +9,11 @@ export interface AppSettings {
 }
 
 export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; color: string }[] = [
-  { id: "PSA", label: "PSA", shortLabel: "PSA", color: "#FF3C31" },
-  { id: "Beckett", label: "Beckett (BGS)", shortLabel: "BGS", color: "#FFFFFF" },
-  { id: "Ace", label: "Ace Grading", shortLabel: "ACE", color: "#A0A0A0" },
-  { id: "TAG", label: "TAG Grading", shortLabel: "TAG", color: "#00B4D8" },
-  { id: "CGC", label: "CGC Cards", shortLabel: "CGC", color: "#FFD700" },
+  { id: "PSA", label: "PSA", shortLabel: "PSA", color: "#1E56A0" },
+  { id: "Beckett", label: "Beckett (BGS)", shortLabel: "BGS", color: "#C0C0C0" },
+  { id: "Ace", label: "Ace Grading", shortLabel: "ACE", color: "#FFD700" },
+  { id: "TAG", label: "TAG Grading", shortLabel: "TAG", color: "#FFFFFF" },
+  { id: "CGC", label: "CGC Cards", shortLabel: "CGC", color: "#E63946" },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {

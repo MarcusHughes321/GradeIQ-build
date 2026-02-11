@@ -15,6 +15,7 @@ import Colors from "@/constants/colors";
 import { getGradings } from "@/lib/storage";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
+import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 
 function getGradeColor(grade: number): string {
@@ -137,7 +138,7 @@ export default function BulkResultsScreen() {
                 {enabledCompanies.includes("PSA") && (
                   <>
                     <View style={styles.avgItem}>
-                      <Text style={styles.avgLabel}>Avg PSA</Text>
+                      <View style={styles.avgLabelRow}><Text style={styles.avgLabel}>Avg </Text><CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_500Medium" /></View>
                       <Text style={[styles.avgValue, { color: getGradeColor(avgPsa) }]}>{avgPsa}</Text>
                     </View>
                     {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
@@ -146,7 +147,7 @@ export default function BulkResultsScreen() {
                 {enabledCompanies.includes("Beckett") && (
                   <>
                     <View style={styles.avgItem}>
-                      <Text style={styles.avgLabel}>Avg BGS</Text>
+                      <View style={styles.avgLabelRow}><Text style={styles.avgLabel}>Avg </Text><CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_500Medium" /></View>
                       <Text style={[styles.avgValue, { color: getGradeColor(avgBgs) }]}>{avgBgs}</Text>
                     </View>
                     {(enabledCompanies.includes("Ace") || enabledCompanies.includes("TAG") || enabledCompanies.includes("CGC")) && <View style={styles.avgDivider} />}
@@ -155,7 +156,7 @@ export default function BulkResultsScreen() {
                 {enabledCompanies.includes("Ace") && (
                   <>
                     <View style={styles.avgItem}>
-                      <Text style={styles.avgLabel}>Avg ACE</Text>
+                      <View style={styles.avgLabelRow}><Text style={styles.avgLabel}>Avg </Text><CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_500Medium" /></View>
                       <Text style={[styles.avgValue, { color: getGradeColor(avgAce) }]}>{avgAce}</Text>
                     </View>
                     {((enabledCompanies.includes("TAG") && tagCards.length > 0) || (enabledCompanies.includes("CGC") && cgcCards.length > 0)) && <View style={styles.avgDivider} />}
@@ -164,7 +165,7 @@ export default function BulkResultsScreen() {
                 {enabledCompanies.includes("TAG") && tagCards.length > 0 && (
                   <>
                     <View style={styles.avgItem}>
-                      <Text style={styles.avgLabel}>Avg TAG</Text>
+                      <View style={styles.avgLabelRow}><Text style={styles.avgLabel}>Avg </Text><CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_500Medium" /></View>
                       <Text style={[styles.avgValue, { color: getGradeColor(avgTag) }]}>{avgTag}</Text>
                     </View>
                     {(enabledCompanies.includes("CGC") && cgcCards.length > 0) && <View style={styles.avgDivider} />}
@@ -172,7 +173,7 @@ export default function BulkResultsScreen() {
                 )}
                 {enabledCompanies.includes("CGC") && cgcCards.length > 0 && (
                   <View style={styles.avgItem}>
-                    <Text style={styles.avgLabel}>Avg CGC</Text>
+                    <View style={styles.avgLabelRow}><Text style={styles.avgLabel}>Avg </Text><CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_500Medium" /></View>
                     <Text style={[styles.avgValue, { color: getGradeColor(avgCgc) }]}>{avgCgc}</Text>
                   </View>
                 )}
@@ -273,6 +274,10 @@ const styles = StyleSheet.create({
   avgItem: {
     alignItems: "center",
     gap: 4,
+  },
+  avgLabelRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
   },
   avgLabel: {
     fontFamily: "Inter_500Medium",

@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { ALL_COMPANIES, type CompanyId } from "@/lib/settings";
+import CompanyLabel from "@/components/CompanyLabel";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -84,7 +85,7 @@ function CompanyRow({
   return (
     <View style={[styles.companyRow, !enabled && styles.companyRowDisabled]}>
       <View style={styles.companyInfo}>
-        <Text style={[styles.companyShort, { color: enabled ? color : Colors.textMuted }]}>{shortLabel}</Text>
+        <View style={{ width: 40, opacity: enabled ? 1 : 0.4 }}><CompanyLabel company={shortLabel} fontSize={16} /></View>
         <Text style={[styles.companyLabel, !enabled && styles.companyLabelDisabled]}>{label}</Text>
       </View>
       <Switch

@@ -19,6 +19,7 @@ import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings } from "@/lib/storage";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
+import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -279,35 +280,35 @@ export default function HomeScreen() {
                 {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
-                    <Text style={styles.portfolioValueLabel}>PSA Graded</Text>
+                    <View style={styles.portfolioLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
-                    <Text style={styles.portfolioValueLabel}>BGS Graded</Text>
+                    <View style={styles.portfolioLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
-                    <Text style={styles.portfolioValueLabel}>ACE Graded</Text>
+                    <View style={styles.portfolioLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
-                    <Text style={styles.portfolioValueLabel}>TAG Graded</Text>
+                    <View style={styles.portfolioLabelRow}><CompanyLabel company="TAG" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(2)}</Text>
                   </View>
                 )}
                 {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
-                    <Text style={styles.portfolioValueLabel}>CGC Graded</Text>
+                    <View style={styles.portfolioLabelRow}><CompanyLabel company="CGC" fontSize={13} /><Text style={styles.portfolioValueLabel}> Graded</Text></View>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(2)}</Text>
                   </View>
                 )}
@@ -326,7 +327,7 @@ export default function HomeScreen() {
                 <>
                   <View style={styles.avgGradeItem}>
                     <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
-                    <Text style={[styles.avgGradeLabel, { color: Colors.cardPSA }]}>PSA</Text>
+                    <CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_500Medium" />
                   </View>
                   {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
                 </>
@@ -335,7 +336,7 @@ export default function HomeScreen() {
                 <>
                   <View style={styles.avgGradeItem}>
                     <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
-                    <Text style={styles.avgGradeLabel}>BGS</Text>
+                    <CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_500Medium" />
                   </View>
                   {(enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
                 </>
@@ -344,7 +345,7 @@ export default function HomeScreen() {
                 <>
                   <View style={styles.avgGradeItem}>
                     <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
-                    <Text style={[styles.avgGradeLabel, { color: Colors.cardAce }]}>ACE</Text>
+                    <CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_500Medium" />
                   </View>
                   {((enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
                 </>
@@ -353,7 +354,7 @@ export default function HomeScreen() {
                 <>
                   <View style={styles.avgGradeItem}>
                     <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
-                    <Text style={[styles.avgGradeLabel, { color: Colors.cardTAG }]}>TAG</Text>
+                    <CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_500Medium" />
                   </View>
                   {(enabledCompanies.includes("CGC") && stats.countCGC > 0) && <View style={styles.avgDivider} />}
                 </>
@@ -361,7 +362,7 @@ export default function HomeScreen() {
               {enabledCompanies.includes("CGC") && stats.countCGC > 0 && (
                 <View style={styles.avgGradeItem}>
                   <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
-                  <Text style={[styles.avgGradeLabel, { color: Colors.cardCGC }]}>CGC</Text>
+                  <CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_500Medium" />
                 </View>
               )}
             </View>
@@ -612,8 +613,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  portfolioValueLabel: {
+  portfolioLabelRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
     flex: 1,
+  },
+  portfolioValueLabel: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textSecondary,
