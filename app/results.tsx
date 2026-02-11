@@ -14,6 +14,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import Colors from "@/constants/colors";
 import { getGradings, updateGrading } from "@/lib/storage";
 import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate } from "@/lib/types";
@@ -24,6 +25,7 @@ import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
+import { useSubscription } from "@/lib/subscription";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -104,6 +106,7 @@ export default function ResultsScreen() {
   const { gradingId } = useLocalSearchParams<{ gradingId: string }>();
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
+  const { isSubscribed, isGateEnabled } = useSubscription();
   const [grading, setGrading] = useState<SavedGrading | null>(null);
   const [showFront, setShowFront] = useState(true);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
@@ -590,7 +593,7 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.valueCard}>
+        <View style={[styles.valueCard, { overflow: "hidden" as const }]}>
           <View style={styles.valueHeader}>
             <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
             <Text style={styles.valueTitle}>Estimated eBay Values</Text>
@@ -672,6 +675,20 @@ export default function ResultsScreen() {
             </View>
           ) : (
             <Text style={styles.valueNA}>No value data found</Text>
+          )}
+          {isGateEnabled && !isSubscribed && (
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => router.push("/paywall")}
+            >
+              <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
+                <View style={styles.proBlurContent}>
+                  <Ionicons name="lock-closed" size={20} color="#F59E0B" />
+                  <Text style={styles.proBlurTitle}>Pro Feature</Text>
+                  <Text style={styles.proBlurSubtitle}>Unlock eBay values</Text>
+                </View>
+              </BlurView>
+            </Pressable>
           )}
         </View>
 
@@ -1490,5 +1507,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
     textAlign: "center",
+  },
+  proBlurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+  },
+  proBlurContent: {
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  proBlurTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#F59E0B",
+  },
+  proBlurSubtitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.7)",
   },
 });
