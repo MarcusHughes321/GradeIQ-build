@@ -747,8 +747,8 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
         }
       }
 
-      if (nameScore === 0 && !setMatched) {
-        score = Math.min(score, 30);
+      if (nameScore === 0) {
+        score = Math.min(score, setMatched ? 40 : 30);
       }
 
       console.log(`[card-lookup]   Candidate: ${card.name} #${card.number} (${card.set?.name}, total=${cardTotal}) nameScore=${nameScore} score=${score}`);
@@ -968,7 +968,7 @@ async function convertHeifToJpeg(buffer: Buffer): Promise<Buffer> {
   }
 }
 
-async function optimizeImageForAI(dataUri: string, maxDim: number = 1024): Promise<string> {
+async function optimizeImageForAI(dataUri: string, maxDim: number = 1536): Promise<string> {
   try {
     const mimeMatch = dataUri.match(/^data:(image\/[^;]+);base64,/);
     const mime = (mimeMatch?.[1] || "").toLowerCase();
@@ -1471,9 +1471,9 @@ async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName:
       {
         role: "user",
         content: [
-          { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips." },
-          { type: "image_url", image_url: { url: topStrip, detail: "auto" } },
-          { type: "image_url", image_url: { url: bottomStrip, detail: "auto" } },
+          { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips. Focus on the PRINTED TEXT — do NOT guess from artwork." },
+          { type: "image_url", image_url: { url: topStrip, detail: "high" } },
+          { type: "image_url", image_url: { url: bottomStrip, detail: "high" } },
         ],
       },
     ],
@@ -1520,6 +1520,45 @@ Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCod
     return JSON.parse(jsonMatch[0]);
   }
   return null;
+}
+
+async function tiebreakerNameOnly(frontImageUrl: string): Promise<string | null> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 256,
+      messages: [
+        {
+          role: "system",
+          content: `You are a text reader. READ the Pokemon name that is PRINTED on this trading card. Do NOT guess from artwork or colors — read the actual text characters printed on the card near the top.
+
+For English cards: read the English name directly.
+For Japanese cards: read the katakana/kanji and translate to English. Common: コロトック=Kricketune, ラフレシア=Vileplume, ゲノセクト=Genesect, リザードン=Charizard, ピカチュウ=Pikachu, ゲンガー=Gengar, ルカリオ=Lucario, ニンフィア=Sylveon, ブラッキー=Umbreon, ミュウツー=Mewtwo, エーフィ=Espeon, ハッサム=Scizor, バンギラス=Tyranitar, カイリュー=Dragonite, メタグロス=Metagross
+For Korean/Chinese: translate to English.
+
+Include any suffix like V, VMAX, VSTAR, ex, EX, GX that appears after the name.
+
+Respond with ONLY the English name, nothing else. Example: "Kricketune V"`,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What Pokemon name is PRINTED on this card? Read the text, do not guess from artwork." },
+            { type: "image_url", image_url: { url: frontImageUrl, detail: "high" } },
+          ],
+        },
+      ],
+    });
+    const name = (response.choices[0]?.message?.content || "").trim().replace(/^"|"$/g, "");
+    if (name && name.toLowerCase() !== "unknown" && name.toLowerCase() !== "n/a") {
+      console.log(`[tiebreaker] Name read: "${name}"`);
+      return name;
+    }
+    return null;
+  } catch (err: any) {
+    console.log(`[tiebreaker] Failed: ${err?.message}`);
+    return null;
+  }
 }
 
 async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
@@ -1707,12 +1746,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           console.log(`[grade-card] Bulbapedia lookup missed — falling back to AI triple-check for Asian card`);
 
-          const fullImageId = await identifyCardWithFullImage(frontUri).catch(() => null);
+          const [tiebreakerResult, fullImageId] = await Promise.all([
+            tiebreakerNameOnly(frontUri).catch(() => null),
+            identifyCardWithFullImage(frontUri).catch(() => null),
+          ]);
           const fullName = fullImageId?.cardName || "";
           const fullIsUnknown = !fullName || fullName.toLowerCase() === "unknown" || fullName.toLowerCase() === "n/a";
-          console.log(`[grade-card] Asian card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}"`);
+          console.log(`[grade-card] Asian card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}" Tiebreaker="${tiebreakerResult}"`);
 
-          const candidates = [idName, fullName, gradingName].filter(n => n && n.toLowerCase() !== "unknown");
+          const candidates = [idName, fullName, gradingName, tiebreakerResult || ""].filter(n => n && n.toLowerCase() !== "unknown" && n.toLowerCase() !== "n/a");
           const nameCounts = new Map<string, number>();
           for (const n of candidates) {
             const key = stripSuffix(n.toLowerCase());
@@ -1727,10 +1769,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           if (bestJpCount >= 2) {
-            console.log(`[grade-card] Majority vote (${bestJpCount}/3): "${bestJpName}"`);
+            console.log(`[grade-card] Majority vote (${bestJpCount}/${candidates.length}): "${bestJpName}"`);
           } else {
-            bestJpName = !fullIsUnknown ? fullName : (idName || gradingName);
-            console.log(`[grade-card] No majority — preferring ${!fullIsUnknown ? "full-image" : "OCR"}: "${bestJpName}"`);
+            bestJpName = tiebreakerResult || (!fullIsUnknown ? fullName : (idName || gradingName));
+            console.log(`[grade-card] No majority — preferring ${tiebreakerResult ? "tiebreaker" : (!fullIsUnknown ? "full-image" : "OCR")}: "${bestJpName}"`);
           }
 
           gradingResult.cardName = bestJpName;
@@ -1753,17 +1795,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[grade-card] Also trying alt number: "${altNumber}"`);
         }
       } else {
-        if (!gradingIsUnknown) {
+        console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — running tiebreaker`);
+        const tiebreakerName = await tiebreakerNameOnly(frontUri);
+        const allCandidates = [idName, gradingName, tiebreakerName || ""].filter(n => n && n.toLowerCase() !== "unknown" && n.toLowerCase() !== "n/a");
+        const voteCounts = new Map<string, { count: number; original: string }>();
+        for (const n of allCandidates) {
+          const key = stripSuffix(n.toLowerCase());
+          const existing = voteCounts.get(key);
+          if (existing) {
+            existing.count++;
+            if (n.length > existing.original.length) existing.original = n;
+          } else {
+            voteCounts.set(key, { count: 1, original: n });
+          }
+        }
+        let bestVoteName = "";
+        let bestVoteCount = 0;
+        for (const [, v] of voteCounts) {
+          if (v.count > bestVoteCount) {
+            bestVoteCount = v.count;
+            bestVoteName = v.original;
+          }
+        }
+        const resolvedName = bestVoteCount >= 2 ? bestVoteName : (tiebreakerName || idName || gradingName);
+        console.log(`[grade-card] Tiebreaker="${tiebreakerName}" — majority vote (${bestVoteCount}): "${resolvedName}"`);
+
+        lookupCandidates.push({ name: resolvedName, number: idNumber || gradingNumber, set: idSet || gradingSet, code: idCode, source: "tiebreaker" });
+        if (!gradingIsUnknown && stripSuffix(gradingName.toLowerCase()) !== stripSuffix(resolvedName.toLowerCase())) {
           lookupCandidates.push({ name: gradingName, number: gradingNumber, set: gradingSet, source: "grading" });
         }
-        if (!idIsUnknown && stripSuffix(idName.toLowerCase()) !== stripSuffix(gradingName.toLowerCase())) {
+        if (!idIsUnknown && stripSuffix(idName.toLowerCase()) !== stripSuffix(resolvedName.toLowerCase())) {
           lookupCandidates.push({ name: idName, number: idNumber, set: idSet, code: idCode, source: "ocr" });
         }
-        if (lookupCandidates.length === 0) {
-          const fallback = !idIsUnknown ? idName : gradingName;
-          lookupCandidates.push({ name: fallback, number: idNumber || gradingNumber, set: idSet || gradingSet, code: idCode, source: "fallback" });
-        }
-        console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — trying both lookups`);
       }
 
       const [boundsResults, ...lookupResults] = await Promise.all([

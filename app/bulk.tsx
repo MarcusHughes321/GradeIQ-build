@@ -389,6 +389,13 @@ export default function BulkScreen() {
             Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
           </Text>
         </View>
+        <Pressable
+          style={[styles.bulkCameraDoneBtn, { bottom: insets.bottom + 32 }]}
+          onPress={handleBulkCameraClose}
+        >
+          <Ionicons name="checkmark-circle" size={22} color="#fff" />
+          <Text style={styles.bulkCameraDoneBtnText}>Done Scanning</Text>
+        </Pressable>
       </View>
     );
   }
@@ -994,6 +1001,23 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   bulkCameraBannerText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#fff",
+  },
+  bulkCameraDoneBtn: {
+    position: "absolute" as const,
+    alignSelf: "center" as const,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 28,
+    zIndex: 100,
+  },
+  bulkCameraDoneBtnText: {
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: "#fff",
