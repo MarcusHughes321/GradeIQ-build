@@ -20,7 +20,7 @@ import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
 import CardCamera from "@/components/CardCamera";
 import { apiRequest } from "@/lib/query-client";
-import { saveGrading } from "@/lib/storage";
+import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 
 const ANALYSIS_STAGES = [
@@ -241,6 +241,23 @@ export default function GradeScreen() {
       const result: GradingResult = await response.json();
 
       const saved = await saveGrading(frontImage, backImage, result);
+
+      (async () => {
+        try {
+          const resp = await apiRequest("POST", "/api/card-value", {
+            cardName: result.cardName,
+            setName: result.setName || result.setInfo,
+            setNumber: result.setNumber,
+            psaGrade: result.psa.grade,
+            bgsGrade: result.beckett.overallGrade,
+            aceGrade: result.ace.overallGrade,
+            tagGrade: result.tag?.overallGrade,
+            cgcGrade: result.cgc?.grade,
+          });
+          const data = await resp.json();
+          await updateGrading(saved.id, { result: { ...result, cardValue: data } });
+        } catch {}
+      })();
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

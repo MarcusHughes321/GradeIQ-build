@@ -19,7 +19,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
-import { saveGrading } from "@/lib/storage";
+import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 
 const MAX_CARDS = 20;
@@ -225,11 +225,28 @@ export default function BulkScreen() {
               throw new Error(result.error);
             }
 
+            const gr = result as GradingResult;
             const saved = await saveGrading(
               card.frontImage!,
               card.backImage!,
-              result as GradingResult
+              gr
             );
+            (async () => {
+              try {
+                const vResp = await apiRequest("POST", "/api/card-value", {
+                  cardName: gr.cardName,
+                  setName: gr.setName || gr.setInfo,
+                  setNumber: gr.setNumber,
+                  psaGrade: gr.psa.grade,
+                  bgsGrade: gr.beckett.overallGrade,
+                  aceGrade: gr.ace.overallGrade,
+                  tagGrade: gr.tag?.overallGrade,
+                  cgcGrade: gr.cgc?.grade,
+                });
+                const vData = await vResp.json();
+                await updateGrading(saved.id, { result: { ...gr, cardValue: vData } });
+              } catch {}
+            })();
             return { globalIdx, savedId: saved.id, cardName: result.cardName, frontImage: card.frontImage! };
           })
         );
