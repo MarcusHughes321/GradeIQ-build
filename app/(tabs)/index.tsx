@@ -343,6 +343,35 @@ export default function HomeScreen() {
         <Text style={styles.heroSubtitle}>AI-Powered Pokemon Card Grading</Text>
       </View>
 
+      {isGateEnabled && (
+        <Pressable
+          onPress={() => !isSubscribed && router.push("/paywall")}
+          style={({ pressed }) => [styles.usageBadge, !isSubscribed && { opacity: pressed ? 0.8 : 1 }]}
+        >
+          <Ionicons
+            name={isSubscribed ? "diamond" : "flame"}
+            size={16}
+            color={isSubscribed ? "#F59E0B" : (remainingFreeGrades > 0 ? "#10B981" : Colors.primary)}
+          />
+          {isSubscribed ? (
+            <Text style={styles.usageBadgeText}>
+              <Text style={{ color: "#F59E0B", fontFamily: "Inter_700Bold" }}>Pro</Text>
+              {"  "}Unlimited Grades
+            </Text>
+          ) : (
+            <Text style={styles.usageBadgeText}>
+              <Text style={{ color: remainingFreeGrades > 0 ? "#10B981" : Colors.primary, fontFamily: "Inter_700Bold" }}>
+                {remainingFreeGrades}
+              </Text>
+              {" "}/ {dailyLimit} free grades remaining today
+            </Text>
+          )}
+          {!isSubscribed && (
+            <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} style={{ marginLeft: "auto" }} />
+          )}
+        </Pressable>
+      )}
+
       <View style={styles.bubblesRow}>
         <Pressable
           style={({ pressed }) => [styles.bubbleButton, styles.bubblePrimary, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
@@ -797,6 +826,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     marginTop: 4,
+  },
+  usageBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  usageBadgeText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: "rgba(255,255,255,0.7)",
   },
   bubblesRow: {
     flexDirection: "row",
