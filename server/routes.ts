@@ -1097,16 +1097,189 @@ function detectBoundsAtResolution(
   const p90 = gradSamples[Math.floor(gradSamples.length * 0.90)] || 30;
   const adaptiveThreshold = Math.max(12, Math.min(50, Math.round((p75 + p90) / 2 * 0.6)));
 
-  const fitEdgeLine = (
-    isVertical: boolean,
-    scanFrom: number, scanTo: number, step: number,
-    crossStart: number, crossEnd: number
-  ): { pos: number; slope: number; strength: number } | null => {
-    const points: { main: number; cross: number; grad: number }[] = [];
-    const numSamples = Math.max(10, Math.min(40, Math.abs(crossEnd - crossStart)));
+  const findEdgeColumn = (startX: number, endX: number, step: number): { x: number; score: number } => {
+    const scanYStart = Math.round(sh * 0.1);
+    const scanYEnd = Math.round(sh * 0.9);
+    const totalScanRows = Math.floor((scanYEnd - scanYStart) / 1);
+    const minVotes = Math.max(3, Math.round(totalScanRows * minVoteRatio));
+
+    const colBrightness = new Map<number, number>();
+    for (let x = Math.min(startX, endX); x <= Math.max(startX, endX); x++) {
+      let sum = 0;
+      let count = 0;
+      for (let y = scanYStart; y < scanYEnd; y += 2) {
+        sum += getPixel(x, y);
+        count++;
+      }
+      colBrightness.set(x, count > 0 ? sum / count : 0);
+    }
+
+    const columns: { x: number; score: number; votes: number }[] = [];
+
+    for (let x = startX; step > 0 ? x < endX : x > endX; x += step) {
+      let votes = 0;
+      let totalGrad = 0;
+      let longestRun = 0;
+      let currentRun = 0;
+      for (let y = scanYStart; y < scanYEnd; y += 1) {
+        const gx = Math.abs(sobelX(x, y));
+        const gy = Math.abs(sobelY(x, y));
+        if (gx >= adaptiveThreshold && gx > gy * DIRECTION_RATIO) {
+          votes++;
+          totalGrad += gx;
+          currentRun++;
+          if (currentRun > longestRun) longestRun = currentRun;
+        } else {
+          currentRun = 0;
+        }
+      }
+      if (votes >= minVotes) {
+        const continuityRatio = totalScanRows > 0 ? longestRun / totalScanRows : 0;
+        const continuityBonus = Math.pow(continuityRatio, 0.5);
+        let finalScore = totalGrad * continuityBonus;
+
+        const adjX = x + step;
+        const curBright = colBrightness.get(x) ?? 0;
+        const adjBright = colBrightness.get(adjX) ?? curBright;
+        const brightDiff = curBright - adjBright;
+        const isLeftEdge = step > 0;
+        if (isLeftEdge && brightDiff > 15) {
+          finalScore *= 1.2;
+        } else if (!isLeftEdge && brightDiff < -15) {
+          finalScore *= 1.2;
+        }
+
+        columns.push({ x, score: finalScore, votes });
+      }
+    }
+
+    if (columns.length === 0) return { x: startX, score: 0 };
+
+    columns.sort((a, b) => b.score - a.score);
+    const topN = columns.slice(0, Math.max(1, Math.ceil(columns.length * 0.1)));
+
+    if (step > 0) {
+      topN.sort((a, b) => a.x - b.x);
+    } else {
+      topN.sort((a, b) => b.x - a.x);
+    }
+
+    let cluster: number[] = [topN[0].x];
+    for (let i = 1; i < topN.length; i++) {
+      if (Math.abs(topN[i].x - topN[0].x) <= 3) {
+        cluster.push(topN[i].x);
+      }
+    }
+
+    const avgX = cluster.reduce((s, v) => s + v, 0) / cluster.length;
+    return { x: avgX, score: columns[0].score };
+  };
+
+  const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): { y: number; score: number } => {
+    const totalScanCols = Math.floor((xEnd - xStart) / 1);
+    const minVotes = Math.max(3, Math.round(totalScanCols * minVoteRatio * 0.7));
+
+    const windowSize = 5;
+    const rowBrightness = new Map<number, number>();
+    const yLo = Math.min(startY, endY);
+    const yHi = Math.max(startY, endY);
+    for (let y = Math.max(0, yLo - windowSize); y <= Math.min(sh - 1, yHi + windowSize); y++) {
+      let sum = 0;
+      let count = 0;
+      for (let x = xStart; x < xEnd; x += 2) {
+        sum += getPixel(x, y);
+        count++;
+      }
+      rowBrightness.set(y, count > 0 ? sum / count : 0);
+    }
+
+    const avgBrightnessAt = (y: number, halfWin: number): number => {
+      let s = 0; let c = 0;
+      for (let dy = -halfWin; dy <= halfWin; dy++) {
+        const v = rowBrightness.get(y + dy);
+        if (v !== undefined) { s += v; c++; }
+      }
+      return c > 0 ? s / c : 0;
+    };
+
+    const rows: { y: number; score: number; votes: number }[] = [];
+    const lowerThreshold = Math.max(8, Math.round(adaptiveThreshold * 0.7));
+
+    for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
+      let votes = 0;
+      let totalGrad = 0;
+      let longestRun = 0;
+      let currentRun = 0;
+      for (let x = xStart; x < xEnd; x += 1) {
+        const gy = Math.abs(sobelY(x, y));
+        const gx = Math.abs(sobelX(x, y));
+        if (gy >= lowerThreshold && gy > gx * DIRECTION_RATIO) {
+          votes++;
+          totalGrad += gy;
+          currentRun++;
+          if (currentRun > longestRun) longestRun = currentRun;
+        } else {
+          currentRun = 0;
+        }
+      }
+      if (votes >= minVotes) {
+        const continuityRatio = totalScanCols > 0 ? longestRun / totalScanCols : 0;
+        const continuityBonus = Math.pow(continuityRatio, 0.5);
+        let finalScore = totalGrad * continuityBonus;
+
+        const beforeBright = avgBrightnessAt(y - step * 3, 2);
+        const afterBright = avgBrightnessAt(y + step * 3, 2);
+        const transitionDiff = afterBright - beforeBright;
+
+        const isTopEdge = step > 0;
+        if (isTopEdge && transitionDiff > 10) {
+          finalScore *= 1.0 + Math.min(0.8, transitionDiff / 50);
+        } else if (!isTopEdge && transitionDiff < -10) {
+          finalScore *= 1.0 + Math.min(0.8, Math.abs(transitionDiff) / 50);
+        }
+
+        if (isTopEdge && transitionDiff < -5) {
+          finalScore *= 0.4;
+        } else if (!isTopEdge && transitionDiff > 5) {
+          finalScore *= 0.4;
+        }
+
+        rows.push({ y, score: finalScore, votes });
+      }
+    }
+
+    if (rows.length === 0) return { y: startY, score: 0 };
+
+    rows.sort((a, b) => b.score - a.score);
+    const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.15)));
+
+    if (step > 0) {
+      topN.sort((a, b) => a.y - b.y);
+    } else {
+      topN.sort((a, b) => b.y - a.y);
+    }
+
+    let cluster: number[] = [topN[0].y];
+    for (let i = 1; i < topN.length; i++) {
+      if (Math.abs(topN[i].y - topN[0].y) <= 3) {
+        cluster.push(topN[i].y);
+      }
+    }
+
+    const avgY = cluster.reduce((s, v) => s + v, 0) / cluster.length;
+    return { y: avgY, score: rows[0].score };
+  };
+
+  const extractAngleFromEdge = (
+    edgePos: number, isVertical: boolean,
+    searchBand: number, crossStart: number, crossEnd: number
+  ): number => {
+    const points: { main: number; cross: number }[] = [];
+    const numSamples = Math.max(15, Math.min(50, Math.abs(crossEnd - crossStart)));
     const crossStep = (crossEnd - crossStart) / (numSamples - 1);
-    const threshold = Math.max(8, Math.round(adaptiveThreshold * 0.6));
-    const searchBand = Math.max(3, Math.round(Math.abs(scanTo - scanFrom) * 0.08));
+    const threshold = Math.max(8, Math.round(adaptiveThreshold * 0.5));
+    const bandLo = Math.max(2, Math.round(edgePos - searchBand));
+    const bandHi = Math.min((isVertical ? sw : sh) - 3, Math.round(edgePos + searchBand));
 
     for (let i = 0; i < numSamples; i++) {
       const cross = Math.round(crossStart + i * crossStep);
@@ -1115,34 +1288,33 @@ function detectBoundsAtResolution(
       let bestMain = -1;
       let bestGrad = 0;
 
-      for (let m = scanFrom; step > 0 ? m <= scanTo : m >= scanTo; m += step) {
+      for (let m = bandLo; m <= bandHi; m++) {
         if (m < 2 || m >= (isVertical ? sw : sh) - 2) continue;
         const gPrimary = isVertical ? Math.abs(sobelX(m, cross)) : Math.abs(sobelY(cross, m));
         const gSecondary = isVertical ? Math.abs(sobelY(m, cross)) : Math.abs(sobelX(cross, m));
 
-        if (gPrimary >= threshold && gPrimary > gSecondary * DIRECTION_RATIO && gPrimary > bestGrad) {
+        if (gPrimary >= threshold && gPrimary > gSecondary * 1.0 && gPrimary > bestGrad) {
           bestGrad = gPrimary;
           bestMain = m;
         }
-        if (bestMain >= 0 && Math.abs(m - bestMain) > searchBand) break;
       }
 
       if (bestMain >= 0) {
-        points.push({ main: bestMain, cross, grad: bestGrad });
+        points.push({ main: bestMain, cross });
       }
     }
 
-    if (points.length < 5) return null;
+    if (points.length < 6) return 0;
 
     const sortedByMain = [...points].sort((a, b) => a.main - b.main);
     const medianMain = sortedByMain[Math.floor(points.length / 2)].main;
     const q1 = sortedByMain[Math.floor(points.length * 0.25)].main;
     const q3 = sortedByMain[Math.floor(points.length * 0.75)].main;
     const iqr = q3 - q1;
-    const tolerance = Math.max(iqr * 2, isVertical ? sw * 0.03 : sh * 0.03, 2);
+    const tolerance = Math.max(iqr * 2, searchBand * 0.6, 2);
 
     let filtered = points.filter(p => Math.abs(p.main - medianMain) <= tolerance);
-    if (filtered.length < 4) return null;
+    if (filtered.length < 5) return 0;
 
     const lineFit = (pts: { main: number; cross: number }[]) => {
       const n = pts.length;
@@ -1151,137 +1323,112 @@ function detectBoundsAtResolution(
       const sCM = pts.reduce((s, p) => s + p.cross * p.main, 0);
       const sC2 = pts.reduce((s, p) => s + p.cross * p.cross, 0);
       const denom = n * sC2 - sC * sC;
-      if (Math.abs(denom) < 0.001) return { slope: 0, intercept: sM / n };
+      if (Math.abs(denom) < 0.001) return { slope: 0, residual: Infinity };
       const slope = (n * sCM - sC * sM) / denom;
       const intercept = (sM - slope * sC) / n;
-      return { slope, intercept };
+      const residual = pts.reduce((s, p) => s + Math.abs(p.main - (slope * p.cross + intercept)), 0) / n;
+      return { slope, residual };
     };
 
     for (let iter = 0; iter < 2; iter++) {
       const fit = lineFit(filtered);
-      const residuals = filtered.map(p => Math.abs(p.main - (fit.slope * p.cross + fit.intercept)));
+      if (fit.residual === Infinity) break;
+      const intercept = (filtered.reduce((s, p) => s + p.main, 0) - fit.slope * filtered.reduce((s, p) => s + p.cross, 0)) / filtered.length;
+      const residuals = filtered.map(p => Math.abs(p.main - (fit.slope * p.cross + intercept)));
       const medRes = [...residuals].sort((a, b) => a - b)[Math.floor(residuals.length / 2)];
       const thresh = Math.max(medRes * 2.5, 1.5);
       const refined = filtered.filter((_, i) => residuals[i] <= thresh);
-      if (refined.length < 4) break;
+      if (refined.length < 5) break;
       filtered = refined;
     }
 
     const finalFit = lineFit(filtered);
-    const centerCross = (crossStart + crossEnd) / 2;
-    const posAtCenter = finalFit.slope * centerCross + finalFit.intercept;
-    const avgStrength = filtered.reduce((s, p) => s + p.grad, 0) / filtered.length;
-
-    return {
-      pos: posAtCenter,
-      slope: finalFit.slope,
-      strength: avgStrength * (filtered.length / numSamples),
-    };
+    if (finalFit.residual === Infinity) return 0;
+    return Math.atan(finalFit.slope) * (180 / Math.PI);
   };
 
-  const xMinStart = xConstraint ? Math.max(2, Math.round(sw * xConstraint.minPct / 100)) : 2;
-  const xMaxEnd = xConstraint ? Math.min(sw - 3, Math.round(sw * xConstraint.maxPct / 100)) : Math.round(sw * scanRange);
-  const xMinEndR = xConstraint ? Math.max(2, Math.round(sw * xConstraint.minPct / 100)) : Math.round(sw * (1 - scanRange));
-  const xMaxStartR = xConstraint ? Math.min(sw - 3, Math.round(sw * xConstraint.maxPct / 100)) : sw - 3;
+  const xMinStart = xConstraint ? Math.max(1, Math.round(sw * xConstraint.minPct / 100)) : 1;
+  const xMaxEnd = xConstraint ? Math.min(sw - 2, Math.round(sw * xConstraint.maxPct / 100)) : Math.round(sw * scanRange);
+  const xMinEndR = xConstraint ? Math.max(1, Math.round(sw * xConstraint.minPct / 100)) : Math.round(sw * (1 - scanRange));
+  const xMaxStartR = xConstraint ? Math.min(sw - 2, Math.round(sw * xConstraint.maxPct / 100)) : sw - 2;
 
-  const yScanStart = yConstraint ? Math.max(2, Math.round(sh * yConstraint.minPct / 100)) : Math.round(sh * 0.08);
-  const yScanEnd = yConstraint ? Math.min(sh - 3, Math.round(sh * yConstraint.maxPct / 100)) : Math.round(sh * 0.92);
+  const left = findEdgeColumn(xMinStart, xConstraint ? xMaxEnd : Math.round(sw * scanRange), 1);
+  const right = findEdgeColumn(xConstraint ? xMaxStartR : sw - 2, xMinEndR, -1);
+  const leftCol = left.x;
+  const rightCol = right.x;
 
-  const leftLine = fitEdgeLine(true, xMinStart, xMaxEnd, 1, yScanStart, yScanEnd);
-  const rightLine = fitEdgeLine(true, xMaxStartR, xMinEndR, -1, yScanStart, yScanEnd);
-
-  let leftCol: number, rightCol: number;
-  let angleDeg = 0;
-
-  if (leftLine && rightLine) {
-    leftCol = leftLine.pos;
-    rightCol = rightLine.pos;
-    const leftAngle = Math.atan(leftLine.slope) * (180 / Math.PI);
-    const rightAngle = Math.atan(rightLine.slope) * (180 / Math.PI);
-    if (Math.abs(leftAngle - rightAngle) < 3) {
-      angleDeg = (leftAngle + rightAngle) / 2;
-    } else {
-      angleDeg = leftLine.strength > rightLine.strength ? leftAngle : rightAngle;
-    }
-  } else if (leftLine) {
-    leftCol = leftLine.pos;
-    angleDeg = Math.atan(leftLine.slope) * (180 / Math.PI);
-    rightCol = sw - 3;
-  } else if (rightLine) {
-    rightCol = rightLine.pos;
-    angleDeg = Math.atan(rightLine.slope) * (180 / Math.PI);
-    leftCol = 2;
-  } else {
-    leftCol = 2;
-    rightCol = sw - 3;
-  }
+  const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
+  const rowScanXStart = Math.round(leftCol + cardInsetX);
+  const rowScanXEnd = Math.round(rightCol - cardInsetX);
 
   const cardWidthPx = rightCol - leftCol;
   const expectedHeightPx = cardWidthPx * CARD_ASPECT;
-  const cardCenterX = (leftCol + rightCol) / 2;
+  const imageCenterY = sh / 2;
+  const expectedTopY = imageCenterY - expectedHeightPx / 2;
+  const expectedBottomY = imageCenterY + expectedHeightPx / 2;
+  const searchMargin = Math.round(expectedHeightPx * 0.20);
 
-  const rowScanInset = Math.round(cardWidthPx * 0.12);
-  const rowScanXStart = Math.round(leftCol + rowScanInset);
-  const rowScanXEnd = Math.round(rightCol - rowScanInset);
+  let yMinStart: number, yMaxEnd: number, yMinEndB: number, yMaxStartB: number;
 
-  const topLine = fitEdgeLine(false, yScanStart, Math.min(sh - 3, yScanEnd), 1, rowScanXStart, rowScanXEnd);
-  const bottomLine = fitEdgeLine(false, Math.min(sh - 3, yScanEnd), yScanStart, -1, rowScanXStart, rowScanXEnd);
-
-  let topRow: number, bottomRow: number;
-  let topConfidence = 0, bottomConfidence = 0;
-
-  if (topLine) {
-    topRow = topLine.pos;
-    topConfidence = topLine.strength;
+  if (yConstraint) {
+    yMinStart = Math.max(1, Math.round(sh * yConstraint.minPct / 100));
+    yMaxEnd = Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100));
+    yMinEndB = Math.max(1, Math.round(sh * yConstraint.minPct / 100));
+    yMaxStartB = Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100));
+  } else if (cardWidthPx > sw * 0.15) {
+    yMinStart = Math.max(1, Math.round(expectedTopY - searchMargin));
+    yMaxEnd = Math.min(sh - 2, Math.round(expectedTopY + searchMargin));
+    yMinEndB = Math.max(1, Math.round(expectedBottomY - searchMargin));
+    yMaxStartB = Math.min(sh - 2, Math.round(expectedBottomY + searchMargin));
   } else {
-    topRow = yScanStart;
-  }
-  if (bottomLine) {
-    bottomRow = bottomLine.pos;
-    bottomConfidence = bottomLine.strength;
-  } else {
-    bottomRow = yScanEnd;
+    yMinStart = 1;
+    yMaxEnd = Math.round(sh * 0.55);
+    yMinEndB = Math.round(sh * 0.45);
+    yMaxStartB = sh - 2;
   }
 
-  const detectedHeight = bottomRow - topRow;
-  const heightRatio = cardWidthPx > 5 ? detectedHeight / cardWidthPx : 0;
-  const expectedRatio = CARD_ASPECT;
-  const ratioError = Math.abs(heightRatio - expectedRatio) / expectedRatio;
+  const top = findEdgeRow(yMinStart, yMaxEnd, 1, rowScanXStart, rowScanXEnd);
+  const bottom = findEdgeRow(yMaxStartB, yMinEndB, -1, rowScanXStart, rowScanXEnd);
+  const topRow = top.y;
+  const bottomRow = bottom.y;
 
-  if (cardWidthPx > sw * 0.15 && ratioError > 0.12) {
-    const cardCenterY = (topRow + bottomRow) / 2;
+  const angleBand = Math.max(3, Math.round(cardWidthPx * 0.04));
+  const scanYFor = Math.round(sh * 0.1);
+  const scanYTo = Math.round(sh * 0.9);
 
-    if (topConfidence > 0 && bottomConfidence > 0) {
-      if (topConfidence > bottomConfidence * 1.5) {
-        bottomRow = topRow + expectedHeightPx;
-      } else if (bottomConfidence > topConfidence * 1.5) {
-        topRow = bottomRow - expectedHeightPx;
+  let angleDeg = 0;
+  const leftAngle = left.score > 0
+    ? extractAngleFromEdge(leftCol, true, angleBand, scanYFor, scanYTo) : 0;
+  const rightAngle = right.score > 0
+    ? extractAngleFromEdge(rightCol, true, angleBand, scanYFor, scanYTo) : 0;
+
+  if (left.score > 0 && right.score > 0) {
+    if (Math.abs(leftAngle) < 5 && Math.abs(rightAngle) < 5) {
+      if (Math.abs(leftAngle - rightAngle) < 2) {
+        angleDeg = (leftAngle + rightAngle) / 2;
       } else {
-        topRow = cardCenterY - expectedHeightPx / 2;
-        bottomRow = cardCenterY + expectedHeightPx / 2;
+        angleDeg = left.score >= right.score ? leftAngle : rightAngle;
       }
-    } else if (topConfidence > 0) {
-      bottomRow = topRow + expectedHeightPx;
-    } else if (bottomConfidence > 0) {
-      topRow = bottomRow - expectedHeightPx;
-    } else {
-      const imgCenterY = sh / 2;
-      topRow = imgCenterY - expectedHeightPx / 2;
-      bottomRow = imgCenterY + expectedHeightPx / 2;
+    } else if (Math.abs(leftAngle) < 5) {
+      angleDeg = leftAngle;
+    } else if (Math.abs(rightAngle) < 5) {
+      angleDeg = rightAngle;
     }
+  } else if (left.score > 0 && Math.abs(leftAngle) < 5) {
+    angleDeg = leftAngle;
+  } else if (right.score > 0 && Math.abs(rightAngle) < 5) {
+    angleDeg = rightAngle;
   }
 
-  topRow = Math.max(0, Math.min(sh - 1, topRow));
-  bottomRow = Math.max(0, Math.min(sh - 1, bottomRow));
-
-  const finalW = rightCol - leftCol;
-  const finalH = bottomRow - topRow;
-  const finalRatio = finalH > 0 ? finalW / finalH : 0;
+  const detW = rightCol - leftCol;
+  const detH = bottomRow - topRow;
   const CARD_WH_RATIO = 2.5 / 3.5;
-  const finalRatioError = Math.abs(finalRatio - CARD_WH_RATIO) / CARD_WH_RATIO;
-  const ratioConfidence = Math.max(0, 1 - finalRatioError * 3);
-  const edgeConfidence = ((leftLine ? 1 : 0) + (rightLine ? 1 : 0) + (topLine ? 1 : 0) + (bottomLine ? 1 : 0)) / 4;
-  const overallConfidence = ratioConfidence * 0.5 + edgeConfidence * 0.5;
+  const detectedRatio = detH > 0 ? detW / detH : 0;
+  const ratioDeviation = Math.abs(detectedRatio - CARD_WH_RATIO) / CARD_WH_RATIO;
+  const ratioScore = Math.max(0, 1 - ratioDeviation * 3);
+  const sizeScore = (detW > sw * 0.2 && detH > sh * 0.2) ? 1 : 0.3;
+  const edgeScore = ((left.score > 0 ? 1 : 0) + (right.score > 0 ? 1 : 0) + (top.score > 0 ? 1 : 0) + (bottom.score > 0 ? 1 : 0)) / 4;
+  const overallConfidence = parseFloat((ratioScore * 0.4 + sizeScore * 0.2 + edgeScore * 0.4).toFixed(2));
 
   return {
     leftPct: (leftCol / sw) * 100,
@@ -1289,7 +1436,7 @@ function detectBoundsAtResolution(
     topPct: (topRow / sh) * 100,
     bottomPct: (bottomRow / sh) * 100,
     angleDeg: parseFloat(angleDeg.toFixed(3)),
-    confidence: parseFloat(overallConfidence.toFixed(2)),
+    confidence: overallConfidence,
   };
 }
 
