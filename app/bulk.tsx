@@ -384,17 +384,19 @@ export default function BulkScreen() {
           onCapture={handleBulkCameraCapture}
           onClose={handleBulkCameraClose}
         />
-        <Pressable
-          style={[styles.bulkCameraDoneBtn, { top: insets.top + 12 }]}
-          onPress={handleBulkCameraClose}
-        >
-          <Text style={styles.bulkCameraDoneBtnText}>Done Scanning</Text>
-          <Ionicons name="arrow-forward" size={18} color="#fff" />
-        </Pressable>
-        <View style={[styles.bulkCameraBanner, { top: insets.top + 60 }]}>
-          <Text style={styles.bulkCameraBannerText}>
-            Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
-          </Text>
+        <View style={[styles.bulkCameraTopRow, { top: insets.top + 56 }]}>
+          <View style={styles.bulkCameraBanner}>
+            <Text style={styles.bulkCameraBannerText}>
+              Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
+            </Text>
+          </View>
+          <Pressable
+            style={styles.bulkCameraDoneBtn}
+            onPress={handleBulkCameraClose}
+          >
+            <Text style={styles.bulkCameraDoneBtnText}>Done</Text>
+            <Ionicons name="arrow-forward" size={16} color="#fff" />
+          </Pressable>
         </View>
       </View>
     );
@@ -989,33 +991,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
   },
-  bulkCameraBanner: {
-    position: "absolute",
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    zIndex: 100,
-  },
-  bulkCameraBannerText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: "#fff",
-  },
-  bulkCameraDoneBtn: {
+  bulkCameraTopRow: {
     position: "absolute" as const,
+    left: 16,
     right: 16,
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 6,
-    backgroundColor: Colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    justifyContent: "space-between" as const,
     zIndex: 200,
+  },
+  bulkCameraBanner: {
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  bulkCameraBannerText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  bulkCameraDoneBtn: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 5,
+    backgroundColor: Colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 18,
   },
   bulkCameraDoneBtnText: {
     fontFamily: "Inter_700Bold",
