@@ -602,7 +602,7 @@ export default function ResultsScreen() {
         <View style={[styles.valueCard, { overflow: "hidden" as const }]}>
           <View style={styles.valueHeader}>
             <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.valueTitle}>Estimated eBay Values</Text>
+            <Text style={styles.valueTitle}>Estimated Card Values</Text>
           </View>
           {loadingValue ? (
             <View style={styles.valueLoading}>
@@ -691,7 +691,7 @@ export default function ResultsScreen() {
                 <View style={styles.proBlurContent}>
                   <Ionicons name="lock-closed" size={20} color="#F59E0B" />
                   <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                  <Text style={styles.proBlurSubtitle}>Full portfolio tracking & eBay last solds</Text>
+                  <Text style={styles.proBlurSubtitle}>Full portfolio tracking & market values</Text>
                 </View>
               </BlurView>
             </Pressable>
