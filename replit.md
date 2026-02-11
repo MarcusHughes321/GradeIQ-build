@@ -122,3 +122,13 @@ server/
   - Eliminates unreliable katakana/hangul/hanzi reading — card names now sourced from Bulbapedia's verified data
   - Korean and Chinese cards use the SAME set codes and card numbering as Japanese cards — all covered by same database
   - AI prompts include Korean Hangul (리자몽=Charizard, 피카츄=Pikachu, etc.) and Chinese character (噴火龍=Charizard, 皮卡丘=Pikachu, etc.) translation tables for better OCR accuracy
+- 2026-02-11: HEIF/HEIC image format support
+  - iPhone HEIF photos are automatically converted to JPEG before AI processing
+  - Uses sharp library first, falls back to heif-convert CLI (libheif system dependency)
+  - Detects HEIF via MIME type or ftyp magic bytes in image data
+  - All image processing paths (grade, regrade, bounds detection) now use optimized/converted images
+- Server-side image optimization: all images resized to max 1024px and compressed to JPEG before AI calls
+- Bounds detection caching: card boundary results cached (up to 100 entries) to avoid recomputation
+- Bulk grading parallel batching: processes 3 cards simultaneously instead of sequentially
+- Card name display improvement: prefers AI's descriptive name (e.g., "Mega Charizard X-EX") over abbreviated database name (e.g., "M Charizard-EX")
+- Bulk results now show failed cards section below graded cards with thumbnails and red failed badges
