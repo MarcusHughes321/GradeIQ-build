@@ -11,6 +11,7 @@ import {
   Dimensions,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -604,11 +605,52 @@ export default function ResultsScreen() {
             <Text style={styles.valueTitle}>Estimated Card Values</Text>
           </View>
           {isGateEnabled && !isSubscribed ? (
-            <Pressable onPress={() => router.push("/paywall")} style={styles.proLockedValueContent}>
-              <Ionicons name="lock-closed" size={22} color="#F59E0B" />
-              <Text style={styles.proLockedValueTitle}>Pro Feature</Text>
-              <Text style={styles.proLockedValueSubtitle}>Upgrade to see market values for your graded cards</Text>
-            </Pressable>
+            <View style={{ overflow: "hidden" as const, borderRadius: 12 }}>
+              <View style={styles.valueGrid}>
+                <View style={styles.valueSectionHeader}>
+                  <Text style={styles.valueSectionTitle}>Your Grade</Text>
+                  <Text style={styles.valueSectionTitle}>In Grade 10</Text>
+                </View>
+                {enabledCompanies.includes("PSA") && (
+                <View style={styles.valueRow}>
+                  <View style={styles.valueLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.valueLabel}> --</Text></View>
+                  <Text style={styles.valueAmount}>£--</Text>
+                  <Text style={styles.valueAmount10}>£--</Text>
+                </View>
+                )}
+                {enabledCompanies.includes("Beckett") && (
+                <View style={styles.valueRow}>
+                  <View style={styles.valueLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.valueLabel}> --</Text></View>
+                  <Text style={styles.valueAmount}>£--</Text>
+                  <Text style={styles.valueAmount10}>£--</Text>
+                </View>
+                )}
+                {enabledCompanies.includes("Ace") && (
+                <View style={styles.valueRow}>
+                  <View style={styles.valueLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.valueLabel}> --</Text></View>
+                  <Text style={styles.valueAmount}>£--</Text>
+                  <Text style={styles.valueAmount10}>£--</Text>
+                </View>
+                )}
+                <View style={[styles.valueRow, styles.valueRowLast]}>
+                  <Text style={styles.valueLabel}>Raw (Ungraded)</Text>
+                  <Text style={styles.valueAmount}>£--</Text>
+                  <Text style={styles.valueAmount10}>{" "}</Text>
+                </View>
+              </View>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => router.push("/paywall")}
+              >
+                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
+                  <View style={styles.proBlurContent}>
+                    <Ionicons name="lock-closed" size={20} color="#F59E0B" />
+                    <Text style={styles.proBlurTitle}>Pro Feature</Text>
+                    <Text style={styles.proBlurSubtitle}>Upgrade to see market values</Text>
+                  </View>
+                </BlurView>
+              </Pressable>
+            </View>
           ) : loadingValue ? (
             <View style={styles.valueLoading}>
               <ActivityIndicator color={Colors.primary} size="small" />
@@ -1505,22 +1547,28 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: "center",
   },
-  proLockedValueContent: {
-    alignItems: "center",
+  proBlurOverlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 24,
+    alignItems: "center",
+    borderRadius: 12,
   },
-  proLockedValueTitle: {
+  proBlurContent: {
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  proBlurTitle: {
     fontFamily: "Inter_700Bold",
     fontSize: 14,
     color: "#F59E0B",
   },
-  proLockedValueSubtitle: {
+  proBlurSubtitle: {
     fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: "rgba(255,255,255,0.6)",
-    textAlign: "center" as const,
-    paddingHorizontal: 20,
+    fontSize: 11,
+    color: "rgba(255,255,255,0.7)",
   },
 });
