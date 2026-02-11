@@ -19,10 +19,13 @@ Grade.IQ is a mobile app that uses AI vision to estimate Pokemon card grades bas
 ## App Structure
 ```
 app/
-  _layout.tsx       - Root layout with providers, fonts, stack navigation
-  index.tsx         - Home screen with history list, "Grade a Card" CTA, and "Bulk Grade" button
-  grade.tsx         - Photo capture screen with progress UI during analysis
-  results.tsx       - Detailed grading results from PSA, Beckett, Ace
+  _layout.tsx       - Root layout with providers, fonts, stack navigation wrapping tabs
+  (tabs)/
+    _layout.tsx     - Bottom tab bar layout (Home, Grade, Settings)
+    index.tsx       - Home screen with dashboard, portfolio values, and grading history
+    grade.tsx       - Photo capture screen with progress UI during analysis
+    settings.tsx    - Grading company selection toggles
+  results.tsx       - Detailed grading results from PSA, Beckett, Ace (stack screen)
   bulk.tsx          - Bulk upload screen (up to 20 cards, front+back for each)
   bulk-results.tsx  - Bulk grading results summary with average grades and card list
 
@@ -132,3 +135,10 @@ server/
 - Bulk grading parallel batching: processes 3 cards simultaneously instead of sequentially
 - Card name display improvement: prefers AI's descriptive name (e.g., "Mega Charizard X-EX") over abbreviated database name (e.g., "M Charizard-EX")
 - Bulk results now show failed cards section below graded cards with thumbnails and red failed badges
+- 2026-02-11: Bottom tab navigation bar with Home, Grade, and Settings tabs
+  - Dark blur background tab bar with red active tint
+  - Settings no longer in random position — accessible from dedicated tab
+  - Removed redundant back buttons from tab screens
+- Dashboard now shows estimated total portfolio value (average across enabled companies) below per-company breakdown
+- TAG company label uses sharp solid white outline (8-directional offset text layers) instead of blurry textShadow
+- CompanyLabel component used consistently across all screens (home, results, bulk-results, settings, CenteringCard)
