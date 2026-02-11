@@ -8,6 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { SettingsProvider } from "@/lib/settings-context";
+import { SubscriptionProvider } from "@/lib/subscription";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
@@ -41,6 +42,7 @@ function RootLayoutNav() {
       <Stack.Screen name="results" />
       <Stack.Screen name="bulk" />
       <Stack.Screen name="bulk-results" />
+      <Stack.Screen name="paywall" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
     </Stack>
   );
 }
@@ -65,12 +67,14 @@ export default function RootLayout() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <SettingsProvider>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <StatusBar style="light" />
-              <RootLayoutNav />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
+          <SubscriptionProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <StatusBar style="light" />
+                <RootLayoutNav />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </SubscriptionProvider>
         </SettingsProvider>
       </QueryClientProvider>
     </ErrorBoundary>
