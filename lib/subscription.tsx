@@ -4,8 +4,9 @@ import { Platform } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 
 const USAGE_KEY = "gradeiq_daily_usage";
-const SUB_GATE_KEY = "gradeiq_subscription_gate";
 const FREE_DAILY_LIMIT = 3;
+
+const GATE_ENABLED = process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE === "on";
 
 const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_RC_IOS_KEY || "";
 const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_RC_ANDROID_KEY || "";
@@ -18,7 +19,6 @@ interface DailyUsage {
 
 interface SubscriptionContextValue {
   isGateEnabled: boolean;
-  toggleGate: () => void;
   isSubscribed: boolean;
   dailyUsageCount: number;
   dailyLimit: number;
@@ -58,18 +58,14 @@ async function saveDailyUsage(usage: DailyUsage): Promise<void> {
 }
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
-  const [isGateEnabled, setIsGateEnabled] = useState(false);
+  const isGateEnabled = GATE_ENABLED;
   const [dailyUsageCount, setDailyUsageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [rcConfigured, setRcConfigured] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(SUB_GATE_KEY),
-      getDailyUsage(),
-    ]).then(([gateVal, usage]) => {
-      setIsGateEnabled(gateVal === "true");
+    getDailyUsage().then((usage) => {
       setDailyUsageCount(usage.count);
       setLoading(false);
     });
@@ -103,14 +99,6 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     const hasProAccess = info.entitlements.active[PRO_ENTITLEMENT_ID] !== undefined;
     setIsSubscribed(hasProAccess);
   };
-
-  const toggleGate = useCallback(() => {
-    setIsGateEnabled((prev) => {
-      const next = !prev;
-      AsyncStorage.setItem(SUB_GATE_KEY, next ? "true" : "false");
-      return next;
-    });
-  }, []);
 
   const remainingFreeGrades = Math.max(0, FREE_DAILY_LIMIT - dailyUsageCount);
 
@@ -168,7 +156,6 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       isGateEnabled,
-      toggleGate,
       isSubscribed,
       dailyUsageCount,
       dailyLimit: FREE_DAILY_LIMIT,
@@ -181,7 +168,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       restorePurchases,
       rcConfigured,
     }),
-    [isGateEnabled, toggleGate, isSubscribed, dailyUsageCount, remainingFreeGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseMonthly, restorePurchases, rcConfigured]
+    [isGateEnabled, isSubscribed, dailyUsageCount, remainingFreeGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseMonthly, restorePurchases, rcConfigured]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

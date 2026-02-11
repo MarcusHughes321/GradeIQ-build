@@ -1,18 +1,14 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, Platform, Switch, ScrollView } from "react-native";
-import { router } from "expo-router";
+import { View, Text, StyleSheet, Platform, Switch, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
-import { useSubscription } from "@/lib/subscription";
 import { ALL_COMPANIES, type CompanyId } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { settings, toggleCompany } = useSettings();
-  const { isGateEnabled, toggleGate, dailyUsageCount, dailyLimit, remainingFreeGrades } = useSubscription();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -54,41 +50,6 @@ export default function SettingsScreen() {
 
         <Text style={styles.hint}>
           At least one grading company must remain enabled. More companies coming soon.
-        </Text>
-
-        <View style={[styles.section, { marginTop: 32 }]}>
-          <Text style={styles.sectionTitle}>Subscription</Text>
-          <Text style={styles.sectionSubtitle}>
-            Control whether the free usage limit is enforced. Keep this off while testing with friends.
-          </Text>
-        </View>
-
-        <View style={styles.companyList}>
-          <View style={styles.companyRow}>
-            <View style={styles.companyInfo}>
-              <Ionicons name="lock-closed-outline" size={18} color={isGateEnabled ? Colors.primary : Colors.textMuted} />
-              <Text style={styles.companyLabel}>Enforce free limit</Text>
-            </View>
-            <Switch
-              value={isGateEnabled}
-              onValueChange={toggleGate}
-              trackColor={{ false: Colors.surfaceBorder, true: Colors.primary + "80" }}
-              thumbColor={isGateEnabled ? Colors.primary : Colors.textMuted}
-            />
-          </View>
-        </View>
-
-        {isGateEnabled && (
-          <View style={styles.usageInfo}>
-            <Ionicons name="information-circle-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.usageText}>
-              {dailyUsageCount}/{dailyLimit} free grades used today ({remainingFreeGrades} remaining)
-            </Text>
-          </View>
-        )}
-
-        <Text style={styles.hint}>
-          When enabled, users get {dailyLimit} free grades per day. Turn this on when you're ready to go public.
         </Text>
       </ScrollView>
     </View>
@@ -215,17 +176,5 @@ const styles = StyleSheet.create({
     marginTop: 12,
     lineHeight: 18,
     paddingHorizontal: 4,
-  },
-  usageInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 12,
-    paddingHorizontal: 4,
-  },
-  usageText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.textSecondary,
   },
 });
