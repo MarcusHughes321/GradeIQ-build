@@ -16,6 +16,8 @@ const Colors = {
   cardPSA: "#FF3C31",
   cardBeckett: "#FFFFFF",
   cardAce: "#A0A0A0",
+  cardTAG: "#00B4D8",
+  cardCGC: "#FFD700",
   gradientStart: "#FF3C31",
   gradientEnd: "#FF6B63",
   light: {

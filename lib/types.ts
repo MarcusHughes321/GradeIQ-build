@@ -45,14 +45,36 @@ export interface AceGrade {
   notes: string;
 }
 
+export interface TAGGrade {
+  overallGrade: number;
+  centering: SubGrade;
+  corners: SubGrade;
+  edges: SubGrade;
+  surface: SubGrade;
+  notes: string;
+}
+
+export interface CGCGrade {
+  grade: number;
+  centering: string;
+  corners: string;
+  edges: string;
+  surface: string;
+  notes: string;
+}
+
 export interface CardValueEstimate {
   psaValue: string;
   bgsValue: string;
   aceValue: string;
+  tagValue: string;
+  cgcValue: string;
   rawValue: string;
   psa10Value?: string;
   bgs10Value?: string;
   ace10Value?: string;
+  tag10Value?: string;
+  cgc10Value?: string;
   source: string;
 }
 
@@ -68,6 +90,8 @@ export interface GradingResult {
   psa: PSAGrade;
   beckett: BeckettGrade;
   ace: AceGrade;
+  tag: TAGGrade;
+  cgc: CGCGrade;
   cardValue?: CardValueEstimate;
 }
 
