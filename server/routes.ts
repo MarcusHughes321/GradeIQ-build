@@ -594,7 +594,7 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
     }
 
     const isKnownSet = !!(resolvedSet || namedSet || matchingSets.length > 0);
-    const setIsJapaneseOnly = setCode && !resolvedSet && /^s\d|^sv\d|^sm\d/.test(setCode.toLowerCase());
+    const setIsAsianOnly = setCode && !resolvedSet && /^s\d|^sv\d|^sm\d/.test(setCode.toLowerCase());
 
     if (resolvedSet) {
       console.log(`[card-lookup] Set code "${setCode}" resolved to: ${resolvedSet.name} (${resolvedSet.id}, total=${resolvedSet.printedTotal})`);
@@ -602,8 +602,8 @@ async function lookupCardOnline(cardName: string, setNumber: string, setName: st
       console.log(`[card-lookup] Set name "${setName}" matched to: ${namedSet.name} (${namedSet.id}, total=${namedSet.printedTotal})`);
     } else if (matchingSets.length > 0) {
       console.log(`[card-lookup] ${matchingSets.length} sets match total=${numericTotal}: ${matchingSets.map(s => s.name).join(", ")}`);
-    } else if (setIsJapaneseOnly) {
-      console.log(`[card-lookup] Set code "${setCode}" appears to be Japanese-only, will search by name+number`);
+    } else if (setIsAsianOnly) {
+      console.log(`[card-lookup] Set code "${setCode}" appears to be Asian-exclusive, will search by name+number`);
     } else {
       console.log(`[card-lookup] No cached set match for name="${setName}" code="${setCode || "none"}" total=${numericTotal}`);
     }
@@ -1480,13 +1480,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const gradingSetCode = (gradingResult as any).setCode || "";
       const effectiveCode = idCode || gradingSetCode;
-      const isJapaneseCard = effectiveCode && /^s\d|^sv\d|^sm\d/i.test(effectiveCode);
+      const isAsianCard = effectiveCode && /^s\d|^sv\d|^sm\d/i.test(effectiveCode);
 
       const frontUri = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
       const backUri = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
-      if (isJapaneseCard) {
-        console.log(`[grade-card] Japanese set code "${effectiveCode}" detected — trying Bulbapedia database lookup`);
+      if (isAsianCard) {
+        console.log(`[grade-card] Asian set code "${effectiveCode}" detected — trying Bulbapedia database lookup`);
 
         const idNum = parseInt((idNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
         const gradingNum = parseInt((gradingNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
@@ -1545,12 +1545,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
           }
         } else {
-          console.log(`[grade-card] Bulbapedia lookup missed — falling back to AI triple-check`);
+          console.log(`[grade-card] Bulbapedia lookup missed — falling back to AI triple-check for Asian card`);
 
           const fullImageId = await identifyCardWithFullImage(frontUri).catch(() => null);
           const fullName = fullImageId?.cardName || "";
           const fullIsUnknown = !fullName || fullName.toLowerCase() === "unknown" || fullName.toLowerCase() === "n/a";
-          console.log(`[grade-card] Japanese card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}"`);
+          console.log(`[grade-card] Asian card triple-check: OCR="${idName}" Full="${fullName}" Grading="${gradingName}"`);
 
           const candidates = [idName, fullName, gradingName].filter(n => n && n.toLowerCase() !== "unknown");
           const nameCounts = new Map<string, number>();
@@ -1643,7 +1643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
-      } // end else (non-Japanese)
+      } // end else (non-Asian-code path)
 
       gradingResult = syncCenteringToGrades(gradingResult);
 
