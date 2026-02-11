@@ -118,7 +118,7 @@ function validateCardInSet(cardNumber: number, setTotal: number): CachedSet[] {
 fetchAndCacheSets();
 
 // ======================================================================
-// Japanese Card Database Cache (Bulbapedia-sourced)
+// Asian Card Database Cache (Bulbapedia-sourced) — covers Japanese, Korean, and Chinese cards
 // ======================================================================
 
 interface JapaneseSetCache {
@@ -380,11 +380,14 @@ Analyze the card images carefully. Look for:
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects. Minor factory print texture or very faint print lines common to modern Pokemon cards should not lower surface grades below 9.
 
 LANGUAGE HANDLING:
-- Pokemon cards exist in MANY languages: English, Japanese, Korean, Chinese, French, German, Spanish, Italian, Portuguese, etc.
+- Pokemon cards exist in MANY languages: English, Japanese, Korean, Chinese (Traditional & Simplified), French, German, Spanish, Italian, Portuguese, etc.
 - You MUST identify the card regardless of what language it is printed in.
 - ALWAYS respond with the ENGLISH name of the Pokemon, set name, and all text fields, even if the card is in another language.
 - For example: a Japanese card showing "リザードンex" should be reported as "Charizard ex" in cardName.
+- For Korean cards: 리자몽 = Charizard, 피카츄 = Pikachu, 뮤츠 = Mewtwo, 루카리오 = Lucario, 레쿠자 = Rayquaza, 겐가 = Gengar, 님피아 = Sylveon, 블래키 = Umbreon
+- For Chinese cards: 噴火龍 = Charizard, 皮卡丘 = Pikachu, 超夢 = Mewtwo, 路卡利歐 = Lucario, 烈空坐 = Rayquaza, 耿鬼 = Gengar, 仙子伊布 = Sylveon, 月亮伊布 = Umbreon
 - Use the artwork, card number, set symbol, and your knowledge of Pokemon TCG releases across all languages to identify the card.
+- IMPORTANT: Japanese, Korean, and Chinese cards all use the SAME set codes (e.g., s8b, sv2a, sm12) and the SAME card numbering. They are regional releases of the same sets.
 
 CRITICAL FOR CARD IDENTIFICATION — MULTI-STEP VERIFICATION:
 
@@ -392,16 +395,20 @@ Step 1: READ THE POKEMON NAME FROM THE CARD TEXT (do NOT guess from artwork)
 - READ the Pokemon name that is PRINTED on the card (in ANY language). Do NOT identify the Pokemon from the artwork alone.
 - For JAPANESE cards: READ the katakana/kanji name at the top of the card and translate to English.
   Key translations: コロトック = Kricketune, ゲノセクト = Genesect, リザードン = Charizard, ピカチュウ = Pikachu, ルカリオ = Lucario, ミュウツー = Mewtwo, レックウザ = Rayquaza
-- Determine the ENGLISH name of the Pokemon (e.g., Japanese "リザードンex" = "Charizard ex").
+- For KOREAN cards: READ the Hangul name at the top of the card and translate to English.
+  Key translations: 리자몽 = Charizard, 피카츄 = Pikachu, 뮤츠 = Mewtwo, 루카리오 = Lucario, 레쿠자 = Rayquaza, 팬텀 = Gengar, 님피아 = Sylveon, 블래키 = Umbreon, 에브이 = Eevee, 가브리아스 = Garchomp, 메타그로스 = Metagross
+- For CHINESE cards: READ the Chinese characters and translate to English.
+  Key translations: 噴火龍 = Charizard, 皮卡丘 = Pikachu, 超夢 = Mewtwo, 路卡利歐 = Lucario, 烈空坐 = Rayquaza, 耿鬼 = Gengar, 仙子伊布 = Sylveon, 月亮伊布 = Umbreon, 伊布 = Eevee
+- Determine the ENGLISH name of the Pokemon (e.g., Japanese "リザードンex" = "Charizard ex", Korean "리자몽ex" = "Charizard ex", Chinese "噴火龍ex" = "Charizard ex").
 - Note any suffix like "ex", "EX", "GX", "V", "VMAX", "VSTAR", etc.
 
 Step 2: READ THE CARD NUMBER AND SET CODE
 - The card number is printed at the bottom of the card, usually bottom-left or bottom-right.
 - It typically follows the format "XXX/YYY" (e.g., "012/220").
-- Japanese cards also have a SET CODE like "s6b", "s12a", "sv1" printed near the card number — READ this too.
+- Japanese, Korean, and Chinese cards all have a SET CODE like "s6b", "s12a", "sv1" printed near the card number — READ this too.
 - Card numbers can be hard to read due to glare, angle, small font, or holographic effects. Use these strategies:
   * Look for the "/" character that separates card number from set total
-  * Japanese cards may use formats like "003/007" or "S1a 003/007" or "sv1 003/007"
+  * Asian-language cards may use formats like "003/007" or "S1a 003/007" or "sv1 003/007"
   * Some promo cards have formats like "SWSH039" or "SVP 050"
   * If partially obscured, use visible digits + set symbol to narrow it down
 
