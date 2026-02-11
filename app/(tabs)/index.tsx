@@ -187,6 +187,7 @@ export default function HomeScreen() {
   const [gradings, setGradings] = useState<SavedGrading[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [sortMode, setSortMode] = useState<"recent" | "value-high" | "value-low" | "a-z" | "z-a">("recent");
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
 
@@ -195,15 +196,47 @@ export default function HomeScreen() {
 
   const stats = computeStats(gradings);
 
-  const filteredGradings = searchQuery.trim()
-    ? gradings.filter((g) => {
-        const q = searchQuery.toLowerCase();
-        const name = (g.result.cardName || "").toLowerCase();
-        const setName = (g.result.setName || g.result.setInfo || "").toLowerCase();
-        const setNum = (g.result.setNumber || "").toLowerCase();
-        return name.includes(q) || setName.includes(q) || setNum.includes(q);
-      })
-    : gradings;
+  const getCardAvgValue = useCallback((g: SavedGrading): number => {
+    const cv = g.result.cardValue;
+    if (!cv) return 0;
+    const vals: number[] = [];
+    if (enabledCompanies.includes("PSA")) { const v = parseGBP(cv.psaValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Beckett")) { const v = parseGBP(cv.bgsValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Ace")) { const v = parseGBP(cv.aceValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("TAG")) { const v = parseGBP(cv.tagValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("CGC")) { const v = parseGBP(cv.cgcValue); if (v !== null) vals.push(v); }
+    if (vals.length === 0) return 0;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }, [enabledCompanies]);
+
+  const filteredGradings = useMemo(() => {
+    let list = searchQuery.trim()
+      ? gradings.filter((g) => {
+          const q = searchQuery.toLowerCase();
+          const name = (g.result.cardName || "").toLowerCase();
+          const setName = (g.result.setName || g.result.setInfo || "").toLowerCase();
+          const setNum = (g.result.setNumber || "").toLowerCase();
+          return name.includes(q) || setName.includes(q) || setNum.includes(q);
+        })
+      : [...gradings];
+    switch (sortMode) {
+      case "value-high":
+        list.sort((a, b) => getCardAvgValue(b) - getCardAvgValue(a));
+        break;
+      case "value-low":
+        list.sort((a, b) => getCardAvgValue(a) - getCardAvgValue(b));
+        break;
+      case "a-z":
+        list.sort((a, b) => (a.result.cardName || "").localeCompare(b.result.cardName || ""));
+        break;
+      case "z-a":
+        list.sort((a, b) => (b.result.cardName || "").localeCompare(a.result.cardName || ""));
+        break;
+      default:
+        break;
+    }
+    return list;
+  }, [gradings, searchQuery, sortMode, getCardAvgValue]);
 
   const fetchingValuesRef = useRef(false);
 
@@ -496,6 +529,27 @@ export default function HomeScreen() {
               <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
             </Pressable>
           )}
+        </View>
+      )}
+
+      {gradings.length > 1 && (
+        <View style={styles.sortRow}>
+          {([
+            { key: "recent" as const, label: "Recent", icon: "time-outline" as const },
+            { key: "value-high" as const, label: "£ High", icon: "arrow-up" as const },
+            { key: "value-low" as const, label: "£ Low", icon: "arrow-down" as const },
+            { key: "a-z" as const, label: "A-Z", icon: "text-outline" as const },
+            { key: "z-a" as const, label: "Z-A", icon: "text-outline" as const },
+          ]).map((opt) => (
+            <Pressable
+              key={opt.key}
+              style={[styles.sortChip, sortMode === opt.key && styles.sortChipActive]}
+              onPress={() => setSortMode(opt.key)}
+            >
+              <Ionicons name={opt.icon} size={12} color={sortMode === opt.key ? "#fff" : Colors.textSecondary} />
+              <Text style={[styles.sortChipText, sortMode === opt.key && styles.sortChipTextActive]}>{opt.label}</Text>
+            </Pressable>
+          ))}
         </View>
       )}
     </>
@@ -801,6 +855,35 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
+  },
+  sortRow: {
+    flexDirection: "row",
+    paddingHorizontal: BUBBLE_PAD,
+    gap: 6,
+    marginTop: 8,
+  },
+  sortChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  sortChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  sortChipText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  sortChipTextActive: {
+    color: "#fff",
   },
   clearAllBtn: {
     flexDirection: "row",
