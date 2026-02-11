@@ -907,7 +907,31 @@ async function detectCardAngle(dataUri: string, boundsHint?: CardBoundsHint): Pr
   }
 }
 
+const boundsCache = new Map<string, { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }>();
+
+async function optimizeImageForAI(dataUri: string, maxDim: number = 1024): Promise<string> {
+  try {
+    const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+    const meta = await sharp(buffer).metadata();
+    const w = meta.width || 0;
+    const h = meta.height || 0;
+    if (w <= maxDim && h <= maxDim && meta.format === "jpeg") return dataUri;
+    let pipeline = sharp(buffer);
+    if (w > maxDim || h > maxDim) {
+      pipeline = pipeline.resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true });
+    }
+    const optimized = await pipeline.jpeg({ quality: 85 }).toBuffer();
+    return `data:image/jpeg;base64,${optimized.toString("base64")}`;
+  } catch {
+    return dataUri;
+  }
+}
+
 async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number }> {
+  const cacheKey = dataUri.slice(dataUri.length - 64);
+  const cached = boundsCache.get(cacheKey);
+  if (cached) return cached;
   try {
     const base64Data = dataUri.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
@@ -1058,12 +1082,18 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
     }
 
-    return {
+    const result = {
       leftPercent: parseFloat(clamp(leftPercent, 0, 45).toFixed(1)),
       topPercent: parseFloat(clamp(topPercent, 0, 45).toFixed(1)),
       rightPercent: parseFloat(clamp(rightPercent, 55, 100).toFixed(1)),
       bottomPercent: parseFloat(clamp(bottomPercent, 55, 100).toFixed(1)),
     };
+    boundsCache.set(cacheKey, result);
+    if (boundsCache.size > 100) {
+      const firstKey = boundsCache.keys().next().value;
+      if (firstKey) boundsCache.delete(firstKey);
+    }
+    return result;
   } catch (err) {
     console.error("Card bounds detection failed:", err);
     return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
@@ -1319,8 +1349,8 @@ async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName:
         role: "user",
         content: [
           { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips." },
-          { type: "image_url", image_url: { url: topStrip, detail: "high" } },
-          { type: "image_url", image_url: { url: bottomStrip, detail: "high" } },
+          { type: "image_url", image_url: { url: topStrip, detail: "auto" } },
+          { type: "image_url", image_url: { url: bottomStrip, detail: "auto" } },
         ],
       },
     ],
@@ -1408,8 +1438,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const gradeStartTime = Date.now();
-      const frontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const backUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+      const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+
+      const [frontUrl, backUrl] = await Promise.all([
+        optimizeImageForAI(rawFrontUrl),
+        optimizeImageForAI(rawBackUrl),
+      ]);
+      const optimizeTime = Date.now() - gradeStartTime;
+      if (optimizeTime > 50) console.log(`[grade-card] Image optimization took ${optimizeTime}ms`);
 
       const [gradingResponse, cardIdResult] = await Promise.all([
         openai.chat.completions.create({
