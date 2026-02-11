@@ -1,6 +1,7 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import GradeCircle from "./GradeCircle";
 import SubGradeRow from "./SubGradeRow";
@@ -18,51 +19,115 @@ const COMPANY_LABELS: Record<string, string> = {
   Ace: "ACE",
 };
 
+function getGradientColor(grade: number): string {
+  const ratio = Math.max(0, Math.min(1, (grade - 1) / 9));
+  if (ratio <= 0.5) {
+    const t = ratio * 2;
+    const r = Math.round(239 + (245 - 239) * t);
+    const g = Math.round(68 + (158 - 68) * t);
+    const b = Math.round(68 + (11 - 68) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  const t = (ratio - 0.5) * 2;
+  const r = Math.round(245 + (16 - 245) * t);
+  const g = Math.round(158 + (185 - 158) * t);
+  const b = Math.round(11 + (129 - 11) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function formatGrade(g: number): string {
+  return g % 1 === 0 ? g.toString() : g.toFixed(1);
+}
+
 interface CompanyCardProps {
   company: "PSA" | "Beckett" | "Ace";
   grade: PSAGrade | BeckettGrade | AceGrade;
   color: string;
+  defaultExpanded?: boolean;
 }
 
-export default function CompanyCard({ company, grade, color }: CompanyCardProps) {
+interface SubGradeInfo {
+  label: string;
+  grade: number;
+  notes: string;
+}
+
+function getSubGrades(company: string, grade: PSAGrade | BeckettGrade | AceGrade): SubGradeInfo[] {
+  if (company === "PSA") {
+    const psa = grade as PSAGrade;
+    const overall = psa.grade;
+    return [
+      { label: "Centering", grade: psa.centeringGrade ?? overall, notes: psa.centering },
+      { label: "Corners", grade: overall, notes: psa.corners },
+      { label: "Edges", grade: overall, notes: psa.edges },
+      { label: "Surface", grade: overall, notes: psa.surface },
+    ];
+  }
+  const sub = grade as BeckettGrade | AceGrade;
+  return [
+    { label: "Centering", grade: sub.centering.grade, notes: sub.centering.notes },
+    { label: "Corners", grade: sub.corners.grade, notes: sub.corners.notes },
+    { label: "Edges", grade: sub.edges.grade, notes: sub.edges.notes },
+    { label: "Surface", grade: sub.surface.grade, notes: sub.surface.notes },
+  ];
+}
+
+export default function CompanyCard({ company, grade, color, defaultExpanded = false }: CompanyCardProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const isPSA = company === "PSA";
   const psaGrade = grade as PSAGrade;
   const subGrade = grade as BeckettGrade | AceGrade;
-
   const overallGrade = isPSA ? psaGrade.grade : subGrade.overallGrade;
+  const subGrades = getSubGrades(company, grade);
 
   return (
-    <View style={[styles.card, { borderColor: color + "30" }]}>
-      <View style={styles.headerRow}>
+    <View style={[styles.card, { borderColor: color + "20" }]}>
+      <Pressable
+        onPress={() => setExpanded(!expanded)}
+        style={({ pressed }) => [styles.headerRow, { opacity: pressed ? 0.85 : 1 }]}
+      >
         <View style={styles.companyInfo}>
           <Image source={LOGO_MAP[company]} style={styles.companyLogo} contentFit="contain" />
-          <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
+          <View style={styles.companyTextWrap}>
+            <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
+            {!expanded && (
+              <View style={styles.miniSubGrades}>
+                {subGrades.map((sg) => (
+                  <View key={sg.label} style={styles.miniSubGradeItem}>
+                    <View style={[styles.miniDot, { backgroundColor: getGradientColor(sg.grade) }]} />
+                    <Text style={styles.miniLabel}>{sg.label.substring(0, 3)}</Text>
+                    <Text style={[styles.miniValue, { color: getGradientColor(sg.grade) }]}>{formatGrade(sg.grade)}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
-        <GradeCircle grade={overallGrade} size={50} />
-      </View>
-
-      <View style={styles.divider} />
-
-      {isPSA ? (
-        <View style={styles.subGrades}>
-          <SubGradeRow label="Centering" grade={psaGrade.centeringGrade ?? overallGrade} notes={psaGrade.centering} color={color} />
-          <SubGradeRow label="Corners" grade={overallGrade} notes={psaGrade.corners} color={color} />
-          <SubGradeRow label="Edges" grade={overallGrade} notes={psaGrade.edges} color={color} />
-          <SubGradeRow label="Surface" grade={overallGrade} notes={psaGrade.surface} color={color} />
+        <View style={styles.headerRight}>
+          <GradeCircle grade={overallGrade} size={46} />
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={Colors.textMuted}
+            style={styles.chevron}
+          />
         </View>
-      ) : (
-        <View style={styles.subGrades}>
-          <SubGradeRow label="Centering" grade={subGrade.centering.grade} notes={subGrade.centering.notes} color={color} />
-          <SubGradeRow label="Corners" grade={subGrade.corners.grade} notes={subGrade.corners.notes} color={color} />
-          <SubGradeRow label="Edges" grade={subGrade.edges.grade} notes={subGrade.edges.notes} color={color} />
-          <SubGradeRow label="Surface" grade={subGrade.surface.grade} notes={subGrade.surface.notes} color={color} />
-        </View>
-      )}
+      </Pressable>
 
-      {grade.notes && (
+      {expanded && (
         <>
           <View style={styles.divider} />
-          <Text style={styles.notes}>{grade.notes}</Text>
+          <View style={styles.subGrades}>
+            {subGrades.map((sg) => (
+              <SubGradeRow key={sg.label} label={sg.label} grade={sg.grade} notes={sg.notes} color={color} />
+            ))}
+          </View>
+          {grade.notes ? (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.notes}>{grade.notes}</Text>
+            </>
+          ) : null}
         </>
       )}
     </View>
@@ -92,9 +157,45 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 8,
   },
+  companyTextWrap: {
+    flex: 1,
+    gap: 6,
+  },
   companyName: {
     fontFamily: "Inter_700Bold",
     fontSize: 18,
+  },
+  miniSubGrades: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  miniSubGradeItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  miniDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  miniLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  miniValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  chevron: {
+    marginLeft: 2,
   },
   divider: {
     height: 1,
