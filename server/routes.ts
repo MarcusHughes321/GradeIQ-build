@@ -412,8 +412,10 @@ LANGUAGE HANDLING:
 
 CRITICAL FOR CARD IDENTIFICATION — MULTI-STEP VERIFICATION:
 
-Step 1: READ THE POKEMON NAME FROM THE CARD TEXT (do NOT guess from artwork)
-- READ the Pokemon name that is PRINTED on the card (in ANY language). Do NOT identify the Pokemon from the artwork alone.
+Step 1: IDENTIFY THE POKEMON using name text AND artwork
+- READ the Pokemon name that is PRINTED on the card (in ANY language).
+- ALSO look at the ARTWORK — use the Pokemon's distinctive visual features (colors, body shape, face, wings, tail, etc.) to confirm your text reading.
+- If the name is hard to read (glare, holographic, non-English), rely MORE on the artwork. Every Pokemon has unique visual features that make identification possible even without reading the name.
 - For JAPANESE cards: READ the katakana/kanji name at the top of the card and translate to English.
   Key translations: コロトック = Kricketune, ゲノセクト = Genesect, リザードン = Charizard, ピカチュウ = Pikachu, ルカリオ = Lucario, ミュウツー = Mewtwo, レックウザ = Rayquaza
 - For KOREAN cards: READ the Hangul name at the top of the card and translate to English.
@@ -1400,15 +1402,23 @@ async function cropCardRegions(imageDataUrl: string): Promise<{ topStrip: string
   };
 }
 
-const CARD_ID_SYSTEM_PROMPT = `You are an OCR specialist. You will receive two cropped strips from a Pokemon trading card:
-1. The TOP strip — contains the Pokemon name (may include some background or dark area above the card edge)
+const CARD_ID_SYSTEM_PROMPT = `You are a Pokemon card identification expert. You will receive two cropped strips from a Pokemon trading card:
+1. The TOP strip — contains the Pokemon name and may show part of the artwork
 2. The BOTTOM strip — contains the card number and set code
 
-Your job is to READ the text in these images. Focus on finding the Pokemon name in the top strip and the card number in the bottom strip. Ignore any background areas.
+IDENTIFICATION STRATEGY — use ALL available evidence:
 
-READING THE TOP STRIP (Pokemon name):
+STEP 1: READ THE CARD NUMBER FIRST (bottom strip)
+- Look for a number in format "XXX/YYY" (e.g., "004/184", "012/220").
+- Also look for a set code like "s6b", "s12a", "sv1", "SV5K", etc.
+- The set code is typically a short alphanumeric string near the card number.
+- READ every character carefully. Watch for: 0↔8, 3↔8, 6↔9, 1↔7.
+- Also read the rarity symbol if visible (e.g., "RRR", "SR", "RR", "C", "U", "R").
+
+STEP 2: READ THE POKEMON NAME (top strip)
 - The Pokemon name is the large text in this strip.
-- It may be in Japanese (katakana/kanji), Korean (Hangul), Chinese (Traditional/Simplified), or another language. Translate to English.
+- For English cards: read the name directly.
+- For non-English cards: translate to English.
 - Common Japanese Pokemon names (katakana):
   コロトック = Kricketune, ゲノセクト = Genesect, リザードン = Charizard, ピカチュウ = Pikachu,
   ミュウツー = Mewtwo, ルカリオ = Lucario, レックウザ = Rayquaza, ミュウ = Mew,
@@ -1421,7 +1431,12 @@ READING THE TOP STRIP (Pokemon name):
   キュレム = Kyurem, メタグロス = Metagross, バンギラス = Tyranitar,
   カイリュー = Dragonite, ゲンガー = Gengar, ハッサム = Scizor,
   ニンフィア = Sylveon, グレイシア = Glaceon, リーフィア = Leafeon,
-  ブラッキー = Umbreon, エーフィ = Espeon, シャワーズ = Vaporeon
+  ブラッキー = Umbreon, エーフィ = Espeon, シャワーズ = Vaporeon,
+  ラフレシア = Vileplume, フシギバナ = Venusaur, カメックス = Blastoise,
+  ラプラス = Lapras, イーブイ = Eevee, ヒトカゲ = Charmander,
+  フシギダネ = Bulbasaur, ゼニガメ = Squirtle, カビゴン = Snorlax,
+  プリン = Jigglypuff, ヤドラン = Slowbro, フーディン = Alakazam,
+  ウインディ = Arcanine, ギャラドス = Gyarados, ラッキー = Chansey
 - Common Korean Pokemon names (Hangul):
   리자몽 = Charizard, 피카츄 = Pikachu, 뮤츠 = Mewtwo, 루카리오 = Lucario,
   레쿠자 = Rayquaza, 겐가 = Gengar, 님피아 = Sylveon, 블래키 = Umbreon,
@@ -1435,12 +1450,20 @@ READING THE TOP STRIP (Pokemon name):
   帝牙盧卡 = Dialga, 騎拉帝納 = Giratina, 阿爾宙斯 = Arceus, 甲賀忍蛙 = Greninja
 - Include any suffix (V, VMAX, VSTAR, ex, EX, GX) — these are usually in Latin characters.
 
-READING THE BOTTOM STRIP (card number + set code):
-- Look for a number in format "XXX/YYY" (e.g., "004/184", "012/220").
-- Also look for a set code like "s6b", "s12a", "sv1", "SV5K", etc.
-- The set code is typically a short alphanumeric string near the card number.
-- READ every character carefully. Watch for: 0↔8, 3↔8, 6↔9, 1↔7.
-- Also read the rarity symbol if visible (e.g., "RRR", "SR", "RR", "C", "U", "R").
+STEP 3: USE ARTWORK AS CONFIRMATION (especially for non-English cards)
+- If you can see part of the artwork in the top strip, use it to CONFIRM or CORRECT your text reading.
+- Each Pokemon has distinctive visual features — use them! For example:
+  * Charizard = orange dragon with flame tail and wings
+  * Pikachu = yellow mouse with red cheeks and lightning bolt tail
+  * Gengar = purple ghost with wide grin
+  * Mewtwo = pale purple bipedal psychic Pokemon
+  * Rayquaza = long green serpentine dragon
+- If the text is hard to read (glare, holographic, unfamiliar script), the artwork is your best clue.
+- Cross-reference: if the artwork clearly shows Charizard but you read a different name, trust the artwork and re-examine the text.
+
+STEP 4: CROSS-REFERENCE card number + name + artwork
+- Use your knowledge of Pokemon TCG card lists to verify the card number matches the Pokemon.
+- If set code + card number points to a specific Pokemon, and the artwork matches, that's your answer even if the name text is hard to read.
 
 SET NAME from set code:
 - s6a = Eevee Heroes, s6b = Fusion Arts, s8 = Fusion Arts, s8a = 25th Anniversary Collection
@@ -1451,10 +1474,9 @@ SET NAME from set code:
 - S5I = Single Strike / Rapid Strike, S6H = Silver Lance, S6K = Jet Black Spirit
 
 CRITICAL RULES:
-- NEVER return "Unknown", "N/A", or "Unreadable" for cardName. If you cannot read the name, try your best guess based on partial characters, artwork context, or set/number cross-reference.
-- For Japanese cards, sound out the katakana characters and translate to the English Pokemon name.
-- For Korean cards, sound out the Hangul characters and translate to the English Pokemon name.
-- For Chinese cards, read the Chinese characters and translate to the English Pokemon name.
+- NEVER return "Unknown", "N/A", or "Unreadable" for cardName.
+- If you cannot read the name text, use the artwork + card number + set code to identify the Pokemon. You MUST always provide your best identification.
+- For non-English cards, combine text reading + artwork recognition + card number lookup for the most accurate result.
 - Japanese, Korean, and Chinese cards all share the same set codes (s8b, sv2a, sm12, etc.) and card numbering.
 
 Respond with JSON ONLY:
@@ -1471,7 +1493,7 @@ async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName:
       {
         role: "user",
         content: [
-          { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name). Image 2 is the BOTTOM of the same card (contains the card number and set code). READ the text in both strips. Focus on the PRINTED TEXT — do NOT guess from artwork." },
+          { type: "text", text: "Image 1 is the TOP of a Pokemon card (contains the Pokemon name and part of the artwork). Image 2 is the BOTTOM of the same card (contains the card number and set code). Read the name text AND use any visible artwork to identify the Pokemon. Read the card number and set code from the bottom strip." },
           { type: "image_url", image_url: { url: topStrip, detail: "high" } },
           { type: "image_url", image_url: { url: bottomStrip, detail: "high" } },
         ],
@@ -1494,20 +1516,26 @@ async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardN
     messages: [
       {
         role: "system",
-        content: `You are a Pokemon card identification expert. Identify this card by reading the name and card number from the image.
-For Japanese/Korean/Chinese cards, translate the name to English.
-Common Japanese: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon
+        content: `You are a Pokemon card identification expert. Identify this card using ALL available evidence:
+
+1. READ THE CARD NUMBER from the bottom of the card (format XXX/YYY). Also read the set code (e.g. s8a, sv2a) near it.
+2. READ THE POKEMON NAME from the top of the card. For non-English cards, translate to English.
+3. LOOK AT THE ARTWORK — every Pokemon has distinctive visual features. Use the artwork to confirm or correct your text reading.
+4. CROSS-REFERENCE: Use card number + set code + your knowledge of Pokemon TCG card lists to verify. If the artwork clearly shows one Pokemon but you read a different name, trust the artwork and re-examine the text.
+
+For non-English cards where the name is hard to read (glare, holographic effects, unfamiliar script), rely MORE on artwork + card number + set knowledge to identify the Pokemon.
+
+Common Japanese: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon, ラフレシア=Vileplume, フシギバナ=Venusaur, カメックス=Blastoise
 Common Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
 Common Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar, 仙子伊布=Sylveon, 月亮伊布=Umbreon
 Include any suffix (V, VMAX, VSTAR, ex, EX, GX).
-Read the card number (format XXX/YYY) from the bottom of the card.
-Also read the set code (e.g. s8a, sv2a) near the card number. Japanese, Korean, and Chinese cards all use the same set codes.
+Japanese, Korean, and Chinese cards all use the same set codes.
 Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCode":"code","setName":"English set name"}`,
       },
       {
         role: "user",
         content: [
-          { type: "text", text: "Identify this Pokemon card. Read the name and card number carefully." },
+          { type: "text", text: "Identify this Pokemon card. Use the card name, card number, set code, AND the artwork together to determine the exact card." },
           { type: "image_url", image_url: { url: frontImageUrl, detail: "high" } },
         ],
       },
@@ -1530,11 +1558,18 @@ async function tiebreakerNameOnly(frontImageUrl: string): Promise<string | null>
       messages: [
         {
           role: "system",
-          content: `You are a text reader. READ the Pokemon name that is PRINTED on this trading card. Do NOT guess from artwork or colors — read the actual text characters printed on the card near the top.
+          content: `You are a Pokemon card identification expert. Your job is to determine the ENGLISH name of the Pokemon on this card.
 
-For English cards: read the English name directly.
-For Japanese cards: read the katakana/kanji and translate to English. Common: コロトック=Kricketune, ラフレシア=Vileplume, ゲノセクト=Genesect, リザードン=Charizard, ピカチュウ=Pikachu, ゲンガー=Gengar, ルカリオ=Lucario, ニンフィア=Sylveon, ブラッキー=Umbreon, ミュウツー=Mewtwo, エーフィ=Espeon, ハッサム=Scizor, バンギラス=Tyranitar, カイリュー=Dragonite, メタグロス=Metagross
-For Korean/Chinese: translate to English.
+Use MULTIPLE strategies to identify the Pokemon:
+1. READ the Pokemon name printed on the card (top area). For non-English cards, translate to English.
+2. LOOK AT THE ARTWORK — use the Pokemon's visual appearance to confirm your reading. Every Pokemon has distinctive features (colors, body shape, face).
+3. READ THE CARD NUMBER at the bottom if visible — use it + set code to cross-reference which Pokemon is at that number.
+
+If the printed name is hard to read (glare, holographic, non-English script), rely MORE on the artwork to identify the Pokemon.
+
+Common Japanese: コロトック=Kricketune, ラフレシア=Vileplume, ゲノセクト=Genesect, リザードン=Charizard, ピカチュウ=Pikachu, ゲンガー=Gengar, ルカリオ=Lucario, ニンフィア=Sylveon, ブラッキー=Umbreon, ミュウツー=Mewtwo, エーフィ=Espeon, ハッサム=Scizor, バンギラス=Tyranitar, カイリュー=Dragonite, メタグロス=Metagross, フシギバナ=Venusaur, カメックス=Blastoise
+Common Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
+Common Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar
 
 Include any suffix like V, VMAX, VSTAR, ex, EX, GX that appears after the name.
 
@@ -1543,7 +1578,7 @@ Respond with ONLY the English name, nothing else. Example: "Kricketune V"`,
         {
           role: "user",
           content: [
-            { type: "text", text: "What Pokemon name is PRINTED on this card? Read the text, do not guess from artwork." },
+            { type: "text", text: "What Pokemon is on this card? Use the printed name, artwork, and card number together to identify it." },
             { type: "image_url", image_url: { url: frontImageUrl, detail: "high" } },
           ],
         },
