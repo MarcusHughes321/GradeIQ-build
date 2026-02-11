@@ -691,7 +691,7 @@ export default function ResultsScreen() {
                 <View style={styles.proBlurContent}>
                   <Ionicons name="lock-closed" size={20} color="#F59E0B" />
                   <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                  <Text style={styles.proBlurSubtitle}>Full portfolio tracking</Text>
+                  <Text style={styles.proBlurSubtitle}>Full portfolio tracking & eBay last solds</Text>
                 </View>
               </BlurView>
             </Pressable>
