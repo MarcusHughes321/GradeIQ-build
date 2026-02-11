@@ -366,6 +366,23 @@ export default function BulkScreen() {
 
   const incompleteCards = cards.filter((c) => !c.frontImage || !c.backImage);
 
+  if (bulkCameraActive && Platform.OS !== "web") {
+    return (
+      <View style={styles.container}>
+        <CardCamera
+          side={bulkCameraSide}
+          onCapture={handleBulkCameraCapture}
+          onClose={handleBulkCameraClose}
+        />
+        <View style={[styles.bulkCameraBanner, { top: insets.top + 60 }]}>
+          <Text style={styles.bulkCameraBannerText}>
+            Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
@@ -438,20 +455,30 @@ export default function BulkScreen() {
                 <View style={styles.emptyIconWrap}>
                   <Ionicons name="images-outline" size={40} color={Colors.textMuted} />
                 </View>
-                <Text style={styles.emptyTitle}>Select Your Card Photos</Text>
+                <Text style={styles.emptyTitle}>Add Your Card Photos</Text>
                 <Text style={styles.emptyText}>
-                  Pick all your card images at once from your photo library. Select them in order: front, back, front, back...
+                  Use the camera to snap front and back of each card one after another, or select photos from your library.
                 </Text>
                 <Text style={styles.emptyHint}>
-                  Images are automatically paired as front/back for each card. Up to {MAX_CARDS} cards.
+                  Up to {MAX_CARDS} cards per batch. Each card needs a front and back photo.
                 </Text>
 
+                {Platform.OS !== "web" && (
+                  <Pressable
+                    style={({ pressed }) => [styles.selectBtn, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+                    onPress={startBulkCamera}
+                  >
+                    <Ionicons name="camera" size={22} color="#fff" />
+                    <Text style={styles.selectBtnText}>Take Photos with Camera</Text>
+                  </Pressable>
+                )}
+
                 <Pressable
-                  style={({ pressed }) => [styles.selectBtn, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+                  style={({ pressed }) => [styles.selectBtn, styles.selectBtnAlt, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
                   onPress={selectMultipleImages}
                 >
-                  <Ionicons name="images" size={22} color="#fff" />
-                  <Text style={styles.selectBtnText}>Select Images from Library</Text>
+                  <Ionicons name="images" size={22} color={Colors.primary} />
+                  <Text style={[styles.selectBtnText, { color: Colors.primary }]}>Select from Photo Library</Text>
                 </Pressable>
               </View>
             ) : (
@@ -538,13 +565,24 @@ export default function BulkScreen() {
                 ))}
 
                 {cards.length < MAX_CARDS && (
-                  <Pressable
-                    style={({ pressed }) => [styles.addMoreBtn, { opacity: pressed ? 0.7 : 1 }]}
-                    onPress={selectMultipleImages}
-                  >
-                    <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
-                    <Text style={styles.addMoreText}>Select More Images</Text>
-                  </Pressable>
+                  <View style={styles.addMoreRow}>
+                    {Platform.OS !== "web" && (
+                      <Pressable
+                        style={({ pressed }) => [styles.addMoreBtn, { opacity: pressed ? 0.7 : 1, flex: 1 }]}
+                        onPress={startBulkCamera}
+                      >
+                        <Ionicons name="camera-outline" size={20} color={Colors.primary} />
+                        <Text style={styles.addMoreText}>Camera</Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      style={({ pressed }) => [styles.addMoreBtn, { opacity: pressed ? 0.7 : 1, flex: 1 }]}
+                      onPress={selectMultipleImages}
+                    >
+                      <Ionicons name="images-outline" size={20} color={Colors.primary} />
+                      <Text style={styles.addMoreText}>Library</Text>
+                    </Pressable>
+                  </View>
                 )}
               </>
             )}
@@ -669,6 +707,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     marginTop: 20,
     width: "100%",
+  },
+  selectBtnAlt: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: Colors.primary + "60",
+    marginTop: 12,
   },
   selectBtnText: {
     fontFamily: "Inter_700Bold",
@@ -798,6 +842,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#fff",
   },
+  addMoreRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
   addMoreBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -923,5 +971,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  bulkCameraBanner: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    zIndex: 100,
+  },
+  bulkCameraBannerText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#fff",
   },
 });
