@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -37,6 +37,20 @@ function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading;
     year: "numeric",
   });
 
+  const avgValue = useMemo(() => {
+    const cv = item.result.cardValue;
+    if (!cv) return null;
+    const vals: number[] = [];
+    if (enabledCompanies.includes("PSA")) { const v = parseGBP(cv.psaValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Beckett")) { const v = parseGBP(cv.bgsValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Ace")) { const v = parseGBP(cv.aceValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("TAG")) { const v = parseGBP(cv.tagValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("CGC")) { const v = parseGBP(cv.cgcValue); if (v !== null) vals.push(v); }
+    if (vals.length === 0) return null;
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return avg;
+  }, [item.result.cardValue, enabledCompanies]);
+
   const handleLongPress = () => {
     if (Platform.OS === "web") {
       if (confirm("Delete this grading?")) {
@@ -73,7 +87,12 @@ function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading;
           <Text style={styles.histSetInfo} numberOfLines={1}>
             {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
           </Text>
-          <Text style={styles.histDate}>{dateStr}</Text>
+          <View style={styles.histMetaRow}>
+            <Text style={styles.histDate}>{dateStr}</Text>
+            {avgValue !== null && (
+              <Text style={styles.histValue}>~£{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
+            )}
+          </View>
         </View>
         <View style={styles.historyGrades}>
           {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
@@ -900,11 +919,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
+  histMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 1,
+  },
   histDate: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
-    marginTop: 1,
+  },
+  histValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: "#4CAF50",
   },
   historyGrades: {
     flexDirection: "row",
