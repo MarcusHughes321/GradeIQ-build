@@ -253,9 +253,8 @@ export default function HomeScreen() {
           <View style={styles.statsIconCircle}>
             <Ionicons name="layers" size={22} color={Colors.primary} />
           </View>
-          <Text style={styles.statsNumber}>{gradings.length}</Text>
-          <Text style={styles.statsLabel}>Cards{"\n"}Graded</Text>
-          <Text style={styles.bulkHint}>Tap to bulk grade</Text>
+          <Text style={styles.bubblePrimaryTextSmall}>Bulk Grade</Text>
+          <Text style={styles.bubbleSubtext}>Up to 20 cards</Text>
         </Pressable>
       </View>
 
@@ -263,8 +262,14 @@ export default function HomeScreen() {
         <>
           <View style={styles.portfolioCard}>
             <View style={styles.portfolioHeader}>
-              <Ionicons name="cash-outline" size={16} color={Colors.primary} />
-              <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
+              <View style={styles.portfolioHeaderLeft}>
+                <Ionicons name="cash-outline" size={16} color={Colors.primary} />
+                <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
+              </View>
+              <View style={styles.cardsCountBadge}>
+                <Text style={styles.cardsCountNumber}>{gradings.length}</Text>
+                <Text style={styles.cardsCountLabel}>{gradings.length === 1 ? "card" : "cards"}</Text>
+              </View>
             </View>
             {(() => {
               const activeValues: { label: string; total: number }[] = [];
@@ -551,23 +556,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 4,
   },
-  statsNumber: {
+  bubblePrimaryTextSmall: {
     fontFamily: "Inter_700Bold",
-    fontSize: 28,
+    fontSize: 16,
     color: Colors.text,
-  },
-  statsLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-    textAlign: "center",
-    lineHeight: 16,
-  },
-  bulkHint: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 10,
-    color: Colors.primary,
-    marginTop: 2,
   },
   portfolioCard: {
     backgroundColor: Colors.surface,
@@ -582,7 +574,31 @@ const styles = StyleSheet.create({
   portfolioHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+  },
+  portfolioHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
+  },
+  cardsCountBadge: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    backgroundColor: Colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  cardsCountNumber: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  cardsCountLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
   },
   portfolioTitle: {
     fontFamily: "Inter_600SemiBold",

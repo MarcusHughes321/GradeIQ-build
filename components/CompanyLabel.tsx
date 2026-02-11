@@ -41,41 +41,7 @@ export default function CompanyLabel({ company, fontSize = 14, fontFamily = "Int
   }
 
   if (company === "TAG") {
-    const strokeWidth = 1;
-    const offsets = [
-      { x: -strokeWidth, y: 0 },
-      { x: strokeWidth, y: 0 },
-      { x: 0, y: -strokeWidth },
-      { x: 0, y: strokeWidth },
-      { x: -strokeWidth, y: -strokeWidth },
-      { x: strokeWidth, y: -strokeWidth },
-      { x: -strokeWidth, y: strokeWidth },
-      { x: strokeWidth, y: strokeWidth },
-    ];
-    return (
-      <View style={styles.row}>
-        {["T", "A", "G"].map((ch, i) => (
-          <View key={i} style={styles.outlineWrap}>
-            {offsets.map((o, j) => (
-              <Text
-                key={j}
-                style={[
-                  baseStyle,
-                  {
-                    position: "absolute",
-                    color: TAG_OUTLINE,
-                    transform: [{ translateX: o.x }, { translateY: o.y }],
-                  },
-                ]}
-              >
-                {ch}
-              </Text>
-            ))}
-            <Text style={[baseStyle, styles.tagFill]}>{ch}</Text>
-          </View>
-        ))}
-      </View>
-    );
+    return <Text style={[baseStyle, { color: TAG_OUTLINE }]}>{company}</Text>;
   }
 
   return <Text style={baseStyle}>{company}</Text>;
@@ -100,11 +66,5 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  outlineWrap: {
-    position: "relative",
-  },
-  tagFill: {
-    color: TAG_BLACK,
   },
 });
