@@ -1175,7 +1175,7 @@ function detectBoundsAtResolution(
 
   const findEdgeRow = (startY: number, endY: number, step: number, xStart: number, xEnd: number): number => {
     const totalScanCols = Math.floor((xEnd - xStart) / 1);
-    const minVotes = Math.max(3, Math.round(totalScanCols * minVoteRatio));
+    const minVotes = Math.max(3, Math.round(totalScanCols * minVoteRatio * 0.7));
 
     const rowBrightness = new Map<number, number>();
     for (let y = Math.min(startY, endY); y <= Math.max(startY, endY); y++) {
@@ -1189,6 +1189,7 @@ function detectBoundsAtResolution(
     }
 
     const rows: { y: number; score: number; votes: number }[] = [];
+    const lowerThreshold = Math.max(8, Math.round(adaptiveThreshold * 0.7));
 
     for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
       let votes = 0;
@@ -1198,7 +1199,7 @@ function detectBoundsAtResolution(
       for (let x = xStart; x < xEnd; x += 1) {
         const gy = Math.abs(sobelY(x, y));
         const gx = Math.abs(sobelX(x, y));
-        if (gy >= adaptiveThreshold && gy > gx * DIRECTION_RATIO) {
+        if (gy >= lowerThreshold && gy > gx * DIRECTION_RATIO) {
           votes++;
           totalGrad += gy;
           currentRun++;
@@ -1221,6 +1222,11 @@ function detectBoundsAtResolution(
           finalScore *= 1.2;
         } else if (!isTopEdge && brightDiff < -15) {
           finalScore *= 1.2;
+        }
+
+        const spread = Math.abs(brightDiff);
+        if (spread > 30) {
+          finalScore *= 1.3;
         }
 
         rows.push({ y, score: finalScore, votes });
@@ -1256,16 +1262,16 @@ function detectBoundsAtResolution(
   const leftCol = findEdgeColumn(xMinStart, xConstraint ? xMaxEnd : Math.round(sw * scanRange), 1);
   const rightCol = findEdgeColumn(xConstraint ? xMaxStartR : sw - 2, xMinEndR, -1);
 
-  const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
+  const cardInsetX = Math.round((rightCol - leftCol) * 0.2);
   const rowScanXStart = Math.round(leftCol + cardInsetX);
   const rowScanXEnd = Math.round(rightCol - cardInsetX);
 
   const yMinStart = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : 1;
-  const yMaxEnd = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : Math.round(sh * scanRange);
-  const yMinEndB = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : Math.round(sh * (1 - scanRange));
+  const yMaxEnd = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : Math.round(sh * 0.55);
+  const yMinEndB = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : Math.round(sh * 0.45);
   const yMaxStartB = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : sh - 2;
 
-  const topRow = findEdgeRow(yMinStart, yConstraint ? yMaxEnd : Math.round(sh * scanRange), 1, rowScanXStart, rowScanXEnd);
+  const topRow = findEdgeRow(yMinStart, yConstraint ? yMaxEnd : Math.round(sh * 0.55), 1, rowScanXStart, rowScanXEnd);
   const bottomRow = findEdgeRow(yConstraint ? yMaxStartB : sh - 2, yMinEndB, -1, rowScanXStart, rowScanXEnd);
 
   return {
@@ -2216,12 +2222,34 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       const imgW = meta.width || 1;
       const imgH = meta.height || 1;
 
-      const cardLeft = (bounds.leftPercent / 100) * imgW;
-      const cardRight = (bounds.rightPercent / 100) * imgW;
-      const cardTop = (bounds.topPercent / 100) * imgH;
-      const cardBottom = (bounds.bottomPercent / 100) * imgH;
-      const cardW = cardRight - cardLeft;
-      const cardH = cardBottom - cardTop;
+      let cardLeft = (bounds.leftPercent / 100) * imgW;
+      let cardRight = (bounds.rightPercent / 100) * imgW;
+      let cardTop = (bounds.topPercent / 100) * imgH;
+      let cardBottom = (bounds.bottomPercent / 100) * imgH;
+      let cardW = cardRight - cardLeft;
+      let cardH = cardBottom - cardTop;
+
+      const CARD_ASPECT = 2.5 / 3.5;
+      const detectedRatio = cardW / cardH;
+
+      const lrDetected = bounds.leftPercent > 5 || bounds.rightPercent < 95;
+      const tbDetected = bounds.topPercent > 5 || bounds.bottomPercent < 95;
+
+      if (lrDetected && (!tbDetected || Math.abs(detectedRatio - CARD_ASPECT) > 0.25)) {
+        const expectedH = cardW / CARD_ASPECT;
+        const centerY = (cardTop + cardBottom) / 2;
+        cardTop = Math.max(0, centerY - expectedH / 2);
+        cardBottom = Math.min(imgH, centerY + expectedH / 2);
+        cardH = cardBottom - cardTop;
+        console.log(`[crop-to-card] Inferred top/bottom from card width. Ratio was ${detectedRatio.toFixed(3)}, expected ${CARD_ASPECT.toFixed(3)}`);
+      } else if (tbDetected && (!lrDetected || Math.abs(detectedRatio - CARD_ASPECT) > 0.25)) {
+        const expectedW = cardH * CARD_ASPECT;
+        const centerX = (cardLeft + cardRight) / 2;
+        cardLeft = Math.max(0, centerX - expectedW / 2);
+        cardRight = Math.min(imgW, centerX + expectedW / 2);
+        cardW = cardRight - cardLeft;
+        console.log(`[crop-to-card] Inferred left/right from card height. Ratio was ${detectedRatio.toFixed(3)}, expected ${CARD_ASPECT.toFixed(3)}`);
+      }
 
       const padX = cardW * (padding / 100);
       const padY = cardH * (padding / 100);
