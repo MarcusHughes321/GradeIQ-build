@@ -1177,8 +1177,11 @@ function detectBoundsAtResolution(
     const totalScanCols = Math.floor((xEnd - xStart) / 1);
     const minVotes = Math.max(3, Math.round(totalScanCols * minVoteRatio * 0.7));
 
+    const windowSize = 5;
     const rowBrightness = new Map<number, number>();
-    for (let y = Math.min(startY, endY); y <= Math.max(startY, endY); y++) {
+    const yLo = Math.min(startY, endY);
+    const yHi = Math.max(startY, endY);
+    for (let y = Math.max(0, yLo - windowSize); y <= Math.min(sh - 1, yHi + windowSize); y++) {
       let sum = 0;
       let count = 0;
       for (let x = xStart; x < xEnd; x += 2) {
@@ -1187,6 +1190,15 @@ function detectBoundsAtResolution(
       }
       rowBrightness.set(y, count > 0 ? sum / count : 0);
     }
+
+    const avgBrightnessAt = (y: number, halfWin: number): number => {
+      let s = 0; let c = 0;
+      for (let dy = -halfWin; dy <= halfWin; dy++) {
+        const v = rowBrightness.get(y + dy);
+        if (v !== undefined) { s += v; c++; }
+      }
+      return c > 0 ? s / c : 0;
+    };
 
     const rows: { y: number; score: number; votes: number }[] = [];
     const lowerThreshold = Math.max(8, Math.round(adaptiveThreshold * 0.7));
@@ -1213,20 +1225,21 @@ function detectBoundsAtResolution(
         const continuityBonus = Math.pow(continuityRatio, 0.5);
         let finalScore = totalGrad * continuityBonus;
 
-        const adjY = y + step;
-        const curBright = rowBrightness.get(y) ?? 0;
-        const adjBright = rowBrightness.get(adjY) ?? curBright;
-        const brightDiff = curBright - adjBright;
+        const beforeBright = avgBrightnessAt(y - step * 3, 2);
+        const afterBright = avgBrightnessAt(y + step * 3, 2);
+        const transitionDiff = afterBright - beforeBright;
+
         const isTopEdge = step > 0;
-        if (isTopEdge && brightDiff > 15) {
-          finalScore *= 1.2;
-        } else if (!isTopEdge && brightDiff < -15) {
-          finalScore *= 1.2;
+        if (isTopEdge && transitionDiff > 10) {
+          finalScore *= 1.0 + Math.min(0.8, transitionDiff / 50);
+        } else if (!isTopEdge && transitionDiff < -10) {
+          finalScore *= 1.0 + Math.min(0.8, Math.abs(transitionDiff) / 50);
         }
 
-        const spread = Math.abs(brightDiff);
-        if (spread > 30) {
-          finalScore *= 1.3;
+        if (isTopEdge && transitionDiff < -5) {
+          finalScore *= 0.4;
+        } else if (!isTopEdge && transitionDiff > 5) {
+          finalScore *= 0.4;
         }
 
         rows.push({ y, score: finalScore, votes });
@@ -1236,7 +1249,7 @@ function detectBoundsAtResolution(
     if (rows.length === 0) return startY;
 
     rows.sort((a, b) => b.score - a.score);
-    const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.1)));
+    const topN = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.15)));
 
     if (step > 0) {
       topN.sort((a, b) => a.y - b.y);
@@ -2213,7 +2226,27 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       if (!image) {
         return res.status(400).json({ error: "Image is required" });
       }
-      const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+      let uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+
+      const initialBounds = await detectCardBounds(uri);
+      const angle = await detectCardAngle(uri, initialBounds);
+
+      if (Math.abs(angle) > 0.3) {
+        try {
+          const rotBase64 = uri.replace(/^data:image\/\w+;base64,/, "");
+          const rotBuffer = Buffer.from(rotBase64, "base64");
+          const straightened = await sharp(rotBuffer)
+            .rotate(-angle, { background: { r: 0, g: 0, b: 0, alpha: 1 } })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          uri = `data:image/jpeg;base64,${straightened.toString("base64")}`;
+          console.log(`[crop-to-card] Auto-straightened by ${angle.toFixed(2)} degrees`);
+        } catch (rotErr) {
+          console.log(`[crop-to-card] Straighten failed, continuing without:`, rotErr);
+        }
+      }
+
+      boundsCache.clear();
       const bounds = await detectCardBounds(uri);
 
       const base64Data = uri.replace(/^data:image\/\w+;base64,/, "");
