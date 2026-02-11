@@ -430,9 +430,14 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
       desc: "Opens the rotation slider below the controls. Use it to manually straighten your card if the photo is slightly tilted. Tap \u2212 or + for fine 0.5\u00B0 adjustments.",
     },
     {
+      icon: "scan-outline" as const,
+      title: "Auto-align button",
+      desc: "Re-runs the automatic edge detection to reposition all lines. Useful if the initial detection wasn\u2019t accurate or after straightening the image.",
+    },
+    {
       icon: "magnet-outline" as const,
       title: "Straighten button",
-      desc: "Automatically detects the card's tilt by analysing the bottom edge and applies the correction. Works best on cards placed on a contrasting background.",
+      desc: "Automatically detects the card's tilt and corrects it. Only adjusts the rotation \u2014 does not move the lines. Works best on cards placed on a contrasting background.",
     },
     {
       icon: "refresh" as const,
@@ -525,6 +530,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [showHelp, setShowHelp] = useState(false);
   const [activeHandle, setActiveHandle] = useState<LineKey | null>(null);
   const [autoStraightening, setAutoStraightening] = useState(false);
+  const [autoAligning, setAutoAligning] = useState(false);
   const wasStraightenedRef = useRef(false);
 
   const rotation = showFront ? frontRotation : backRotation;
@@ -746,19 +752,30 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       if (Math.abs(newRotation) > 0.1) {
         wasStraightenedRef.current = true;
       }
-
-      try {
-        const boundsResp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
-        const newBounds = await boundsResp.json();
-        if (newBounds && newBounds.leftPercent !== undefined) {
-          repositionLinesWithBounds(newBounds);
-        }
-      } catch {}
     } catch (err) {
       console.error("Auto-straighten failed:", err);
       setShowRotation(true);
     } finally {
       setAutoStraightening(false);
+    }
+  };
+
+  const handleAutoAlign = async () => {
+    const imageUri = showFront ? frontImage : backImage;
+    if (!imageUri || autoAligning) return;
+
+    setAutoAligning(true);
+    try {
+      const base64 = await getBase64FromUri(imageUri);
+      const boundsResp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
+      const newBounds = await boundsResp.json();
+      if (newBounds && newBounds.leftPercent !== undefined) {
+        repositionLinesWithBounds(newBounds);
+      }
+    } catch (err) {
+      console.error("Auto-align failed:", err);
+    } finally {
+      setAutoAligning(false);
     }
   };
 
@@ -1090,6 +1107,18 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           <Pressable onPress={() => setShowRotation(!showRotation)} style={({ pressed }) => [styles.labelBtn, showRotation && styles.labelBtnActive, { opacity: pressed ? 0.6 : 1 }]}>
             <Ionicons name="sync-outline" size={15} color={showRotation ? "#fff" : Colors.textMuted} />
             <Text style={[styles.labelBtnText, showRotation && styles.labelBtnTextActive]}>Rotate</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleAutoAlign}
+            disabled={autoAligning}
+            style={({ pressed }) => [styles.labelBtn, { opacity: autoAligning ? 0.4 : pressed ? 0.6 : 1 }]}
+          >
+            {autoAligning ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Ionicons name="scan-outline" size={15} color={Colors.textMuted} />
+            )}
+            <Text style={styles.labelBtnText}>Auto</Text>
           </Pressable>
           <Pressable
             onPress={handleAutoStraighten}

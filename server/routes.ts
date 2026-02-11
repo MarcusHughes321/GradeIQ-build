@@ -1102,21 +1102,53 @@ function detectBoundsAtResolution(
     const totalScanRows = Math.floor((scanYEnd - scanYStart) / 1);
     const minVotes = Math.max(3, Math.round(totalScanRows * minVoteRatio));
 
+    const colBrightness = new Map<number, number>();
+    for (let x = Math.min(startX, endX); x <= Math.max(startX, endX); x++) {
+      let sum = 0;
+      let count = 0;
+      for (let y = scanYStart; y < scanYEnd; y += 2) {
+        sum += getPixel(x, y);
+        count++;
+      }
+      colBrightness.set(x, count > 0 ? sum / count : 0);
+    }
+
     const columns: { x: number; score: number; votes: number }[] = [];
 
     for (let x = startX; step > 0 ? x < endX : x > endX; x += step) {
       let votes = 0;
       let totalGrad = 0;
+      let longestRun = 0;
+      let currentRun = 0;
       for (let y = scanYStart; y < scanYEnd; y += 1) {
         const gx = Math.abs(sobelX(x, y));
         const gy = Math.abs(sobelY(x, y));
         if (gx >= adaptiveThreshold && gx > gy * DIRECTION_RATIO) {
           votes++;
           totalGrad += gx;
+          currentRun++;
+          if (currentRun > longestRun) longestRun = currentRun;
+        } else {
+          currentRun = 0;
         }
       }
       if (votes >= minVotes) {
-        columns.push({ x, score: totalGrad, votes });
+        const continuityRatio = totalScanRows > 0 ? longestRun / totalScanRows : 0;
+        const continuityBonus = Math.pow(continuityRatio, 0.5);
+        let finalScore = totalGrad * continuityBonus;
+
+        const adjX = x + step;
+        const curBright = colBrightness.get(x) ?? 0;
+        const adjBright = colBrightness.get(adjX) ?? curBright;
+        const brightDiff = curBright - adjBright;
+        const isLeftEdge = step > 0;
+        if (isLeftEdge && brightDiff > 15) {
+          finalScore *= 1.2;
+        } else if (!isLeftEdge && brightDiff < -15) {
+          finalScore *= 1.2;
+        }
+
+        columns.push({ x, score: finalScore, votes });
       }
     }
 
@@ -1145,21 +1177,53 @@ function detectBoundsAtResolution(
     const totalScanCols = Math.floor((xEnd - xStart) / 1);
     const minVotes = Math.max(3, Math.round(totalScanCols * minVoteRatio));
 
+    const rowBrightness = new Map<number, number>();
+    for (let y = Math.min(startY, endY); y <= Math.max(startY, endY); y++) {
+      let sum = 0;
+      let count = 0;
+      for (let x = xStart; x < xEnd; x += 2) {
+        sum += getPixel(x, y);
+        count++;
+      }
+      rowBrightness.set(y, count > 0 ? sum / count : 0);
+    }
+
     const rows: { y: number; score: number; votes: number }[] = [];
 
     for (let y = startY; step > 0 ? y < endY : y > endY; y += step) {
       let votes = 0;
       let totalGrad = 0;
+      let longestRun = 0;
+      let currentRun = 0;
       for (let x = xStart; x < xEnd; x += 1) {
         const gy = Math.abs(sobelY(x, y));
         const gx = Math.abs(sobelX(x, y));
         if (gy >= adaptiveThreshold && gy > gx * DIRECTION_RATIO) {
           votes++;
           totalGrad += gy;
+          currentRun++;
+          if (currentRun > longestRun) longestRun = currentRun;
+        } else {
+          currentRun = 0;
         }
       }
       if (votes >= minVotes) {
-        rows.push({ y, score: totalGrad, votes });
+        const continuityRatio = totalScanCols > 0 ? longestRun / totalScanCols : 0;
+        const continuityBonus = Math.pow(continuityRatio, 0.5);
+        let finalScore = totalGrad * continuityBonus;
+
+        const adjY = y + step;
+        const curBright = rowBrightness.get(y) ?? 0;
+        const adjBright = rowBrightness.get(adjY) ?? curBright;
+        const brightDiff = curBright - adjBright;
+        const isTopEdge = step > 0;
+        if (isTopEdge && brightDiff > 15) {
+          finalScore *= 1.2;
+        } else if (!isTopEdge && brightDiff < -15) {
+          finalScore *= 1.2;
+        }
+
+        rows.push({ y, score: finalScore, votes });
       }
     }
 
@@ -1245,17 +1309,49 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const REFINE_BAND = 8;
+    const REFINE_BAND = 12;
     const fine = detectBoundsAtResolution(
       finePixels as any, fsw, fsh, 0.4, 0.15,
       { minPct: Math.max(0, coarse.leftPct - REFINE_BAND), maxPct: Math.min(100, coarse.rightPct + REFINE_BAND) },
       { minPct: Math.max(0, coarse.topPct - REFINE_BAND), maxPct: Math.min(100, coarse.bottomPct + REFINE_BAND) }
     );
 
-    const leftPercent = fine.leftPct;
-    const rightPercent = fine.rightPct;
-    const topPercent = fine.topPct;
-    const bottomPercent = fine.bottomPct;
+    let leftPercent = fine.leftPct;
+    let rightPercent = fine.rightPct;
+    let topPercent = fine.topPct;
+    let bottomPercent = fine.bottomPct;
+
+    const CARD_RATIO = 0.714;
+    const RATIO_TOLERANCE = 0.15;
+    const detectedWidth = rightPercent - leftPercent;
+    const detectedHeight = bottomPercent - topPercent;
+    if (detectedWidth > 5 && detectedHeight > 5) {
+      const detectedRatio = detectedWidth / detectedHeight;
+      const ratioDeviation = Math.abs(detectedRatio - CARD_RATIO) / CARD_RATIO;
+      if (ratioDeviation > RATIO_TOLERANCE) {
+        if (detectedRatio > CARD_RATIO) {
+          const idealWidth = detectedHeight * CARD_RATIO;
+          const excess = detectedWidth - idealWidth;
+          const leftDist = leftPercent;
+          const rightDist = 100 - rightPercent;
+          if (leftDist < rightDist) {
+            leftPercent += excess * 0.5;
+          } else {
+            rightPercent -= excess * 0.5;
+          }
+        } else {
+          const idealHeight = detectedWidth / CARD_RATIO;
+          const excess = detectedHeight - idealHeight;
+          const topDist = topPercent;
+          const bottomDist = 100 - bottomPercent;
+          if (topDist < bottomDist) {
+            topPercent += excess * 0.5;
+          } else {
+            bottomPercent -= excess * 0.5;
+          }
+        }
+      }
+    }
 
     if (rightPercent - leftPercent < 30 || bottomPercent - topPercent < 30) {
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98 };
