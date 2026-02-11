@@ -88,6 +88,15 @@ const SLIDES: SlideData[] = [
     color: "#EC4899",
     gradientColors: ["#1a000d", "#1a0008", "#000000"],
   },
+  {
+    key: "pro",
+    icon: "diamond",
+    iconSet: "ionicons",
+    title: "Free to Try, Pro to Master",
+    subtitle: "Get 3 free card grades every day. Upgrade to Pro for just \u00a32.99/month for unlimited grading, bulk uploads, and full portfolio tracking.",
+    color: "#F59E0B",
+    gradientColors: ["#1a1200", "#1a0a00", "#000000"],
+  },
 ];
 
 function SlideItem({ item, index }: { item: SlideData; index: number }) {
@@ -166,6 +175,21 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
             {["PSA", "BGS", "ACE", "TAG", "CGC"].map((c) => (
               <View key={c} style={[styles.companyBadge, { borderColor: getCompanyColor(c) + "60" }]}>
                 <CompanyLabel company={c} fontSize={14} />
+              </View>
+            ))}
+          </Animated.View>
+        )}
+
+        {item.key === "pro" && (
+          <Animated.View entering={FadeIn.delay(700).duration(600)} style={styles.proFeatures}>
+            {[
+              { icon: "checkmark-circle" as const, text: "3 free grades daily" },
+              { icon: "infinite" as const, text: "Unlimited with Pro" },
+              { icon: "pricetag" as const, text: "Just \u00a32.99/month" },
+            ].map((f) => (
+              <View key={f.text} style={styles.proFeatureRow}>
+                <Ionicons name={f.icon} size={20} color={item.color} />
+                <Text style={styles.proFeatureText}>{f.text}</Text>
               </View>
             ))}
           </Animated.View>
@@ -380,6 +404,27 @@ const styles = StyleSheet.create({
   ctaText: {
     fontFamily: "Inter_700Bold",
     fontSize: 18,
+    color: "#fff",
+  },
+  proFeatures: {
+    gap: 12,
+    width: "100%",
+    marginTop: 4,
+  },
+  proFeatureRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.2)",
+  },
+  proFeatureText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
     color: "#fff",
   },
 });
