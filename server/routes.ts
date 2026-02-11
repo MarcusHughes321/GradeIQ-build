@@ -1255,8 +1255,8 @@ Your job is to READ the text in these images. Focus on finding the Pokemon name 
 
 READING THE TOP STRIP (Pokemon name):
 - The Pokemon name is the large text in this strip.
-- It may be in Japanese (katakana/kanji), Korean, or another language. Translate to English.
-- Common Japanese Pokemon names in katakana:
+- It may be in Japanese (katakana/kanji), Korean (Hangul), Chinese (Traditional/Simplified), or another language. Translate to English.
+- Common Japanese Pokemon names (katakana):
   コロトック = Kricketune, ゲノセクト = Genesect, リザードン = Charizard, ピカチュウ = Pikachu,
   ミュウツー = Mewtwo, ルカリオ = Lucario, レックウザ = Rayquaza, ミュウ = Mew,
   ザシアン = Zacian, ザマゼンタ = Zamazenta, ジガルデ = Zygarde, ゼラオラ = Zeraora,
@@ -1269,6 +1269,17 @@ READING THE TOP STRIP (Pokemon name):
   カイリュー = Dragonite, ゲンガー = Gengar, ハッサム = Scizor,
   ニンフィア = Sylveon, グレイシア = Glaceon, リーフィア = Leafeon,
   ブラッキー = Umbreon, エーフィ = Espeon, シャワーズ = Vaporeon
+- Common Korean Pokemon names (Hangul):
+  리자몽 = Charizard, 피카츄 = Pikachu, 뮤츠 = Mewtwo, 루카리오 = Lucario,
+  레쿠자 = Rayquaza, 겐가 = Gengar, 님피아 = Sylveon, 블래키 = Umbreon,
+  에브이 = Eevee, 가브리아스 = Garchomp, 메타그로스 = Metagross, 팔키아 = Palkia,
+  디아루가 = Dialga, 기라티나 = Giratina, 아르세우스 = Arceus, 레시라무 = Reshiram,
+  제크로무 = Zekrom, 그레니냐 = Greninja, 드래펄트 = Dragapult, 마임꼬 = Mr. Mime
+- Common Chinese Pokemon names (Traditional/Simplified):
+  噴火龍 = Charizard, 皮卡丘 = Pikachu, 超夢 = Mewtwo, 路卡利歐 = Lucario,
+  烈空坐 = Rayquaza, 耿鬼 = Gengar, 仙子伊布 = Sylveon, 月亮伊布 = Umbreon,
+  伊布 = Eevee, 烈咬陸鯊 = Garchomp, 巨金怪 = Metagross, 帕路奇亞 = Palkia,
+  帝牙盧卡 = Dialga, 騎拉帝納 = Giratina, 阿爾宙斯 = Arceus, 甲賀忍蛙 = Greninja
 - Include any suffix (V, VMAX, VSTAR, ex, EX, GX) — these are usually in Latin characters.
 
 READING THE BOTTOM STRIP (card number + set code):
@@ -1289,6 +1300,9 @@ SET NAME from set code:
 CRITICAL RULES:
 - NEVER return "Unknown", "N/A", or "Unreadable" for cardName. If you cannot read the name, try your best guess based on partial characters, artwork context, or set/number cross-reference.
 - For Japanese cards, sound out the katakana characters and translate to the English Pokemon name.
+- For Korean cards, sound out the Hangul characters and translate to the English Pokemon name.
+- For Chinese cards, read the Chinese characters and translate to the English Pokemon name.
+- Japanese, Korean, and Chinese cards all share the same set codes (s8b, sv2a, sm12, etc.) and card numbering.
 
 Respond with JSON ONLY:
 {"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name"}`;
@@ -1328,11 +1342,13 @@ async function identifyCardWithFullImage(frontImageUrl: string): Promise<{ cardN
       {
         role: "system",
         content: `You are a Pokemon card identification expert. Identify this card by reading the name and card number from the image.
-For Japanese/Korean cards, translate the name to English.
-Common Japanese names: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon
+For Japanese/Korean/Chinese cards, translate the name to English.
+Common Japanese: コロトック=Kricketune, リザードン=Charizard, ピカチュウ=Pikachu, ゲノセクト=Genesect, ミュウツー=Mewtwo, ルカリオ=Lucario, ミュウ=Mew, レックウザ=Rayquaza, ゲンガー=Gengar, ニンフィア=Sylveon, ブラッキー=Umbreon, エーフィ=Espeon
+Common Korean: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 겐가=Gengar, 님피아=Sylveon, 블래키=Umbreon
+Common Chinese: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza, 耿鬼=Gengar, 仙子伊布=Sylveon, 月亮伊布=Umbreon
 Include any suffix (V, VMAX, VSTAR, ex, EX, GX).
 Read the card number (format XXX/YYY) from the bottom of the card.
-Also read the set code (e.g. s8a, sv2a) near the card number.
+Also read the set code (e.g. s8a, sv2a) near the card number. Japanese, Korean, and Chinese cards all use the same set codes.
 Respond with JSON ONLY: {"cardName":"English name","setNumber":"XXX/YYY","setCode":"code","setName":"English set name"}`,
       },
       {
