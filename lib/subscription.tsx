@@ -1,9 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
+import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 
 const USAGE_KEY = "gradeiq_daily_usage";
 const SUB_GATE_KEY = "gradeiq_subscription_gate";
 const FREE_DAILY_LIMIT = 3;
+
+const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_RC_IOS_KEY || "";
+const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_RC_ANDROID_KEY || "";
+const PRO_ENTITLEMENT_ID = "pro";
 
 interface DailyUsage {
   date: string;
@@ -21,6 +27,9 @@ interface SubscriptionContextValue {
   recordUsage: (count?: number) => Promise<boolean>;
   checkCanGrade: (count?: number) => boolean;
   loading: boolean;
+  purchaseMonthly: () => Promise<boolean>;
+  restorePurchases: () => Promise<boolean>;
+  rcConfigured: boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -52,6 +61,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [isGateEnabled, setIsGateEnabled] = useState(false);
   const [dailyUsageCount, setDailyUsageCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [rcConfigured, setRcConfigured] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -62,7 +73,36 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setDailyUsageCount(usage.count);
       setLoading(false);
     });
+
+    initRevenueCat();
   }, []);
+
+  const initRevenueCat = async () => {
+    try {
+      const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
+      if (!apiKey) {
+        return;
+      }
+
+      Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+      await Purchases.configure({ apiKey });
+      setRcConfigured(true);
+
+      const info = await Purchases.getCustomerInfo();
+      checkEntitlements(info);
+
+      Purchases.addCustomerInfoUpdateListener((info) => {
+        checkEntitlements(info);
+      });
+    } catch (e) {
+      console.log("RevenueCat init skipped:", e);
+    }
+  };
+
+  const checkEntitlements = (info: CustomerInfo) => {
+    const hasProAccess = info.entitlements.active[PRO_ENTITLEMENT_ID] !== undefined;
+    setIsSubscribed(hasProAccess);
+  };
 
   const toggleGate = useCallback(() => {
     setIsGateEnabled((prev) => {
@@ -71,8 +111,6 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       return next;
     });
   }, []);
-
-  const isSubscribed = false;
 
   const remainingFreeGrades = Math.max(0, FREE_DAILY_LIMIT - dailyUsageCount);
 
@@ -99,6 +137,34 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     [isGateEnabled, isSubscribed]
   );
 
+  const purchaseMonthly = useCallback(async (): Promise<boolean> => {
+    if (!rcConfigured) return false;
+    try {
+      const offerings = await Purchases.getOfferings();
+      const monthly = offerings.current?.monthly;
+      if (!monthly) return false;
+      const { customerInfo } = await Purchases.purchasePackage(monthly);
+      checkEntitlements(customerInfo);
+      return customerInfo.entitlements.active[PRO_ENTITLEMENT_ID] !== undefined;
+    } catch (e: any) {
+      if (e.userCancelled) return false;
+      console.error("Purchase error:", e);
+      return false;
+    }
+  }, [rcConfigured]);
+
+  const restorePurchases = useCallback(async (): Promise<boolean> => {
+    if (!rcConfigured) return false;
+    try {
+      const info = await Purchases.restorePurchases();
+      checkEntitlements(info);
+      return info.entitlements.active[PRO_ENTITLEMENT_ID] !== undefined;
+    } catch (e) {
+      console.error("Restore error:", e);
+      return false;
+    }
+  }, [rcConfigured]);
+
   const value = useMemo(
     () => ({
       isGateEnabled,
@@ -111,8 +177,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       recordUsage,
       checkCanGrade,
       loading,
+      purchaseMonthly,
+      restorePurchases,
+      rcConfigured,
     }),
-    [isGateEnabled, toggleGate, isSubscribed, dailyUsageCount, remainingFreeGrades, canGrade, recordUsage, checkCanGrade, loading]
+    [isGateEnabled, toggleGate, isSubscribed, dailyUsageCount, remainingFreeGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseMonthly, restorePurchases, rcConfigured]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

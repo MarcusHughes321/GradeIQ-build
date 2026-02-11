@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
+import React, { useState } from "react";
+import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,12 +9,48 @@ import { useSubscription } from "@/lib/subscription";
 
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
-  const { dailyLimit } = useSubscription();
+  const { dailyLimit, purchaseMonthly, restorePurchases, rcConfigured } = useSubscription();
+  const [purchasing, setPurchasing] = useState(false);
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
   const handleSubscribe = async () => {
-    router.back();
+    if (!rcConfigured) {
+      Alert.alert("Not Available", "Subscriptions are not yet configured. Please check back later.");
+      return;
+    }
+    setPurchasing(true);
+    try {
+      const success = await purchaseMonthly();
+      if (success) {
+        router.back();
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!rcConfigured) {
+      Alert.alert("Not Available", "Subscriptions are not yet configured. Please check back later.");
+      return;
+    }
+    setPurchasing(true);
+    try {
+      const success = await restorePurchases();
+      if (success) {
+        Alert.alert("Restored", "Your subscription has been restored.");
+        router.back();
+      } else {
+        Alert.alert("No Subscription Found", "We couldn't find an active subscription for your account.");
+      }
+    } catch {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setPurchasing(false);
+    }
   };
 
   return (
@@ -68,8 +104,9 @@ export default function PaywallScreen() {
         </View>
 
         <Pressable
-          style={({ pressed }) => [styles.subscribeBtn, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+          style={({ pressed }) => [styles.subscribeBtn, { transform: [{ scale: pressed ? 0.97 : 1 }], opacity: purchasing ? 0.7 : 1 }]}
           onPress={handleSubscribe}
+          disabled={purchasing}
         >
           <LinearGradient
             colors={[Colors.gradientStart, Colors.gradientEnd]}
@@ -77,13 +114,19 @@ export default function PaywallScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.subscribeBtnGradient}
           >
-            <Text style={styles.subscribeBtnText}>Subscribe Now</Text>
+            {purchasing ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.subscribeBtnText}>Subscribe Now</Text>
+            )}
           </LinearGradient>
         </Pressable>
 
-        <Text style={styles.restoreText}>
-          Restore Purchases
-        </Text>
+        <Pressable onPress={handleRestore} disabled={purchasing}>
+          <Text style={styles.restoreText}>
+            Restore Purchases
+          </Text>
+        </Pressable>
 
         <Text style={styles.freeNote}>
           {dailyLimit} free grades per day included with the free plan

@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 import CardCamera from "@/components/CardCamera";
+import { useSubscription } from "@/lib/subscription";
 
 const MAX_CARDS = 20;
 
@@ -51,6 +52,8 @@ export default function BulkScreen() {
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  const { canGrade, checkCanGrade, recordUsage, isGateEnabled } = useSubscription();
 
   const readyCards = cards.filter((c) => c.frontImage && c.backImage);
 
@@ -249,6 +252,11 @@ export default function BulkScreen() {
       return;
     }
 
+    if (isGateEnabled && !checkCanGrade(readyCards.length)) {
+      router.push("/paywall");
+      return;
+    }
+
     setLoading(true);
     setCompletedCount(0);
     setTotalToGrade(readyCards.length);
@@ -340,6 +348,8 @@ export default function BulkScreen() {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       }
+
+      await recordUsage(savedIds.length);
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

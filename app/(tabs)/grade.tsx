@@ -22,6 +22,7 @@ import CardCamera from "@/components/CardCamera";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
+import { useSubscription } from "@/lib/subscription";
 
 const ANALYSIS_STAGES = [
   { label: "Preparing images", icon: "image-outline" as const, duration: 2000 },
@@ -217,9 +218,16 @@ export default function GradeScreen() {
     }
   };
 
+  const { canGrade, recordUsage, isGateEnabled } = useSubscription();
+
   const handleGrade = async () => {
     if (!frontImage || !backImage) {
       Alert.alert("Photos Required", "Please add photos of both the front and back of your card.");
+      return;
+    }
+
+    if (isGateEnabled && !canGrade) {
+      router.push("/paywall");
       return;
     }
 
@@ -239,6 +247,8 @@ export default function GradeScreen() {
       });
 
       const result: GradingResult = await response.json();
+
+      await recordUsage(1);
 
       const saved = await saveGrading(frontImage, backImage, result);
 
