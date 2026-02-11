@@ -144,36 +144,45 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
       />
 
       <View style={styles.slideContent}>
-        <View style={styles.iconArea}>
-          <Animated.View style={[styles.iconGlow, glowStyle, { backgroundColor: item.color }]} />
-          <Animated.View style={[styles.iconCircle, iconStyle, { borderColor: item.color + "40" }]}>
-            {item.key === "welcome" ? (
-              <Image source={logoImage} style={styles.logoImage} resizeMode="contain" />
-            ) : item.iconSet === "ionicons" ? (
-              <Ionicons name={item.icon as any} size={52} color={item.color} />
-            ) : (
-              <MaterialCommunityIcons name={item.icon as any} size={52} color={item.color} />
-            )}
-          </Animated.View>
-        </View>
+        {item.key === "welcome" ? (
+          <>
+            <Animated.View style={[styles.welcomeLogoArea, iconStyle]}>
+              <Image source={logoImage} style={styles.welcomeLogo} resizeMode="contain" />
+            </Animated.View>
 
-        <Animated.View entering={FadeIn.delay(300).duration(600)}>
-          <Text style={styles.slideTitle}>
-            {item.title.includes("Grade.IQ") ? (
-              <>
-                {item.title.replace("Grade.IQ", "")}
+            <Animated.View entering={FadeIn.delay(300).duration(600)}>
+              <Text style={styles.welcomeTitle}>
                 <Text style={{ color: "#fff" }}>Grade.</Text>
                 <Text style={{ color: Colors.primary }}>IQ</Text>
-              </>
-            ) : (
-              item.title
-            )}
-          </Text>
-        </Animated.View>
+              </Text>
+            </Animated.View>
 
-        <Animated.View entering={FadeIn.delay(500).duration(600)}>
-          <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
-        </Animated.View>
+            <Animated.View entering={FadeIn.delay(500).duration(600)}>
+              <Text style={styles.welcomeSubtitle}>{item.subtitle}</Text>
+            </Animated.View>
+          </>
+        ) : (
+          <>
+            <View style={styles.iconArea}>
+              <Animated.View style={[styles.iconGlow, glowStyle, { backgroundColor: item.color }]} />
+              <Animated.View style={[styles.iconCircle, iconStyle, { borderColor: item.color + "40" }]}>
+                {item.iconSet === "ionicons" ? (
+                  <Ionicons name={item.icon as any} size={52} color={item.color} />
+                ) : (
+                  <MaterialCommunityIcons name={item.icon as any} size={52} color={item.color} />
+                )}
+              </Animated.View>
+            </View>
+
+            <Animated.View entering={FadeIn.delay(300).duration(600)}>
+              <Text style={styles.slideTitle}>{item.title}</Text>
+            </Animated.View>
+
+            <Animated.View entering={FadeIn.delay(500).duration(600)}>
+              <Text style={styles.slideSubtitle}>{item.subtitle}</Text>
+            </Animated.View>
+          </>
+        )}
 
         {item.key === "grades" && (
           <Animated.View entering={FadeIn.delay(700).duration(600)} style={styles.companyRow}>
@@ -313,6 +322,28 @@ const styles = StyleSheet.create({
   logoImage: {
     width: 80,
     height: 80,
+  },
+  welcomeLogoArea: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  welcomeLogo: {
+    width: 160,
+    height: 160,
+  },
+  welcomeTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 44,
+    textAlign: "center",
+    lineHeight: 52,
+  },
+  welcomeSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 18,
+    color: "rgba(255,255,255,0.7)",
+    textAlign: "center",
+    lineHeight: 28,
   },
   skipBtn: {
     paddingVertical: 6,
