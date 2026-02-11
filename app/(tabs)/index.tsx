@@ -502,69 +502,56 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {isGateEnabled && !isSubscribed ? (
-            <Pressable style={styles.avgGradesCard} onPress={() => router.push("/paywall")}>
-              <View style={styles.portfolioHeader}>
-                <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
-                <Text style={styles.portfolioTitle}>Average Grades</Text>
-              </View>
-              <View style={styles.proLockedContentSmall}>
-                <Ionicons name="lock-closed" size={18} color="#F59E0B" />
-                <Text style={styles.proBlurSubtitle}>Upgrade to view</Text>
-              </View>
-            </Pressable>
-          ) : (
-            <View style={styles.avgGradesCard}>
-              <View style={styles.portfolioHeader}>
-                <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
-                <Text style={styles.portfolioTitle}>Average Grades</Text>
-              </View>
-              <View style={styles.avgGradesRow}>
-                {enabledCompanies.includes("PSA") && (
-                  <>
-                    <View style={styles.avgGradeItem}>
-                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
-                      <CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_500Medium" />
-                    </View>
-                    {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
-                  </>
-                )}
-                {enabledCompanies.includes("Beckett") && (
-                  <>
-                    <View style={styles.avgGradeItem}>
-                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
-                      <CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_500Medium" />
-                    </View>
-                    {(enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
-                  </>
-                )}
-                {enabledCompanies.includes("Ace") && (
-                  <>
-                    <View style={styles.avgGradeItem}>
-                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
-                      <CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_500Medium" />
-                    </View>
-                    {((enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
-                  </>
-                )}
-                {enabledCompanies.includes("TAG") && stats.countTAG > 0 && (
-                  <>
-                    <View style={styles.avgGradeItem}>
-                      <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
-                      <CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_500Medium" />
-                    </View>
-                    {(enabledCompanies.includes("CGC") && stats.countCGC > 0) && <View style={styles.avgDivider} />}
-                  </>
-                )}
-                {enabledCompanies.includes("CGC") && stats.countCGC > 0 && (
-                  <View style={styles.avgGradeItem}>
-                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
-                    <CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_500Medium" />
-                  </View>
-                )}
-              </View>
+          <View style={styles.avgGradesCard}>
+            <View style={styles.portfolioHeader}>
+              <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
+              <Text style={styles.portfolioTitle}>Average Grades</Text>
             </View>
-          )}
+            <View style={styles.avgGradesRow}>
+              {enabledCompanies.includes("PSA") && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
+                    <CompanyLabel company="PSA" fontSize={11} fontFamily="Inter_500Medium" />
+                  </View>
+                  {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("Beckett") && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
+                    <CompanyLabel company="BGS" fontSize={11} fontFamily="Inter_500Medium" />
+                  </View>
+                  {(enabledCompanies.includes("Ace") || (enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("Ace") && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
+                    <CompanyLabel company="ACE" fontSize={11} fontFamily="Inter_500Medium" />
+                  </View>
+                  {((enabledCompanies.includes("TAG") && stats.countTAG > 0) || (enabledCompanies.includes("CGC") && stats.countCGC > 0)) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("TAG") && stats.countTAG > 0 && (
+                <>
+                  <View style={styles.avgGradeItem}>
+                    <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgTAG) }]}>{stats.avgTAG.toFixed(1)}</Text>
+                    <CompanyLabel company="TAG" fontSize={11} fontFamily="Inter_500Medium" />
+                  </View>
+                  {(enabledCompanies.includes("CGC") && stats.countCGC > 0) && <View style={styles.avgDivider} />}
+                </>
+              )}
+              {enabledCompanies.includes("CGC") && stats.countCGC > 0 && (
+                <View style={styles.avgGradeItem}>
+                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgCGC) }]}>{stats.avgCGC.toFixed(1)}</Text>
+                  <CompanyLabel company="CGC" fontSize={11} fontFamily="Inter_500Medium" />
+                </View>
+              )}
+            </View>
+          </View>
         </>
       )}
 
