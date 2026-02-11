@@ -96,7 +96,7 @@ export default function SettingsScreen() {
                     style={({ pressed }) => [styles.upgradeBtn, { opacity: pressed ? 0.85 : 1 }]}
                   >
                     <Ionicons name="diamond" size={16} color="#fff" />
-                    <Text style={styles.upgradeBtnText}>Upgrade to Pro - \u00a32.99/month</Text>
+                    <Text style={styles.upgradeBtnText}>Upgrade to Pro - £2.99/month</Text>
                   </Pressable>
                 </>
               )}
