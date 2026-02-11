@@ -27,6 +27,7 @@ import Animated, {
 } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Colors from "@/constants/colors";
+import CompanyLabel, { getCompanyColor } from "@/components/CompanyLabel";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
@@ -162,15 +163,9 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
 
         {item.key === "grades" && (
           <Animated.View entering={FadeIn.delay(700).duration(600)} style={styles.companyRow}>
-            {[
-              { label: "PSA", color: Colors.cardPSA },
-              { label: "BGS", color: Colors.cardBeckett },
-              { label: "ACE", color: Colors.cardAce },
-              { label: "TAG", color: Colors.cardTAG },
-              { label: "CGC", color: Colors.cardCGC },
-            ].map((c) => (
-              <View key={c.label} style={[styles.companyBadge, { borderColor: c.color + "80" }]}>
-                <Text style={[styles.companyBadgeText, { color: c.color }]}>{c.label}</Text>
+            {["PSA", "BGS", "ACE", "TAG", "CGC"].map((c) => (
+              <View key={c} style={[styles.companyBadge, { borderColor: getCompanyColor(c) + "60" }]}>
+                <CompanyLabel company={c} fontSize={14} />
               </View>
             ))}
           </Animated.View>
@@ -372,10 +367,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 14,
     backgroundColor: "rgba(255,255,255,0.04)",
-  },
-  companyBadgeText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 13,
   },
   ctaBtn: {
     flexDirection: "row",
