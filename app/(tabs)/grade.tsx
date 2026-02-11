@@ -40,6 +40,7 @@ export default function GradeScreen() {
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [cropping, setCropping] = useState<"front" | "back" | null>(null);
   const [cameraOpen, setCameraOpen] = useState<"front" | "back" | null>(null);
   const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -48,11 +49,37 @@ export default function GradeScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
+  const cropToCard = async (uri: string): Promise<string> => {
+    try {
+      const base64 = await getBase64FromUri(uri);
+      const resp = await apiRequest("POST", "/api/crop-to-card", { image: base64 });
+      const data = await resp.json();
+      if (data.croppedImage) return data.croppedImage;
+      return uri;
+    } catch {
+      return uri;
+    }
+  };
+
+  const setImageWithCrop = async (side: "front" | "back", uri: string) => {
+    if (side === "front") setFrontImage(uri);
+    else setBackImage(uri);
+    setCropping(side);
+    try {
+      const cropped = await cropToCard(uri);
+      if (side === "front") setFrontImage(cropped);
+      else setBackImage(cropped);
+    } finally {
+      setCropping(null);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       setFrontImage(null);
       setBackImage(null);
       setLoading(false);
+      setCropping(null);
       setCameraOpen(null);
       setAnalysisStage(0);
       progressAnim.setValue(0);
@@ -146,19 +173,18 @@ export default function GradeScreen() {
 
       if (!result.canceled && result.assets[0]) {
         const uri = result.assets[0].uri;
-        if (side === "front") setFrontImage(uri);
-        else setBackImage(uri);
+        setImageWithCrop(side, uri);
       }
     }
   };
 
   const handleCameraCapture = (uri: string) => {
-    if (cameraOpen === "front") setFrontImage(uri);
-    else if (cameraOpen === "back") setBackImage(uri);
+    const side = cameraOpen;
     setCameraOpen(null);
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
+    if (side) setImageWithCrop(side, uri);
   };
 
   const launchLibrary = async (side: "front" | "back") => {
@@ -177,13 +203,8 @@ export default function GradeScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      const uri = asset.uri;
-      if (side === "front") {
-        setFrontImage(uri);
-      } else {
-        setBackImage(uri);
-      }
+      const uri = result.assets[0].uri;
+      setImageWithCrop(side, uri);
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
@@ -368,12 +389,14 @@ export default function GradeScreen() {
                 imageUri={frontImage}
                 onCapture={() => pickImage("front")}
                 onRemove={() => setFrontImage(null)}
+                loading={cropping === "front"}
               />
               <ImageCapture
                 label="Back"
                 imageUri={backImage}
                 onCapture={() => pickImage("back")}
                 onRemove={() => setBackImage(null)}
+                loading={cropping === "back"}
               />
             </View>
 

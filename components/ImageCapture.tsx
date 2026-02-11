@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
@@ -9,15 +9,22 @@ interface ImageCaptureProps {
   imageUri: string | null;
   onCapture: () => void;
   onRemove: () => void;
+  loading?: boolean;
 }
 
-export default function ImageCapture({ label, imageUri, onCapture, onRemove }: ImageCaptureProps) {
+export default function ImageCapture({ label, imageUri, onCapture, onRemove, loading }: ImageCaptureProps) {
   if (imageUri) {
     return (
       <View style={styles.container}>
         <Text style={styles.label}>{label}</Text>
         <View style={styles.imageWrapper}>
           <Image source={{ uri: imageUri }} style={styles.image} contentFit="cover" />
+          {loading && (
+            <View style={styles.croppingOverlay}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.croppingText}>Cropping...</Text>
+            </View>
+          )}
           <Pressable
             style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.7 : 1 }]}
             onPress={onRemove}
@@ -107,5 +114,22 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  croppingOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  croppingText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#fff",
   },
 });

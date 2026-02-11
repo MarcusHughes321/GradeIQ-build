@@ -2201,6 +2201,66 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     }
   });
 
+  app.post("/api/crop-to-card", async (req, res) => {
+    try {
+      const { image, padding = 12 } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: "Image is required" });
+      }
+      const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+      const bounds = await detectCardBounds(uri);
+
+      const base64Data = uri.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, "base64");
+      const meta = await sharp(buffer).metadata();
+      const imgW = meta.width || 1;
+      const imgH = meta.height || 1;
+
+      const cardLeft = (bounds.leftPercent / 100) * imgW;
+      const cardRight = (bounds.rightPercent / 100) * imgW;
+      const cardTop = (bounds.topPercent / 100) * imgH;
+      const cardBottom = (bounds.bottomPercent / 100) * imgH;
+      const cardW = cardRight - cardLeft;
+      const cardH = cardBottom - cardTop;
+
+      const padX = cardW * (padding / 100);
+      const padY = cardH * (padding / 100);
+
+      const cropLeft = Math.max(0, Math.round(cardLeft - padX));
+      const cropTop = Math.max(0, Math.round(cardTop - padY));
+      const cropRight = Math.min(imgW, Math.round(cardRight + padX));
+      const cropBottom = Math.min(imgH, Math.round(cardBottom + padY));
+      const cropW = cropRight - cropLeft;
+      const cropH = cropBottom - cropTop;
+
+      if (cropW < 50 || cropH < 50) {
+        console.log(`[crop-to-card] Card too small or not detected, returning original`);
+        return res.json({ croppedImage: uri, wasCropped: false, bounds });
+      }
+
+      const cardAreaRatio = (cardW * cardH) / (imgW * imgH);
+      if (cardAreaRatio > 0.7) {
+        console.log(`[crop-to-card] Card already fills ${(cardAreaRatio * 100).toFixed(0)}% of image, skipping crop`);
+        return res.json({ croppedImage: uri, wasCropped: false, bounds });
+      }
+
+      const cropped = await sharp(buffer)
+        .extract({ left: cropLeft, top: cropTop, width: cropW, height: cropH })
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      const croppedBase64 = `data:image/jpeg;base64,${cropped.toString("base64")}`;
+
+      const newBounds = await detectCardBounds(croppedBase64);
+
+      console.log(`[crop-to-card] Cropped ${imgW}x${imgH} -> ${cropW}x${cropH} (card was ${(cardAreaRatio * 100).toFixed(0)}% of image)`);
+      res.json({ croppedImage: croppedBase64, wasCropped: true, bounds: newBounds });
+    } catch (error: any) {
+      console.error("Error cropping to card:", error);
+      res.status(500).json({ error: error.message || "Failed to crop to card" });
+    }
+  });
+
   app.post("/api/detect-bounds", async (req, res) => {
     try {
       const { image } = req.body;
