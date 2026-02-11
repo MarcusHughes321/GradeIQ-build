@@ -61,24 +61,28 @@ function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading;
       }
       onLongPress={handleLongPress}
     >
-      <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
-      <View style={styles.historyInfo}>
+      <View style={styles.histTopRow}>
         <Text style={styles.histCardName} numberOfLines={1}>
           {item.result.cardName || "Unknown Card"}
         </Text>
-        <Text style={styles.histSetInfo} numberOfLines={1}>
-          {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
-        </Text>
-        <Text style={styles.histDate}>{dateStr}</Text>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </View>
-      <View style={styles.historyGrades}>
-        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={36} label="PSA" />}
-        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={36} label="BGS" />}
-        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={36} label="ACE" />}
-        {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={36} label="TAG" />}
-        {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={36} label="CGC" />}
+      <View style={styles.histBottomRow}>
+        <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
+        <View style={styles.historyInfo}>
+          <Text style={styles.histSetInfo} numberOfLines={1}>
+            {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
+          </Text>
+          <Text style={styles.histDate}>{dateStr}</Text>
+        </View>
+        <View style={styles.historyGrades}>
+          {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
+          {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
+          {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
+          {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
+          {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
+        </View>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>
   );
 }
@@ -857,29 +861,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: BUBBLE_PAD,
   },
   historyItem: {
-    flexDirection: "row",
     backgroundColor: Colors.surface,
     borderRadius: 18,
     padding: 14,
-    alignItems: "center",
-    gap: 12,
+    gap: 10,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
+  histTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  histBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   thumbnail: {
-    width: 54,
-    height: 75,
-    borderRadius: 10,
+    width: 48,
+    height: 67,
+    borderRadius: 8,
     backgroundColor: Colors.surfaceLight,
   },
   historyInfo: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   histCardName: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: Colors.text,
+    flex: 1,
   },
   histSetInfo: {
     fontFamily: "Inter_400Regular",
@@ -890,10 +904,10 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
   historyGrades: {
     flexDirection: "row",
-    gap: 6,
+    gap: 4,
   },
 });
