@@ -142,3 +142,14 @@ server/
 - Dashboard now shows estimated total portfolio value (average across enabled companies) below per-company breakdown
 - TAG company label uses sharp solid white outline (8-directional offset text layers) instead of blurry textShadow
 - CompanyLabel component used consistently across all screens (home, results, bulk-results, settings, CenteringCard)
+- 2026-02-11: Subscription model with RevenueCat
+  - 3 free grades per day when subscription gate is enabled
+  - Subscription gate toggle in Settings — OFF by default for friend testing
+  - Paywall screen shows £2.99/month Pro plan with feature list
+  - RevenueCat integration for iOS/Android in-app purchases (needs EXPO_PUBLIC_RC_IOS_KEY / EXPO_PUBLIC_RC_ANDROID_KEY env vars)
+  - Gate checks on single grade and bulk grade screens — redirects to paywall when limit reached
+  - Daily usage tracked via AsyncStorage, resets each day
+  - Usage counter shown in Settings when gate is enabled
+  - Help button on dashboard links back to onboarding guide
+  - app/paywall.tsx — paywall modal screen
+  - lib/subscription.tsx — SubscriptionProvider context with RevenueCat + usage tracking

@@ -288,7 +288,7 @@ export default function GradeScreen() {
     }
   };
 
-  const canGrade = !!frontImage && !!backImage && !loading;
+  const canSubmit = !!frontImage && !!backImage && !loading;
   const currentStage = ANALYSIS_STAGES[analysisStage];
 
   return (
@@ -401,10 +401,10 @@ export default function GradeScreen() {
           <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || webBottomInset) + 90 }]}>
             <Pressable
               onPress={handleGrade}
-              disabled={!canGrade}
+              disabled={!canSubmit}
               style={({ pressed }) => [
                 styles.analyzeButton,
-                { opacity: !canGrade ? 0.4 : pressed ? 0.9 : 1 },
+                { opacity: !canSubmit ? 0.4 : pressed ? 0.9 : 1 },
               ]}
             >
               <LinearGradient
