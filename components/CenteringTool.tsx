@@ -143,8 +143,8 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
   }
 }
 
-const HANDLE_OFFSET_INNER = 0.35;
-const HANDLE_OFFSET_OUTER = 0.65;
+const HANDLE_OFFSET_INNER = 0.5;
+const HANDLE_OFFSET_OUTER = 0.5;
 const TENTATIVE_MOVE_THRESHOLD = 6;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
