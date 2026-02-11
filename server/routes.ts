@@ -1942,8 +1942,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[grade-card] Tiebreaker="${tiebreakerName}" — majority vote (${bestVoteCount}): "${resolvedName}"`);
 
         lookupCandidates.push({ name: resolvedName, number: idNumber || gradingNumber, set: idSet || gradingSet, code: idCode, source: "tiebreaker" });
+
+        const setsDisagree = idSet && gradingSet && idSet.toLowerCase() !== gradingSet.toLowerCase();
+        const numbersDisagree = idNumber && gradingNumber && idNumber !== gradingNumber;
+
+        if (setsDisagree || numbersDisagree) {
+          if (gradingNumber && gradingSet) {
+            lookupCandidates.push({ name: resolvedName, number: gradingNumber, set: gradingSet, code: gradingSetCode, source: "grading-alt" });
+          }
+        }
+
         if (!gradingIsUnknown && stripSuffix(gradingName.toLowerCase()) !== stripSuffix(resolvedName.toLowerCase())) {
-          lookupCandidates.push({ name: gradingName, number: gradingNumber, set: gradingSet, source: "grading" });
+          lookupCandidates.push({ name: gradingName, number: gradingNumber, set: gradingSet, code: gradingSetCode, source: "grading" });
         }
         if (!idIsUnknown && stripSuffix(idName.toLowerCase()) !== stripSuffix(resolvedName.toLowerCase())) {
           lookupCandidates.push({ name: idName, number: idNumber, set: idSet, code: idCode, source: "ocr" });
