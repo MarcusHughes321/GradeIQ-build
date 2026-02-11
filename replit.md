@@ -52,7 +52,7 @@ server/
 - `POST /api/grade-card` - Accepts frontImage and backImage (base64 data URIs), returns grading results from PSA, Beckett, and Ace Grading, plus frontCardBounds and backCardBounds for centering tool line placement. Also returns cardName, setName, setNumber.
 - `POST /api/detect-bounds` - Accepts { image: base64 }, returns CardBounds for on-demand card boundary re-detection (used for old gradings missing bounds data)
 - `POST /api/regrade-card` - Fast re-grade endpoint accepting { frontImage, backImage, cardName, setName, setNumber }. Skips card identification and online lookup, only re-assesses condition. Used after straightening.
-- `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns estimated eBay sold prices for PSA, BGS, and ACE graded cards plus raw/ungraded value AND Grade 10 prices (psa10Value, bgs10Value, ace10Value)
+- `POST /api/card-value` - Accepts { cardName, setName, setNumber, grades }, returns TCGPlayer market prices in GBP for graded card values (PSA, BGS, ACE, TAG, CGC) plus raw/ungraded value AND Grade 10 prices. Uses TCGCSV API (tcgcsv.com) for real pricing data with fuzzy set/card matching and USD-to-GBP conversion (0.79 rate)
 - `POST /api/bulk-grade` - Accepts { cards: [{ frontImage, backImage }] }, max 20 cards. Processes in parallel batches of 3, skips online lookup for speed. Returns { results: [{ index, result?, error? }] }
 
 ## Key Features
@@ -161,3 +161,9 @@ server/
   - "Select All" convenience button available
   - Existing users with saved settings are unaffected
   - "Done Scanning" button added to bulk camera view
+- 2026-02-11: TCGPlayer market pricing integration
+  - Replaced eBay scraping with TCGCSV API (tcgcsv.com/tcgplayer/3/) for real Pokemon card pricing
+  - Fuzzy matching for sets (strips era prefixes, word matching with length penalties) and cards (number+name scoring)
+  - USD to GBP conversion at 0.79 rate, set cache (24hr TTL), product cache (LRU, 50 sets max)
+  - AI uses verified TCGPlayer market price as authoritative baseline for graded card value estimation
+  - UI labels updated from "eBay last solds" to "Market Values" across results and home screens
