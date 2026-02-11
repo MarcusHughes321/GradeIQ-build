@@ -1408,6 +1408,14 @@ const CARD_ID_SYSTEM_PROMPT = `You are a Pokemon card identification expert. You
 
 IDENTIFICATION STRATEGY — use ALL available evidence:
 
+STEP 0: DETERMINE THE CARD LANGUAGE
+- Look at the TEXT printed on the card (the Pokemon name, attack names, descriptions).
+- If the text is in English → cardLanguage = "en"
+- If the text is in Japanese (katakana/hiragana/kanji) → cardLanguage = "ja"
+- If the text is in Korean (Hangul) → cardLanguage = "ko"
+- If the text is in Chinese (Traditional or Simplified) → cardLanguage = "zh"
+- This is about the PRINTED TEXT on the card, NOT the set code. A card with set code "s8b" but English text is an English card (cardLanguage = "en").
+
 STEP 1: READ THE CARD NUMBER FIRST (bottom strip)
 - Look for a number in format "XXX/YYY" (e.g., "004/184", "012/220").
 - Also look for a set code like "s6b", "s12a", "sv1", "SV5K", etc.
@@ -1480,9 +1488,9 @@ CRITICAL RULES:
 - Japanese, Korean, and Chinese cards all share the same set codes (s8b, sv2a, sm12, etc.) and card numbering.
 
 Respond with JSON ONLY:
-{"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name"}`;
+{"cardName": "English name", "setNumber": "XXX/YYY", "setCode": "code", "setName": "English set name", "cardLanguage": "en|ja|ko|zh"}`;
 
-async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string } | null> {
+async function identifyCardWithCrops(frontImageUrl: string): Promise<{ cardName: string; setName: string; setNumber: string; setCode?: string; cardLanguage?: string } | null> {
   const { topStrip, bottomStrip } = await cropCardRegions(frontImageUrl);
 
   const response = await openai.chat.completions.create({
@@ -1601,7 +1609,7 @@ async function identifyCard(frontImageUrl: string): Promise<{ cardName: string; 
     console.log(`[card-id] Cropping card regions for focused text reading...`);
     const result = await identifyCardWithCrops(frontImageUrl);
     if (result) {
-      console.log(`[card-id] Cropped OCR result: name="${result.cardName}" number="${result.setNumber}" set="${result.setName}" code="${result.setCode || "none"}"`);
+      console.log(`[card-id] Cropped OCR result: name="${result.cardName}" number="${result.setNumber}" set="${result.setName}" code="${result.setCode || "none"}" lang="${(result as any).cardLanguage || "?"}"`);
       const nameIsUnknown = !result.cardName || result.cardName.toLowerCase() === "unknown" || result.cardName.toLowerCase() === "n/a" || result.cardName.toLowerCase() === "unreadable";
       if (!nameIsUnknown) {
         return result;
@@ -1714,16 +1722,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const gradingSetCode = (gradingResult as any).setCode || "";
       const effectiveCode = idCode || gradingSetCode;
-      const idCodeIsAsian = idCode && /^s\d|^sv\d|^sm\d/i.test(idCode);
-      const gradingCodeIsAsian = gradingSetCode && /^s\d|^sv\d|^sm\d/i.test(gradingSetCode);
-      const bothCodesAsian = idCodeIsAsian && gradingCodeIsAsian;
-      const eitherCodeAsian = idCodeIsAsian || gradingCodeIsAsian;
+      const eitherCodeAsian = /^s\d|^sv\d|^sm\d/i.test(effectiveCode || "");
+      const cardLanguage = (cardIdResult as any)?.cardLanguage || "";
+      const aiSaysNonEnglish = cardLanguage && cardLanguage !== "en";
       const hasNonLatinName = /[^\u0000-\u007F]/.test(gradingName) || /[^\u0000-\u007F]/.test(idName);
-      const gradingNameIsLatin = gradingName && !/[^\u0000-\u007F]/.test(gradingName);
-      const onlyOcrSaysAsian = idCodeIsAsian && !gradingCodeIsAsian && gradingNameIsLatin;
-      const isAsianCard = eitherCodeAsian && !onlyOcrSaysAsian && (bothCodesAsian || hasNonLatinName);
+      const isAsianCard = eitherCodeAsian && (aiSaysNonEnglish || hasNonLatinName);
+      console.log(`[grade-card] Language detection: cardLanguage="${cardLanguage}" hasNonLatinName=${hasNonLatinName} isAsianCard=${isAsianCard}`);
       if (eitherCodeAsian && !isAsianCard) {
-        console.log(`[grade-card] Asian set code "${effectiveCode}" detected but card appears English (set="${gradingSet}", name="${gradingName}") — skipping Bulbapedia`);
+        console.log(`[grade-card] Asian set code "${effectiveCode}" detected but card text is English — skipping Bulbapedia`);
       }
 
       const frontUri = frontUrl;
