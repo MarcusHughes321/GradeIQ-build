@@ -1714,7 +1714,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const gradingSetCode = (gradingResult as any).setCode || "";
       const effectiveCode = idCode || gradingSetCode;
-      const isAsianCard = effectiveCode && /^s\d|^sv\d|^sm\d/i.test(effectiveCode);
+      const idCodeIsAsian = idCode && /^s\d|^sv\d|^sm\d/i.test(idCode);
+      const gradingCodeIsAsian = gradingSetCode && /^s\d|^sv\d|^sm\d/i.test(gradingSetCode);
+      const bothCodesAsian = idCodeIsAsian && gradingCodeIsAsian;
+      const eitherCodeAsian = idCodeIsAsian || gradingCodeIsAsian;
+      const hasNonLatinName = /[^\u0000-\u007F]/.test(gradingName) || /[^\u0000-\u007F]/.test(idName);
+      const gradingSetIsEnglish = gradingSet && /^(Base|Jungle|Fossil|Team Rocket|Gym|Neo|Legendary|Expedition|Aquapolis|Skyridge|Ruby|Sapphire|Sandstorm|Dragon|Hidden Legends|FireRed|LeafGreen|Deoxys|Emerald|Unseen Forces|Delta Species|Legend Maker|Holon Phantoms|Crystal Guardians|Dragon Frontiers|Power Keepers|Diamond|Pearl|Mysterious Treasures|Secret Wonders|Great Encounters|Majestic Dawn|Legends Awakened|Stormfront|Platinum|Rising Rivals|Supreme Victors|Arceus|HeartGold|SoulSilver|Unleashed|Undaunted|Triumphant|Call of Legends|Black|White|Emerging Powers|Noble Victories|Next Destinies|Dark Explorers|Dragons Exalted|Boundaries Crossed|Plasma Storm|Plasma Freeze|Plasma Blast|Legendary Treasures|XY|Flashfire|Furious Fists|Phantom Forces|Primal Clash|Roaring Skies|Ancient Origins|BREAKthrough|BREAKpoint|Fates Collide|Steam Siege|Evolutions|Sun|Moon|Guardians Rising|Burning Shadows|Shining Legends|Crimson Invasion|Ultra Prism|Forbidden Light|Celestial Storm|Dragon Majesty|Lost Thunder|Team Up|Unbroken Bonds|Unified Minds|Hidden Fates|Cosmic Eclipse|Sword|Shield|Rebel Clash|Darkness Ablaze|Champion's Path|Vivid Voltage|Shining Fates|Battle Styles|Chilling Reign|Evolving Skies|Celebrations|Fusion Strike|Brilliant Stars|Astral Radiance|Pokemon GO|Lost Origin|Silver Tempest|Crown Zenith|Scarlet|Violet|Paldea|Obsidian|Paradox|Temporal|Stellar|Shrouded|Surging|Prismatic)/i.test(gradingSet);
+      const isAsianCard = eitherCodeAsian && !gradingSetIsEnglish && (bothCodesAsian || hasNonLatinName || (!namesAgree && !gradingSetIsEnglish));
+      if (eitherCodeAsian && !isAsianCard) {
+        console.log(`[grade-card] Asian set code "${effectiveCode}" detected but card appears English (set="${gradingSet}", name="${gradingName}") — skipping Bulbapedia`);
+      }
 
       const frontUri = frontUrl;
       const backUri = backUrl;
@@ -1747,22 +1756,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[grade-card] Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
 
         let bestBulbapedia: { num: number; name: string } | null = null;
+        let bulbapediaMatchesAI = false;
 
-        if (foundResults.length === 1) {
-          bestBulbapedia = foundResults[0];
-        } else if (foundResults.length > 1) {
-          for (const r of foundResults) {
-            const rBase = stripSuffix(r.name.toLowerCase());
-            if (aiNameCandidates.some(c => c === rBase || c.includes(rBase) || rBase.includes(c))) {
-              bestBulbapedia = r;
-              console.log(`[grade-card] Bulbapedia #${r.num}="${r.name}" matches AI candidates — choosing this`);
-              break;
-            }
+        for (const r of foundResults) {
+          const rBase = stripSuffix(r.name.toLowerCase());
+          if (aiNameCandidates.some(c => c === rBase || c.includes(rBase) || rBase.includes(c))) {
+            bestBulbapedia = r;
+            bulbapediaMatchesAI = true;
+            console.log(`[grade-card] Bulbapedia #${r.num}="${r.name}" matches AI candidate — confirmed`);
+            break;
           }
-          if (!bestBulbapedia) {
-            bestBulbapedia = foundResults.find(r => r.num === gradingNum) || foundResults[0];
-            console.log(`[grade-card] No AI match — using grading number #${bestBulbapedia.num}="${bestBulbapedia.name}"`);
-          }
+        }
+
+        if (!bulbapediaMatchesAI && foundResults.length > 0) {
+          console.log(`[grade-card] Bulbapedia results don't match any AI candidate (${aiNameCandidates.join(", ")}) — trusting AI instead`);
+          bestBulbapedia = null;
         }
 
         if (bestBulbapedia) {
@@ -1778,6 +1786,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (cachedSetPage) {
             gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
           }
+        } else if (foundResults.length > 0) {
+          console.log(`[grade-card] Bulbapedia mismatch — using AI grading name: "${gradingName || idName}"`);
+          const preferGrading = !gradingIsUnknown;
+          gradingResult.cardName = preferGrading ? gradingName : idName;
+          gradingResult.setNumber = preferGrading ? gradingNumber : idNumber;
+          gradingResult.setName = preferGrading ? gradingSet : idSet;
         } else {
           console.log(`[grade-card] Bulbapedia lookup missed — falling back to AI triple-check for Asian card`);
 
