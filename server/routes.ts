@@ -1893,6 +1893,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (pName.includes(normName) || pClean.includes(normName)) {
         score += 30;
+      } else if (pClean.includes(normName.replace(/\s*ex$/i, "")) && normName.includes("ex")) {
+        score += 28;
       } else {
         const nameWords = normName.split(" ");
         let wordMatches = 0;
@@ -1902,9 +1904,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         score += (wordMatches / Math.max(nameWords.length, 1)) * 25;
       }
 
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = p;
+      if (score > bestScore || (score === bestScore && score >= 30 && bestMatch)) {
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = p;
+        }
       }
     }
 
@@ -1947,9 +1951,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const matchedProduct = findBestProduct(products, cardName, cardNumber);
       if (!matchedProduct) {
-        console.log(`[tcgplayer] No matching card for "${cardName}" ${cardNumber} in ${matchedGroup.name}`);
+        console.log(`[tcgplayer] No matching card for "${cardName}" #${cardNumber} in ${matchedGroup.name} (${products.length} products searched)`);
         return { found: false };
       }
+
+      const matchedNum = matchedProduct.extendedData?.find(e => e.name === "Number")?.value || "";
+      console.log(`[tcgplayer] Matched card: "${matchedProduct.name}" #${matchedNum} (searched: name="${cardName}" #${cardNumber})`);
+
 
       const rarity = matchedProduct.extendedData?.find(e => e.name === "Rarity")?.value || "";
       const cardPrices = prices.filter(p => p.productId === matchedProduct.productId);
