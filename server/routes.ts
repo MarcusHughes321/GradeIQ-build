@@ -1726,11 +1726,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const idCode = cardIdResult?.setCode || "";
 
       const gradingSetCode = (gradingResult as any).setCode || "";
-      const effectiveCode = idCode || gradingSetCode;
+      const codesDisagree = idCode && gradingSetCode && idCode.toLowerCase() !== gradingSetCode.toLowerCase();
+      const effectiveCode = codesDisagree ? gradingSetCode : (idCode || gradingSetCode);
 
       console.log(`[grade-card] Grading call:  name="${gradingName}" number="${gradingNumber}" set="${gradingSet}" code="${gradingSetCode}"`);
       console.log(`[grade-card] ID call:       name="${idName}" number="${idNumber}" set="${idSet}" code="${idCode}"`);
-      console.log(`[grade-card] Effective set code: "${effectiveCode}"`);
+      console.log(`[grade-card] Set codes ${codesDisagree ? "DISAGREE" : "agree"} — effective code: "${effectiveCode}"`);
 
       const namesAgree = idName && gradingName &&
         stripSuffix(idName.toLowerCase()) === stripSuffix(gradingName.toLowerCase());
@@ -1857,13 +1858,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const idHasNumber = idNumber && idNumber.includes("/");
         const mergedNumber = idHasNumber ? idNumber : gradingNumber;
         const mergedSet = idSet || gradingSet;
-        lookupCandidates.push({ name: idName, number: mergedNumber, set: mergedSet, code: idCode, source: "agreed" });
+        lookupCandidates.push({ name: idName, number: mergedNumber, set: mergedSet, code: effectiveCode, source: "agreed" });
         console.log(`[grade-card] Names agree: "${idName}"`);
 
         const altNumber = idHasNumber ? gradingNumber : idNumber;
         if (altNumber && altNumber !== mergedNumber) {
-          lookupCandidates.push({ name: idName, number: altNumber, set: gradingSet || idSet, code: idCode, source: "agreed-alt" });
+          lookupCandidates.push({ name: idName, number: altNumber, set: gradingSet || idSet, code: effectiveCode, source: "agreed-alt" });
           console.log(`[grade-card] Also trying alt number: "${altNumber}"`);
+        }
+
+        if (codesDisagree) {
+          lookupCandidates.push({ name: idName, number: idNumber || gradingNumber, set: idSet, code: idCode, source: "ocr-code-alt" });
+          console.log(`[grade-card] Set codes disagree — also trying OCR code "${idCode}" with set "${idSet}"`);
         }
       } else {
         console.log(`[grade-card] Names disagree — OCR="${idName}" vs Grading="${gradingName}" — running tiebreaker`);
