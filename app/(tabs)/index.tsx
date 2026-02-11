@@ -223,16 +223,7 @@ export default function HomeScreen() {
   const renderHeader = () => (
     <>
       <View style={styles.heroSection}>
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroSpacer} />
-          <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
-          <Pressable
-            onPress={() => router.push("/settings")}
-            style={({ pressed }) => [styles.settingsBtn, { opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Ionicons name="settings-outline" size={22} color={Colors.textSecondary} />
-          </Pressable>
-        </View>
+        <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
         <Text style={styles.heroSubtitle}>AI-Powered Pokemon Card Grading</Text>
       </View>
 
@@ -458,7 +449,7 @@ export default function HomeScreen() {
             </Text>
           </View>
         }
-        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 20 }]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 100 }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={true}
       />

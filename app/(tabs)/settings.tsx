@@ -19,17 +19,10 @@ export default function SettingsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
-        </Pressable>
         <Text style={styles.headerTitle}>Settings</Text>
-        <View style={styles.backBtn} />
       </View>
 
-      <View style={[styles.content, { paddingBottom: insets.bottom + webBottomInset + 20 }]}>
+      <View style={[styles.content, { paddingBottom: insets.bottom + webBottomInset + 100 }]}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Grading Companies</Text>
           <Text style={styles.sectionSubtitle}>

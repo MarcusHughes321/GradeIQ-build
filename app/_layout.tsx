@@ -22,12 +22,10 @@ function RootLayoutNav() {
         animation: "slide_from_right",
       }}
     >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="grade" />
+      <Stack.Screen name="(tabs)" />
       <Stack.Screen name="results" />
       <Stack.Screen name="bulk" />
       <Stack.Screen name="bulk-results" />
-      <Stack.Screen name="settings" />
     </Stack>
   );
 }

@@ -267,15 +267,7 @@ export default function GradeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
-        <Pressable
-          onPress={() => { if (!loading) router.back(); }}
-          style={({ pressed }) => [styles.backBtn, { opacity: loading ? 0.3 : pressed ? 0.6 : 1 }]}
-          disabled={loading}
-        >
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
-        </Pressable>
         <Text style={styles.headerTitle}>Grade Card</Text>
-        <View style={{ width: 40 }} />
       </View>
 
       {loading ? (
@@ -379,7 +371,7 @@ export default function GradeScreen() {
             </View>
           </ScrollView>
 
-          <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || webBottomInset) + 16 }]}>
+          <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || webBottomInset) + 90 }]}>
             <Pressable
               onPress={handleGrade}
               disabled={!canGrade}
