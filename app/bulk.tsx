@@ -384,18 +384,18 @@ export default function BulkScreen() {
           onCapture={handleBulkCameraCapture}
           onClose={handleBulkCameraClose}
         />
+        <Pressable
+          style={[styles.bulkCameraDoneBtn, { top: insets.top + 12 }]}
+          onPress={handleBulkCameraClose}
+        >
+          <Text style={styles.bulkCameraDoneBtnText}>Done Scanning</Text>
+          <Ionicons name="arrow-forward" size={18} color="#fff" />
+        </Pressable>
         <View style={[styles.bulkCameraBanner, { top: insets.top + 60 }]}>
           <Text style={styles.bulkCameraBannerText}>
             Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
           </Text>
         </View>
-        <Pressable
-          style={[styles.bulkCameraDoneBtn, { bottom: insets.bottom + 32 }]}
-          onPress={handleBulkCameraClose}
-        >
-          <Ionicons name="checkmark-circle" size={22} color="#fff" />
-          <Text style={styles.bulkCameraDoneBtnText}>Done Scanning</Text>
-        </Pressable>
       </View>
     );
   }
@@ -1007,19 +1007,19 @@ const styles = StyleSheet.create({
   },
   bulkCameraDoneBtn: {
     position: "absolute" as const,
-    alignSelf: "center" as const,
+    right: 16,
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 8,
+    gap: 6,
     backgroundColor: Colors.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 28,
-    zIndex: 100,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    zIndex: 200,
   },
   bulkCameraDoneBtnText: {
     fontFamily: "Inter_700Bold",
-    fontSize: 16,
+    fontSize: 14,
     color: "#fff",
   },
 });
