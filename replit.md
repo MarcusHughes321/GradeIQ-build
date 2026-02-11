@@ -113,10 +113,12 @@ server/
 - Bulk grading UI shows realistic time estimates (~20s per card) with live countdown
 - eBay pricing scrapes last 5 sold items per search (simplified: card name + number + grading company)
 - Fixed progress bar bouncing on last stage — now smoothly fills to 95% and holds
-- 2026-02-11: Added Bulbapedia-based Japanese card database cache
-  - Dynamically fetches card lists from Bulbapedia for 80+ Japanese sets (Sword & Shield, Sun & Moon, Scarlet & Violet eras)
+- 2026-02-11: Added Bulbapedia-based Asian card database cache (Japanese, Korean, Chinese)
+  - Dynamically fetches card lists from Bulbapedia for 80+ sets (Sword & Shield, Sun & Moon, Scarlet & Violet eras)
   - Maps set codes (s8b, sv2a, s12a, etc.) to Bulbapedia page names via JP_SET_CODE_TO_PAGE lookup table
   - Caches parsed card lists in memory for 7 days (JP_CACHE_TTL)
-  - When Japanese set code detected: looks up card number in Bulbapedia database for verified English name
+  - When Asian set code detected (s*, sv*, sm*): looks up card number in Bulbapedia database for verified English name
   - Falls back to AI triple-check (OCR + full-image + grading majority vote) if Bulbapedia lookup fails
-  - Eliminates unreliable katakana reading — card names now sourced from Bulbapedia's verified data
+  - Eliminates unreliable katakana/hangul/hanzi reading — card names now sourced from Bulbapedia's verified data
+  - Korean and Chinese cards use the SAME set codes and card numbering as Japanese cards — all covered by same database
+  - AI prompts include Korean Hangul (리자몽=Charizard, 피카츄=Pikachu, etc.) and Chinese character (噴火龍=Charizard, 皮卡丘=Pikachu, etc.) translation tables for better OCR accuracy
