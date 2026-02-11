@@ -21,6 +21,7 @@ import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
+import CardCamera from "@/components/CardCamera";
 
 const MAX_CARDS = 20;
 
@@ -42,6 +43,11 @@ export default function BulkScreen() {
   const [totalToGrade, setTotalToGrade] = useState(0);
   const [currentCardName, setCurrentCardName] = useState("");
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  const [bulkCameraActive, setBulkCameraActive] = useState(false);
+  const [bulkCameraSide, setBulkCameraSide] = useState<"front" | "back">("front");
+  const [bulkCameraCardIndex, setBulkCameraCardIndex] = useState(0);
+  const bulkCameraFrontRef = useRef<string | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -151,6 +157,62 @@ export default function BulkScreen() {
         { text: "Cancel", style: "cancel" },
       ]);
     }
+  };
+
+  const startBulkCamera = () => {
+    if (loading) return;
+    if (cards.length >= MAX_CARDS) {
+      Alert.alert("Limit Reached", `You can grade up to ${MAX_CARDS} cards at once.`);
+      return;
+    }
+    bulkCameraFrontRef.current = null;
+    setBulkCameraCardIndex(cards.length);
+    setBulkCameraSide("front");
+    setBulkCameraActive(true);
+  };
+
+  const handleBulkCameraCapture = (uri: string) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    if (bulkCameraSide === "front") {
+      bulkCameraFrontRef.current = uri;
+      setBulkCameraSide("back");
+    } else {
+      const newCard: CardSlot = {
+        id: generateId(),
+        frontImage: bulkCameraFrontRef.current,
+        backImage: uri,
+      };
+      setCards((prev) => {
+        const updated = [...prev, newCard];
+        return updated.slice(0, MAX_CARDS);
+      });
+      bulkCameraFrontRef.current = null;
+
+      const nextIndex = bulkCameraCardIndex + 1;
+      if (nextIndex >= MAX_CARDS) {
+        setBulkCameraActive(false);
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } else {
+        setBulkCameraCardIndex(nextIndex);
+        setBulkCameraSide("front");
+      }
+    }
+  };
+
+  const handleBulkCameraClose = () => {
+    if (bulkCameraSide === "back" && bulkCameraFrontRef.current) {
+      setCards((prev) => {
+        const updated = [...prev, { id: generateId(), frontImage: bulkCameraFrontRef.current, backImage: null }];
+        return updated.slice(0, MAX_CARDS);
+      });
+    }
+    bulkCameraFrontRef.current = null;
+    setBulkCameraActive(false);
   };
 
   const removeCard = (id: string) => {
