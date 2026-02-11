@@ -2254,10 +2254,18 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       const padX = cardW * (padding / 100);
       const padY = cardH * (padding / 100);
 
-      const cropLeft = Math.max(0, Math.round(cardLeft - padX));
-      const cropTop = Math.max(0, Math.round(cardTop - padY));
-      const cropRight = Math.min(imgW, Math.round(cardRight + padX));
-      const cropBottom = Math.min(imgH, Math.round(cardBottom + padY));
+      const availLeft = cardLeft;
+      const availRight = imgW - cardRight;
+      const availTop = cardTop;
+      const availBottom = imgH - cardBottom;
+
+      const actualPadX = Math.min(padX, availLeft, availRight);
+      const actualPadY = Math.min(padY, availTop, availBottom);
+
+      const cropLeft = Math.max(0, Math.round(cardLeft - actualPadX));
+      const cropTop = Math.max(0, Math.round(cardTop - actualPadY));
+      const cropRight = Math.min(imgW, Math.round(cardRight + actualPadX));
+      const cropBottom = Math.min(imgH, Math.round(cardBottom + actualPadY));
       const cropW = cropRight - cropLeft;
       const cropH = cropBottom - cropTop;
 
