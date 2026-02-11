@@ -1275,17 +1275,39 @@ function detectBoundsAtResolution(
   const leftCol = findEdgeColumn(xMinStart, xConstraint ? xMaxEnd : Math.round(sw * scanRange), 1);
   const rightCol = findEdgeColumn(xConstraint ? xMaxStartR : sw - 2, xMinEndR, -1);
 
-  const cardInsetX = Math.round((rightCol - leftCol) * 0.2);
+  const cardInsetX = Math.round((rightCol - leftCol) * 0.15);
   const rowScanXStart = Math.round(leftCol + cardInsetX);
   const rowScanXEnd = Math.round(rightCol - cardInsetX);
 
-  const yMinStart = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : 1;
-  const yMaxEnd = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : Math.round(sh * 0.55);
-  const yMinEndB = yConstraint ? Math.max(1, Math.round(sh * yConstraint.minPct / 100)) : Math.round(sh * 0.45);
-  const yMaxStartB = yConstraint ? Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100)) : sh - 2;
+  const cardWidthPx = rightCol - leftCol;
+  const CARD_ASPECT = 3.5 / 2.5;
+  const expectedHeightPx = cardWidthPx * CARD_ASPECT;
+  const imageCenterY = sh / 2;
+  const expectedTopY = imageCenterY - expectedHeightPx / 2;
+  const expectedBottomY = imageCenterY + expectedHeightPx / 2;
+  const searchMargin = Math.round(expectedHeightPx * 0.20);
 
-  const topRow = findEdgeRow(yMinStart, yConstraint ? yMaxEnd : Math.round(sh * 0.55), 1, rowScanXStart, rowScanXEnd);
-  const bottomRow = findEdgeRow(yConstraint ? yMaxStartB : sh - 2, yMinEndB, -1, rowScanXStart, rowScanXEnd);
+  let yMinStart: number, yMaxEnd: number, yMinEndB: number, yMaxStartB: number;
+
+  if (yConstraint) {
+    yMinStart = Math.max(1, Math.round(sh * yConstraint.minPct / 100));
+    yMaxEnd = Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100));
+    yMinEndB = Math.max(1, Math.round(sh * yConstraint.minPct / 100));
+    yMaxStartB = Math.min(sh - 2, Math.round(sh * yConstraint.maxPct / 100));
+  } else if (cardWidthPx > sw * 0.15) {
+    yMinStart = Math.max(1, Math.round(expectedTopY - searchMargin));
+    yMaxEnd = Math.min(sh - 2, Math.round(expectedTopY + searchMargin));
+    yMinEndB = Math.max(1, Math.round(expectedBottomY - searchMargin));
+    yMaxStartB = Math.min(sh - 2, Math.round(expectedBottomY + searchMargin));
+  } else {
+    yMinStart = 1;
+    yMaxEnd = Math.round(sh * 0.55);
+    yMinEndB = Math.round(sh * 0.45);
+    yMaxStartB = sh - 2;
+  }
+
+  const topRow = findEdgeRow(yMinStart, yMaxEnd, 1, rowScanXStart, rowScanXEnd);
+  const bottomRow = findEdgeRow(yMaxStartB, yMinEndB, -1, rowScanXStart, rowScanXEnd);
 
   return {
     leftPct: (leftCol / sw) * 100,
@@ -2338,8 +2360,18 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       }
       const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
       const bounds = await detectCardBounds(uri);
-      console.log(`[detect-bounds] Result: L=${bounds.leftPercent.toFixed(1)} T=${bounds.topPercent.toFixed(1)} R=${bounds.rightPercent.toFixed(1)} B=${bounds.bottomPercent.toFixed(1)}`);
-      res.json(bounds);
+
+      const CARD_RATIO = 0.714;
+      const detW = bounds.rightPercent - bounds.leftPercent;
+      const detH = bounds.bottomPercent - bounds.topPercent;
+      const detectedRatio = detH > 0 ? detW / detH : 0;
+      const ratioDeviation = Math.abs(detectedRatio - CARD_RATIO) / CARD_RATIO;
+      const ratioScore = Math.max(0, 1 - ratioDeviation * 3);
+      const sizeScore = (detW > 25 && detH > 35) ? 1 : 0.3;
+      const confidence = parseFloat((ratioScore * sizeScore).toFixed(2));
+
+      console.log(`[detect-bounds] Result: L=${bounds.leftPercent.toFixed(1)} T=${bounds.topPercent.toFixed(1)} R=${bounds.rightPercent.toFixed(1)} B=${bounds.bottomPercent.toFixed(1)} confidence=${confidence}`);
+      res.json({ ...bounds, confidence });
     } catch (error: any) {
       console.error("Error detecting bounds:", error);
       res.status(500).json({ error: error.message || "Failed to detect bounds" });

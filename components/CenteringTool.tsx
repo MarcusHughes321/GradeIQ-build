@@ -531,6 +531,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [activeHandle, setActiveHandle] = useState<LineKey | null>(null);
   const [autoStraightening, setAutoStraightening] = useState(false);
   const [autoAligning, setAutoAligning] = useState(false);
+  const [lowConfidence, setLowConfidence] = useState(false);
   const wasStraightenedRef = useRef(false);
 
   const rotation = showFront ? frontRotation : backRotation;
@@ -765,12 +766,16 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     if (!imageUri || autoAligning) return;
 
     setAutoAligning(true);
+    setLowConfidence(false);
     try {
       const base64 = await getBase64FromUri(imageUri);
       const boundsResp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
       const newBounds = await boundsResp.json();
       if (newBounds && newBounds.leftPercent !== undefined) {
         repositionLinesWithBounds(newBounds);
+        if (newBounds.confidence !== undefined && newBounds.confidence < 0.6) {
+          setLowConfidence(true);
+        }
       }
     } catch (err) {
       console.error("Auto-align failed:", err);
@@ -1164,6 +1169,16 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           </View>
         )}
 
+        {lowConfidence && (
+          <View style={styles.lowConfBanner}>
+            <Ionicons name="warning" size={13} color="#FFB800" />
+            <Text style={styles.lowConfText}>Auto-align struggled with this image. Manual adjustment advised.</Text>
+            <Pressable onPress={() => setLowConfidence(false)} hitSlop={8}>
+              <Ionicons name="close" size={14} color="rgba(255,255,255,0.5)" />
+            </Pressable>
+          </View>
+        )}
+
         <Text style={styles.hint}>
           Drag handles to adjust lines {"\u00B7"} Pinch to zoom {"\u00B7"} Swipe to pan
         </Text>
@@ -1211,5 +1226,7 @@ const styles = StyleSheet.create({
   rotThumb: { position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: Colors.primary, top: 7, marginLeft: -6, borderWidth: 1.5, borderColor: "#fff" },
   rotScrub: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   rotDeg: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textSecondary, width: 32, textAlign: "right" as const },
+  lowConfBanner: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, backgroundColor: "rgba(255,184,0,0.12)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginTop: 4, marginHorizontal: 4 },
+  lowConfText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 11, color: "#FFB800" },
   hint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center" as const, marginTop: 3, marginBottom: 2 },
 });
