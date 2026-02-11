@@ -15,6 +15,7 @@ import Colors from "@/constants/colors";
 import { getGradings } from "@/lib/storage";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
+import { useSettings } from "@/lib/settings-context";
 
 function getGradeColor(grade: number): string {
   if (grade >= 9) return "#10B981";
@@ -22,12 +23,7 @@ function getGradeColor(grade: number): string {
   return "#EF4444";
 }
 
-function BulkResultItem({ item }: { item: SavedGrading }) {
-  const psaGrade = item.result.psa.grade;
-  const bgsGrade = item.result.beckett.overallGrade;
-  const aceGrade = item.result.ace.overallGrade;
-  const avgGrade = Math.round(((psaGrade + bgsGrade + aceGrade) / 3) * 10) / 10;
-
+function BulkResultItem({ item, enabledCompanies }: { item: SavedGrading; enabledCompanies: string[] }) {
   return (
     <Pressable
       style={({ pressed }) => [styles.resultItem, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
@@ -51,9 +47,9 @@ function BulkResultItem({ item }: { item: SavedGrading }) {
         </Text>
       </View>
       <View style={styles.gradesColumn}>
-        <GradeCircle grade={psaGrade} size={32} label="PSA" />
-        <GradeCircle grade={bgsGrade} size={32} label="BGS" />
-        <GradeCircle grade={aceGrade} size={32} label="ACE" />
+        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={32} label="PSA" />}
+        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={32} label="BGS" />}
+        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={32} label="ACE" />}
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>
@@ -63,6 +59,8 @@ function BulkResultItem({ item }: { item: SavedGrading }) {
 export default function BulkResultsScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
+  const { settings } = useSettings();
+  const enabledCompanies = settings.enabledCompanies;
   const gradingIds = (params.gradingIds as string || "").split(",").filter(Boolean);
   const failedCount = parseInt(params.failedCount as string || "0", 10);
   const failedImages = (params.failedImages as string || "").split("|||").filter(Boolean);
@@ -115,7 +113,7 @@ export default function BulkResultsScreen() {
       <FlatList
         data={gradings}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <BulkResultItem item={item} />}
+        renderItem={({ item }) => <BulkResultItem item={item} enabledCompanies={enabledCompanies} />}
         ListHeaderComponent={
           <View style={styles.summarySection}>
             <View style={styles.summaryCard}>
@@ -126,20 +124,30 @@ export default function BulkResultsScreen() {
               </Text>
 
               <View style={styles.avgRow}>
-                <View style={styles.avgItem}>
-                  <Text style={styles.avgLabel}>Avg PSA</Text>
-                  <Text style={[styles.avgValue, { color: getGradeColor(avgPsa) }]}>{avgPsa}</Text>
-                </View>
-                <View style={styles.avgDivider} />
-                <View style={styles.avgItem}>
-                  <Text style={styles.avgLabel}>Avg BGS</Text>
-                  <Text style={[styles.avgValue, { color: getGradeColor(avgBgs) }]}>{avgBgs}</Text>
-                </View>
-                <View style={styles.avgDivider} />
-                <View style={styles.avgItem}>
-                  <Text style={styles.avgLabel}>Avg ACE</Text>
-                  <Text style={[styles.avgValue, { color: getGradeColor(avgAce) }]}>{avgAce}</Text>
-                </View>
+                {enabledCompanies.includes("PSA") && (
+                  <>
+                    <View style={styles.avgItem}>
+                      <Text style={styles.avgLabel}>Avg PSA</Text>
+                      <Text style={[styles.avgValue, { color: getGradeColor(avgPsa) }]}>{avgPsa}</Text>
+                    </View>
+                    {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace")) && <View style={styles.avgDivider} />}
+                  </>
+                )}
+                {enabledCompanies.includes("Beckett") && (
+                  <>
+                    <View style={styles.avgItem}>
+                      <Text style={styles.avgLabel}>Avg BGS</Text>
+                      <Text style={[styles.avgValue, { color: getGradeColor(avgBgs) }]}>{avgBgs}</Text>
+                    </View>
+                    {enabledCompanies.includes("Ace") && <View style={styles.avgDivider} />}
+                  </>
+                )}
+                {enabledCompanies.includes("Ace") && (
+                  <View style={styles.avgItem}>
+                    <Text style={styles.avgLabel}>Avg ACE</Text>
+                    <Text style={[styles.avgValue, { color: getGradeColor(avgAce) }]}>{avgAce}</Text>
+                  </View>
+                )}
               </View>
             </View>
 

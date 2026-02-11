@@ -19,13 +19,14 @@ import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings } from "@/lib/storage";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
+import { useSettings } from "@/lib/settings-context";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const BUBBLE_GAP = 12;
 const BUBBLE_PAD = 20;
 const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_PAD * 2 - BUBBLE_GAP) / 2;
 
-function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: string) => void }) {
+function HistoryItem({ item, onDelete, enabledCompanies }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[] }) {
   const date = new Date(item.timestamp);
   const dateStr = date.toLocaleDateString("en-US", {
     month: "short",
@@ -68,9 +69,9 @@ function HistoryItem({ item, onDelete }: { item: SavedGrading; onDelete: (id: st
         <Text style={styles.histDate}>{dateStr}</Text>
       </View>
       <View style={styles.historyGrades}>
-        <GradeCircle grade={item.result.psa.grade} size={36} label="PSA" />
-        <GradeCircle grade={item.result.beckett.overallGrade} size={36} label="BGS" />
-        <GradeCircle grade={item.result.ace.overallGrade} size={36} label="ACE" />
+        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={36} label="PSA" />}
+        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={36} label="BGS" />}
+        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={36} label="ACE" />}
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>
@@ -142,6 +143,8 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [gradings, setGradings] = useState<SavedGrading[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const { settings } = useSettings();
+  const enabledCompanies = settings.enabledCompanies;
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -202,7 +205,16 @@ export default function HomeScreen() {
   const renderHeader = () => (
     <>
       <View style={styles.heroSection}>
-        <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroSpacer} />
+          <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
+          <Pressable
+            onPress={() => router.push("/settings")}
+            style={({ pressed }) => [styles.settingsBtn, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Ionicons name="settings-outline" size={22} color={Colors.textSecondary} />
+          </Pressable>
+        </View>
         <Text style={styles.heroSubtitle}>AI-Powered Pokemon Card Grading</Text>
       </View>
 
@@ -245,23 +257,30 @@ export default function HomeScreen() {
             <Text style={styles.portfolioTitle}>Average Grades</Text>
           </View>
           <View style={styles.avgGradesRow}>
-            <View style={styles.avgGradeItem}>
-              <Image source={require("@/assets/images/logo-psa.png")} style={styles.avgLogo} contentFit="contain" />
-              <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
-              <Text style={styles.avgGradeLabel}>PSA</Text>
-            </View>
-            <View style={styles.avgDivider} />
-            <View style={styles.avgGradeItem}>
-              <Image source={require("@/assets/images/logo-bgs.png")} style={styles.avgLogo} contentFit="contain" />
-              <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
-              <Text style={styles.avgGradeLabel}>BGS</Text>
-            </View>
-            <View style={styles.avgDivider} />
-            <View style={styles.avgGradeItem}>
-              <Image source={require("@/assets/images/logo-ace.png")} style={styles.avgLogo} contentFit="contain" />
-              <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
-              <Text style={styles.avgGradeLabel}>ACE</Text>
-            </View>
+            {enabledCompanies.includes("PSA") && (
+              <>
+                <View style={styles.avgGradeItem}>
+                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgPSA) }]}>{stats.avgPSA.toFixed(1)}</Text>
+                  <Text style={[styles.avgGradeLabel, { color: Colors.cardPSA }]}>PSA</Text>
+                </View>
+                {(enabledCompanies.includes("Beckett") || enabledCompanies.includes("Ace")) && <View style={styles.avgDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("Beckett") && (
+              <>
+                <View style={styles.avgGradeItem}>
+                  <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgBGS) }]}>{stats.avgBGS.toFixed(1)}</Text>
+                  <Text style={styles.avgGradeLabel}>BGS</Text>
+                </View>
+                {enabledCompanies.includes("Ace") && <View style={styles.avgDivider} />}
+              </>
+            )}
+            {enabledCompanies.includes("Ace") && (
+              <View style={styles.avgGradeItem}>
+                <Text style={[styles.avgGradeValue, { color: getGradientColor(stats.avgACE) }]}>{stats.avgACE.toFixed(1)}</Text>
+                <Text style={styles.avgGradeLabel}>ACE</Text>
+              </View>
+            )}
           </View>
 
           {stats.cardsWithValues > 0 && (
@@ -272,19 +291,19 @@ export default function HomeScreen() {
                 <Text style={styles.portfolioTitle}>Estimated Portfolio Value</Text>
               </View>
               <View style={styles.valueRows}>
-                {stats.totalPSA > 0 && (
+                {enabledCompanies.includes("PSA") && stats.totalPSA > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <Text style={styles.portfolioValueLabel}>PSA Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(2)}</Text>
                   </View>
                 )}
-                {stats.totalBGS > 0 && (
+                {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <Text style={styles.portfolioValueLabel}>BGS Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(2)}</Text>
                   </View>
                 )}
-                {stats.totalACE > 0 && (
+                {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
                   <View style={styles.portfolioValueRow}>
                     <Text style={styles.portfolioValueLabel}>ACE Graded</Text>
                     <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(2)}</Text>
@@ -342,7 +361,7 @@ export default function HomeScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.itemPad}>
-            <HistoryItem item={item} onDelete={handleDelete} />
+            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} />
           </View>
         )}
         ListHeaderComponent={renderHeader}
@@ -374,6 +393,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 20,
     paddingBottom: 24,
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    paddingHorizontal: 16,
+  },
+  heroSpacer: {
+    width: 40,
+  },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroTitle: {
     fontFamily: "Inter_700Bold",
@@ -492,11 +527,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     gap: 4,
-  },
-  avgLogo: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
   },
   avgGradeValue: {
     fontFamily: "Inter_700Bold",

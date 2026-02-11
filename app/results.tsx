@@ -22,6 +22,7 @@ import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
+import { useSettings } from "@/lib/settings-context";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -100,6 +101,8 @@ function getAnnotations(result: GradingResult): AreaAnnotation[] {
 export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
   const { gradingId } = useLocalSearchParams<{ gradingId: string }>();
+  const { settings } = useSettings();
+  const enabledCompanies = settings.enabledCompanies;
   const [grading, setGrading] = useState<SavedGrading | null>(null);
   const [showFront, setShowFront] = useState(true);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
@@ -610,9 +613,9 @@ export default function ResultsScreen() {
           onOpenTool={() => setCenteringToolVisible(true)}
         />
 
-        <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />
-        <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />
-        <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />
+        {enabledCompanies.includes("PSA") && <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />}
+        {enabledCompanies.includes("Beckett") && <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />}
+        {enabledCompanies.includes("Ace") && <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />}
 
         <View style={styles.disclaimer}>
           <Ionicons name="information-circle" size={14} color={Colors.textMuted} />

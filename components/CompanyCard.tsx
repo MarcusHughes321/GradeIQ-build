@@ -1,17 +1,10 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import GradeCircle from "./GradeCircle";
 import SubGradeRow from "./SubGradeRow";
 import type { PSAGrade, BeckettGrade, AceGrade } from "@/lib/types";
-
-const LOGO_MAP = {
-  PSA: require("@/assets/images/logo-psa.png"),
-  Beckett: require("@/assets/images/logo-bgs.png"),
-  Ace: require("@/assets/images/logo-ace.png"),
-};
 
 const COMPANY_LABELS: Record<string, string> = {
   PSA: "PSA",
@@ -87,7 +80,6 @@ export default function CompanyCard({ company, grade, color, defaultExpanded = f
         style={({ pressed }) => [styles.headerRow, { opacity: pressed ? 0.85 : 1 }]}
       >
         <View style={styles.companyInfo}>
-          <Image source={LOGO_MAP[company]} style={styles.companyLogo} contentFit="contain" />
           <View style={styles.companyTextWrap}>
             <Text style={[styles.companyName, { color }]}>{COMPANY_LABELS[company]}</Text>
             {!expanded && (
@@ -151,11 +143,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     flex: 1,
-  },
-  companyLogo: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
   },
   companyTextWrap: {
     flex: 1,

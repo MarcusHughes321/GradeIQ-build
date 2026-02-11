@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
+import { SettingsProvider } from "@/lib/settings-context";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
@@ -26,6 +27,7 @@ function RootLayoutNav() {
       <Stack.Screen name="results" />
       <Stack.Screen name="bulk" />
       <Stack.Screen name="bulk-results" />
+      <Stack.Screen name="settings" />
     </Stack>
   );
 }
@@ -49,12 +51,14 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <KeyboardProvider>
-            <StatusBar style="light" />
-            <RootLayoutNav />
-          </KeyboardProvider>
-        </GestureHandlerRootView>
+        <SettingsProvider>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <KeyboardProvider>
+              <StatusBar style="light" />
+              <RootLayoutNav />
+            </KeyboardProvider>
+          </GestureHandlerRootView>
+        </SettingsProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );
