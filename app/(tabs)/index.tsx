@@ -18,6 +18,7 @@ import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut, SlideInUp } from "react-native-reanimated";
+import { BlurView } from "expo-blur";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
 import { apiRequest } from "@/lib/query-client";
@@ -485,10 +486,24 @@ export default function HomeScreen() {
                   </View>
                 </>
               )}
+              {isGateEnabled && !isSubscribed && (
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={() => router.push("/paywall")}
+                >
+                  <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
+                    <View style={styles.proBlurContent}>
+                      <Ionicons name="lock-closed" size={20} color="#F59E0B" />
+                      <Text style={styles.proBlurTitle}>Pro Feature</Text>
+                      <Text style={styles.proBlurSubtitle}>Unlock portfolio values</Text>
+                    </View>
+                  </BlurView>
+                </Pressable>
+              )}
             </View>
           </View>
 
-          <View style={styles.avgGradesCard}>
+          <View style={[styles.avgGradesCard, isGateEnabled && !isSubscribed && { overflow: "hidden" as const }]}>
             <View style={styles.portfolioHeader}>
               <Ionicons name="analytics" size={16} color={Colors.textSecondary} />
               <Text style={styles.portfolioTitle}>Average Grades</Text>
@@ -537,6 +552,19 @@ export default function HomeScreen() {
                 </View>
               )}
             </View>
+            {isGateEnabled && !isSubscribed && (
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => router.push("/paywall")}
+              >
+                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
+                  <View style={styles.proBlurContent}>
+                    <Ionicons name="lock-closed" size={18} color="#F59E0B" />
+                    <Text style={styles.proBlurSubtitle}>Upgrade to view</Text>
+                  </View>
+                </BlurView>
+              </Pressable>
+            )}
           </View>
         </>
       )}
@@ -957,6 +985,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     gap: 10,
+    overflow: "hidden" as const,
   },
   avgGradesCard: {
     backgroundColor: Colors.surface,
@@ -967,6 +996,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     gap: 10,
+    overflow: "hidden" as const,
   },
   portfolioHeader: {
     flexDirection: "row",
@@ -1233,5 +1263,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-evenly",
     gap: 4,
+  },
+  proBlurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+  },
+  proBlurContent: {
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  proBlurTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#F59E0B",
+  },
+  proBlurSubtitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.7)",
   },
 });
