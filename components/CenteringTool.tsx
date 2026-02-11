@@ -15,6 +15,7 @@ import {
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import type { CenteringMeasurement, CardBounds } from "@/lib/types";
 import { apiRequest } from "@/lib/query-client";
@@ -144,7 +145,7 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
 
 const HANDLE_OFFSET_INNER = 0.35;
 const HANDLE_OFFSET_OUTER = 0.65;
-const DISAMBIG_THRESHOLD = 3;
+const TENTATIVE_MOVE_THRESHOLD = 6;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
 
@@ -184,9 +185,9 @@ function findNearestHandle(
 ): { key: LineKey; dist: number } | null {
   let best: { key: LineKey; dist: number } | null = null;
 
-  const perpPad = 30;
-  const alongPadV = Math.max(80, containerH * 0.35);
-  const alongPadH = Math.max(80, containerW * 0.35);
+  const basePerpPad = 22;
+  const perpPad = basePerpPad / scale;
+  const handleRadius = 44 / scale;
 
   for (const config of LINE_CONFIGS) {
     const linePos = pos[config.key];
@@ -197,8 +198,8 @@ function findNearestHandle(
       const hy = containerH * offset;
       const dx = Math.abs(x - hx);
       const dy = Math.abs(y - hy);
-      if (dx <= perpPad && dy <= alongPadV) {
-        const dist = dx + dy * 0.1;
+      if (dx <= perpPad && dy <= handleRadius) {
+        const dist = dx * 2 + dy * 0.3;
         if (!best || dist < best.dist) {
           best = { key: config.key, dist };
         }
@@ -208,8 +209,8 @@ function findNearestHandle(
       const hy = linePos;
       const dx = Math.abs(x - hx);
       const dy = Math.abs(y - hy);
-      if (dy <= perpPad && dx <= alongPadH) {
-        const dist = dy + dx * 0.1;
+      if (dy <= perpPad && dx <= handleRadius) {
+        const dist = dy * 2 + dx * 0.3;
         if (!best || dist < best.dist) {
           best = { key: config.key, dist };
         }
@@ -251,13 +252,16 @@ function viewportToContainer(
 const HANDLE_W = 16;
 const HANDLE_H = 32;
 
-function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }) {
-  const lineW = config.isOuter ? 2 : 2.5;
-  const opacity = config.isOuter ? 0.7 : 1;
+function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }, isActive?: boolean) {
+  const lineW = isActive ? 3 : (config.isOuter ? 2 : 2.5);
+  const opacity = isActive ? 1 : (config.isOuter ? 0.7 : 1);
   const handleOffset = getHandleOffset(config);
+  const handleScale = isActive ? 1.4 : 1;
+  const handleW = HANDLE_W * handleScale;
+  const handleH = HANDLE_H * handleScale;
 
   if (config.orientation === "v") {
-    const handleTop = containerSize.height * handleOffset - HANDLE_H / 2;
+    const handleTop = containerSize.height * handleOffset - handleH / 2;
     return (
       <React.Fragment key={config.key}>
         <View
@@ -276,14 +280,14 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
         <View
           style={{
             position: "absolute" as const,
-            left: pos - HANDLE_W / 2,
+            left: pos - handleW / 2,
             top: handleTop,
-            width: HANDLE_W,
-            height: HANDLE_H,
-            borderRadius: HANDLE_W / 2,
-            backgroundColor: config.color + "55",
-            borderWidth: 1.5,
-            borderColor: config.color + "AA",
+            width: handleW,
+            height: handleH,
+            borderRadius: handleW / 2,
+            backgroundColor: isActive ? config.color + "AA" : config.color + "55",
+            borderWidth: isActive ? 2 : 1.5,
+            borderColor: isActive ? "#fff" : config.color + "AA",
             zIndex: config.isOuter ? 9 : 13,
           }}
           pointerEvents="none"
@@ -292,7 +296,7 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
     );
   }
 
-  const handleLeft = containerSize.width * handleOffset - HANDLE_H / 2;
+  const handleLeft = containerSize.width * handleOffset - handleH / 2;
   return (
     <React.Fragment key={config.key}>
       <View
@@ -312,13 +316,13 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
         style={{
           position: "absolute" as const,
           left: handleLeft,
-          top: pos - HANDLE_W / 2,
-          width: HANDLE_H,
-          height: HANDLE_W,
-          borderRadius: HANDLE_W / 2,
-          backgroundColor: config.color + "55",
-          borderWidth: 1.5,
-          borderColor: config.color + "AA",
+          top: pos - handleW / 2,
+          width: handleH,
+          height: handleW,
+          borderRadius: handleW / 2,
+          backgroundColor: isActive ? config.color + "AA" : config.color + "55",
+          borderWidth: isActive ? 2 : 1.5,
+          borderColor: isActive ? "#fff" : config.color + "AA",
           zIndex: config.isOuter ? 9 : 13,
         }}
         pointerEvents="none"
@@ -395,9 +399,14 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
 
   const steps = [
     {
-      icon: "move-outline" as const,
-      title: "Lines / Pan button",
-      desc: "Toggles between two modes. \"Lines\" mode lets you drag the coloured handles to align lines with the card edge and artwork border. \"Pan\" mode lets you pinch-zoom and drag to pan around.",
+      icon: "finger-print-outline" as const,
+      title: "Drag handles",
+      desc: "Touch near a coloured handle and drag perpendicular to the line to move it. Dragging parallel to the line will pan the image instead. You'll feel a small vibration when a handle is grabbed.",
+    },
+    {
+      icon: "expand-outline" as const,
+      title: "Pinch to zoom",
+      desc: "Use two fingers to pinch-zoom for fine adjustments. Swipe with one finger to pan around when zoomed in.",
     },
     {
       icon: "sync-outline" as const,
@@ -497,8 +506,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [showRotation, setShowRotation] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [panLocked, setPanLocked] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [activeHandle, setActiveHandle] = useState<LineKey | null>(null);
   const [autoStraightening, setAutoStraightening] = useState(false);
   const wasStraightenedRef = useRef(false);
 
@@ -742,7 +751,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const panStartOffRef = useRef({ x: 0, y: 0 });
   const zoomScaleRef = useRef(1);
   const panOffsetRef = useRef({ x: 0, y: 0 });
-  const panLockedRef = useRef(false);
   const containerSizeRef = useRef(containerSize);
   const posRef = useRef(pos);
   const showFrontRef = useRef(showFront);
@@ -751,9 +759,9 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const onSaveRef = useRef(onSave);
   const frontPosRef = useRef(frontPos);
   const backPosRef = useRef(backPos);
+  const setActiveHandleRef = useRef(setActiveHandle);
   zoomScaleRef.current = zoomScale;
   panOffsetRef.current = panOffset;
-  panLockedRef.current = panLocked;
   containerSizeRef.current = containerSize;
   posRef.current = pos;
   showFrontRef.current = showFront;
@@ -762,6 +770,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   onSaveRef.current = onSave;
   frontPosRef.current = frontPos;
   backPosRef.current = backPos;
+  setActiveHandleRef.current = setActiveHandle;
 
   const viewportLayoutRef = useRef({ x: 0, y: 0 });
 
@@ -769,8 +778,16 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const dragLineKey = useRef<LineKey | null>(null);
   const dragTouchOffset = useRef(0);
   const viewportOriginRef = useRef({ x: 0, y: 0 });
-  const tentativeLineRef = useRef<{ key: LineKey; offset: number } | null>(null);
+  const tentativeLineRef = useRef<{ key: LineKey; offset: number; orientation: "h" | "v" } | null>(null);
   const didDragRef = useRef(false);
+  const hapticFiredRef = useRef(false);
+
+  const fireHaptic = () => {
+    if (!hapticFiredRef.current) {
+      hapticFiredRef.current = true;
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    }
+  };
 
   const viewportPan = useMemo(() =>
     PanResponder.create({
@@ -785,11 +802,13 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       onPanResponderGrant: (evt) => {
         const touches = evt.nativeEvent.touches;
         didDragRef.current = false;
+        hapticFiredRef.current = false;
         if (touches.length >= 2) {
           gestureMode.current = "pinch";
           pinchStartDistRef.current = getTouchDistance(touches);
           pinchStartScaleRef.current = zoomScaleRef.current;
           panStartOffRef.current = { ...panOffsetRef.current };
+          setActiveHandleRef.current(null);
           return;
         }
 
@@ -806,30 +825,27 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
 
         const currentPos = posRef.current;
-        const locked = panLockedRef.current;
-
-        if (locked) {
-          if (currentPos) {
-            const nearest = findNearestHandle(containerX, containerY, currentPos, cs.width, cs.height, scale);
-            if (nearest) {
-              const lineVal = currentPos[nearest.key];
-              const offset = isVLine(nearest.key)
-                ? lineVal - containerX
-                : lineVal - containerY;
-              gestureMode.current = "drag";
-              dragLineKey.current = nearest.key;
-              dragTouchOffset.current = offset;
-              return;
-            }
-          }
-          gestureMode.current = "none";
-        } else {
-          if (scale > 1.05) {
-            gestureMode.current = "pan";
-          } else {
-            gestureMode.current = "none";
+        if (currentPos) {
+          const nearest = findNearestHandle(containerX, containerY, currentPos, cs.width, cs.height, scale);
+          if (nearest) {
+            const lineVal = currentPos[nearest.key];
+            const offset = isVLine(nearest.key)
+              ? lineVal - containerX
+              : lineVal - containerY;
+            const lineConfig = LINE_CONFIGS.find(c => c.key === nearest.key);
+            gestureMode.current = "tentative";
+            tentativeLineRef.current = { key: nearest.key, offset, orientation: lineConfig?.orientation || "v" };
+            setActiveHandleRef.current(nearest.key);
+            return;
           }
         }
+
+        if (scale > 1.05) {
+          gestureMode.current = "pan";
+        } else {
+          gestureMode.current = "none";
+        }
+        setActiveHandleRef.current(null);
       },
       onPanResponderMove: (evt, g) => {
         const touches = evt.nativeEvent.touches;
@@ -841,12 +857,34 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             pinchStartScaleRef.current = zoomScaleRef.current;
             panStartOffRef.current = { ...panOffsetRef.current };
             tentativeLineRef.current = null;
+            setActiveHandleRef.current(null);
           }
           const dist = getTouchDistance(touches);
           if (pinchStartDistRef.current > 0) {
             const newScale = Math.max(1, Math.min(4, pinchStartScaleRef.current * (dist / pinchStartDistRef.current)));
             setZoomScale(newScale);
             zoomScaleRef.current = newScale;
+          }
+          return;
+        }
+
+        if (gestureMode.current === "tentative" && tentativeLineRef.current) {
+          const totalMove = Math.sqrt(g.dx * g.dx + g.dy * g.dy);
+          if (totalMove >= TENTATIVE_MOVE_THRESHOLD) {
+            const orient = tentativeLineRef.current.orientation;
+            const perpMove = orient === "v" ? Math.abs(g.dx) : Math.abs(g.dy);
+            const paraMove = orient === "v" ? Math.abs(g.dy) : Math.abs(g.dx);
+
+            if (perpMove >= paraMove * 0.6) {
+              gestureMode.current = "drag";
+              dragLineKey.current = tentativeLineRef.current.key;
+              dragTouchOffset.current = tentativeLineRef.current.offset;
+              fireHaptic();
+            } else {
+              gestureMode.current = "pan";
+              tentativeLineRef.current = null;
+              setActiveHandleRef.current(null);
+            }
           }
           return;
         }
@@ -887,7 +925,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           return;
         }
 
-        if (gestureMode.current === "none" && !panLockedRef.current && zoomScaleRef.current > 1.05) {
+        if (gestureMode.current === "none" && zoomScaleRef.current > 1.05) {
           gestureMode.current = "pan";
         }
       },
@@ -918,6 +956,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         dragLineKey.current = null;
         tentativeLineRef.current = null;
         didDragRef.current = false;
+        hapticFiredRef.current = false;
+        setActiveHandleRef.current(null);
       },
       onPanResponderTerminationRequest: () => false,
     }),
@@ -944,23 +984,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         <Pressable onPress={() => onClose(wasStraightenedRef.current)} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
           <Ionicons name="checkmark" size={16} color="#fff" />
           <Text style={styles.saveBtnText}>Done</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.modeToggle}>
-        <Pressable
-          style={[styles.modeBtn, panLocked && styles.modeBtnActive]}
-          onPress={() => setPanLocked(true)}
-        >
-          <Ionicons name="move-outline" size={16} color={panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
-          <Text style={[styles.modeBtnText, panLocked && styles.modeBtnTextActive]}>Lines</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.modeBtn, !panLocked && styles.modeBtnActive]}
-          onPress={() => setPanLocked(false)}
-        >
-          <Ionicons name="hand-left-outline" size={16} color={!panLocked ? "#fff" : "rgba(255,255,255,0.4)"} />
-          <Text style={[styles.modeBtnText, !panLocked && styles.modeBtnTextActive]}>Pan / Zoom</Text>
         </Pressable>
       </View>
 
@@ -1001,7 +1024,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
             {pos && cw > 0 && (
               <View style={styles.linesOverlay} pointerEvents="none">
-                {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize))}
+                {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize, activeHandle === config.key))}
 
                 {renderHatchOverlay(pos, containerSize)}
               </View>
@@ -1014,14 +1037,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             </View>
           )}
 
-          {zoomScale > 1 && (
-            <Pressable
-              style={[styles.lockFloatingBtn, panLocked && styles.lockFloatingBtnActive]}
-              onPress={() => setPanLocked(p => !p)}
-            >
-              <Ionicons name={panLocked ? "move-outline" : "hand-left-outline"} size={14} color="#fff" />
-            </Pressable>
-          )}
         </View>
       </View>
 
@@ -1084,9 +1099,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         )}
 
         <Text style={styles.hint}>
-          {panLocked
-            ? "Drag the coloured handles to adjust lines"
-            : "Pinch to zoom \u00B7 Drag to pan around"}
+          Drag handles to adjust lines {"\u00B7"} Pinch to zoom {"\u00B7"} Swipe to pan
         </Text>
       </View>
 
@@ -1112,15 +1125,7 @@ const styles = StyleSheet.create({
   linesOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 },
   zoomIndicator: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, zIndex: 20 },
   zoomIndicatorText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
-  lockFloatingBtn: { position: "absolute" as const, top: 8, left: 8, flexDirection: "row" as const, alignItems: "center" as const, gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, zIndex: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
-  lockFloatingBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  lockFloatingText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#fff" },
   controls: { paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4 },
-  modeToggle: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, padding: 3, marginHorizontal: 8, marginBottom: 4 },
-  modeBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: 8 },
-  modeBtnActive: { backgroundColor: Colors.primary },
-  modeBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "rgba(255,255,255,0.4)" },
-  modeBtnTextActive: { color: "#fff" },
   controlRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sideToggle: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, padding: 2 },
   sideBtn: { flex: 1, paddingVertical: 6, alignItems: "center", borderRadius: 6 },
