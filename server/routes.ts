@@ -1162,6 +1162,7 @@ function detectBoundsAtResolution(
   yConstraint?: { minPct: number; maxPct: number }
 ): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; angleDeg: number; confidence: number } {
   const CARD_WH_RATIO = 2.5 / 3.5;
+  const CARD_WH_RATIO_ROTATED = 3.5 / 2.5;
   const RATIO_TOLERANCE = 0.12;
 
   const getPixel = (x: number, y: number) => {
@@ -1314,35 +1315,38 @@ function detectBoundsAtResolution(
       const cardW = rp.pos - lp.pos;
       if (cardW < sw * 0.2) continue;
 
-      const expectedH = cardW / CARD_WH_RATIO;
+      const ratiosToTry = [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED];
 
-      for (let ti = 0; ti < hPeaks.length; ti++) {
-        const tp = hPeaks[ti];
+      for (const targetRatio of ratiosToTry) {
+        const expectedH = cardW / targetRatio;
 
-        const expectedBottom = tp.pos + expectedH;
-        let bestBotPeak: { pos: number; strength: number } | null = null;
-        let bestBotDist = Infinity;
+        for (let ti = 0; ti < hPeaks.length; ti++) {
+          const tp = hPeaks[ti];
 
-        for (let bi = 0; bi < hPeaks.length; bi++) {
-          if (bi === ti) continue;
-          const bp = hPeaks[bi];
-          if (bp.pos <= tp.pos) continue;
-          const dist = Math.abs(bp.pos - expectedBottom);
-          if (dist < bestBotDist) {
-            bestBotDist = dist;
-            bestBotPeak = bp;
+          const expectedBottom = tp.pos + expectedH;
+          let bestBotPeak: { pos: number; strength: number } | null = null;
+          let bestBotDist = Infinity;
+
+          for (let bi = 0; bi < hPeaks.length; bi++) {
+            if (bi === ti) continue;
+            const bp = hPeaks[bi];
+            if (bp.pos <= tp.pos) continue;
+            const dist = Math.abs(bp.pos - expectedBottom);
+            if (dist < bestBotDist) {
+              bestBotDist = dist;
+              bestBotPeak = bp;
+            }
           }
-        }
 
-        const tryBottom = (botPos: number, botStr: number) => {
-          const cardH = botPos - tp.pos;
-          if (cardH < sh * 0.2) return;
+          const tryBottom = (botPos: number, botStr: number) => {
+            const cardH = botPos - tp.pos;
+            if (cardH < sh * 0.2) return;
 
-          const ratio = cardW / cardH;
-          const ratioError = Math.abs(ratio - CARD_WH_RATIO) / CARD_WH_RATIO;
-          if (ratioError > RATIO_TOLERANCE * 2) return;
+            const ratio = cardW / cardH;
+            const ratioError = Math.abs(ratio - targetRatio) / targetRatio;
+            if (ratioError > RATIO_TOLERANCE * 2) return;
 
-          const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
+            const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
 
           const sizeRatio = (cardW * cardH) / (sw * sh);
           let sizeScore: number;
@@ -1441,36 +1445,39 @@ function detectBoundsAtResolution(
           }
         };
 
-        if (bestBotPeak) {
-          tryBottom(bestBotPeak.pos, bestBotPeak.strength);
-        }
+          if (bestBotPeak) {
+            tryBottom(bestBotPeak.pos, bestBotPeak.strength);
+          }
 
-        const inferredBot = Math.round(tp.pos + expectedH);
-        if (inferredBot > tp.pos && inferredBot < sh - 2) {
-          tryBottom(inferredBot, hSmooth[Math.min(inferredBot, sh - 1)] || 0);
+          const inferredBot = Math.round(tp.pos + expectedH);
+          if (inferredBot > tp.pos && inferredBot < sh - 2) {
+            tryBottom(inferredBot, hSmooth[Math.min(inferredBot, sh - 1)] || 0);
+          }
         }
       }
 
       if (hPeaks.length === 0) {
-        const expectedH = cardW / CARD_WH_RATIO;
-        const centerY = sh / 2;
-        const inferredTop = Math.round(centerY - expectedH / 2);
-        const inferredBot = Math.round(centerY + expectedH / 2);
-        if (inferredTop >= 0 && inferredBot < sh) {
-          const ratio = cardW / (inferredBot - inferredTop);
-          const ratioError = Math.abs(ratio - CARD_WH_RATIO) / CARD_WH_RATIO;
-          const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
-          const sizeRatio = (cardW * (inferredBot - inferredTop)) / (sw * sh);
-          let sizeScore: number;
-          if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
-          else if (sizeRatio > 0.15) sizeScore = 1.0;
-          else sizeScore = Math.min(1, sizeRatio / 0.15);
-          const totalScore = ratioScore * 4.0 + sizeScore * 1.5 + 0.5;
-          if (totalScore > best.score) {
-            best = {
-              left: lp.pos, right: rp.pos, top: inferredTop, bottom: inferredBot,
-              score: totalScore, lStr: lp.strength, rStr: rp.strength, tStr: 0, bStr: 0,
-            };
+        for (const fallbackRatio of ratiosToTry) {
+          const expectedH = cardW / fallbackRatio;
+          const centerY = sh / 2;
+          const inferredTop = Math.round(centerY - expectedH / 2);
+          const inferredBot = Math.round(centerY + expectedH / 2);
+          if (inferredTop >= 0 && inferredBot < sh) {
+            const ratio = cardW / (inferredBot - inferredTop);
+            const ratioError = Math.abs(ratio - fallbackRatio) / fallbackRatio;
+            const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
+            const sizeRatio = (cardW * (inferredBot - inferredTop)) / (sw * sh);
+            let sizeScore: number;
+            if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
+            else if (sizeRatio > 0.15) sizeScore = 1.0;
+            else sizeScore = Math.min(1, sizeRatio / 0.15);
+            const totalScore = ratioScore * 4.0 + sizeScore * 1.5 + 0.5;
+            if (totalScore > best.score) {
+              best = {
+                left: lp.pos, right: rp.pos, top: inferredTop, bottom: inferredBot,
+                score: totalScore, lStr: lp.strength, rStr: rp.strength, tStr: 0, bStr: 0,
+              };
+            }
           }
         }
       }
@@ -1478,31 +1485,33 @@ function detectBoundsAtResolution(
   }
 
   if (vPeaks.length === 0 && hPeaks.length >= 2) {
-    for (let ti = 0; ti < hPeaks.length; ti++) {
-      for (let bi = ti + 1; bi < hPeaks.length; bi++) {
-        const tp = hPeaks[ti];
-        const bp = hPeaks[bi];
-        const cardH = bp.pos - tp.pos;
-        if (cardH < sh * 0.2) continue;
-        const expectedW = cardH * CARD_WH_RATIO;
-        const centerX = sw / 2;
-        const inferredLeft = Math.round(centerX - expectedW / 2);
-        const inferredRight = Math.round(centerX + expectedW / 2);
-        if (inferredLeft >= 0 && inferredRight < sw) {
-          const ratio = expectedW / cardH;
-          const ratioError = Math.abs(ratio - CARD_WH_RATIO) / CARD_WH_RATIO;
-          const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
-          const sizeRatio = (expectedW * cardH) / (sw * sh);
-          let sizeScore: number;
-          if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
-          else if (sizeRatio > 0.15) sizeScore = 1.0;
-          else sizeScore = Math.min(1, sizeRatio / 0.15);
-          const totalScore = ratioScore * 4.0 + sizeScore * 1.5 + 0.5;
-          if (totalScore > best.score) {
-            best = {
-              left: inferredLeft, right: inferredRight, top: tp.pos, bottom: bp.pos,
-              score: totalScore, lStr: 0, rStr: 0, tStr: tp.strength, bStr: bp.strength,
-            };
+    for (const fallbackRatio of [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED]) {
+      for (let ti = 0; ti < hPeaks.length; ti++) {
+        for (let bi = ti + 1; bi < hPeaks.length; bi++) {
+          const tp = hPeaks[ti];
+          const bp = hPeaks[bi];
+          const cardH = bp.pos - tp.pos;
+          if (cardH < sh * 0.2) continue;
+          const expectedW = cardH * fallbackRatio;
+          const centerX = sw / 2;
+          const inferredLeft = Math.round(centerX - expectedW / 2);
+          const inferredRight = Math.round(centerX + expectedW / 2);
+          if (inferredLeft >= 0 && inferredRight < sw) {
+            const ratio = expectedW / cardH;
+            const ratioError = Math.abs(ratio - fallbackRatio) / fallbackRatio;
+            const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
+            const sizeRatio = (expectedW * cardH) / (sw * sh);
+            let sizeScore: number;
+            if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
+            else if (sizeRatio > 0.15) sizeScore = 1.0;
+            else sizeScore = Math.min(1, sizeRatio / 0.15);
+            const totalScore = ratioScore * 4.0 + sizeScore * 1.5 + 0.5;
+            if (totalScore > best.score) {
+              best = {
+                left: inferredLeft, right: inferredRight, top: tp.pos, bottom: bp.pos,
+                score: totalScore, lStr: 0, rStr: 0, tStr: tp.strength, bStr: bp.strength,
+              };
+            }
           }
         }
       }

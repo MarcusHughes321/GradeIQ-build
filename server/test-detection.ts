@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 
 const CARD_WH_RATIO = 2.5 / 3.5;
+const CARD_WH_RATIO_ROTATED = 3.5 / 2.5;
 const RATIO_TOLERANCE = 0.12;
 
 function detectCardRegionByVariance(
@@ -213,28 +214,32 @@ function detectBoundsAtResolution(
       if (rp.pos <= lp.pos) continue;
       const cardW = rp.pos - lp.pos;
       if (cardW < sw * 0.2) continue;
-      const expectedH = cardW / CARD_WH_RATIO;
 
-      for (let ti = 0; ti < hPeaks.length; ti++) {
-        const tp = hPeaks[ti];
-        const expectedBottom = tp.pos + expectedH;
-        let bestBotPeak: { pos: number; strength: number } | null = null;
-        let bestBotDist = Infinity;
-        for (let bi = 0; bi < hPeaks.length; bi++) {
-          if (bi === ti) continue;
-          const bp = hPeaks[bi];
-          if (bp.pos <= tp.pos) continue;
-          const dist = Math.abs(bp.pos - expectedBottom);
-          if (dist < bestBotDist) { bestBotDist = dist; bestBotPeak = bp; }
-        }
+      const ratiosToTry = [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED];
 
-        const tryBottom = (botPos: number, botStr: number) => {
-          const cardH = botPos - tp.pos;
-          if (cardH < sh * 0.2) return;
-          const ratio = cardW / cardH;
-          const ratioError = Math.abs(ratio - CARD_WH_RATIO) / CARD_WH_RATIO;
-          if (ratioError > RATIO_TOLERANCE * 2) return;
-          const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
+      for (const targetRatio of ratiosToTry) {
+        const expectedH = cardW / targetRatio;
+
+        for (let ti = 0; ti < hPeaks.length; ti++) {
+          const tp = hPeaks[ti];
+          const expectedBottom = tp.pos + expectedH;
+          let bestBotPeak: { pos: number; strength: number } | null = null;
+          let bestBotDist = Infinity;
+          for (let bi = 0; bi < hPeaks.length; bi++) {
+            if (bi === ti) continue;
+            const bp = hPeaks[bi];
+            if (bp.pos <= tp.pos) continue;
+            const dist = Math.abs(bp.pos - expectedBottom);
+            if (dist < bestBotDist) { bestBotDist = dist; bestBotPeak = bp; }
+          }
+
+          const tryBottom = (botPos: number, botStr: number) => {
+            const cardH = botPos - tp.pos;
+            if (cardH < sh * 0.2) return;
+            const ratio = cardW / cardH;
+            const ratioError = Math.abs(ratio - targetRatio) / targetRatio;
+            if (ratioError > RATIO_TOLERANCE * 2) return;
+            const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
 
           const sizeRatio = (cardW * cardH) / (sw * sh);
           let sizeScore: number;
@@ -326,10 +331,11 @@ function detectBoundsAtResolution(
           }
         };
 
-        if (bestBotPeak) tryBottom(bestBotPeak.pos, bestBotPeak.strength);
-        const inferredBot = Math.round(tp.pos + expectedH);
-        if (inferredBot > tp.pos && inferredBot < sh - 2) {
-          tryBottom(inferredBot, hSmooth[Math.min(inferredBot, sh - 1)] || 0);
+          if (bestBotPeak) tryBottom(bestBotPeak.pos, bestBotPeak.strength);
+          const inferredBot = Math.round(tp.pos + expectedH);
+          if (inferredBot > tp.pos && inferredBot < sh - 2) {
+            tryBottom(inferredBot, hSmooth[Math.min(inferredBot, sh - 1)] || 0);
+          }
         }
       }
     }
