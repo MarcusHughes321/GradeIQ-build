@@ -1068,7 +1068,7 @@ async function convertHeifToJpeg(buffer: Buffer): Promise<Buffer> {
   }
 }
 
-async function optimizeImageForAI(dataUri: string, maxDim: number = 1536): Promise<string> {
+async function optimizeImageForAI(dataUri: string, maxDim: number = 2048): Promise<string> {
   try {
     const mimeMatch = dataUri.match(/^data:(image\/[^;]+);base64,/);
     const mime = (mimeMatch?.[1] || "").toLowerCase();
@@ -1096,7 +1096,7 @@ async function optimizeImageForAI(dataUri: string, maxDim: number = 1536): Promi
     if (w > maxDim || h > maxDim) {
       pipeline = pipeline.resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true });
     }
-    const optimized = await pipeline.jpeg({ quality: 85 }).toBuffer();
+    const optimized = await pipeline.jpeg({ quality: 92 }).toBuffer();
     return `data:image/jpeg;base64,${optimized.toString("base64")}`;
   } catch (err) {
     console.error("[optimize] Image optimization failed:", err);
