@@ -102,9 +102,9 @@ export default function AboutScreen() {
           <View style={styles.creditSection}>
             <View style={styles.marceusLogoWrap}>
               <Image
-                source={require("@/assets/images/marceus-logo.jpeg")}
+                source={require("@/assets/images/marceus-logo.png")}
                 style={styles.marceusLogo}
-                contentFit="cover"
+                contentFit="contain"
               />
             </View>
 
