@@ -4,7 +4,7 @@ const path = require('path');
 const size = 1024;
 const base = '/home/runner/workspace/assets/images';
 
-async function variation4big(outputFile) {
+async function variation4straight(outputFile) {
   const slabW = 520;
   const slabH = 830;
   const slabX = (size - slabW) / 2;
@@ -29,24 +29,22 @@ async function variation4big(outputFile) {
   <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${size}" height="${size}" fill="#000000"/>
     
-    <g transform="rotate(-8, ${size/2}, ${size/2})">
-      <rect x="${slabX}" y="${slabY}" width="${slabW}" height="${slabH}" rx="${slabR}" ry="${slabR}" fill="none" stroke="#FFFFFF" stroke-width="3"/>
-      
-      <rect x="${redBarX}" y="${redBarY}" width="${redBarW}" height="${redBarH}" rx="8" ry="8" fill="#FF3C31"/>
-      <text x="${size/2}" y="${textY}" 
-            font-family="Inter" font-weight="700" font-size="72" 
-            fill="#FFFFFF" text-anchor="middle" letter-spacing="3">Grade.IQ</text>
-      
-      <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="${cardR}" ry="${cardR}" fill="#000000" stroke="#333333" stroke-width="2"/>
-    </g>
+    <rect x="${slabX}" y="${slabY}" width="${slabW}" height="${slabH}" rx="${slabR}" ry="${slabR}" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+    
+    <rect x="${redBarX}" y="${redBarY}" width="${redBarW}" height="${redBarH}" rx="8" ry="8" fill="#FF3C31"/>
+    <text x="${size/2}" y="${textY}" 
+          font-family="Inter" font-weight="700" font-size="72" 
+          fill="#FFFFFF" text-anchor="middle" letter-spacing="3">Grade.IQ</text>
+    
+    <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="${cardR}" ry="${cardR}" fill="#000000" stroke="#333333" stroke-width="2"/>
   </svg>`;
 
   await sharp(Buffer.from(svg)).resize(size, size).png().toFile(outputFile);
-  console.log('V4 big:', outputFile);
+  console.log('V4 straight:', outputFile);
 }
 
 async function main() {
-  await variation4big(path.join(base, 'icon-var4.png'));
+  await variation4straight(path.join(base, 'icon-var4.png'));
 }
 
 main();
