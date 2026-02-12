@@ -4,23 +4,23 @@ const path = require('path');
 async function createIcon(outputFile) {
   const size = 1024;
   
-  const slabW = 440;
-  const slabH = 560;
+  const slabW = 360;
+  const slabH = 520;
   const slabX = (size - slabW) / 2;
   const slabY = 90;
-  const slabR = 24;
+  const slabR = 20;
   
-  const redBarH = 65;
-  const redBarY = slabY + 22;
-  const redBarX = slabX + 22;
-  const redBarW = slabW - 44;
+  const redBarH = 55;
+  const redBarY = slabY + 18;
+  const redBarX = slabX + 18;
+  const redBarW = slabW - 36;
   
-  const cardPad = 22;
+  const cardPad = 18;
   const cardX = slabX + cardPad;
-  const cardY = redBarY + redBarH + 15;
+  const cardY = redBarY + redBarH + 12;
   const cardW = slabW - cardPad * 2;
   const cardH = slabH - (cardY - slabY) - cardPad;
-  const cardR = 12;
+  const cardR = 10;
   
   const textY = slabY + slabH + 130;
   
@@ -32,21 +32,21 @@ async function createIcon(outputFile) {
     <rect x="${slabX}" y="${slabY}" width="${slabW}" height="${slabH}" rx="${slabR}" ry="${slabR}" fill="#FFFFFF"/>
     
     <!-- Slab inner border -->
-    <rect x="${slabX + 8}" y="${slabY + 8}" width="${slabW - 16}" height="${slabH - 16}" rx="${slabR - 4}" ry="${slabR - 4}" fill="none" stroke="#444444" stroke-width="2"/>
+    <rect x="${slabX + 7}" y="${slabY + 7}" width="${slabW - 14}" height="${slabH - 14}" rx="${slabR - 3}" ry="${slabR - 3}" fill="none" stroke="#444444" stroke-width="1.5"/>
     
     <!-- Red header bar -->
-    <rect x="${redBarX}" y="${redBarY}" width="${redBarW}" height="${redBarH}" rx="6" ry="6" fill="#FF3C31"/>
+    <rect x="${redBarX}" y="${redBarY}" width="${redBarW}" height="${redBarH}" rx="5" ry="5" fill="#FF3C31"/>
     
     <!-- Card window area -->
     <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="${cardR}" ry="${cardR}" fill="#1a1a1a"/>
     
     <!-- Card inner border -->
-    <rect x="${cardX + 5}" y="${cardY + 5}" width="${cardW - 10}" height="${cardH - 10}" rx="${cardR - 2}" ry="${cardR - 2}" fill="none" stroke="#333333" stroke-width="1.5"/>
+    <rect x="${cardX + 4}" y="${cardY + 4}" width="${cardW - 8}" height="${cardH - 8}" rx="${cardR - 2}" ry="${cardR - 2}" fill="none" stroke="#333333" stroke-width="1.5"/>
     
-    <!-- Grade.IQ text - white with red .IQ -->
+    <!-- Grade.IQ text using Inter font style -->
     <text x="${size/2}" y="${textY}" 
-          font-family="Arial Black, Impact, Helvetica Neue, sans-serif" 
-          font-weight="900" 
+          font-family="Inter, Helvetica Neue, Helvetica, sans-serif" 
+          font-weight="800" 
           font-size="130" 
           fill="#FFFFFF" 
           text-anchor="middle"
