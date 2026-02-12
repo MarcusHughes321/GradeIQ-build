@@ -380,7 +380,7 @@ export default function GradeScreen() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.instructions}>
-              Add clear, well-lit photos of both sides of your Pokemon card for the most accurate grading.
+              Add clear, well-lit photos of both sides of your card. Place the card on a plain, solid-coloured surface for the best centering accuracy. Avoid holding the card or using busy backgrounds.
             </Text>
 
             <View style={styles.imageRow}>

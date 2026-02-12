@@ -359,6 +359,21 @@ export default function ResultsScreen() {
       if (frontWorst <= 70 && backWorst <= 70) return 8;
       return 7;
     };
+    const calcTagCentering = (): number => {
+      if (frontWorst <= 55 && backWorst <= 75) return 10;
+      if (frontWorst <= 60 && backWorst <= 80) return 9;
+      if (frontWorst <= 65 && backWorst <= 85) return 8.5;
+      if (frontWorst <= 70 && backWorst <= 90) return 8;
+      return 7;
+    };
+    const calcCgcCentering = (): number => {
+      if (frontWorst <= 50 && backWorst <= 55) return 10;
+      if (frontWorst <= 55 && backWorst <= 75) return 10;
+      if (frontWorst <= 60 && backWorst <= 80) return 9.5;
+      if (frontWorst <= 65 && backWorst <= 85) return 9;
+      if (frontWorst <= 70 && backWorst <= 90) return 8.5;
+      return 8;
+    };
 
     const prevResult = grading.result;
     const centeringNote = `Front: ${c.frontLeftRight}/${100 - c.frontLeftRight} LR, ${c.frontTopBottom}/${100 - c.frontTopBottom} TB. Back: ${c.backLeftRight}/${100 - c.backLeftRight} LR, ${c.backTopBottom}/${100 - c.backTopBottom} TB.`;
@@ -366,6 +381,8 @@ export default function ResultsScreen() {
     const psaCenteringGrade = calcPsaCentering();
     const bgsCenteringGrade = calcBgsCentering();
     const aceCenteringGrade = calcAceCentering();
+    const tagCenteringGrade = calcTagCentering();
+    const cgcCenteringGrade = calcCgcCentering();
 
     const psaNonCenteringMax = (() => {
       const minOther = Math.min(
@@ -400,6 +417,22 @@ export default function ResultsScreen() {
       Math.abs(curr - psaFinal) < Math.abs(prev - psaFinal) ? curr : prev
     );
 
+    const tagGrades = prevResult.tag ? [tagCenteringGrade, prevResult.tag.corners.grade, prevResult.tag.edges.grade, prevResult.tag.surface.grade] : [];
+    const tagOverall = tagGrades.length > 0 ? roundHalf(tagGrades.reduce((a, b) => a + b, 0) / 4) : 0;
+
+    const VALID_CGC = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
+    const cgcSubGrades = prevResult.cgc ? (() => {
+      const parseGrade = (s: string): number => {
+        const m = s.match(/(\d+\.?\d*)/);
+        return m ? parseFloat(m[1]) : 9;
+      };
+      return [cgcCenteringGrade, parseGrade(prevResult.cgc.corners), parseGrade(prevResult.cgc.edges), parseGrade(prevResult.cgc.surface)];
+    })() : [];
+    const cgcRawAvg = cgcSubGrades.length > 0 ? cgcSubGrades.reduce((a, b) => a + b, 0) / 4 : 0;
+    const cgcGrade = cgcSubGrades.length > 0 ? VALID_CGC.reduce((prev, curr) =>
+      Math.abs(curr - cgcRawAvg) < Math.abs(prev - cgcRawAvg) ? curr : prev
+    ) : prevResult.cgc?.grade ?? 0;
+
     const updatedResult: GradingResult = {
       ...prevResult,
       centering: newCentering,
@@ -419,6 +452,20 @@ export default function ResultsScreen() {
         centering: { grade: aceCenteringGrade, notes: centeringNote },
         overallGrade: aceOverall,
       },
+      ...(prevResult.tag ? {
+        tag: {
+          ...prevResult.tag,
+          centering: { grade: tagCenteringGrade, notes: centeringNote },
+          overallGrade: tagOverall,
+        },
+      } : {}),
+      ...(prevResult.cgc ? {
+        cgc: {
+          ...prevResult.cgc,
+          grade: cgcGrade,
+          centering: centeringNote,
+        },
+      } : {}),
     };
 
     const updatedGrading = { ...grading, result: updatedResult };
