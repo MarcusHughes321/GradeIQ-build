@@ -354,7 +354,7 @@ async function detectAndDraw(imagePath: string, outputPath: string): Promise<voi
     unionBottom = Math.max(unionBottom, varianceHint.bottomPct);
   }
 
-  const FINE = 600;
+  const FINE = 1000;
   const fsw = Math.max(40, Math.round(width <= FINE ? width : FINE * (width / Math.max(width, height))));
   const fsh = Math.max(40, Math.round(height <= FINE ? height : FINE * (height / Math.max(width, height))));
   const { data: finePixels } = await sharp(buffer).resize(fsw, fsh, { fit: "fill" }).greyscale().raw().toBuffer({ resolveWithObject: true });
