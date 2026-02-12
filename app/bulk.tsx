@@ -259,6 +259,7 @@ export default function BulkScreen() {
 
   const bulkPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cardImagesRef = useRef<Array<{ frontImage: string; backImage: string }>>([]);
+  const scheduledNotifRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -314,6 +315,23 @@ export default function BulkScreen() {
 
       setCurrentCardName(`Server is grading your cards...`);
 
+      if (Platform.OS !== "web") {
+        try {
+          const estimatedSeconds = Math.max(45, readyCards.length * 40);
+          scheduledNotifRef.current = await Notifications.scheduleNotificationAsync({
+            content: {
+              title: "Bulk Grading Complete",
+              body: `Your ${readyCards.length} cards should be ready! Tap to check.`,
+              sound: "default",
+            },
+            trigger: {
+              type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+              seconds: estimatedSeconds,
+            },
+          });
+        } catch {}
+      }
+
       bulkPollingRef.current = setInterval(async () => {
         try {
           const pollResp = await apiRequest("GET", `/api/grade-job/${jobId}`);
@@ -332,6 +350,11 @@ export default function BulkScreen() {
           if (data.status === "completed" && data.results) {
             if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
             bulkPollingRef.current = null;
+
+            if (scheduledNotifRef.current) {
+              try { await Notifications.cancelScheduledNotificationAsync(scheduledNotifRef.current); } catch {}
+              scheduledNotifRef.current = null;
+            }
 
             const savedIds: string[] = [];
             let failedCount = 0;
@@ -396,6 +419,10 @@ export default function BulkScreen() {
           } else if (data.status === "failed") {
             if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
             bulkPollingRef.current = null;
+            if (scheduledNotifRef.current) {
+              try { await Notifications.cancelScheduledNotificationAsync(scheduledNotifRef.current); } catch {}
+              scheduledNotifRef.current = null;
+            }
             setLoading(false);
             Alert.alert("Grading Failed", data.error || "There was an error grading your cards.");
             if (Platform.OS !== "web") {

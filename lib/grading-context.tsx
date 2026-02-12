@@ -30,6 +30,7 @@ interface GradingContextValue {
 const GradingContext = createContext<GradingContextValue | null>(null);
 
 const POLL_INTERVAL = 3000;
+const ESTIMATED_GRADE_SECONDS = 45;
 
 async function getBase64FromUri(uri: string): Promise<string> {
   const response = await fetch(uri);
@@ -57,7 +58,37 @@ async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
-async function sendLocalNotification(title: string, body: string) {
+async function scheduleGradingNotification(delaySeconds: number): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+
+  try {
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Grading Complete",
+        body: "Your card has been graded! Tap to see results.",
+        sound: "default",
+        data: { type: "grading_complete" },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: delaySeconds,
+      },
+    });
+    return id;
+  } catch (err) {
+    console.log("[notifications] Failed to schedule notification:", err);
+    return null;
+  }
+}
+
+async function cancelScheduledNotification(notifId: string | null) {
+  if (!notifId) return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(notifId);
+  } catch {}
+}
+
+async function sendImmediateNotification(title: string, body: string) {
   if (Platform.OS === "web") return;
 
   try {
@@ -71,7 +102,7 @@ async function sendLocalNotification(title: string, body: string) {
       trigger: null,
     });
   } catch (err) {
-    console.log("[notifications] Failed to send local notification:", err);
+    console.log("[notifications] Failed to send notification:", err);
   }
 }
 
@@ -90,6 +121,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
   const notificationsEnabled = useRef(false);
+  const scheduledNotifId = useRef<string | null>(null);
 
   useEffect(() => {
     requestNotificationPermission().then((granted) => {
@@ -111,6 +143,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
       if (data.status === "completed" && data.result) {
         stopPolling();
+
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = null;
 
         const result: GradingResult = data.result;
         if (recordUsageRef.current) {
@@ -142,7 +177,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
         if (notificationsEnabled.current) {
           const cardName = result.cardName || "Your card";
-          sendLocalNotification("Grading Complete", `${cardName} has been graded!`);
+          sendImmediateNotification("Grading Complete", `${cardName} has been graded!`);
         }
 
         setActiveJob(prev =>
@@ -153,12 +188,15 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       } else if (data.status === "failed") {
         stopPolling();
 
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = null;
+
         if (Platform.OS !== "web") {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
 
         if (notificationsEnabled.current) {
-          sendLocalNotification("Grading Failed", "There was an error grading your card. Please try again.");
+          sendImmediateNotification("Grading Failed", "There was an error grading your card. Please try again.");
         }
 
         setActiveJob(prev =>
@@ -210,6 +248,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           : prev
       );
 
+      if (notificationsEnabled.current) {
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = await scheduleGradingNotification(ESTIMATED_GRADE_SECONDS);
+      }
+
       stopPolling();
       pollingRef.current = setInterval(() => {
         pollJobStatus(serverJobId, localJobId, frontImage, backImage);
@@ -247,6 +290,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
   const dismissJob = useCallback(() => {
     stopPolling();
+    cancelScheduledNotification(scheduledNotifId.current);
+    scheduledNotifId.current = null;
     setActiveJob(null);
   }, [stopPolling]);
 
