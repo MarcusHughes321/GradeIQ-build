@@ -1,22 +1,22 @@
 const sharp = require('sharp');
 const path = require('path');
 
-async function makeIcon(inputFile, outputFile) {
+async function makeIcon(inputFile, outputFile, options = {}) {
   const size = 1024;
+  const fontSize = options.fontSize || 110;
+  const textY = options.textY || (size - 80);
+  
   const img = sharp(inputFile).resize(size, size);
   
   const textSvg = `
   <svg width="${size}" height="${size}">
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@800');
-    </style>
-    <text x="${size/2}" y="${size - 120}" 
-          font-family="Inter, Arial Black, sans-serif" 
+    <text x="${size/2}" y="${textY}" 
+          font-family="Arial Black, Impact, Helvetica, sans-serif" 
           font-weight="900" 
-          font-size="120" 
+          font-size="${fontSize}" 
           fill="white" 
           text-anchor="middle"
-          letter-spacing="-2">Grade<tspan fill="#FF3C31">.IQ</tspan></text>
+          letter-spacing="-3">Grade<tspan fill="#FF3C31">.IQ</tspan></text>
   </svg>`;
 
   await img
@@ -28,18 +28,19 @@ async function makeIcon(inputFile, outputFile) {
     .png()
     .toFile(outputFile);
   
-  console.log(`Created: ${outputFile}`);
+  console.log('Created:', outputFile);
 }
 
 async function main() {
   const base = '/home/runner/workspace/assets/images';
-  for (let i = 1; i <= 3; i++) {
-    const input = path.join(base, `icon-slab-${i}.png`);
-    const output = path.join(base, `icon-final-${i}.png`);
+  
+  for (let i = 1; i <= 2; i++) {
+    const input = path.join(base, `icon-slab-clean-${i}.png`);
+    const output = path.join(base, `icon-branded-${i}.png`);
     try {
-      await makeIcon(input, output);
+      await makeIcon(input, output, { fontSize: 120, textY: 920 });
     } catch(e) {
-      console.log(`Skipping ${i}: ${e.message}`);
+      console.log(`Skipping clean-${i}: ${e.message}`);
     }
   }
 }
