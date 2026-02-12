@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Platform, Linking } from
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import Colors from "@/constants/colors";
 
 export default function AboutScreen() {
@@ -99,6 +100,14 @@ export default function AboutScreen() {
           </Text>
 
           <View style={styles.creditSection}>
+            <View style={styles.marceusLogoWrap}>
+              <Image
+                source={require("@/assets/images/marceus-logo.jpeg")}
+                style={styles.marceusLogo}
+                contentFit="contain"
+              />
+            </View>
+
             <View style={styles.creditRow}>
               <View style={styles.creditIcon}>
                 <Ionicons name="eye" size={18} color={Colors.primary} />
@@ -282,6 +291,15 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 20,
     flex: 1,
+  },
+  marceusLogoWrap: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  marceusLogo: {
+    width: 120,
+    height: 80,
+    borderRadius: 12,
   },
   creditSection: {
     marginTop: 14,
