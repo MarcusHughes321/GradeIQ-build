@@ -108,6 +108,8 @@ export default function AboutScreen() {
               />
             </View>
 
+            <View style={styles.logoDivider} />
+
             <View style={styles.creditRow}>
               <View style={styles.creditIcon}>
                 <Ionicons name="eye" size={18} color={Colors.primary} />
@@ -294,7 +296,12 @@ const styles = StyleSheet.create({
   },
   marceusLogoWrap: {
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 0,
+  },
+  logoDivider: {
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    marginVertical: 14,
   },
   marceusLogo: {
     width: 120,
