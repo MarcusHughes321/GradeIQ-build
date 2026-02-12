@@ -317,7 +317,7 @@ export default function BulkScreen() {
 
       if (Platform.OS !== "web") {
         try {
-          const estimatedSeconds = Math.max(45, readyCards.length * 40);
+          const estimatedSeconds = Math.max(75, readyCards.length * 70);
           scheduledNotifRef.current = await Notifications.scheduleNotificationAsync({
             content: {
               title: "Bulk Grading Complete",

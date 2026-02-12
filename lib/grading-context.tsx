@@ -30,7 +30,7 @@ interface GradingContextValue {
 const GradingContext = createContext<GradingContextValue | null>(null);
 
 const POLL_INTERVAL = 3000;
-const ESTIMATED_GRADE_SECONDS = 45;
+const ESTIMATED_GRADE_SECONDS = 75;
 
 async function getBase64FromUri(uri: string): Promise<string> {
   const response = await fetch(uri);
@@ -65,7 +65,7 @@ async function scheduleGradingNotification(delaySeconds: number): Promise<string
     const id = await Notifications.scheduleNotificationAsync({
       content: {
         title: "Grading Complete",
-        body: "Your card has been graded! Tap to see results.",
+        body: "Your card should be ready! Tap to check results.",
         sound: "default",
         data: { type: "grading_complete" },
       },
