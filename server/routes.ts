@@ -2178,9 +2178,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   async function sendPushNotification(pushToken: string, title: string, body: string) {
     try {
-      await fetch("https://exp.host/--/api/v2/push/send", {
+      console.log(`[push] Sending notification to token: ${pushToken.substring(0, 20)}...`);
+      const resp = await fetch("https://exp.host/--/api/v2/push/send", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
         body: JSON.stringify({
           to: pushToken,
           sound: "default",
@@ -2189,6 +2193,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           data: { type: "grading_complete" },
         }),
       });
+      const respData = await resp.json();
+      console.log(`[push] Expo push response:`, JSON.stringify(respData));
     } catch (err) {
       console.error("[push] Failed to send notification:", err);
     }
@@ -2999,6 +3005,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       }
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+      console.log(`[grade-job] Creating job ${jobId}, pushToken: ${pushToken ? pushToken.substring(0, 20) + "..." : "none"}`);
       const job: GradingJob = {
         id: jobId,
         status: "processing",

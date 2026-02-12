@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { Platform, AppState } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult, SavedGrading } from "@/lib/types";
@@ -57,8 +58,9 @@ async function registerForPushNotifications(): Promise<string | null> {
 
     if (finalStatus !== "granted") return null;
 
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: undefined,
+      projectId: projectId ?? undefined,
     });
     return tokenData.data;
   } catch (err) {
