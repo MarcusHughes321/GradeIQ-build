@@ -18,6 +18,7 @@ import { getSettings } from "@/lib/settings";
 SplashScreen.preventAutoHideAsync();
 
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
+const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
 
 function RootLayoutNav() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
@@ -25,10 +26,13 @@ function RootLayoutNav() {
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem(ONBOARDING_KEY),
+      AsyncStorage.getItem(DISCLAIMER_KEY),
       getSettings(),
-    ]).then(([onboardingVal, settings]) => {
+    ]).then(([onboardingVal, disclaimerVal, settings]) => {
       if (onboardingVal !== "true") {
         router.replace("/onboarding");
+      } else if (disclaimerVal !== "true") {
+        router.replace("/disclaimer");
       } else if (settings.enabledCompanies.length === 0) {
         router.replace("/company-select");
       }
@@ -51,6 +55,8 @@ function RootLayoutNav() {
       <Stack.Screen name="bulk" />
       <Stack.Screen name="bulk-results" />
       <Stack.Screen name="paywall" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+      <Stack.Screen name="terms" />
+      <Stack.Screen name="disclaimer" options={{ animation: "fade" }} />
     </Stack>
   );
 }

@@ -56,6 +56,23 @@ export default function SettingsScreen() {
           At least one grading company must remain enabled. More companies coming soon.
         </Text>
 
+        <View style={[styles.section, { marginTop: 32 }]}>
+          <Text style={styles.sectionTitle}>About</Text>
+        </View>
+
+        <View style={styles.companyList}>
+          <Pressable
+            onPress={() => router.push("/terms")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={Colors.primary} />
+              <Text style={styles.menuRowLabel}>Terms & Disclaimer</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+        </View>
+
         {isGateEnabled && (
           <>
             <View style={[styles.section, { marginTop: 32 }]}>
@@ -300,5 +317,22 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: "#10B981",
+  },
+  menuRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  menuRowLeft: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+  },
+  menuRowLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
+    color: Colors.text,
   },
 });
