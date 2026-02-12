@@ -1063,7 +1063,7 @@ function detectBoundsAtResolution(
   yConstraint?: { minPct: number; maxPct: number }
 ): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; angleDeg: number; confidence: number } {
   const CARD_WH_RATIO = 2.5 / 3.5;
-  const RATIO_TOLERANCE = 0.15;
+  const RATIO_TOLERANCE = 0.08;
 
   const getPixel = (x: number, y: number) => {
     if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
@@ -1447,7 +1447,126 @@ function detectBoundsAtResolution(
   };
 }
 
-async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; angleDeg?: number; confidence?: number }> {
+function detectInnerBorders(
+  pixels: Buffer, sw: number, sh: number,
+  outerLeft: number, outerRight: number, outerTop: number, outerBottom: number
+): { innerLeftPct: number; innerTopPct: number; innerRightPct: number; innerBottomPct: number } | null {
+  const cardW = outerRight - outerLeft;
+  const cardH = outerBottom - outerTop;
+  if (cardW < 10 || cardH < 10) return null;
+
+  const getPixel = (x: number, y: number) => {
+    if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+    return pixels[y * sw + x];
+  };
+
+  const sobelX = (x: number, y: number): number => (
+    -getPixel(x - 1, y - 1) + getPixel(x + 1, y - 1) +
+    -2 * getPixel(x - 1, y) + 2 * getPixel(x + 1, y) +
+    -getPixel(x - 1, y + 1) + getPixel(x + 1, y + 1)
+  );
+
+  const sobelY = (x: number, y: number): number => (
+    -getPixel(x - 1, y - 1) - 2 * getPixel(x, y - 1) - getPixel(x + 1, y - 1) +
+    getPixel(x - 1, y + 1) + 2 * getPixel(x, y + 1) + getPixel(x + 1, y + 1)
+  );
+
+  const scanMargin = Math.round(cardW * 0.03);
+  const innerSearchMax = Math.round(cardW * 0.15);
+
+  const leftSearchStart = outerLeft + scanMargin;
+  const leftSearchEnd = outerLeft + innerSearchMax;
+  const rightSearchStart = outerRight - innerSearchMax;
+  const rightSearchEnd = outerRight - scanMargin;
+
+  const topSearchStart = outerTop + scanMargin;
+  const topSearchEnd = outerTop + Math.round(cardH * 0.15);
+  const bottomSearchStart = outerBottom - Math.round(cardH * 0.15);
+  const bottomSearchEnd = outerBottom - scanMargin;
+
+  const yScanStart = outerTop + Math.round(cardH * 0.15);
+  const yScanEnd = outerBottom - Math.round(cardH * 0.15);
+  const xScanStart = outerLeft + Math.round(cardW * 0.15);
+  const xScanEnd = outerRight - Math.round(cardW * 0.15);
+
+  const findInnerEdge = (
+    searchStart: number, searchEnd: number,
+    isVertical: boolean, crossStart: number, crossEnd: number
+  ): number | null => {
+    const profile = new Float64Array(Math.abs(searchEnd - searchStart) + 1);
+    const step = searchStart <= searchEnd ? 1 : -1;
+    const crossStep = Math.max(1, Math.round(Math.abs(crossEnd - crossStart) / 60));
+
+    let idx = 0;
+    for (let p = searchStart; step > 0 ? p <= searchEnd : p >= searchEnd; p += step) {
+      let sum = 0;
+      for (let c = crossStart; c < crossEnd; c += crossStep) {
+        if (isVertical) {
+          const gx = Math.abs(sobelX(p, c));
+          const gy = Math.abs(sobelY(p, c));
+          if (gx > gy * 1.0 && gx > 6) sum += gx;
+        } else {
+          const gy = Math.abs(sobelY(c, p));
+          const gx = Math.abs(sobelX(c, p));
+          if (gy > gx * 1.0 && gy > 6) sum += gy;
+        }
+      }
+      profile[idx] = sum;
+      idx++;
+    }
+
+    let bestIdx = -1;
+    let bestVal = 0;
+    for (let i = 1; i < idx - 1; i++) {
+      if (profile[i] > bestVal && profile[i] >= profile[i - 1] && profile[i] >= profile[i + 1]) {
+        bestVal = profile[i];
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx < 0 || bestVal < 1) return null;
+
+    return searchStart + bestIdx * step;
+  };
+
+  const innerLeft = findInnerEdge(leftSearchStart, leftSearchEnd, true, yScanStart, yScanEnd);
+  const innerRight = findInnerEdge(rightSearchEnd, rightSearchStart, true, yScanStart, yScanEnd);
+  const innerTop = findInnerEdge(topSearchStart, topSearchEnd, false, xScanStart, xScanEnd);
+  const innerBottom = findInnerEdge(bottomSearchEnd, bottomSearchStart, false, xScanStart, xScanEnd);
+
+  if (innerLeft === null && innerRight === null && innerTop === null && innerBottom === null) {
+    return null;
+  }
+
+  const defaultBorderH = cardW * 0.05;
+  const defaultBorderV = cardH * 0.04;
+
+  const iL = innerLeft ?? Math.round(outerLeft + defaultBorderH);
+  const iR = innerRight ?? Math.round(outerRight - defaultBorderH);
+  const iT = innerTop ?? Math.round(outerTop + defaultBorderV);
+  const iB = innerBottom ?? Math.round(outerBottom - defaultBorderV);
+
+  if (iL >= iR || iT >= iB) return null;
+  if (iL <= outerLeft || iR >= outerRight || iT <= outerTop || iB >= outerBottom) return null;
+
+  const leftBorder = (iL - outerLeft) / cardW;
+  const rightBorder = (outerRight - iR) / cardW;
+  const topBorder = (iT - outerTop) / cardH;
+  const bottomBorder = (outerBottom - iB) / cardH;
+  if (leftBorder > 0.2 || rightBorder > 0.2 || topBorder > 0.2 || bottomBorder > 0.2) return null;
+  if (leftBorder < 0.01 || rightBorder < 0.01 || topBorder < 0.01 || bottomBorder < 0.01) return null;
+
+  console.log(`[inner-borders] L=${((iL / sw) * 100).toFixed(1)}% R=${((iR / sw) * 100).toFixed(1)}% T=${((iT / sh) * 100).toFixed(1)}% B=${((iB / sh) * 100).toFixed(1)}% | borders: L=${(leftBorder * 100).toFixed(1)}% R=${(rightBorder * 100).toFixed(1)}% T=${(topBorder * 100).toFixed(1)}% B=${(bottomBorder * 100).toFixed(1)}%`);
+
+  return {
+    innerLeftPct: (iL / sw) * 100,
+    innerTopPct: (iT / sh) * 100,
+    innerRightPct: (iR / sw) * 100,
+    innerBottomPct: (iB / sh) * 100,
+  };
+}
+
+async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; angleDeg?: number; confidence?: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number }> {
   const cacheKey = dataUri.slice(dataUri.length - 64);
   const cached = boundsCache.get(cacheKey);
   if (cached) return cached;
@@ -1498,7 +1617,17 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98, angleDeg: 0, confidence: 0 };
     }
 
-    const result = {
+    const outerLeftPx = Math.round(fine.leftPct / 100 * fsw);
+    const outerRightPx = Math.round(fine.rightPct / 100 * fsw);
+    const outerTopPx = Math.round(fine.topPct / 100 * fsh);
+    const outerBottomPx = Math.round(fine.bottomPct / 100 * fsh);
+
+    const innerBorders = detectInnerBorders(
+      finePixels as any, fsw, fsh,
+      outerLeftPx, outerRightPx, outerTopPx, outerBottomPx
+    );
+
+    const result: any = {
       leftPercent: parseFloat(clamp(leftPercent, 0, 45).toFixed(1)),
       topPercent: parseFloat(clamp(topPercent, 0, 45).toFixed(1)),
       rightPercent: parseFloat(clamp(rightPercent, 55, 100).toFixed(1)),
@@ -1506,6 +1635,14 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       angleDeg,
       confidence,
     };
+
+    if (innerBorders) {
+      result.innerLeftPercent = parseFloat(innerBorders.innerLeftPct.toFixed(1));
+      result.innerTopPercent = parseFloat(innerBorders.innerTopPct.toFixed(1));
+      result.innerRightPercent = parseFloat(innerBorders.innerRightPct.toFixed(1));
+      result.innerBottomPercent = parseFloat(innerBorders.innerBottomPct.toFixed(1));
+    }
+
     boundsCache.set(cacheKey, result);
     if (boundsCache.size > 100) {
       const firstKey = boundsCache.keys().next().value;
@@ -1520,12 +1657,17 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
 
 function enforceCardBounds(bounds: any): any {
   if (!bounds) return { leftPercent: 4, topPercent: 3, rightPercent: 96, bottomPercent: 97 };
-  return {
+  const result: any = {
     leftPercent: parseFloat(clamp(bounds.leftPercent ?? 5, 1, 45).toFixed(1)),
     topPercent: parseFloat(clamp(bounds.topPercent ?? 3, 1, 45).toFixed(1)),
     rightPercent: parseFloat(clamp(bounds.rightPercent ?? 95, 55, 99).toFixed(1)),
     bottomPercent: parseFloat(clamp(bounds.bottomPercent ?? 97, 55, 99).toFixed(1)),
   };
+  if (bounds.innerLeftPercent != null) result.innerLeftPercent = bounds.innerLeftPercent;
+  if (bounds.innerTopPercent != null) result.innerTopPercent = bounds.innerTopPercent;
+  if (bounds.innerRightPercent != null) result.innerRightPercent = bounds.innerRightPercent;
+  if (bounds.innerBottomPercent != null) result.innerBottomPercent = bounds.innerBottomPercent;
+  return result;
 }
 
 function computeCenteringGrades(centering: any) {

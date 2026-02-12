@@ -78,22 +78,57 @@ function initPositions(lr: number, tb: number, imageBounds: ImageBounds, cardBou
   const cardW = outerRight - outerLeft;
   const cardH = outerBottom - outerTop;
 
-  const totalBorderH = cardW * 0.10;
-  const totalBorderV = cardH * 0.07;
+  const hasDetectedInner = cb.innerLeftPercent != null && cb.innerRightPercent != null &&
+    cb.innerTopPercent != null && cb.innerBottomPercent != null;
 
-  const leftBorder = totalBorderH * (lr / 100);
-  const rightBorder = totalBorderH * ((100 - lr) / 100);
-  const topBorder = totalBorderV * (tb / 100);
-  const bottomBorder = totalBorderV * ((100 - tb) / 100);
+  let innerLeft: number, innerRight: number, innerTop: number, innerBottom: number;
+
+  if (hasDetectedInner) {
+    const detectedInnerL = imageBounds.x + imageBounds.w * (cb.innerLeftPercent! / 100);
+    const detectedInnerR = imageBounds.x + imageBounds.w * (cb.innerRightPercent! / 100);
+    const detectedInnerT = imageBounds.y + imageBounds.h * (cb.innerTopPercent! / 100);
+    const detectedInnerB = imageBounds.y + imageBounds.h * (cb.innerBottomPercent! / 100);
+
+    const detectedLeftBorder = detectedInnerL - outerLeft;
+    const detectedRightBorder = outerRight - detectedInnerR;
+    const detectedTopBorder = detectedInnerT - outerTop;
+    const detectedBottomBorder = outerBottom - detectedInnerB;
+
+    const totalBorderH = detectedLeftBorder + detectedRightBorder;
+    const totalBorderV = detectedTopBorder + detectedBottomBorder;
+
+    const leftBorder = totalBorderH * (lr / 100);
+    const rightBorder = totalBorderH * ((100 - lr) / 100);
+    const topBorder = totalBorderV * (tb / 100);
+    const bottomBorder = totalBorderV * ((100 - tb) / 100);
+
+    innerLeft = outerLeft + leftBorder;
+    innerRight = outerRight - rightBorder;
+    innerTop = outerTop + topBorder;
+    innerBottom = outerBottom - bottomBorder;
+  } else {
+    const totalBorderH = cardW * 0.10;
+    const totalBorderV = cardH * 0.07;
+
+    const leftBorder = totalBorderH * (lr / 100);
+    const rightBorder = totalBorderH * ((100 - lr) / 100);
+    const topBorder = totalBorderV * (tb / 100);
+    const bottomBorder = totalBorderV * ((100 - tb) / 100);
+
+    innerLeft = outerLeft + leftBorder;
+    innerRight = outerRight - rightBorder;
+    innerTop = outerTop + topBorder;
+    innerBottom = outerBottom - bottomBorder;
+  }
 
   return {
     outerLeft,
-    innerLeft: outerLeft + leftBorder,
-    innerRight: outerRight - rightBorder,
+    innerLeft,
+    innerRight,
     outerRight,
     outerTop,
-    innerTop: outerTop + topBorder,
-    innerBottom: outerBottom - bottomBorder,
+    innerTop,
+    innerBottom,
     outerBottom,
   };
 }

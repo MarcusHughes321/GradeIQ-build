@@ -15,6 +15,10 @@ export interface CardBounds {
   topPercent: number;
   rightPercent: number;
   bottomPercent: number;
+  innerLeftPercent?: number;
+  innerTopPercent?: number;
+  innerRightPercent?: number;
+  innerBottomPercent?: number;
 }
 
 export interface PSAGrade {
