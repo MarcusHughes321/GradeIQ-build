@@ -82,6 +82,15 @@ export interface CardValueEstimate {
   source: string;
 }
 
+export interface DefectMarker {
+  side: "front" | "back";
+  x: number;
+  y: number;
+  type: "corner" | "edge" | "surface";
+  severity: "minor" | "moderate" | "major";
+  description: string;
+}
+
 export interface GradingResult {
   cardName: string;
   setName?: string;
@@ -91,6 +100,7 @@ export interface GradingResult {
   centering: CenteringMeasurement;
   frontCardBounds?: CardBounds;
   backCardBounds?: CardBounds;
+  defects?: DefectMarker[];
   psa: PSAGrade;
   beckett: BeckettGrade;
   ace: AceGrade;

@@ -481,6 +481,17 @@ Analyze the card images carefully. Look for:
 3. Edges - look for whitening, chipping, or rough cuts along all edges. Factory-level minor edge variation is acceptable for high grades.
 4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects. Minor factory print texture or very faint print lines common to modern Pokemon cards should not lower surface grades below 9.
 
+DEFECT MAPPING — For any flaw you identify that causes a sub-grade to drop below 10, report its approximate location on the card image as a "defect" entry. Each defect should include:
+- "side": "front" or "back" — which side of the card the defect is on
+- "x": 0-100 — horizontal position as a percentage of card width (0=left edge, 100=right edge)
+- "y": 0-100 — vertical position as a percentage of card height (0=top edge, 100=bottom edge)
+- "type": "corner", "edge", or "surface"
+- "severity": "minor" (9→8 level), "moderate" (8→7 level), or "major" (below 7)
+- "description": Brief description of the specific flaw (e.g., "Slight whitening on corner", "Minor edge chipping", "Light surface scratch")
+Corner positions: top-left≈(5,5), top-right≈(95,5), bottom-left≈(5,95), bottom-right≈(95,95).
+Edge positions: top edge≈y:2, bottom edge≈y:98, left edge≈x:2, right edge≈x:98.
+Only report defects for REAL flaws that lower grades — do NOT report defects for sub-grades that remain at 10. If a card is perfect (all 10s), the defects array should be empty.
+
 LANGUAGE HANDLING:
 - Pokemon cards exist in MANY languages: English, Japanese, Korean, Chinese (Traditional & Simplified), French, German, Spanish, Italian, Portuguese, etc.
 - You MUST identify the card regardless of what language it is printed in.
@@ -544,6 +555,10 @@ Respond ONLY with valid JSON in this exact format:
   "setName": "ENGLISH name of the set derived from the set code (e.g. PFLen = 'Phantasmal Flames', s8b = 'VMAX Climax')",
   "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
+  "defects": [
+    {"side": "front", "x": 95, "y": 5, "type": "corner", "severity": "minor", "description": "Slight whitening on top-right corner"},
+    {"side": "back", "x": 50, "y": 50, "type": "surface", "severity": "minor", "description": "Faint surface scratch across center"}
+  ],
   "centering": {
     "frontLeftRight": 52,
     "frontTopBottom": 54,
