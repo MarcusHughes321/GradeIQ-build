@@ -23,6 +23,7 @@ import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
+import { useGrading } from "@/lib/grading-context";
 
 const ANALYSIS_STAGES = [
   { label: "Preparing images", icon: "image-outline" as const, duration: 2000 },
@@ -76,14 +77,16 @@ export default function GradeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setFrontImage(null);
-      setBackImage(null);
-      setLoading(false);
-      setCropping(null);
-      setCameraOpen(null);
-      setAnalysisStage(0);
-      progressAnim.setValue(0);
-    }, [])
+      if (!activeJob || activeJob.status !== "processing") {
+        setFrontImage(null);
+        setBackImage(null);
+        setLoading(false);
+        setCropping(null);
+        setCameraOpen(null);
+        setAnalysisStage(0);
+        progressAnim.setValue(0);
+      }
+    }, [activeJob?.status])
   );
 
   useEffect(() => {
@@ -240,6 +243,20 @@ export default function GradeScreen() {
   };
 
   const { canGrade, recordUsage, isGateEnabled } = useSubscription();
+  const { submitGrading, activeJob } = useGrading();
+
+  useEffect(() => {
+    if (activeJob?.status === "completed" && activeJob.savedGrading && loading) {
+      setLoading(false);
+      router.replace({
+        pathname: "/results",
+        params: { gradingId: activeJob.savedGrading.id },
+      });
+    } else if (activeJob?.status === "failed" && loading) {
+      setLoading(false);
+      Alert.alert("Grading Failed", "There was an error analyzing your card. Please try again.");
+    }
+  }, [activeJob?.status]);
 
   const handleGrade = async () => {
     if (!frontImage || !backImage) {
@@ -252,61 +269,12 @@ export default function GradeScreen() {
       return;
     }
 
-    setLoading(true);
-
-    try {
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-
-      const frontBase64 = await getBase64FromUri(frontImage);
-      const backBase64 = await getBase64FromUri(backImage);
-
-      const response = await apiRequest("POST", "/api/grade-card", {
-        frontImage: frontBase64,
-        backImage: backBase64,
-      });
-
-      const result: GradingResult = await response.json();
-
-      await recordUsage(1);
-
-      const saved = await saveGrading(frontImage, backImage, result);
-
-      (async () => {
-        try {
-          const resp = await apiRequest("POST", "/api/card-value", {
-            cardName: result.cardName,
-            setName: result.setName || result.setInfo,
-            setNumber: result.setNumber,
-            psaGrade: result.psa.grade,
-            bgsGrade: result.beckett.overallGrade,
-            aceGrade: result.ace.overallGrade,
-            tagGrade: result.tag?.overallGrade,
-            cgcGrade: result.cgc?.grade,
-          });
-          const data = await resp.json();
-          await updateGrading(saved.id, { result: { ...result, cardValue: data } });
-        } catch {}
-      })();
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-
-      router.replace({
-        pathname: "/results",
-        params: { gradingId: saved.id },
-      });
-    } catch (error: any) {
-      console.error("Grading error:", error);
-      Alert.alert("Grading Failed", "There was an error analyzing your card. Please try again.");
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
-    } finally {
-      setLoading(false);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
+
+    setLoading(true);
+    submitGrading(frontImage, backImage, recordUsage);
   };
 
   const canSubmit = !!frontImage && !!backImage && !loading;
@@ -372,6 +340,19 @@ export default function GradeScreen() {
           <Text style={styles.analysisWait}>
             This usually takes 15-30 seconds
           </Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.continueButton, { opacity: pressed ? 0.7 : 1 }]}
+            onPress={() => {
+              setLoading(false);
+              setFrontImage(null);
+              setBackImage(null);
+              router.navigate("/(tabs)");
+            }}
+          >
+            <Ionicons name="arrow-back" size={16} color={Colors.text} />
+            <Text style={styles.continueButtonText}>Continue browsing</Text>
+          </Pressable>
         </View>
       ) : (
         <>
@@ -622,5 +603,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     marginTop: 16,
+  },
+  continueButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  continueButtonText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.text,
   },
 });
