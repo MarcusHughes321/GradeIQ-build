@@ -318,7 +318,8 @@ function detectBoundsAtResolution(
           const avgExtVar = (topExtVar + botExtVar + leftExtVar + rightExtVar) / 4;
           const exteriorUniformity = 1 / (1 + avgExtVar / 15);
 
-          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * proximityPenalty;
+          const rotatedPenalty = targetRatio === CARD_WH_RATIO ? 1.0 : 0.85;
+          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * proximityPenalty * rotatedPenalty;
 
           const dbg = `rat=${ratioScore.toFixed(2)} sz=${sizeScore.toFixed(2)} edge=${edgeNorm.toFixed(2)} con=${normalizedContrast.toFixed(2)} minC=${minContrastScore.toFixed(2)} ext=${exteriorUniformity.toFixed(2)} prox=${proximityPenalty.toFixed(2)}`;
           const cand: RectCandidate = { left: lp.pos, right: rp.pos, top: tp.pos, bottom: botPos, score: totalScore, debug: dbg };
@@ -371,7 +372,7 @@ const EXPECTED_BOUNDS: Record<string, { left: [number, number]; top: [number, nu
   "IMG_6641": { left: [22, 32], top: [26, 34], right: [72, 82], bottom: [76, 84] },
   "IMG_6650": { left: [14, 24], top: [14, 24], right: [75, 85], bottom: [78, 88] },
   "IMG_6651": { left: [12, 24], top: [10, 22], right: [75, 88], bottom: [78, 90] },
-  "IMG_6652": { left: [24, 36], top: [20, 30], right: [58, 70], bottom: [68, 80] },
+  "IMG_6652": { left: [22, 32], top: [22, 30], right: [73, 82], bottom: [71, 80] },
   "IMG_6653": { left: [24, 38], top: [22, 32], right: [62, 76], bottom: [72, 82] },
 };
 

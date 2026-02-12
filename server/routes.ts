@@ -1435,7 +1435,8 @@ function detectBoundsAtResolution(
           const avgExtVar = (topExtVar + botExtVar + leftExtVar + rightExtVar) / 4;
           const exteriorUniformity = 1 / (1 + avgExtVar / 15);
 
-          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * edgeProximityPenalty;
+          const rotatedPenalty = targetRatio === CARD_WH_RATIO ? 1.0 : 0.85;
+          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * edgeProximityPenalty * rotatedPenalty;
 
           if (totalScore > best.score) {
             best = {
