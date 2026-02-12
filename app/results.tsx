@@ -781,6 +781,7 @@ export default function ResultsScreen() {
         <CenteringCard
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
           onOpenTool={() => setCenteringToolVisible(true)}
+          enabledCompanies={enabledCompanies}
         />
 
         {enabledCompanies.includes("PSA") && <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />}

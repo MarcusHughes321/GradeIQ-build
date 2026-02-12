@@ -8,6 +8,7 @@ import type { CenteringMeasurement } from "@/lib/types";
 interface CenteringCardProps {
   centering: CenteringMeasurement;
   onOpenTool: () => void;
+  enabledCompanies?: string[];
 }
 
 function formatRatio(value: number): string {
@@ -30,10 +31,12 @@ interface CenteringStandard {
   color: string;
 }
 
-const STANDARDS: CenteringStandard[] = [
+const ALL_STANDARDS: CenteringStandard[] = [
   { company: "PSA", front10: 55, back10: 75, color: Colors.cardPSA },
   { company: "BGS", front10: 50, back10: 50, color: Colors.cardBeckett },
   { company: "Ace", front10: 60, back10: 60, color: Colors.cardAce },
+  { company: "TAG", front10: 55, back10: 75, color: Colors.cardTAG },
+  { company: "CGC", front10: 55, back10: 75, color: Colors.cardCGC },
 ];
 
 function getCenteringGradeForCompany(
@@ -60,6 +63,21 @@ function getCenteringGradeForCompany(
     if (frontWorst <= 65 && backWorst <= 65) return { grade: 8.5, passes10: false };
     if (frontWorst <= 70 && backWorst <= 70) return { grade: 8, passes10: false };
     return { grade: 7, passes10: false };
+  }
+  if (standard.company === "TAG") {
+    if (frontWorst <= 55 && backWorst <= 75) return { grade: 10, passes10: true };
+    if (frontWorst <= 60 && backWorst <= 80) return { grade: 9, passes10: false };
+    if (frontWorst <= 65 && backWorst <= 85) return { grade: 8.5, passes10: false };
+    if (frontWorst <= 70 && backWorst <= 90) return { grade: 8, passes10: false };
+    return { grade: 7, passes10: false };
+  }
+  if (standard.company === "CGC") {
+    if (frontWorst <= 50 && backWorst <= 55) return { grade: 10, passes10: true };
+    if (frontWorst <= 55 && backWorst <= 75) return { grade: 10, passes10: true };
+    if (frontWorst <= 60 && backWorst <= 80) return { grade: 9.5, passes10: false };
+    if (frontWorst <= 65 && backWorst <= 85) return { grade: 9, passes10: false };
+    if (frontWorst <= 70 && backWorst <= 90) return { grade: 8.5, passes10: false };
+    return { grade: 8, passes10: false };
   }
   if (frontWorst <= 60 && backWorst <= 60) return { grade: 10, passes10: true };
   if (frontWorst <= 65 && backWorst <= 65) return { grade: 9, passes10: false };
@@ -95,8 +113,23 @@ function RatioDisplay({ label, lr, tb }: RatioDisplayProps) {
   );
 }
 
-export default function CenteringCard({ centering, onOpenTool }: CenteringCardProps) {
+const COMPANY_MAP: Record<string, string> = {
+  PSA: "PSA",
+  Beckett: "BGS",
+  Ace: "Ace",
+  TAG: "TAG",
+  CGC: "CGC",
+};
+
+export default function CenteringCard({ centering, onOpenTool, enabledCompanies }: CenteringCardProps) {
   const c = centering;
+
+  const activeStandards = enabledCompanies
+    ? ALL_STANDARDS.filter((s) => {
+        const mapped = Object.entries(COMPANY_MAP).find(([, v]) => v === s.company);
+        return mapped ? enabledCompanies.includes(mapped[0]) : true;
+      })
+    : ALL_STANDARDS.slice(0, 3);
 
   return (
     <View style={styles.card}>
@@ -122,7 +155,7 @@ export default function CenteringCard({ centering, onOpenTool }: CenteringCardPr
       <View style={styles.divider} />
 
       <View style={styles.gradesContainer}>
-        {STANDARDS.map((standard) => {
+        {activeStandards.map((standard) => {
           const result = getCenteringGradeForCompany(
             c.frontLeftRight,
             c.frontTopBottom,
