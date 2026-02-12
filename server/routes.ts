@@ -1632,8 +1632,8 @@ function detectBoundsAtResolution(
     crossStart: number, crossEnd: number,
     searchRad: number
   ): number => {
-    const numSamples = 25;
-    const outerBand = Math.max(3, Math.round(searchRad * 0.4));
+    const numSamples = 40;
+    const outerBand = Math.max(4, Math.round(searchRad * 0.5));
     const refinedPositions: number[] = [];
     const dim = isVert ? sw : sh;
     for (let i = 0; i < numSamples; i++) {
@@ -1669,8 +1669,8 @@ function detectBoundsAtResolution(
       refinedPositions.push(bestPos);
     }
     refinedPositions.sort((a, b) => a - b);
-    const rq1 = Math.floor(refinedPositions.length * 0.25);
-    const rq3 = Math.floor(refinedPositions.length * 0.75);
+    const rq1 = Math.floor(refinedPositions.length * 0.3);
+    const rq3 = Math.floor(refinedPositions.length * 0.7);
     const iqrPos = refinedPositions.slice(rq1, rq3 + 1);
     return iqrPos[Math.floor(iqrPos.length / 2)];
   };
