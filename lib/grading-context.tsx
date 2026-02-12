@@ -56,15 +56,29 @@ async function registerForPushNotifications(): Promise<string | null> {
       finalStatus = status;
     }
 
-    if (finalStatus !== "granted") return null;
+    if (finalStatus !== "granted") {
+      console.log("[push] Permission not granted:", finalStatus);
+      return null;
+    }
 
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: projectId ?? undefined,
-    });
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      (Constants as any).easConfig?.projectId ??
+      undefined;
+
+    console.log("[push] Requesting push token, projectId:", projectId ?? "none (Expo Go default)");
+
+    let tokenData;
+    if (projectId) {
+      tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    } else {
+      tokenData = await Notifications.getExpoPushTokenAsync();
+    }
+
+    console.log("[push] Got push token:", tokenData.data?.substring(0, 25) + "...");
     return tokenData.data;
   } catch (err) {
-    console.log("Push notification setup skipped:", err);
+    console.log("[push] Push notification setup failed:", err);
     return null;
   }
 }

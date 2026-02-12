@@ -3073,6 +3073,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       }
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+      console.log(`[bulk-grade-job] Creating job ${jobId} for ${cards.length} cards, pushToken: ${pushToken ? pushToken.substring(0, 20) + "..." : "none"}`);
       const job: GradingJob = {
         id: jobId,
         status: "processing",
