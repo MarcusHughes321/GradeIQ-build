@@ -17,6 +17,7 @@ import Colors from "@/constants/colors";
 
 const GUIDE_FRAME_W = 280;
 const GUIDE_FRAME_H = 392;
+const CROP_PADDING = 20;
 
 interface CardCameraProps {
   side: "front" | "back";
@@ -115,8 +116,10 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
     try {
       const { width: screenW, height: screenH } = Dimensions.get("window");
 
-      const frameX = (screenW - GUIDE_FRAME_W) / 2;
-      const frameY = (screenH - GUIDE_FRAME_H) / 2;
+      const paddedW = GUIDE_FRAME_W + CROP_PADDING * 2;
+      const paddedH = GUIDE_FRAME_H + CROP_PADDING * 2;
+      const frameX = (screenW - paddedW) / 2;
+      const frameY = (screenH - paddedH) / 2;
 
       const screenAspect = screenW / screenH;
       const photoAspect = photoW / photoH;
@@ -134,8 +137,8 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
 
       const cropX = Math.max(0, Math.round(offsetX + frameX * scale));
       const cropY = Math.max(0, Math.round(offsetY + frameY * scale));
-      const cropW = Math.min(Math.round(GUIDE_FRAME_W * scale), photoW - cropX);
-      const cropH = Math.min(Math.round(GUIDE_FRAME_H * scale), photoH - cropY);
+      const cropW = Math.min(Math.round(paddedW * scale), photoW - cropX);
+      const cropH = Math.min(Math.round(paddedH * scale), photoH - cropY);
 
       const result = await ImageManipulator.manipulateAsync(
         uri,

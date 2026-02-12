@@ -59,16 +59,18 @@ export default function GradeScreen() {
 
   const { canGrade, recordUsage, isGateEnabled } = useSubscription();
   const { submitGrading, activeJob } = useGrading();
-  const parentNav = useNavigation().getParent();
+  const navigation = useNavigation();
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
   useEffect(() => {
     if (cameraOpen) {
-      parentNav?.setOptions({ tabBarStyle: { display: "none" as const } });
+      navigation.setOptions({ tabBarStyle: { display: "none" as const } });
+      navigation.getParent()?.setOptions({ tabBarStyle: { display: "none" as const } });
     } else {
-      parentNav?.setOptions({ tabBarStyle: TAB_BAR_STYLE });
+      navigation.setOptions({ tabBarStyle: TAB_BAR_STYLE });
+      navigation.getParent()?.setOptions({ tabBarStyle: TAB_BAR_STYLE });
     }
   }, [cameraOpen]);
 
