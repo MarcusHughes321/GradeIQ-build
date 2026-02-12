@@ -264,6 +264,11 @@ export default function GradeScreen() {
       return;
     }
 
+    if (activeJob?.status === "processing") {
+      Alert.alert("Grading in Progress", "Please wait for the current grading to finish before starting another.");
+      return;
+    }
+
     if (isGateEnabled && !canGrade) {
       router.push("/paywall");
       return;

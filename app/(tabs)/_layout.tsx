@@ -1,11 +1,15 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Platform } from "react-native";
+import { Platform, View, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { BlurView } from "expo-blur";
+import { useGrading } from "@/lib/grading-context";
 
 export default function TabLayout() {
+  const { hasCompletedJob, hasActiveJob } = useGrading();
+  const showHomeBadge = hasCompletedJob || hasActiveJob;
+
   return (
     <Tabs
       screenOptions={{
@@ -47,7 +51,15 @@ export default function TabLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+            <View>
+              <Ionicons name="home" size={size} color={color} />
+              {showHomeBadge && (
+                <View style={[
+                  tabBadgeStyles.dot,
+                  { backgroundColor: hasCompletedJob ? "#10B981" : Colors.primary },
+                ]} />
+              )}
+            </View>
           ),
         }}
       />
@@ -72,3 +84,16 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const tabBadgeStyles = StyleSheet.create({
+  dot: {
+    position: "absolute",
+    top: -2,
+    right: -4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: Colors.background,
+  },
+});
