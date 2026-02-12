@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import * as Notifications from "expo-notifications";
 import {
   View,
   Text,
@@ -23,7 +24,6 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 import CardCamera from "@/components/CardCamera";
 import { useSubscription } from "@/lib/subscription";
-import { useGrading } from "@/lib/grading-context";
 
 const MAX_CARDS = 20;
 
@@ -257,7 +257,6 @@ export default function BulkScreen() {
     });
   };
 
-  const { pushToken } = useGrading();
   const bulkPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cardImagesRef = useRef<Array<{ frontImage: string; backImage: string }>>([]);
 
@@ -309,7 +308,6 @@ export default function BulkScreen() {
 
       const resp = await apiRequest("POST", "/api/bulk-grade-job", {
         cards: cardImages,
-        pushToken,
       });
 
       const { jobId } = await resp.json();
@@ -374,6 +372,16 @@ export default function BulkScreen() {
 
             if (Platform.OS !== "web") {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              try {
+                await Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: "Bulk Grading Complete",
+                    body: `${savedIds.length} of ${data.results.length} cards graded successfully!`,
+                    sound: "default",
+                  },
+                  trigger: null,
+                });
+              } catch {}
             }
 
             setLoading(false);

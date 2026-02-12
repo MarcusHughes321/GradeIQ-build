@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { Platform, AppState } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
-import Constants from "expo-constants";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult, SavedGrading } from "@/lib/types";
@@ -26,7 +25,6 @@ interface GradingContextValue {
   dismissJob: () => void;
   hasCompletedJob: boolean;
   hasActiveJob: boolean;
-  pushToken: string | null;
 }
 
 const GradingContext = createContext<GradingContextValue | null>(null);
@@ -44,42 +42,36 @@ async function getBase64FromUri(uri: string): Promise<string> {
   });
 }
 
-async function registerForPushNotifications(): Promise<string | null> {
-  if (Platform.OS === "web") return null;
+async function requestNotificationPermission(): Promise<boolean> {
+  if (Platform.OS === "web") return false;
 
   try {
     const { status: existing } = await Notifications.getPermissionsAsync();
-    let finalStatus = existing;
+    if (existing === "granted") return true;
 
-    if (existing !== "granted") {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    if (finalStatus !== "granted") {
-      console.log("[push] Permission not granted:", finalStatus);
-      return null;
-    }
-
-    const projectId =
-      Constants.expoConfig?.extra?.eas?.projectId ??
-      (Constants as any).easConfig?.projectId ??
-      undefined;
-
-    console.log("[push] Requesting push token, projectId:", projectId ?? "none (Expo Go default)");
-
-    let tokenData;
-    if (projectId) {
-      tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-    } else {
-      tokenData = await Notifications.getExpoPushTokenAsync();
-    }
-
-    console.log("[push] Got push token:", tokenData.data?.substring(0, 25) + "...");
-    return tokenData.data;
+    const { status } = await Notifications.requestPermissionsAsync();
+    return status === "granted";
   } catch (err) {
-    console.log("[push] Push notification setup failed:", err);
-    return null;
+    console.log("[notifications] Permission request failed:", err);
+    return false;
+  }
+}
+
+async function sendLocalNotification(title: string, body: string) {
+  if (Platform.OS === "web") return;
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: "default",
+        data: { type: "grading_complete" },
+      },
+      trigger: null,
+    });
+  } catch (err) {
+    console.log("[notifications] Failed to send local notification:", err);
   }
 }
 
@@ -95,12 +87,14 @@ Notifications.setNotificationHandler({
 
 export function GradingProvider({ children }: { children: ReactNode }) {
   const [activeJob, setActiveJob] = useState<GradingJob | null>(null);
-  const [pushToken, setPushToken] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
+  const notificationsEnabled = useRef(false);
 
   useEffect(() => {
-    registerForPushNotifications().then(setPushToken);
+    requestNotificationPermission().then((granted) => {
+      notificationsEnabled.current = granted;
+    });
   }, []);
 
   const stopPolling = useCallback(() => {
@@ -146,6 +140,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
 
+        if (notificationsEnabled.current) {
+          const cardName = result.cardName || "Your card";
+          sendLocalNotification("Grading Complete", `${cardName} has been graded!`);
+        }
+
         setActiveJob(prev =>
           prev && prev.id === localJobId
             ? { ...prev, status: "completed", savedGrading: saved }
@@ -156,6 +155,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
         if (Platform.OS !== "web") {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+
+        if (notificationsEnabled.current) {
+          sendLocalNotification("Grading Failed", "There was an error grading your card. Please try again.");
         }
 
         setActiveJob(prev =>
@@ -197,7 +200,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const resp = await apiRequest("POST", "/api/grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
-        pushToken,
       });
 
       const { jobId: serverJobId } = await resp.json();
@@ -225,7 +227,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           : prev
       );
     }
-  }, [pushToken, pollJobStatus, stopPolling]);
+  }, [pollJobStatus, stopPolling]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
@@ -252,8 +254,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const hasActiveJob = activeJob?.status === "processing";
 
   const value = useMemo(
-    () => ({ activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob, pushToken }),
-    [activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob, pushToken]
+    () => ({ activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob }),
+    [activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob]
   );
 
   return <GradingContext.Provider value={value}>{children}</GradingContext.Provider>;
