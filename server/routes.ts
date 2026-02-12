@@ -395,52 +395,84 @@ const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst wi
 
 IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 
-**PSA (Professional Sports Authenticator) - Scale 1-10:**
+**PSA (Professional Sports Authenticator) - Scale 1-10, NO 9.5:**
 - PSA uses HALF GRADES from 1.5 to 8.5 (e.g., 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10)
 - There is NO PSA 9.5. The top grades are PSA 9 (Mint) and PSA 10 (Gem Mint) ONLY.
-- PSA does NOT provide individual sub-grades, only an overall grade with text descriptions per category.
-- Centering: Front 55/45-60/40 for PSA 10, 65/35 for PSA 9, 70/30 for PSA 8, 75/25 for PSA 7
-- Corners: Must be sharp and clean for high grades
-- Edges: Should be clean and smooth
-- Surface: No scratches, print lines, staining for PSA 10
+- PSA does NOT provide individual sub-grades, only an overall grade. The final grade is determined by the weakest category.
+- CENTERING THRESHOLDS (front / back):
+  * PSA 10 (Gem Mint): Front 55/45 to 60/40, Back up to 75/25. Yes, PSA allows significant back off-centering for a 10.
+  * PSA 9 (Mint): Front ~60/40, Back ~90/10
+  * PSA 8 (NM-MT): Front ~65/35, Back ~90/10
+  * PSA 7 (NM): Front ~70/30, Back ~90/10
+  * PSA 6 (EX-MT): Front 80/20, Back ~90/10
+- CORNERS: PSA 10 requires four perfectly sharp corners. PSA 9 allows corners that are mint to the naked eye. PSA 8 allows very slight fraying at 1-2 corners. PSA 7 allows slight fraying on some corners.
+- EDGES: PSA 10 requires perfect edges. PSA 9 allows clean edges. PSA 8 allows minimal wear. PSA 7 allows minimal wear visible on close inspection.
+- SURFACE: PSA 10 requires sharp focus, full original gloss, free of staining. One slight printing imperfection allowed if it doesn't impair appeal. PSA 9 allows ONE minor flaw only (very slight wax stain on reverse, minor printing imperfection, OR slightly off-white borders). PSA 8 allows very slight wax stain, slightest fraying, minor printing imperfection, or slightly off-white borders.
 
 **Beckett (BGS) - Scale 1-10 with HALF-GRADE sub-grades:**
 - BGS uses 0.5 increments for BOTH overall grade AND all sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
-- Overall grade is calculated from sub-grades
-- Centering: 50/50 to 55/45 for 10, 55/45 to 60/40 for 9.5, 60/40 to 65/35 for 9
-- Corners: Inspected under magnification. Must be razor sharp for 10
-- Edges: Checked for chipping, rough cuts. Must be smooth for 10
-- Surface: Examined for print dots, scratches, glazing. Must be flawless for 10
+- The LOWEST subgrade heavily influences the overall grade. The lowest subgrade often CAPS the overall.
+- Black Label 10 = ALL FOUR subgrades are perfect 10. This is extremely rare.
+- CENTERING THRESHOLDS (front / back):
+  * 10 (Pristine): Front 50/50, Back 60/40 or better
+  * 9.5 (Gem Mint): Front 50/50 one way + 55/45 other, Back 60/40 or better
+  * 9 (Mint): Front 55/45 both ways, Back 70/30 or better
+  * 8.5 (NM-Mint+): Front 60/40 both ways, Back 80/20 or better
+  * 8 (NM-Mint): Front 65/35 both ways
+  * 7 (Near Mint): Front 75/25 both ways, Back 95/5 or better
+- CORNERS: 10 = Perfect to naked eye, Mint under magnification. 9.5 = Mint to naked eye, slight imperfections under magnification. 9 = Speck of wear under intense scrutiny. 8.5 = Sharp to naked eye, slight imperfections under close exam. 7 = Four fuzzy corners, touch of notching or minor ding.
+- EDGES: 10 = Perfect to naked eye, virtually flaw-free under magnification. 9.5 = Speck of wear under intense scrutiny. 9 = Unobtrusive specks of chipping on borders. 8.5 = Specks of chipping visible to naked eye. 7 = Noticeable roughness, very slight notching.
+- SURFACE: 10 = No print spots, flawless color, perfect gloss, no scratches or metallic print lines. 9.5 = Few extremely minor print spots under intense scrutiny, deep color, perfect gloss. 9 = Handful of printing specks or one minor spot, clean gloss with 1-2 tiny scratches, one faint metallic line allowed. 8.5 = Few minor print spots, solid gloss with minor scratches under close inspection.
 
 **Ace Grading (UK) - Scale 1-10, WHOLE NUMBERS ONLY:**
 - Ace uses ONLY whole numbers (1, 2, 3, 4, 5, 6, 7, 8, 9, 10). NO HALF GRADES like 8.5 or 9.5.
 - Both the overall grade and ALL sub-grades MUST be whole numbers.
-- 10 = Gem Mint, 9 = Mint, 8 = Near Mint-Mint, 7 = Near Mint, 6 = Excellent, etc.
-- Centering: 60/40 or better for 10
-- Corners: Must be sharp with no visible wear for high grades
-- Edges: Clean and consistent cuts required
-- Surface: Free from scratches and defects
+- Ace provides FREE subgrades for Centering, Corners, Edges, and Surface.
+- CAPPING RULE: No card can have an overall grade more than 1 grade HIGHER than its lowest subgrade. E.g., if Edges = 7, maximum overall = 8.
+- Centering is measured with 1/1000th mm precision using automated scanning.
+- CENTERING THRESHOLDS (front / back):
+  * 10 (Gem Mint): Under 60/40 on both front and back
+  * 9 (Mint): Better than 65/35 front, better than 70/30 back
+  * 8 (NM-Mint): Better than 70/30 front, better than 75/25 back
+  * 7 (Near Mint): Better than 75/25 front, better than 80/20 back
+  * 6 (Excellent-Mint): Better than 80/20 both sides
+  * 5 (Excellent): Better than 85/15 both sides
+- OC (Off-Center) qualifier: Applied when centering is 2+ grades below the overall grade.
+- CORNERS: 10 = Four undamaged, sharp corners. 9 = One minor imperfection. 8 = Few minor imperfections like slight whitening. 7 = More noticeable whitening.
+- EDGES: 10 = Sharp, no whitening, chipping, or kinks. 9 = Nearly identical to 10 with one minor flaw. 8 = Few minor imperfections. 7 = Slight wear, some whitening.
+- SURFACE: 10 = Beautiful surface, no marks, stains, or damage. Very minor defects allowed if they don't harm eye appeal. 9 = Nearly identical to 10, one minor imperfection. 8 = Few minor imperfections. 7 = Slight wear visible, may include perceptible printing defects.
 
 **TAG Grading (AI-Powered) - Scale 1-10 with HALF-GRADE sub-grades:**
-- TAG uses 0.5 increments for BOTH overall grade AND all sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
-- Uses 1000-point precision internally, but final grades are in 0.5 increments
-- Overall grade is calculated from sub-grades (weighted average)
-- Centering: Front 55/45 and Back 75/25 or better for TAG 10, Front 60/40 and Back 80/20 for TAG 9
-- Corners: Must be pristine with no whitening for 10
-- Edges: Must be clean with no chipping or wear for 10
-- Surface: Must be free from scratches, print defects, and surface damage for 10
-- TAG is known for stricter surface grading than BGS
+- TAG uses a 1000-point scale (100-1000) that converts to industry-standard 1-10.
+- Pristine 10 (score 990-1000): Exceeds Gem Mint standard. Less than 1% of cards achieve this.
+- Gem Mint 10 (score 950-989): Industry-standard Gem Mint 10.
+- TAG does NOT use 9.5 grades. Scores 900-949 = TAG 9.
+- Uses 0.5 increments for sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 10)
+- Fully automated grading using computer vision and Photometric Stereoscopic Imaging — no human subjectivity.
+- CENTERING THRESHOLDS for TCG/Pokemon cards (front / back):
+  * TAG 10: Front ~52/48, Back ~52/48. TAG is the STRICTEST on centering for TCG cards.
+  * TAG 9: Front ~55/45, Back ~65/35
+  * TAG 8: Front ~62.5/37.5, Back ~85/15
+  * TAG 7: Front ~65/35, Back ~95/5
+- CORNERS: Pristine = Virtually flawless, sharp and crisp. Gem Mint 10 = 4 sharp corners with minor fill/fray artifacts. 9 = Sharp & square, light corner touches on reverse. 8 = Light rounding visible.
+- EDGES: Pristine = Virtually flawless. Gem Mint 10 = Minor fill or fray under high-resolution. 9 = Visible but minor surface wear on 1-2 edges. 8 = Minor chipping.
+- SURFACE: TAG is STRICTER on surface than other companies. Pristine = Extremely attractive, slight print imperfection only under hi-res. Gem Mint 10 = Very minor surface wear, tiny pit or light scratch that doesn't penetrate gloss. 9 = Small scratch penetrating gloss on back, multiple print lines, minor scuffing.
 
 **CGC Cards - Scale 1-10 with HALF-GRADE increments, NO sub-grades:**
 - CGC uses 0.5 increments for the overall grade (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
-- CGC discontinued sub-grades in 2023. Only an overall grade is given with text descriptions per category.
-- CGC has TWO types of 10: Pristine 10 (Gold Label) and Gem Mint 10 (Silver Label)
-- Pristine 10 (Gold Label): Front centering 50/50, Back centering 55/45 or better. Absolutely flawless in all categories.
-- Gem Mint 10 (Silver Label): Front centering 55/45, Back centering 75/25 or better. Near-perfect with only the slightest imperfections.
-- Centering: Front 55/45 and Back 75/25 for Gem Mint 10, 60/40 front and 80/20 back for 9.5
-- Corners: Inspected for whitening and dings
-- Edges: Checked for chipping and rough edges
-- Surface: Examined for scratches, print defects, staining
+- CGC DISCONTINUED sub-grades in 2023. Only an overall grade is given with text descriptions per category.
+- CGC has TWO types of 10:
+  * Pristine 10 (Gold Label): Front centering 50/50, flawless under 10x magnification. Flawless color and registration. This is extremely rare.
+  * Gem Mint 10 (Standard): Corners perfect to naked eye, Mint+ under 10x. Surface free of print spots, perfect gloss. One criterion may fall slightly short of Pristine.
+- CENTERING THRESHOLDS:
+  * Pristine 10: Front 50/50 exactly, Back 55/45 or better
+  * Gem Mint 10: Front 55/45, Back 75/25 or better
+  * 9.5 (Mint+): Front ~55/45 to 60/40, Back ~75/25 to 80/20. Nearly perfect centering.
+  * 9 (Mint): Slight centering deviations. Front ~60/40, Back ~80/20.
+  * 8.5 (NM/Mint+): Front ~65/35, Back ~85/15
+- CORNERS: Pristine/Gem 10 = Perfect to naked eye. 9.5 = Mint to naked eye, slight imperfections under magnification. 9 = Minor wear visible. 8 = More noticeable wear.
+- EDGES: Similar standards to corners. Pristine requires flawless edges. Lower grades allow progressive chipping/whitening.
+- SURFACE: Pristine requires no print spots, flawless color, perfect gloss. Manufacturing defects (print lines, roller marks, ink smears) count against the grade. Holographic/chrome cards show defects easily under light.
 
 Analyze the card images carefully. Look for:
 1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
@@ -1997,40 +2029,49 @@ function computeCenteringGrades(centering: any) {
   const backWorst = Math.max(centering.backLeftRight, centering.backTopBottom);
 
   let psaCentering: number;
-  if (frontWorst <= 55 && backWorst <= 75) psaCentering = 10;
-  else if (frontWorst <= 60 && backWorst <= 75) psaCentering = 9;
+  if (frontWorst <= 60 && backWorst <= 75) psaCentering = 10;
+  else if (frontWorst <= 60 && backWorst <= 90) psaCentering = 9;
   else if (frontWorst <= 65 && backWorst <= 90) psaCentering = 8;
   else if (frontWorst <= 70 && backWorst <= 90) psaCentering = 7;
-  else psaCentering = 6;
+  else if (frontWorst <= 80 && backWorst <= 90) psaCentering = 6;
+  else if (frontWorst <= 85 && backWorst <= 90) psaCentering = 5;
+  else psaCentering = 4;
 
   let bgsCentering: number;
-  if (frontWorst <= 50 && backWorst <= 50) bgsCentering = 10;
-  else if (frontWorst <= 55 && backWorst <= 55) bgsCentering = 9.5;
-  else if (frontWorst <= 60 && backWorst <= 60) bgsCentering = 9;
-  else if (frontWorst <= 65 && backWorst <= 65) bgsCentering = 8.5;
-  else if (frontWorst <= 70 && backWorst <= 70) bgsCentering = 8;
-  else bgsCentering = 7;
+  if (frontWorst <= 50 && backWorst <= 60) bgsCentering = 10;
+  else if (frontWorst <= 55 && backWorst <= 60) bgsCentering = 9.5;
+  else if (frontWorst <= 55 && backWorst <= 70) bgsCentering = 9;
+  else if (frontWorst <= 60 && backWorst <= 80) bgsCentering = 8.5;
+  else if (frontWorst <= 65) bgsCentering = 8;
+  else if (frontWorst <= 75 && backWorst <= 95) bgsCentering = 7;
+  else if (frontWorst <= 80) bgsCentering = 6;
+  else bgsCentering = 5;
 
   let aceCentering: number;
-  if (frontWorst <= 60 && backWorst <= 60) aceCentering = 10;
-  else if (frontWorst <= 65 && backWorst <= 65) aceCentering = 9;
-  else if (frontWorst <= 70 && backWorst <= 70) aceCentering = 8;
-  else aceCentering = 7;
+  if (frontWorst < 60 && backWorst < 60) aceCentering = 10;
+  else if (frontWorst <= 65 && backWorst <= 70) aceCentering = 9;
+  else if (frontWorst <= 70 && backWorst <= 75) aceCentering = 8;
+  else if (frontWorst <= 75 && backWorst <= 80) aceCentering = 7;
+  else if (frontWorst <= 80 && backWorst <= 80) aceCentering = 6;
+  else if (frontWorst <= 85 && backWorst <= 85) aceCentering = 5;
+  else aceCentering = 4;
 
   let tagCentering: number;
-  if (frontWorst <= 55 && backWorst <= 75) tagCentering = 10;
-  else if (frontWorst <= 60 && backWorst <= 80) tagCentering = 9;
-  else if (frontWorst <= 65 && backWorst <= 85) tagCentering = 8.5;
-  else if (frontWorst <= 70 && backWorst <= 90) tagCentering = 8;
-  else tagCentering = 7;
+  if (frontWorst <= 52 && backWorst <= 52) tagCentering = 10;
+  else if (frontWorst <= 55 && backWorst <= 65) tagCentering = 9;
+  else if (frontWorst <= 60 && backWorst <= 75) tagCentering = 8.5;
+  else if (frontWorst <= 62 && backWorst <= 85) tagCentering = 8;
+  else if (frontWorst <= 65 && backWorst <= 95) tagCentering = 7;
+  else tagCentering = 6;
 
   let cgcCentering: number;
-  if (frontWorst <= 50 && backWorst <= 55) cgcCentering = 10;
+  if (frontWorst <= 50 && backWorst <= 55) cgcCentering = 10.5;
   else if (frontWorst <= 55 && backWorst <= 75) cgcCentering = 10;
   else if (frontWorst <= 60 && backWorst <= 80) cgcCentering = 9.5;
-  else if (frontWorst <= 65 && backWorst <= 85) cgcCentering = 9;
-  else if (frontWorst <= 70 && backWorst <= 90) cgcCentering = 8.5;
-  else cgcCentering = 8;
+  else if (frontWorst <= 62 && backWorst <= 82) cgcCentering = 9;
+  else if (frontWorst <= 65 && backWorst <= 85) cgcCentering = 8.5;
+  else if (frontWorst <= 70 && backWorst <= 90) cgcCentering = 8;
+  else cgcCentering = 7;
 
   return { psaCentering, bgsCentering, aceCentering, tagCentering, cgcCentering };
 }
@@ -2062,22 +2103,21 @@ function syncCenteringToGrades(result: any): any {
   if (result.beckett) {
     result.beckett.centering.grade = bgsCentering;
     result.beckett.centering.notes = centeringNote;
-    const avg = (bgsCentering + result.beckett.corners.grade + result.beckett.edges.grade + result.beckett.surface.grade) / 4;
-    result.beckett.overallGrade = roundToHalf(avg);
+    const bgsSubgrades = [bgsCentering, result.beckett.corners.grade, result.beckett.edges.grade, result.beckett.surface.grade];
+    const bgsLowest = Math.min(...bgsSubgrades);
+    const bgsAvg = bgsSubgrades.reduce((a, b) => a + b, 0) / 4;
+    const bgsFromAvg = roundToHalf(bgsAvg);
+    result.beckett.overallGrade = Math.min(bgsFromAvg, bgsLowest + 1);
   }
 
   if (result.ace) {
     result.ace.centering.grade = aceCentering;
     result.ace.centering.notes = centeringNote;
     const aceGrades = [aceCentering, result.ace.corners.grade, result.ace.edges.grade, result.ace.surface.grade];
-    const count10 = aceGrades.filter(g => g === 10).length;
-    const count9 = aceGrades.filter(g => g === 9).length;
-    if (count10 >= 3 && count9 >= 1 && aceCentering === 10) {
-      result.ace.overallGrade = 10;
-    } else {
-      const avg = aceGrades.reduce((a, b) => a + b, 0) / 4;
-      result.ace.overallGrade = roundToWhole(avg);
-    }
+    const aceLowest = Math.min(...aceGrades);
+    const aceAvg = aceGrades.reduce((a, b) => a + b, 0) / 4;
+    const aceFromAvg = roundToWhole(aceAvg);
+    result.ace.overallGrade = Math.min(aceFromAvg, aceLowest + 1);
   }
 
   if (result.tag) {
