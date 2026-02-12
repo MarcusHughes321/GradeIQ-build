@@ -2176,6 +2176,24 @@ function enforceGradingScales(result: any): any {
         result.ace[key].grade = roundToWhole(clamp(result.ace[key].grade, 1, 10));
       }
     }
+
+    if (result.ace.overallGrade === 10) {
+      const centering = result.ace.centering?.grade ?? 0;
+      const corners = result.ace.corners?.grade ?? 0;
+      const edges = result.ace.edges?.grade ?? 0;
+      const surface = result.ace.surface?.grade ?? 0;
+
+      const otherGrades = [corners, edges, surface];
+      const tensCount = otherGrades.filter((g) => g === 10).length;
+      const ninesCount = otherGrades.filter((g) => g === 9).length;
+
+      const meetsAce10 =
+        centering === 10 && tensCount >= 2 && ninesCount <= 1;
+
+      if (!meetsAce10) {
+        result.ace.overallGrade = 9;
+      }
+    }
   }
 
   if (result.tag) {
