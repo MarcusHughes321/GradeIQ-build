@@ -2259,135 +2259,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  app.post("/api/grade-card", async (req, res) => {
-    try {
-      const { frontImage, backImage } = req.body;
+  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]"): Promise<any> {
+    const gradeStartTime = Date.now();
+    const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+    const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
 
-      if (!frontImage || !backImage) {
-        return res.status(400).json({ error: "Both front and back card images are required" });
-      }
+    const [frontUrl, backUrl] = await Promise.all([
+      optimizeImageForAI(rawFrontUrl),
+      optimizeImageForAI(rawBackUrl),
+    ]);
+    const optimizeTime = Date.now() - gradeStartTime;
+    if (optimizeTime > 50) console.log(`${logPrefix} Image optimization took ${optimizeTime}ms`);
 
-      const gradeStartTime = Date.now();
-      const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+    const gradingResponse = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 4096,
+      messages: [
+        {
+          role: "system",
+          content: GRADING_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+            },
+            {
+              type: "image_url",
+              image_url: { url: frontUrl, detail: "high" },
+            },
+            {
+              type: "image_url",
+              image_url: { url: backUrl, detail: "high" },
+            },
+          ],
+        },
+      ],
+    });
 
-      const [frontUrl, backUrl] = await Promise.all([
-        optimizeImageForAI(rawFrontUrl),
-        optimizeImageForAI(rawBackUrl),
-      ]);
-      const optimizeTime = Date.now() - gradeStartTime;
-      if (optimizeTime > 50) console.log(`[grade-card] Image optimization took ${optimizeTime}ms`);
+    const aiTime = Date.now() - gradeStartTime;
+    console.log(`${logPrefix} AI call completed in ${aiTime}ms`);
 
-      const gradingResponse = await openai.chat.completions.create({
-        model: "gpt-5.2",
-        max_completion_tokens: 4096,
-        messages: [
-          {
-            role: "system",
-            content: GRADING_SYSTEM_PROMPT,
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
-              },
-              {
-                type: "image_url",
-                image_url: { url: frontUrl, detail: "high" },
-              },
-              {
-                type: "image_url",
-                image_url: { url: backUrl, detail: "high" },
-              },
-            ],
-          },
-        ],
-      });
+    const content = gradingResponse.choices[0]?.message?.content || "";
 
-      const aiTime = Date.now() - gradeStartTime;
-      console.log(`[grade-card] AI calls completed in ${aiTime}ms`);
+    let gradingResult: any;
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      gradingResult = JSON.parse(jsonMatch[0]);
+    } else {
+      throw new Error("No JSON found in AI response");
+    }
 
-      const content = gradingResponse.choices[0]?.message?.content || "";
+    gradingResult = enforceGradingScales(gradingResult);
 
-      let gradingResult;
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          gradingResult = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("No JSON found in response");
+    const cardName = gradingResult.cardName || "";
+    const cardNumber = gradingResult.setNumber || "";
+    const setName = gradingResult.setName || "";
+    const setCode = (gradingResult as any).setCode || "";
+
+    console.log(`${logPrefix} AI result: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
+
+    const isAsianCode = /^s\d|^sv\d|^sm\d/i.test(setCode || "");
+    const hasNonLatinName = /[^\u0000-\u007F]/.test(cardName);
+    const isAsianCard = isAsianCode && hasNonLatinName;
+
+    if (isAsianCard) {
+      console.log(`${logPrefix} Asian set code "${setCode}" — trying Bulbapedia database lookup`);
+
+      const cardNum = parseInt((cardNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+      const numbersToTry = new Set<number>();
+      if (cardNum > 0) numbersToTry.add(cardNum);
+
+      const boundsPromise = Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]);
+      const lookupPromises = [...numbersToTry].map(num =>
+        lookupJapaneseCard(setCode, num, setName).then(name => ({ num, name }))
+      );
+
+      const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
+      const [detectedFront, detectedBack] = boundsResults;
+      gradingResult.frontCardBounds = detectedFront;
+      gradingResult.backCardBounds = detectedBack;
+
+      const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+      console.log(`${logPrefix} Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
+
+      if (foundResults.length > 0) {
+        const bestBulbapedia = foundResults[0];
+        gradingResult.cardName = bestBulbapedia.name;
+        const setTotal = (cardNumber || "").split("/")[1] || "";
+        gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
+
+        const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
+        if (cachedSetPage) {
+          gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
         }
-      } catch (parseError) {
-        return res.status(500).json({ error: "Failed to parse grading results", raw: content });
       }
-
-      gradingResult = enforceGradingScales(gradingResult);
-
-      const cardName = gradingResult.cardName || "";
-      const cardNumber = gradingResult.setNumber || "";
-      const setName = gradingResult.setName || "";
-      const setCode = (gradingResult as any).setCode || "";
-
-      console.log(`[grade-card] AI result: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
-
-      const isAsianCode = /^s\d|^sv\d|^sm\d/i.test(setCode || "");
-      const hasNonLatinName = /[^\u0000-\u007F]/.test(cardName);
-      const isAsianCard = isAsianCode && hasNonLatinName;
-      console.log(`[grade-card] hasNonLatinName=${hasNonLatinName} isAsianCard=${isAsianCard}`);
-
-      const frontUri = frontUrl;
-      const backUri = backUrl;
-
-      if (isAsianCard) {
-        console.log(`[grade-card] Asian set code "${setCode}" — trying Bulbapedia database lookup`);
-
-        const cardNum = parseInt((cardNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
-        const numbersToTry = new Set<number>();
-        if (cardNum > 0) numbersToTry.add(cardNum);
-
-        const boundsPromise = Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]);
-        const lookupPromises = [...numbersToTry].map(num =>
-          lookupJapaneseCard(setCode, num, setName).then(name => ({ num, name }))
-        );
-
-        const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
-        const [detectedFront, detectedBack] = boundsResults;
-        gradingResult.frontCardBounds = detectedFront;
-        gradingResult.backCardBounds = detectedBack;
-
-        const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
-        console.log(`[grade-card] Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
-
-        if (foundResults.length > 0) {
-          const bestBulbapedia = foundResults[0];
-          console.log(`[grade-card] Bulbapedia verified: "${bestBulbapedia.name}" for ${setCode} #${bestBulbapedia.num}`);
-          gradingResult.cardName = bestBulbapedia.name;
-          const setTotal = (cardNumber || "").split("/")[1] || "";
-          gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
-
-          const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
-          if (cachedSetPage) {
-            gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
-          }
-        } else {
-          console.log(`[grade-card] Bulbapedia lookup missed — using AI name as-is`);
-        }
-      } else {
-      console.log(`[grade-card] Looking up card online: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
+    } else {
+      console.log(`${logPrefix} Looking up card online: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
 
       const [boundsResults, lookupResult] = await Promise.all([
-        Promise.all([detectCardBounds(frontUri), detectCardBounds(backUri)]),
+        Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]),
         lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
       ]);
 
       const [detectedFront, detectedBack] = boundsResults;
 
       if (lookupResult) {
-        const resultScore = (lookupResult as any)._score || 0;
-        console.log(`[grade-card] Online verified: "${lookupResult.cardName}" from "${lookupResult.setName}" (${lookupResult.setNumber}) score=${resultScore}`);
-
         let displayName = lookupResult.cardName;
         if (displayName && cardName) {
           const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
@@ -2401,27 +2380,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gradingResult.cardName = displayName;
         gradingResult.setName = lookupResult.setName;
         gradingResult.setNumber = lookupResult.setNumber;
-      } else {
-        console.log(`[grade-card] No online match found, using AI identification as-is`);
       }
       gradingResult.frontCardBounds = detectedFront;
       gradingResult.backCardBounds = detectedBack;
-      } // end else (non-Asian-code path)
+    }
 
-      if (setCode) {
-        const resolvedSet = resolveSetName(setCode, gradingResult.setName || "");
-        if (resolvedSet !== gradingResult.setName) {
-          console.log(`[grade-card] Set code correction: "${setCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
-          gradingResult.setName = resolvedSet;
-        }
+    if (setCode) {
+      const resolvedSet = resolveSetName(setCode, gradingResult.setName || "");
+      if (resolvedSet !== gradingResult.setName) {
+        console.log(`${logPrefix} Set code correction: "${setCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
+        gradingResult.setName = resolvedSet;
+      }
+    }
+
+    gradingResult = syncCenteringToGrades(gradingResult);
+
+    const totalTime = Date.now() - gradeStartTime;
+    console.log(`${logPrefix} Total time: ${totalTime}ms (AI: ${aiTime}ms, lookup+bounds: ${totalTime - aiTime}ms)`);
+
+    return gradingResult;
+  }
+
+  app.post("/api/grade-card", async (req, res) => {
+    try {
+      const { frontImage, backImage } = req.body;
+
+      if (!frontImage || !backImage) {
+        return res.status(400).json({ error: "Both front and back card images are required" });
       }
 
-      gradingResult = syncCenteringToGrades(gradingResult);
-
-      const totalTime = Date.now() - gradeStartTime;
-      console.log(`[grade-card] Total time: ${totalTime}ms (AI: ${aiTime}ms, lookup+bounds: ${totalTime - aiTime}ms)`);
-
-      res.json(gradingResult);
+      const result = await performGrading(frontImage, backImage, "[grade-card]");
+      res.json(result);
     } catch (error: any) {
       console.error("Error grading card:", error);
       res.status(500).json({ error: error.message || "Failed to grade card" });
@@ -3078,36 +3067,13 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
       (async () => {
         try {
-          const gradeStartTime = Date.now();
-          const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-          const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
-
-          const [frontUrl, backUrl] = await Promise.all([
-            optimizeImageForAI(rawFrontUrl),
-            optimizeImageForAI(rawBackUrl),
-          ]);
-
-          const internalUrl = `http://localhost:5000/api/grade-card`;
-          const gradeResp = await fetch(internalUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ frontImage, backImage }),
-          });
-
-          if (!gradeResp.ok) {
-            const errText = await gradeResp.text();
-            throw new Error(errText || "Grading failed");
-          }
-
-          const result = await gradeResp.json();
+          const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`);
           job.status = "completed";
           job.result = result;
 
-          console.log(`[grade-job] Job ${jobId} completed in ${Date.now() - gradeStartTime}ms`);
-
           if (job.pushToken) {
-            const cardName = result.cardName || "your card";
-            sendPushNotification(job.pushToken, "Grading Complete", `${cardName} has been graded!`);
+            const resultName = result.cardName || "your card";
+            sendPushNotification(job.pushToken, "Grading Complete", `${resultName} has been graded!`);
           }
         } catch (err: any) {
           console.error(`[grade-job] Job ${jobId} failed:`, err.message);
@@ -3156,20 +3122,8 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
             const batch = cards.slice(i, i + BATCH_SIZE);
 
             const batchResults = await Promise.allSettled(
-              batch.map(async (card: { frontImage: string; backImage: string }) => {
-                const internalUrl = `http://localhost:5000/api/grade-card`;
-                const gradeResp = await fetch(internalUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ frontImage: card.frontImage, backImage: card.backImage }),
-                });
-
-                if (!gradeResp.ok) {
-                  const errText = await gradeResp.text();
-                  throw new Error(errText || "Grading failed");
-                }
-
-                return await gradeResp.json();
+              batch.map(async (card: { frontImage: string; backImage: string }, idx: number) => {
+                return await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`);
               })
             );
 
