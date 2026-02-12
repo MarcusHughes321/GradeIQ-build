@@ -78,4 +78,4 @@ ensurePreviewReachable = "/status"
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_SUBSCRIPTION_GATE = "off"
+EXPO_PUBLIC_SUBSCRIPTION_GATE = "on"
