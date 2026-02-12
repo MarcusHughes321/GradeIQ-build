@@ -2119,6 +2119,16 @@ function syncCenteringToGrades(result: any): any {
     const aceAvg = aceGrades.reduce((a, b) => a + b, 0) / 4;
     const aceFromAvg = roundToWhole(aceAvg);
     result.ace.overallGrade = Math.min(aceFromAvg, aceLowest + 1);
+
+    if (result.ace.overallGrade === 10) {
+      const otherGrades = [result.ace.corners.grade, result.ace.edges.grade, result.ace.surface.grade];
+      const tensCount = otherGrades.filter((g: number) => g === 10).length;
+      const ninesCount = otherGrades.filter((g: number) => g === 9).length;
+      const meetsAce10 = aceCentering === 10 && tensCount >= 2 && ninesCount <= 1;
+      if (!meetsAce10) {
+        result.ace.overallGrade = 9;
+      }
+    }
   }
 
   if (result.tag) {
