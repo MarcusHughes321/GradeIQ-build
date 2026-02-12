@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { DefectMarker } from "@/lib/types";
+import type { DefectMarker, CardBounds } from "@/lib/types";
 import Colors from "@/constants/colors";
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -19,16 +19,50 @@ const TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 interface DefectOverlayProps {
   defects: DefectMarker[];
   side: "front" | "back";
+  cardBounds?: CardBounds | null;
 }
 
-function DefectPin({ defect, onPress, isSelected }: { defect: DefectMarker; onPress: () => void; isSelected: boolean }) {
+function mapToImagePosition(
+  defectX: number,
+  defectY: number,
+  bounds?: CardBounds | null
+): { imgX: number; imgY: number } {
+  if (!bounds) {
+    return { imgX: defectX, imgY: defectY };
+  }
+  const cardLeft = bounds.leftPercent;
+  const cardTop = bounds.topPercent;
+  const cardWidth = bounds.rightPercent - bounds.leftPercent;
+  const cardHeight = bounds.bottomPercent - bounds.topPercent;
+
+  const imgX = cardLeft + (defectX / 100) * cardWidth;
+  const imgY = cardTop + (defectY / 100) * cardHeight;
+
+  return {
+    imgX: Math.max(0, Math.min(100, imgX)),
+    imgY: Math.max(0, Math.min(100, imgY)),
+  };
+}
+
+function DefectPin({
+  defect,
+  onPress,
+  isSelected,
+  cardBounds,
+}: {
+  defect: DefectMarker;
+  onPress: () => void;
+  isSelected: boolean;
+  cardBounds?: CardBounds | null;
+}) {
   const color = SEVERITY_COLORS[defect.severity] || "#F59E0B";
+  const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
 
   return (
     <View
       style={[
         styles.pinContainer,
-        { left: `${defect.x}%`, top: `${defect.y}%` },
+        { left: `${imgX}%`, top: `${imgY}%` },
       ]}
       pointerEvents="box-none"
     >
@@ -44,7 +78,7 @@ function DefectPin({ defect, onPress, isSelected }: { defect: DefectMarker; onPr
         <View style={[styles.pinInner, { borderColor: color }]} />
       </Pressable>
       {isSelected && (
-        <View style={[styles.tooltip, defect.x > 60 ? styles.tooltipLeft : styles.tooltipRight]}>
+        <View style={[styles.tooltip, imgX > 60 ? styles.tooltipLeft : styles.tooltipRight]}>
           <View style={styles.tooltipHeader}>
             <Ionicons name={TYPE_ICONS[defect.type] || "alert-circle-outline"} size={12} color={color} />
             <Text style={[styles.tooltipType, { color }]}>
@@ -63,7 +97,7 @@ function DefectPin({ defect, onPress, isSelected }: { defect: DefectMarker; onPr
   );
 }
 
-export default function DefectOverlay({ defects, side }: DefectOverlayProps) {
+export default function DefectOverlay({ defects, side, cardBounds }: DefectOverlayProps) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const sideDefects = defects.filter((d) => d.side === side);
@@ -78,6 +112,7 @@ export default function DefectOverlay({ defects, side }: DefectOverlayProps) {
           defect={defect}
           isSelected={selectedId === index}
           onPress={() => setSelectedId(selectedId === index ? null : index)}
+          cardBounds={cardBounds}
         />
       ))}
     </View>

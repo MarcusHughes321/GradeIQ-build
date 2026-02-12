@@ -535,7 +535,11 @@ export default function ResultsScreen() {
               contentFit="cover"
             />
             {result.defects && result.defects.length > 0 && (
-              <DefectOverlay defects={result.defects} side={showFront ? "front" : "back"} />
+              <DefectOverlay
+                defects={result.defects}
+                side={showFront ? "front" : "back"}
+                cardBounds={showFront ? result.frontCardBounds : result.backCardBounds}
+              />
             )}
             <View style={styles.viewBadge}>
               <Ionicons name="expand" size={14} color="#fff" />
@@ -882,7 +886,11 @@ export default function ResultsScreen() {
               />
 
               {showAnnotations && result.defects && result.defects.length > 0 && (
-                <DefectOverlay defects={result.defects} side={viewerShowFront ? "front" : "back"} />
+                <DefectOverlay
+                  defects={result.defects}
+                  side={viewerShowFront ? "front" : "back"}
+                  cardBounds={viewerShowFront ? result.frontCardBounds : result.backCardBounds}
+                />
               )}
 
               {showAnnotations && (
