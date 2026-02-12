@@ -29,6 +29,7 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
     - **Card Number Detection**: AI reads card numbers from the card bottom, utilizing multiple strategies for accuracy.
 - **User Features**:
     - **Progress UI**: An 8-stage animated progress bar provides real-time analysis status during grading.
+    - **Background Grading**: Users can navigate away from the Grade tab while analysis runs in the background. A GradingContext (`lib/grading-context.tsx`) manages the job lifecycle (processing/completed/failed). The Home tab shows a status banner and the tab icon displays a dot badge (red=processing, green=complete). A "Continue browsing" button on the analysis screen lets users return to Home mid-grading. Only one grading job runs at a time.
     - **Bulk Grading**: Allows grading of up to 20 cards simultaneously, with parallel processing and average grade summaries.
     - **Subscription Model**: Implements a subscription gate with 3 free grades per day, controlled by environment variables.
     - **First-use Company Selection**: Guides new users to select grading companies, with all companies off by default.
