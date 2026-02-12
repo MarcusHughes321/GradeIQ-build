@@ -31,7 +31,7 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
     - **Progress UI**: An 8-stage animated progress bar provides real-time analysis status during grading.
     - **Background Grading**: Users can navigate away from the Grade tab while analysis runs in the background. A GradingContext (`lib/grading-context.tsx`) manages the job lifecycle (processing/completed/failed). The Home tab shows a status banner and the tab icon displays a dot badge (red=processing, green=complete). A "Continue browsing" button on the analysis screen lets users return to Home mid-grading. Only one grading job runs at a time.
     - **Bulk Grading**: Allows grading of up to 20 cards simultaneously, with parallel processing and average grade summaries.
-    - **Subscription Model**: Implements a subscription gate with 3 free grades per day, controlled by environment variables.
+    - **Subscription Model**: Tiered subscription system controlled by `EXPO_PUBLIC_SUBSCRIPTION_GATE` environment variable. Tiers: Free (3 grades/month), Grade Curious (£2.99/month, 15 grades), Grade Enthusiast (£5.99/month, 50 grades), Grade Obsessed (£9.99/month, unlimited). Usage tracked monthly via AsyncStorage with automatic reset. RevenueCat handles payment processing via App Store/Google Play.
     - **First-use Company Selection**: Guides new users to select grading companies, with all companies off by default.
 
 ### Feature Specifications

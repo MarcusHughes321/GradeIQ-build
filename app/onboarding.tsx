@@ -193,8 +193,8 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
         {item.key === "pro" && (
           <Animated.View entering={FadeIn.delay(700).duration(600)} style={styles.proFeatures}>
             {[
-              { icon: "checkmark-circle" as const, text: "3 free grades daily" },
-              { icon: "infinite" as const, text: "Unlimited with Pro" },
+              { icon: "checkmark-circle" as const, text: "3 free grades per month" },
+              { icon: "infinite" as const, text: "Plans from £2.99/month" },
               { icon: "pricetag" as const, text: "Just \u00a32.99/month" },
             ].map((f) => (
               <View key={f.text} style={styles.proFeatureRow}>

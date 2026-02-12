@@ -194,7 +194,7 @@ export default function HomeScreen() {
   const [showProReminder, setShowProReminder] = useState(false);
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
-  const { isSubscribed, isGateEnabled, remainingFreeGrades, dailyLimit } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo } = useSubscription();
   const { activeJob, dismissJob } = useGrading();
   const proReminderShownRef = useRef(false);
 
@@ -402,30 +402,28 @@ export default function HomeScreen() {
 
       {isGateEnabled && (
         <Pressable
-          onPress={() => !isSubscribed && router.push("/paywall")}
-          style={({ pressed }) => [styles.usageBadge, !isSubscribed && { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => router.push("/paywall")}
+          style={({ pressed }) => [styles.usageBadge, { opacity: pressed ? 0.8 : 1 }]}
         >
           <Ionicons
             name={isSubscribed ? "diamond" : "flame"}
             size={16}
-            color={isSubscribed ? "#F59E0B" : (remainingFreeGrades > 0 ? "#10B981" : Colors.primary)}
+            color={isSubscribed ? "#F59E0B" : (remainingGrades !== null && remainingGrades > 0 ? "#10B981" : Colors.primary)}
           />
-          {isSubscribed ? (
+          {currentTier === "obsessed" ? (
             <Text style={styles.usageBadgeText}>
-              <Text style={{ color: "#F59E0B", fontFamily: "Inter_700Bold" }}>Pro</Text>
+              <Text style={{ color: "#F59E0B", fontFamily: "Inter_700Bold" }}>{tierInfo.name}</Text>
               {"  "}Unlimited Grades
             </Text>
           ) : (
             <Text style={styles.usageBadgeText}>
-              <Text style={{ color: remainingFreeGrades > 0 ? "#10B981" : Colors.primary, fontFamily: "Inter_700Bold" }}>
-                {remainingFreeGrades}
+              <Text style={{ color: (remainingGrades !== null && remainingGrades > 0) ? "#10B981" : Colors.primary, fontFamily: "Inter_700Bold" }}>
+                {remainingGrades ?? 0}
               </Text>
-              {" "}/ {dailyLimit} free grades remaining today
+              {" "}/ {monthlyLimit} grades remaining this month
             </Text>
           )}
-          {!isSubscribed && (
-            <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} style={{ marginLeft: "auto" }} />
-          )}
+          <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} style={{ marginLeft: "auto" }} />
         </Pressable>
       )}
 
@@ -722,17 +720,17 @@ export default function HomeScreen() {
                   <Ionicons name="diamond" size={40} color="#F59E0B" />
                 </View>
 
-                <Text style={proStyles.title}>Upgrade to Pro</Text>
+                <Text style={proStyles.title}>Upgrade Your Grading</Text>
                 <Text style={proStyles.subtitle}>
-                  Unlock unlimited card grading, bulk uploads, and full portfolio tracking for just £2.99/month.
+                  Choose from flexible plans starting at just £2.99/month to unlock more grades and features.
                 </Text>
 
                 <View style={proStyles.features}>
                   {[
-                    { icon: "checkmark-circle" as const, text: `${remainingFreeGrades} of ${dailyLimit} free grades remaining today` },
-                    { icon: "infinite" as const, text: "Unlimited grades with Pro" },
-                    { icon: "layers" as const, text: "Bulk grade up to 20 cards" },
-                    { icon: "analytics" as const, text: "Full portfolio value tracking" },
+                    { icon: "checkmark-circle" as const, text: `${remainingGrades ?? 0} of ${monthlyLimit} grades remaining this month` },
+                    { icon: "sparkles" as const, text: "Grade Curious: 15 grades/month" },
+                    { icon: "flame" as const, text: "Grade Enthusiast: 50 grades/month" },
+                    { icon: "diamond" as const, text: "Grade Obsessed: Unlimited" },
                   ].map((f) => (
                     <View key={f.text} style={proStyles.featureRow}>
                       <Ionicons name={f.icon} size={18} color="#F59E0B" />

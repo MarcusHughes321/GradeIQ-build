@@ -1,27 +1,47 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator, ScrollView } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
-import { useSubscription } from "@/lib/subscription";
+import { useSubscription, TIERS, type SubscriptionTier } from "@/lib/subscription";
+
+const TIER_CARDS: { tier: SubscriptionTier; highlight?: boolean; icon: keyof typeof Ionicons.glyphMap; features: string[] }[] = [
+  {
+    tier: "curious",
+    icon: "sparkles-outline",
+    features: ["15 grades per month", "Full AI analysis", "Market price estimates"],
+  },
+  {
+    tier: "enthusiast",
+    highlight: true,
+    icon: "flame-outline",
+    features: ["50 grades per month", "Full AI analysis", "Market price estimates", "Bulk grading up to 20 cards"],
+  },
+  {
+    tier: "obsessed",
+    icon: "diamond-outline",
+    features: ["Unlimited grades", "Full AI analysis", "Market price estimates", "Bulk grading up to 20 cards", "Priority support"],
+  },
+];
 
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
-  const { dailyLimit, purchaseMonthly, restorePurchases, rcConfigured } = useSubscription();
+  const { purchaseTier, restorePurchases, rcConfigured, remainingGrades, currentTier } = useSubscription();
   const [purchasing, setPurchasing] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTier>("enthusiast");
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const handleSubscribe = async () => {
+  const handleSubscribe = async (tier: SubscriptionTier) => {
     if (!rcConfigured) {
       Alert.alert("Not Available", "Subscriptions are not yet configured. Please check back later.");
       return;
     }
     setPurchasing(true);
     try {
-      const success = await purchaseMonthly();
+      const success = await purchaseTier(tier);
       if (success) {
         router.back();
       }
@@ -53,59 +73,78 @@ export default function PaywallScreen() {
     }
   };
 
+  const limitMessage = currentTier === "free"
+    ? `You've used all ${TIERS.free.monthlyLimit} free grades this month`
+    : `You've used all ${TIERS[currentTier].monthlyLimit} grades this month`;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset, paddingBottom: insets.bottom + webBottomInset }]}>
-      <Pressable style={styles.closeBtn} onPress={() => router.back()}>
+      <Pressable style={[styles.closeBtn, { top: insets.top + webTopInset + 12 }]} onPress={() => router.back()}>
         <Ionicons name="close" size={28} color={Colors.textSecondary} />
       </Pressable>
 
-      <View style={styles.content}>
-        <View style={styles.iconWrap}>
-          <LinearGradient
-            colors={[Colors.gradientStart, Colors.gradientEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.iconGradient}
-          >
-            <Ionicons name="diamond" size={48} color="#fff" />
-          </LinearGradient>
-        </View>
-
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>
-          Grade.<Text style={{ color: Colors.primary }}>IQ</Text> Pro
+          Upgrade Your{"\n"}
+          <Text style={{ color: Colors.primary }}>Grading</Text>
         </Text>
         <Text style={styles.subtitle}>
-          You've used all {dailyLimit} free grades for today
+          {(remainingGrades !== null && remainingGrades <= 0) ? limitMessage : "Choose a plan that fits your collection"}
         </Text>
 
-        <View style={styles.features}>
-          {[
-            { icon: "infinite-outline" as const, text: "Unlimited card gradings" },
-            { icon: "flash-outline" as const, text: "Priority analysis speed" },
-            { icon: "layers-outline" as const, text: "Bulk grading up to 20 cards" },
-            { icon: "analytics-outline" as const, text: "Full portfolio tracking" },
-          ].map((f, i) => (
-            <View key={i} style={styles.featureRow}>
-              <View style={styles.featureIconWrap}>
-                <Ionicons name={f.icon} size={20} color={Colors.primary} />
-              </View>
-              <Text style={styles.featureText}>{f.text}</Text>
-            </View>
-          ))}
-        </View>
+        <View style={styles.tiersContainer}>
+          {TIER_CARDS.map((card) => {
+            const info = TIERS[card.tier];
+            const isSelected = selectedTier === card.tier;
 
-        <View style={styles.priceCard}>
-          <Text style={styles.priceLabel}>Monthly</Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceAmount}>£2.99</Text>
-            <Text style={styles.pricePeriod}>/month</Text>
-          </View>
-          <Text style={styles.priceNote}>Cancel anytime</Text>
+            return (
+              <Pressable
+                key={card.tier}
+                style={[
+                  styles.tierCard,
+                  isSelected && styles.tierCardSelected,
+                  card.highlight && styles.tierCardPopular,
+                ]}
+                onPress={() => setSelectedTier(card.tier)}
+              >
+                {card.highlight && (
+                  <View style={styles.popularBadge}>
+                    <Text style={styles.popularBadgeText}>Most Popular</Text>
+                  </View>
+                )}
+
+                <View style={styles.tierHeader}>
+                  <View style={[styles.tierIconWrap, isSelected && { backgroundColor: Colors.primary + "25" }]}>
+                    <Ionicons name={card.icon} size={22} color={isSelected ? Colors.primary : Colors.textSecondary} />
+                  </View>
+                  <View style={styles.tierNameWrap}>
+                    <Text style={[styles.tierName, isSelected && { color: Colors.text }]}>{info.name}</Text>
+                    <View style={styles.tierPriceRow}>
+                      <Text style={[styles.tierPrice, isSelected && { color: Colors.primary }]}>{info.price}</Text>
+                      <Text style={styles.tierPricePeriod}>/month</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+                    {isSelected && <View style={styles.radioInner} />}
+                  </View>
+                </View>
+
+                <View style={styles.tierFeatures}>
+                  {card.features.map((f, i) => (
+                    <View key={i} style={styles.tierFeatureRow}>
+                      <Ionicons name="checkmark" size={16} color={isSelected ? Colors.primary : Colors.textMuted} />
+                      <Text style={[styles.tierFeatureText, isSelected && { color: Colors.textSecondary }]}>{f}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
 
         <Pressable
           style={({ pressed }) => [styles.subscribeBtn, { transform: [{ scale: pressed ? 0.97 : 1 }], opacity: purchasing ? 0.7 : 1 }]}
-          onPress={handleSubscribe}
+          onPress={() => handleSubscribe(selectedTier)}
           disabled={purchasing}
         >
           <LinearGradient
@@ -117,21 +156,21 @@ export default function PaywallScreen() {
             {purchasing ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.subscribeBtnText}>Subscribe Now</Text>
+              <Text style={styles.subscribeBtnText}>
+                Subscribe to {TIERS[selectedTier].name}
+              </Text>
             )}
           </LinearGradient>
         </Pressable>
 
         <Pressable onPress={handleRestore} disabled={purchasing}>
-          <Text style={styles.restoreText}>
-            Restore Purchases
-          </Text>
+          <Text style={styles.restoreText}>Restore Purchases</Text>
         </Pressable>
 
         <Text style={styles.freeNote}>
-          {dailyLimit} free grades per day included with the free plan
+          {TIERS.free.monthlyLimit} free grades per month included with the free plan
         </Text>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -143,7 +182,6 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     position: "absolute",
-    top: 60,
     right: 20,
     zIndex: 10,
     width: 40,
@@ -151,98 +189,134 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  content: {
-    flex: 1,
+  scrollContent: {
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-  },
-  iconWrap: {
-    marginBottom: 24,
-  },
-  iconGradient: {
-    width: 100,
-    height: 100,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
   title: {
     fontFamily: "Inter_700Bold",
-    fontSize: 32,
+    fontSize: 30,
     color: Colors.text,
+    textAlign: "center",
     marginBottom: 8,
+    lineHeight: 38,
   },
   subtitle: {
     fontFamily: "Inter_400Regular",
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.textSecondary,
     textAlign: "center",
-    marginBottom: 32,
+    marginBottom: 28,
     lineHeight: 22,
   },
-  features: {
+  tiersContainer: {
     width: "100%",
-    gap: 16,
-    marginBottom: 32,
+    gap: 12,
+    marginBottom: 28,
   },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  featureIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.primary + "15",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  featureText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: Colors.text,
-  },
-  priceCard: {
+  tierCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.primary + "40",
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    width: "100%",
-    alignItems: "center",
-    marginBottom: 24,
+    borderWidth: 1.5,
+    borderColor: Colors.surface,
+    padding: 16,
+    overflow: "hidden",
   },
-  priceLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 4,
+  tierCardSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary + "08",
+  },
+  tierCardPopular: {
+    position: "relative",
+  },
+  popularBadge: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderBottomLeftRadius: 10,
+    borderTopRightRadius: 14,
+  },
+  popularBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: "#fff",
     textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
-  priceRow: {
+  tierHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  tierIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  tierNameWrap: {
+    flex: 1,
+  },
+  tierName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: Colors.textSecondary,
+    marginBottom: 2,
+  },
+  tierPriceRow: {
     flexDirection: "row",
     alignItems: "baseline",
   },
-  priceAmount: {
+  tierPrice: {
     fontFamily: "Inter_700Bold",
-    fontSize: 36,
-    color: Colors.text,
-  },
-  pricePeriod: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
+    fontSize: 20,
     color: Colors.textSecondary,
-    marginLeft: 4,
   },
-  priceNote: {
+  tierPricePeriod: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
-    marginTop: 4,
+    marginLeft: 2,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: Colors.textMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioOuterSelected: {
+    borderColor: Colors.primary,
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.primary,
+  },
+  tierFeatures: {
+    gap: 6,
+    paddingLeft: 4,
+  },
+  tierFeatureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  tierFeatureText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
   },
   subscribeBtn: {
     width: "100%",

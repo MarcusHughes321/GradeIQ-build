@@ -12,7 +12,7 @@ import CompanyLabel from "@/components/CompanyLabel";
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { settings, toggleCompany } = useSettings();
-  const { isGateEnabled, isSubscribed, dailyUsageCount, dailyLimit, remainingFreeGrades } = useSubscription();
+  const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo } = useSubscription();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -67,12 +67,12 @@ export default function SettingsScreen() {
                 <View style={styles.proBadge}>
                   <Ionicons name={isSubscribed ? "diamond" : "time-outline"} size={16} color={isSubscribed ? "#F59E0B" : Colors.textSecondary} />
                   <Text style={[styles.proBadgeText, isSubscribed && { color: "#F59E0B" }]}>
-                    {isSubscribed ? "Pro" : "Free"}
+                    {tierInfo.name}
                   </Text>
                 </View>
               </View>
 
-              {!isSubscribed && (
+              {currentTier !== "obsessed" && (
                 <>
                   <View style={styles.usageBar}>
                     <View style={styles.usageBarTrack}>
@@ -80,14 +80,14 @@ export default function SettingsScreen() {
                         style={[
                           styles.usageBarFill,
                           {
-                            width: `${(dailyUsageCount / dailyLimit) * 100}%`,
-                            backgroundColor: remainingFreeGrades === 0 ? Colors.primary : "#10B981",
+                            width: `${monthlyLimit ? (monthlyUsageCount / monthlyLimit) * 100 : 0}%`,
+                            backgroundColor: (remainingGrades !== null && remainingGrades === 0) ? Colors.primary : "#10B981",
                           },
                         ]}
                       />
                     </View>
                     <Text style={styles.usageLabel}>
-                      {remainingFreeGrades} of {dailyLimit} free grades remaining today
+                      {remainingGrades ?? 0} of {monthlyLimit} grades remaining this month
                     </Text>
                   </View>
 
@@ -96,12 +96,14 @@ export default function SettingsScreen() {
                     style={({ pressed }) => [styles.upgradeBtn, { opacity: pressed ? 0.85 : 1 }]}
                   >
                     <Ionicons name="diamond" size={16} color="#fff" />
-                    <Text style={styles.upgradeBtnText}>Upgrade to Pro - £2.99/month</Text>
+                    <Text style={styles.upgradeBtnText}>
+                      {isSubscribed ? "Upgrade Plan" : "View Plans"}
+                    </Text>
                   </Pressable>
                 </>
               )}
 
-              {isSubscribed && (
+              {currentTier === "obsessed" && (
                 <Text style={styles.proActiveText}>
                   You have unlimited access to all grading features.
                 </Text>
