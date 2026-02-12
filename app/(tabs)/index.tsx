@@ -893,6 +893,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 20,
     paddingBottom: 24,
+    paddingHorizontal: BUBBLE_PAD,
   },
   heroTopRow: {
     flexDirection: "row",
@@ -914,6 +915,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    width: "100%",
   },
   guideBtn: {
     padding: 4,

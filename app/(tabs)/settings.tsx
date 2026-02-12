@@ -73,6 +73,17 @@ export default function SettingsScreen() {
           </Pressable>
           <View style={styles.menuDivider} />
           <Pressable
+            onPress={() => router.push("/feedback")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="chatbubble-outline" size={20} color="#10B981" />
+              <Text style={styles.menuRowLabel}>Send Feedback</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
             onPress={() => router.push("/terms")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
           >

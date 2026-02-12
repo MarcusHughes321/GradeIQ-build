@@ -57,6 +57,7 @@ function RootLayoutNav() {
       <Stack.Screen name="paywall" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
       <Stack.Screen name="terms" />
       <Stack.Screen name="about" />
+      <Stack.Screen name="feedback" />
       <Stack.Screen name="disclaimer" options={{ animation: "fade" }} />
     </Stack>
   );

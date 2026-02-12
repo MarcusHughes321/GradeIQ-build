@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, Linking } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -105,9 +105,17 @@ export default function AboutScreen() {
               </View>
               <View style={styles.creditInfo}>
                 <Text style={styles.creditRole}>The Vision</Text>
-                <Text style={styles.creditName}>A passionate collector and grader who saw a gap in the market and imagined something better for the community.</Text>
+                <Text style={styles.creditName}>Marceus.tcg — a passionate collector and grader who saw a gap in the market and imagined something better for the community.</Text>
               </View>
             </View>
+
+            <Pressable
+              onPress={() => Linking.openURL("https://instagram.com/marceus.tcg")}
+              style={({ pressed }) => [styles.socialLink, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Ionicons name="logo-instagram" size={16} color="#E1306C" />
+              <Text style={styles.socialText}>@marceus.tcg</Text>
+            </Pressable>
 
             <View style={styles.creditDivider} />
 
@@ -314,6 +322,23 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: Colors.surfaceBorder,
     marginVertical: 12,
+  },
+  socialLink: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    marginTop: 8,
+    marginLeft: 48,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(225, 48, 108, 0.1)",
+    borderRadius: 8,
+    alignSelf: "flex-start" as const,
+  },
+  socialText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#E1306C",
   },
   footer: {
     fontFamily: "Inter_400Regular",
