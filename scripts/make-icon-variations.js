@@ -32,22 +32,25 @@ async function variation4straight(outputFile) {
   const cTop = cardY + cornerOff;
   const cBottom = cardY + cardH - cornerOff;
   const cStroke = 2;
-  const cColor = "#666666";
+  const cColor = "#444444";
 
   const svg = `
   <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${size}" height="${size}" fill="#000000"/>
+    <!-- White background -->
+    <rect width="${size}" height="${size}" fill="#FFFFFF"/>
     
-    <rect x="${slabX}" y="${slabY}" width="${slabW}" height="${slabH}" rx="${slabR}" ry="${slabR}" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+    <!-- Black slab -->
+    <rect x="${slabX}" y="${slabY}" width="${slabW}" height="${slabH}" rx="${slabR}" ry="${slabR}" fill="#000000" stroke="#222222" stroke-width="1"/>
     
-    <!-- White header bar with black Grade + red .IQ -->
-    <rect x="${headerX}" y="${headerY}" width="${headerW}" height="${headerH}" rx="8" ry="8" fill="#FFFFFF"/>
+    <!-- Black header bar -->
+    <rect x="${headerX}" y="${headerY}" width="${headerW}" height="${headerH}" rx="8" ry="8" fill="#111111" stroke="#333333" stroke-width="1"/>
+    <!-- White Grade + Red .IQ (same as app logo) -->
     <text x="${size/2}" y="${textY}" 
           font-family="Inter" font-weight="700" font-size="72" 
-          fill="#000000" text-anchor="middle" letter-spacing="3">Grade<tspan fill="#FF3C31">.IQ</tspan></text>
+          fill="#FFFFFF" text-anchor="middle" letter-spacing="3">Grade<tspan fill="#FF3C31">.IQ</tspan></text>
     
     <!-- Card window -->
-    <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="${cardR}" ry="${cardR}" fill="#000000" stroke="#333333" stroke-width="2"/>
+    <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="${cardR}" ry="${cardR}" fill="#0a0a0a" stroke="#222222" stroke-width="1.5"/>
     
     <!-- Corner brackets - top left -->
     <line x1="${cLeft}" y1="${cTop}" x2="${cLeft + cornerLen}" y2="${cTop}" stroke="${cColor}" stroke-width="${cStroke}"/>
@@ -67,7 +70,7 @@ async function variation4straight(outputFile) {
   </svg>`;
 
   await sharp(Buffer.from(svg)).resize(size, size).png().toFile(outputFile);
-  console.log('V4 updated:', outputFile);
+  console.log('V4 inverted:', outputFile);
 }
 
 async function main() {
