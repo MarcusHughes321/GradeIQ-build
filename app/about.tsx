@@ -104,7 +104,7 @@ export default function AboutScreen() {
               <Image
                 source={require("@/assets/images/marceus-logo.jpeg")}
                 style={styles.marceusLogo}
-                contentFit="contain"
+                contentFit="cover"
               />
             </View>
 
