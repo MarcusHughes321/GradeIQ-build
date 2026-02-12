@@ -341,6 +341,7 @@ export default function HomeScreen() {
     <>
       <View style={styles.heroSection}>
         <View style={styles.heroTitleRow}>
+          <View style={{ width: 32 }} />
           <Text style={styles.heroTitle}>Grade.<Text style={{ color: Colors.primary }}>IQ</Text></Text>
           <Pressable
             onPress={() => router.push("/onboarding")}
@@ -916,6 +917,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+    paddingHorizontal: 4,
   },
   guideBtn: {
     padding: 4,
