@@ -30,7 +30,7 @@ interface GradingContextValue {
 const GradingContext = createContext<GradingContextValue | null>(null);
 
 const POLL_INTERVAL = 3000;
-const ESTIMATED_GRADE_SECONDS = 75;
+const ESTIMATED_GRADE_SECONDS = 90;
 
 async function getBase64FromUri(uri: string): Promise<string> {
   const response = await fetch(uri);
