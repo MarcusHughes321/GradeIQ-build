@@ -429,6 +429,7 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - Both the overall grade and ALL sub-grades MUST be whole numbers.
 - Ace provides FREE subgrades for Centering, Corners, Edges, and Surface.
 - CAPPING RULE: No card can have an overall grade more than 1 grade HIGHER than its lowest subgrade. E.g., if Edges = 7, maximum overall = 8.
+- ACE 10 RULE: For a card to receive an overall Ace 10, Centering MUST be a 10. Additionally, at least 2 of the other 3 sub-grades (Corners, Edges, Surface) must also be 10, with only ONE 9 allowed among them. If centering is not a 10, the card CANNOT get an overall Ace 10 regardless of other sub-grades.
 - Centering is measured with 1/1000th mm precision using automated scanning.
 - CENTERING THRESHOLDS (front / back):
   * 10 (Gem Mint): Under 60/40 on both front and back
