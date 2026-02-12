@@ -47,6 +47,9 @@ export default function GradeScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const { canGrade, recordUsage, isGateEnabled } = useSubscription();
+  const { submitGrading, activeJob } = useGrading();
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -241,9 +244,6 @@ export default function GradeScreen() {
       });
     }
   };
-
-  const { canGrade, recordUsage, isGateEnabled } = useSubscription();
-  const { submitGrading, activeJob } = useGrading();
 
   useEffect(() => {
     if (activeJob?.status === "completed" && activeJob.savedGrading && loading) {
