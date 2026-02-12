@@ -12,7 +12,7 @@ const FEEDBACK_TYPES = [
   { id: "other", label: "Other", icon: "chatbubble-outline" as const, color: "#10B981" },
 ];
 
-const FEEDBACK_EMAIL = "marceus.tcg@gmail.com";
+const FEEDBACK_EMAIL = "marceus.tcg@hotmail.com";
 
 export default function FeedbackScreen() {
   const insets = useSafeAreaInsets();
