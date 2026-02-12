@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, useRef } from "react";
-import { Platform, Alert } from "react-native";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, ReactNode, useRef } from "react";
+import { Platform, AppState } from "react-native";
 import * as Haptics from "expo-haptics";
-import { apiRequest } from "@/lib/query-client";
+import * as Notifications from "expo-notifications";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 
@@ -9,6 +10,7 @@ export type GradingJobStatus = "processing" | "completed" | "failed";
 
 export interface GradingJob {
   id: string;
+  serverJobId: string;
   frontImage: string;
   backImage: string;
   status: GradingJobStatus;
@@ -23,9 +25,12 @@ interface GradingContextValue {
   dismissJob: () => void;
   hasCompletedJob: boolean;
   hasActiveJob: boolean;
+  pushToken: string | null;
 }
 
 const GradingContext = createContext<GradingContextValue | null>(null);
+
+const POLL_INTERVAL = 3000;
 
 async function getBase64FromUri(uri: string): Promise<string> {
   const response = await fetch(uri);
@@ -38,20 +43,127 @@ async function getBase64FromUri(uri: string): Promise<string> {
   });
 }
 
+async function registerForPushNotifications(): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+
+  try {
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let finalStatus = existing;
+
+    if (existing !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== "granted") return null;
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: undefined,
+    });
+    return tokenData.data;
+  } catch (err) {
+    console.log("Push notification setup skipped:", err);
+    return null;
+  }
+}
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
 export function GradingProvider({ children }: { children: ReactNode }) {
   const [activeJob, setActiveJob] = useState<GradingJob | null>(null);
-  const abortRef = useRef(false);
+  const [pushToken, setPushToken] = useState<string | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    registerForPushNotifications().then(setPushToken);
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const pollJobStatus = useCallback(async (serverJobId: string, localJobId: string, frontImage: string, backImage: string) => {
+    try {
+      const resp = await apiRequest("GET", `/api/grade-job/${serverJobId}`);
+      const data = await resp.json();
+
+      if (data.status === "completed" && data.result) {
+        stopPolling();
+
+        const result: GradingResult = data.result;
+        if (recordUsageRef.current) {
+          try { await recordUsageRef.current(1); } catch {}
+        }
+
+        const saved = await saveGrading(frontImage, backImage, result);
+
+        (async () => {
+          try {
+            const vResp = await apiRequest("POST", "/api/card-value", {
+              cardName: result.cardName,
+              setName: result.setName || result.setInfo,
+              setNumber: result.setNumber,
+              psaGrade: result.psa.grade,
+              bgsGrade: result.beckett.overallGrade,
+              aceGrade: result.ace.overallGrade,
+              tagGrade: result.tag?.overallGrade,
+              cgcGrade: result.cgc?.grade,
+            });
+            const vData = await vResp.json();
+            await updateGrading(saved.id, { result: { ...result, cardValue: vData } });
+          } catch {}
+        })();
+
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        setActiveJob(prev =>
+          prev && prev.id === localJobId
+            ? { ...prev, status: "completed", savedGrading: saved }
+            : prev
+        );
+      } else if (data.status === "failed") {
+        stopPolling();
+
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+
+        setActiveJob(prev =>
+          prev && prev.id === localJobId
+            ? { ...prev, status: "failed", error: data.error || "Unknown error" }
+            : prev
+        );
+      }
+    } catch (err) {
+      console.log("Poll error (will retry):", err);
+    }
+  }, [stopPolling]);
 
   const submitGrading = useCallback(async (
     frontImage: string,
     backImage: string,
     recordUsage: (n: number) => Promise<void>,
   ) => {
-    const jobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-    abortRef.current = false;
+    const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    recordUsageRef.current = recordUsage;
 
     setActiveJob({
-      id: jobId,
+      id: localJobId,
+      serverJobId: "",
       frontImage,
       backImage,
       status: "processing",
@@ -62,73 +174,70 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const frontBase64 = await getBase64FromUri(frontImage);
       const backBase64 = await getBase64FromUri(backImage);
 
-      const response = await apiRequest("POST", "/api/grade-card", {
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+
+      const resp = await apiRequest("POST", "/api/grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
+        pushToken,
       });
 
-      const result: GradingResult = await response.json();
+      const { jobId: serverJobId } = await resp.json();
 
-      await recordUsage(1);
+      setActiveJob(prev =>
+        prev && prev.id === localJobId
+          ? { ...prev, serverJobId }
+          : prev
+      );
 
-      const saved = await saveGrading(frontImage, backImage, result);
-
-      (async () => {
-        try {
-          const resp = await apiRequest("POST", "/api/card-value", {
-            cardName: result.cardName,
-            setName: result.setName || result.setInfo,
-            setNumber: result.setNumber,
-            psaGrade: result.psa.grade,
-            bgsGrade: result.beckett.overallGrade,
-            aceGrade: result.ace.overallGrade,
-            tagGrade: result.tag?.overallGrade,
-            cgcGrade: result.cgc?.grade,
-          });
-          const data = await resp.json();
-          await updateGrading(saved.id, { result: { ...result, cardValue: data } });
-        } catch {}
-      })();
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-
-      if (!abortRef.current) {
-        setActiveJob((prev) =>
-          prev && prev.id === jobId
-            ? { ...prev, status: "completed", savedGrading: saved }
-            : prev
-        );
-      }
+      stopPolling();
+      pollingRef.current = setInterval(() => {
+        pollJobStatus(serverJobId, localJobId, frontImage, backImage);
+      }, POLL_INTERVAL);
     } catch (error: any) {
-      console.error("Background grading error:", error);
+      console.error("Failed to submit grading job:", error);
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 
-      if (!abortRef.current) {
-        setActiveJob((prev) =>
-          prev && prev.id === jobId
-            ? { ...prev, status: "failed", error: error.message || "Unknown error" }
-            : prev
-        );
-      }
+      setActiveJob(prev =>
+        prev && prev.id === localJobId
+          ? { ...prev, status: "failed", error: error.message || "Unknown error" }
+          : prev
+      );
     }
-  }, []);
+  }, [pushToken, pollJobStatus, stopPolling]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && activeJob?.status === "processing" && activeJob.serverJobId) {
+        stopPolling();
+        pollingRef.current = setInterval(() => {
+          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage);
+        }, POLL_INTERVAL);
+      }
+    });
+    return () => sub.remove();
+  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, pollJobStatus, stopPolling]);
+
+  useEffect(() => {
+    return () => stopPolling();
+  }, [stopPolling]);
 
   const dismissJob = useCallback(() => {
-    abortRef.current = true;
+    stopPolling();
     setActiveJob(null);
-  }, []);
+  }, [stopPolling]);
 
   const hasCompletedJob = activeJob?.status === "completed";
   const hasActiveJob = activeJob?.status === "processing";
 
   const value = useMemo(
-    () => ({ activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob }),
-    [activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob]
+    () => ({ activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob, pushToken }),
+    [activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob, pushToken]
   );
 
   return <GradingContext.Provider value={value}>{children}</GradingContext.Provider>;

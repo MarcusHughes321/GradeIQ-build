@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 import CardCamera from "@/components/CardCamera";
 import { useSubscription } from "@/lib/subscription";
+import { useGrading } from "@/lib/grading-context";
 
 const MAX_CARDS = 20;
 
@@ -256,6 +257,16 @@ export default function BulkScreen() {
     });
   };
 
+  const { pushToken } = useGrading();
+  const bulkPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cardImagesRef = useRef<Array<{ frontImage: string; backImage: string }>>([]);
+
+  useEffect(() => {
+    return () => {
+      if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
+    };
+  }, []);
+
   const handleBulkGrade = async () => {
     if (readyCards.length === 0) {
       Alert.alert("No Cards Ready", "Each card needs both a front and back photo.");
@@ -270,7 +281,7 @@ export default function BulkScreen() {
     setLoading(true);
     setCompletedCount(0);
     setTotalToGrade(readyCards.length);
-    setCurrentCardName(`Preparing card 1 of ${readyCards.length}...`);
+    setCurrentCardName(`Preparing images...`);
     progressAnim.setValue(0);
 
     try {
@@ -278,113 +289,121 @@ export default function BulkScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      const savedIds: string[] = [];
-      let failedCount = 0;
-      let completedSoFar = 0;
-      const failedCardImages: string[] = [];
-      const BATCH_SIZE = 3;
+      setCurrentCardName(`Converting ${readyCards.length} cards...`);
 
-      for (let batchStart = 0; batchStart < readyCards.length; batchStart += BATCH_SIZE) {
-        const batch = readyCards.slice(batchStart, batchStart + BATCH_SIZE);
-        setCurrentCardName(`Grading cards ${batchStart + 1}-${Math.min(batchStart + batch.length, readyCards.length)} of ${readyCards.length}...`);
+      const cardImages = await Promise.all(
+        readyCards.map(async (card) => {
+          let frontBase64 = await getBase64FromUri(card.frontImage!);
+          let backBase64 = await getBase64FromUri(card.backImage!);
+          [frontBase64, backBase64] = await Promise.all([
+            cropImageBase64(frontBase64),
+            cropImageBase64(backBase64),
+          ]);
+          return { frontImage: frontBase64, backImage: backBase64 };
+        })
+      );
 
-        const batchResults = await Promise.allSettled(
-          batch.map(async (card, batchIdx) => {
-            const globalIdx = batchStart + batchIdx;
-            let frontBase64 = await getBase64FromUri(card.frontImage!);
-            let backBase64 = await getBase64FromUri(card.backImage!);
+      cardImagesRef.current = cardImages;
 
-            [frontBase64, backBase64] = await Promise.all([
-              cropImageBase64(frontBase64),
-              cropImageBase64(backBase64),
-            ]);
+      setCurrentCardName(`Submitting ${readyCards.length} cards to server...`);
 
-            const response = await apiRequest("POST", "/api/grade-card", {
-              frontImage: frontBase64,
-              backImage: backBase64,
-            });
+      const resp = await apiRequest("POST", "/api/bulk-grade-job", {
+        cards: cardImages,
+        pushToken,
+      });
 
-            const result = await response.json();
+      const { jobId } = await resp.json();
 
-            if (result.error) {
-              throw new Error(result.error);
+      setCurrentCardName(`Server is grading your cards...`);
+
+      bulkPollingRef.current = setInterval(async () => {
+        try {
+          const pollResp = await apiRequest("GET", `/api/grade-job/${jobId}`);
+          const data = await pollResp.json();
+
+          if (data.completedCards !== undefined) {
+            setCompletedCount(data.completedCards);
+            Animated.timing(progressAnim, {
+              toValue: data.completedCards / (data.totalCards || readyCards.length),
+              duration: 400,
+              useNativeDriver: false,
+            }).start();
+            setCurrentCardName(`Grading card ${Math.min(data.completedCards + 1, data.totalCards)} of ${data.totalCards}...`);
+          }
+
+          if (data.status === "completed" && data.results) {
+            if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
+            bulkPollingRef.current = null;
+
+            const savedIds: string[] = [];
+            let failedCount = 0;
+            const failedCardImages: string[] = [];
+
+            for (let i = 0; i < data.results.length; i++) {
+              const r = data.results[i];
+              if (r.status === "completed" && r.result) {
+                const gr = r.result as GradingResult;
+                const images = cardImagesRef.current[i];
+                const saved = await saveGrading(images?.frontImage || "", images?.backImage || "", gr);
+                savedIds.push(saved.id);
+
+                (async () => {
+                  try {
+                    const vResp = await apiRequest("POST", "/api/card-value", {
+                      cardName: gr.cardName,
+                      setName: gr.setName || gr.setInfo,
+                      setNumber: gr.setNumber,
+                      psaGrade: gr.psa.grade,
+                      bgsGrade: gr.beckett.overallGrade,
+                      aceGrade: gr.ace.overallGrade,
+                      tagGrade: gr.tag?.overallGrade,
+                      cgcGrade: gr.cgc?.grade,
+                    });
+                    const vData = await vResp.json();
+                    await updateGrading(saved.id, { result: { ...gr, cardValue: vData } });
+                  } catch {}
+                })();
+              } else {
+                failedCount++;
+                const origCard = readyCards[i];
+                if (origCard?.frontImage) failedCardImages.push(origCard.frontImage);
+              }
             }
 
-            const gr = result as GradingResult;
-            const saved = await saveGrading(
-              frontBase64,
-              backBase64,
-              gr
-            );
-            (async () => {
-              try {
-                const vResp = await apiRequest("POST", "/api/card-value", {
-                  cardName: gr.cardName,
-                  setName: gr.setName || gr.setInfo,
-                  setNumber: gr.setNumber,
-                  psaGrade: gr.psa.grade,
-                  bgsGrade: gr.beckett.overallGrade,
-                  aceGrade: gr.ace.overallGrade,
-                  tagGrade: gr.tag?.overallGrade,
-                  cgcGrade: gr.cgc?.grade,
-                });
-                const vData = await vResp.json();
-                await updateGrading(saved.id, { result: { ...gr, cardValue: vData } });
-              } catch {}
-            })();
-            return { globalIdx, savedId: saved.id, cardName: result.cardName, frontImage: card.frontImage! };
-          })
-        );
+            await recordUsage(savedIds.length);
 
-        for (let ri = 0; ri < batchResults.length; ri++) {
-          const r = batchResults[ri];
-          if (r.status === "fulfilled") {
-            savedIds.push(r.value.savedId);
-            setCurrentCardName(r.value.cardName || `Card ${r.value.globalIdx + 1}`);
-          } else {
-            console.error(`Card failed:`, r.reason?.message);
-            failedCount++;
-            const failedCard = batch[ri];
-            if (failedCard?.frontImage) {
-              failedCardImages.push(failedCard.frontImage);
+            if (Platform.OS !== "web") {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+
+            setLoading(false);
+            router.replace({
+              pathname: "/bulk-results",
+              params: {
+                gradingIds: savedIds.join(","),
+                failedCount: failedCount.toString(),
+                failedImages: failedCardImages.join("|||"),
+              },
+            });
+          } else if (data.status === "failed") {
+            if (bulkPollingRef.current) clearInterval(bulkPollingRef.current);
+            bulkPollingRef.current = null;
+            setLoading(false);
+            Alert.alert("Grading Failed", data.error || "There was an error grading your cards.");
+            if (Platform.OS !== "web") {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             }
           }
+        } catch (pollErr) {
+          console.log("Bulk poll error (will retry):", pollErr);
         }
-
-        completedSoFar += batch.length;
-        setCompletedCount(completedSoFar);
-        Animated.timing(progressAnim, {
-          toValue: completedSoFar / readyCards.length,
-          duration: 400,
-          useNativeDriver: false,
-        }).start();
-
-        if (Platform.OS !== "web" && completedSoFar < readyCards.length) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
-      }
-
-      await recordUsage(savedIds.length);
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-
-      router.replace({
-        pathname: "/bulk-results",
-        params: {
-          gradingIds: savedIds.join(","),
-          failedCount: failedCount.toString(),
-          failedImages: failedCardImages.join("|||"),
-        },
-      });
+      }, 3000);
     } catch (error: any) {
       console.error("Bulk grading error:", error);
-      Alert.alert("Grading Failed", "There was an error grading your cards. Please try again.");
+      Alert.alert("Grading Failed", "There was an error submitting your cards. Please try again.");
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-    } finally {
       setLoading(false);
     }
   };
@@ -476,6 +495,18 @@ export default function BulkScreen() {
               {totalToGrade - completedCount > 0 ? `~${Math.max(1, Math.ceil((totalToGrade - completedCount) * 40 / 60))} min remaining` : "Finishing up..."}
             </Text>
           </View>
+
+          <Text style={styles.serverNote}>
+            Grading runs on the server — you can leave the app
+          </Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.continueButton, { opacity: pressed ? 0.7 : 1 }]}
+            onPress={() => router.navigate("/(tabs)")}
+          >
+            <Ionicons name="arrow-back" size={16} color={Colors.text} />
+            <Text style={styles.continueButtonText}>Continue browsing</Text>
+          </Pressable>
         </View>
       ) : (
         <>
@@ -1005,6 +1036,29 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  serverNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 16,
+    textAlign: "center" as const,
+  },
+  continueButton: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  continueButtonText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.text,
   },
   bulkCameraTopRow: {
     position: "absolute" as const,

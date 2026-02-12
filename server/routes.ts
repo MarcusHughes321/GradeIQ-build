@@ -2154,6 +2154,46 @@ function enforceGradingScales(result: any): any {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  interface GradingJob {
+    id: string;
+    status: "processing" | "completed" | "failed";
+    type: "single" | "bulk";
+    result?: any;
+    results?: Array<{ status: "completed" | "failed"; result?: any; error?: string }>;
+    totalCards?: number;
+    completedCards?: number;
+    error?: string;
+    pushToken?: string;
+    createdAt: number;
+  }
+
+  const gradingJobs = new Map<string, GradingJob>();
+
+  setInterval(() => {
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    for (const [id, job] of gradingJobs) {
+      if (job.createdAt < oneHourAgo) gradingJobs.delete(id);
+    }
+  }, 10 * 60 * 1000);
+
+  async function sendPushNotification(pushToken: string, title: string, body: string) {
+    try {
+      await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: pushToken,
+          sound: "default",
+          title,
+          body,
+          data: { type: "grading_complete" },
+        }),
+      });
+    } catch (err) {
+      console.error("[push] Failed to send notification:", err);
+    }
+  }
+
   app.post("/api/grade-card", async (req, res) => {
     try {
       const { frontImage, backImage } = req.body;
@@ -2948,6 +2988,186 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     } catch (error: any) {
       console.error("Error detecting angle:", error);
       res.status(500).json({ error: error.message || "Failed to detect angle" });
+    }
+  });
+
+  app.post("/api/grade-job", async (req, res) => {
+    try {
+      const { frontImage, backImage, pushToken } = req.body;
+      if (!frontImage || !backImage) {
+        return res.status(400).json({ error: "Both front and back images required" });
+      }
+
+      const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+      const job: GradingJob = {
+        id: jobId,
+        status: "processing",
+        type: "single",
+        pushToken,
+        createdAt: Date.now(),
+      };
+      gradingJobs.set(jobId, job);
+
+      res.json({ jobId });
+
+      (async () => {
+        try {
+          const gradeStartTime = Date.now();
+          const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+          const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+
+          const [frontUrl, backUrl] = await Promise.all([
+            optimizeImageForAI(rawFrontUrl),
+            optimizeImageForAI(rawBackUrl),
+          ]);
+
+          const internalUrl = `http://localhost:5000/api/grade-card`;
+          const gradeResp = await fetch(internalUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ frontImage, backImage }),
+          });
+
+          if (!gradeResp.ok) {
+            const errText = await gradeResp.text();
+            throw new Error(errText || "Grading failed");
+          }
+
+          const result = await gradeResp.json();
+          job.status = "completed";
+          job.result = result;
+
+          console.log(`[grade-job] Job ${jobId} completed in ${Date.now() - gradeStartTime}ms`);
+
+          if (job.pushToken) {
+            const cardName = result.cardName || "your card";
+            sendPushNotification(job.pushToken, "Grading Complete", `${cardName} has been graded!`);
+          }
+        } catch (err: any) {
+          console.error(`[grade-job] Job ${jobId} failed:`, err.message);
+          job.status = "failed";
+          job.error = err.message || "Unknown error";
+
+          if (job.pushToken) {
+            sendPushNotification(job.pushToken, "Grading Failed", "There was an error grading your card. Please try again.");
+          }
+        }
+      })();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/bulk-grade-job", async (req, res) => {
+    try {
+      const { cards, pushToken } = req.body;
+      if (!cards || !Array.isArray(cards) || cards.length === 0) {
+        return res.status(400).json({ error: "At least one card required" });
+      }
+
+      const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+      const job: GradingJob = {
+        id: jobId,
+        status: "processing",
+        type: "bulk",
+        totalCards: cards.length,
+        completedCards: 0,
+        results: [],
+        pushToken,
+        createdAt: Date.now(),
+      };
+      gradingJobs.set(jobId, job);
+
+      res.json({ jobId, totalCards: cards.length });
+
+      (async () => {
+        try {
+          const BATCH_SIZE = 3;
+          const results: Array<{ status: "completed" | "failed"; result?: any; error?: string }> = [];
+
+          for (let i = 0; i < cards.length; i += BATCH_SIZE) {
+            const batch = cards.slice(i, i + BATCH_SIZE);
+
+            const batchResults = await Promise.allSettled(
+              batch.map(async (card: { frontImage: string; backImage: string }) => {
+                const internalUrl = `http://localhost:5000/api/grade-card`;
+                const gradeResp = await fetch(internalUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ frontImage: card.frontImage, backImage: card.backImage }),
+                });
+
+                if (!gradeResp.ok) {
+                  const errText = await gradeResp.text();
+                  throw new Error(errText || "Grading failed");
+                }
+
+                return await gradeResp.json();
+              })
+            );
+
+            for (const r of batchResults) {
+              if (r.status === "fulfilled") {
+                results.push({ status: "completed", result: r.value });
+              } else {
+                results.push({ status: "failed", error: r.reason?.message || "Unknown error" });
+              }
+            }
+
+            job.completedCards = results.length;
+            job.results = results;
+          }
+
+          job.status = "completed";
+          const successCount = results.filter(r => r.status === "completed").length;
+          console.log(`[bulk-grade-job] Job ${jobId} completed: ${successCount}/${cards.length} succeeded`);
+
+          if (job.pushToken) {
+            sendPushNotification(
+              job.pushToken,
+              "Bulk Grading Complete",
+              `${successCount} of ${cards.length} cards graded successfully!`
+            );
+          }
+        } catch (err: any) {
+          console.error(`[bulk-grade-job] Job ${jobId} failed:`, err.message);
+          job.status = "failed";
+          job.error = err.message || "Unknown error";
+
+          if (job.pushToken) {
+            sendPushNotification(job.pushToken, "Bulk Grading Failed", "There was an error with your bulk grading. Please try again.");
+          }
+        }
+      })();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/grade-job/:id", (req, res) => {
+    const job = gradingJobs.get(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    if (job.type === "single") {
+      res.json({
+        id: job.id,
+        status: job.status,
+        type: job.type,
+        result: job.status === "completed" ? job.result : undefined,
+        error: job.status === "failed" ? job.error : undefined,
+      });
+    } else {
+      res.json({
+        id: job.id,
+        status: job.status,
+        type: job.type,
+        totalCards: job.totalCards,
+        completedCards: job.completedCards,
+        results: job.status === "completed" ? job.results : undefined,
+        error: job.status === "failed" ? job.error : undefined,
+      });
     }
   });
 
