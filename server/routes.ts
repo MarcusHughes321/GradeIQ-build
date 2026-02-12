@@ -1063,7 +1063,7 @@ function detectBoundsAtResolution(
   yConstraint?: { minPct: number; maxPct: number }
 ): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; angleDeg: number; confidence: number } {
   const CARD_WH_RATIO = 2.5 / 3.5;
-  const RATIO_TOLERANCE = 0.08;
+  const RATIO_TOLERANCE = 0.12;
 
   const getPixel = (x: number, y: number) => {
     if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
@@ -1246,7 +1246,14 @@ function detectBoundsAtResolution(
           const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
 
           const sizeRatio = (cardW * cardH) / (sw * sh);
-          const sizeScore = Math.min(1, sizeRatio * 2.5);
+          let sizeScore: number;
+          if (sizeRatio > 0.80) {
+            sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
+          } else if (sizeRatio > 0.15) {
+            sizeScore = 1.0;
+          } else {
+            sizeScore = Math.min(1, sizeRatio / 0.15);
+          }
 
           const centerX = (lp.pos + rp.pos) / 2;
           const centerY = (tp.pos + botPos) / 2;
@@ -1257,7 +1264,57 @@ function detectBoundsAtResolution(
           const maxEdge = Math.max(lp.strength, rp.strength, tp.strength, botStr, 1);
           const edgeNorm = (lp.strength + rp.strength + tp.strength + botStr) / (4 * maxEdge);
 
-          const totalScore = ratioScore * 4.0 + sizeScore * 2.0 + centerScore * 1.0 + edgeNorm * 2.0;
+          const margin = Math.max(sw, sh) * 0.03;
+          let edgeProximityPenalty = 1.0;
+          if (lp.pos < margin) edgeProximityPenalty *= 0.5;
+          if (rp.pos > sw - margin) edgeProximityPenalty *= 0.5;
+          if (tp.pos < margin) edgeProximityPenalty *= 0.5;
+          if (botPos > sh - margin) edgeProximityPenalty *= 0.5;
+
+          const sampleBand = Math.max(2, Math.round(cardW * 0.05));
+          let contrastScore = 0;
+          let contrastCount = 0;
+
+          const sampleBrightness = (x1: number, y1: number, x2: number, y2: number, isVert: boolean): number => {
+            let sum = 0;
+            let ct = 0;
+            const len = isVert ? (y2 - y1) : (x2 - x1);
+            const steps = Math.max(5, Math.min(20, Math.abs(len)));
+            for (let i = 0; i < steps; i++) {
+              const t = i / (steps - 1);
+              const sx = isVert ? Math.round(x1) : Math.round(x1 + (x2 - x1) * t);
+              const sy = isVert ? Math.round(y1 + (y2 - y1) * t) : Math.round(y1);
+              if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) {
+                sum += getPixel(sx, sy);
+                ct++;
+              }
+            }
+            return ct > 0 ? sum / ct : 0;
+          };
+
+          const midY = Math.round((tp.pos + botPos) / 2);
+          const bandH = Math.round(cardH * 0.3);
+          const leftInside = sampleBrightness(lp.pos + sampleBand, midY - bandH, lp.pos + sampleBand, midY + bandH, true);
+          const leftOutside = sampleBrightness(lp.pos - sampleBand, midY - bandH, lp.pos - sampleBand, midY + bandH, true);
+          const rightInside = sampleBrightness(rp.pos - sampleBand, midY - bandH, rp.pos - sampleBand, midY + bandH, true);
+          const rightOutside = sampleBrightness(rp.pos + sampleBand, midY - bandH, rp.pos + sampleBand, midY + bandH, true);
+
+          const midX = Math.round((lp.pos + rp.pos) / 2);
+          const bandW = Math.round(cardW * 0.3);
+          const topInside = sampleBrightness(midX - bandW, tp.pos + sampleBand, midX + bandW, tp.pos + sampleBand, false);
+          const topOutside = sampleBrightness(midX - bandW, tp.pos - sampleBand, midX + bandW, tp.pos - sampleBand, false);
+          const botInside = sampleBrightness(midX - bandW, botPos - sampleBand, midX + bandW, botPos - sampleBand, false);
+          const botOutside = sampleBrightness(midX - bandW, botPos + sampleBand, midX + bandW, botPos + sampleBand, false);
+
+          const leftContrast = Math.abs(leftInside - leftOutside);
+          const rightContrast = Math.abs(rightInside - rightOutside);
+          const topContrast = Math.abs(topInside - topOutside);
+          const botContrast = Math.abs(botInside - botOutside);
+
+          contrastScore = (leftContrast + rightContrast + topContrast + botContrast) / 4;
+          const normalizedContrast = Math.min(1, contrastScore / 40);
+
+          const totalScore = (ratioScore * 4.0 + sizeScore * 1.5 + centerScore * 1.0 + edgeNorm * 2.0 + normalizedContrast * 2.5) * edgeProximityPenalty;
 
           if (totalScore > best.score) {
             best = {
@@ -1287,8 +1344,11 @@ function detectBoundsAtResolution(
           const ratioError = Math.abs(ratio - CARD_WH_RATIO) / CARD_WH_RATIO;
           const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
           const sizeRatio = (cardW * (inferredBot - inferredTop)) / (sw * sh);
-          const sizeScore = Math.min(1, sizeRatio * 2.5);
-          const totalScore = ratioScore * 4.0 + sizeScore * 2.0 + 1.0;
+          let sizeScore: number;
+          if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
+          else if (sizeRatio > 0.15) sizeScore = 1.0;
+          else sizeScore = Math.min(1, sizeRatio / 0.15);
+          const totalScore = ratioScore * 4.0 + sizeScore * 1.5 + 0.5;
           if (totalScore > best.score) {
             best = {
               left: lp.pos, right: rp.pos, top: inferredTop, bottom: inferredBot,
@@ -1316,8 +1376,11 @@ function detectBoundsAtResolution(
           const ratioError = Math.abs(ratio - CARD_WH_RATIO) / CARD_WH_RATIO;
           const ratioScore = Math.max(0, 1 - ratioError / RATIO_TOLERANCE);
           const sizeRatio = (expectedW * cardH) / (sw * sh);
-          const sizeScore = Math.min(1, sizeRatio * 2.5);
-          const totalScore = ratioScore * 4.0 + sizeScore * 2.0 + 1.0;
+          let sizeScore: number;
+          if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
+          else if (sizeRatio > 0.15) sizeScore = 1.0;
+          else sizeScore = Math.min(1, sizeRatio / 0.15);
+          const totalScore = ratioScore * 4.0 + sizeScore * 1.5 + 0.5;
           if (totalScore > best.score) {
             best = {
               left: inferredLeft, right: inferredRight, top: tp.pos, bottom: bp.pos,
