@@ -96,7 +96,7 @@ const SLIDES: SlideData[] = [
     icon: "diamond",
     iconSet: "ionicons",
     title: "Free to Try, Pro to Master",
-    subtitle: "Get 3 free card grades every day. Upgrade to Pro for just \u00a32.99/month for unlimited grading, bulk uploads, and full portfolio tracking.",
+    subtitle: "Get 3 free card grades every month. Upgrade for more grades starting at just \u00a32.99/month, with options up to unlimited grading.",
     color: "#F59E0B",
     gradientColors: ["#1a1200", "#1a0a00", "#000000"],
   },
@@ -193,9 +193,9 @@ function SlideItem({ item, index }: { item: SlideData; index: number }) {
         {item.key === "pro" && (
           <Animated.View entering={FadeIn.delay(700).duration(600)} style={styles.proFeatures}>
             {[
-              { icon: "checkmark-circle" as const, text: "3 free grades per month" },
-              { icon: "infinite" as const, text: "Plans from £2.99/month" },
-              { icon: "pricetag" as const, text: "Just \u00a32.99/month" },
+              { icon: "checkmark-circle" as const, text: "3 free grades every month" },
+              { icon: "sparkles" as const, text: "Plans from just \u00a32.99/month" },
+              { icon: "infinite" as const, text: "Unlimited option available" },
             ].map((f) => (
               <View key={f.text} style={styles.proFeatureRow}>
                 <Ionicons name={f.icon} size={20} color={item.color} />

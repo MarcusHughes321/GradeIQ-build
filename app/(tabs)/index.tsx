@@ -728,9 +728,9 @@ export default function HomeScreen() {
                 <View style={proStyles.features}>
                   {[
                     { icon: "checkmark-circle" as const, text: `${remainingGrades ?? 0} of ${monthlyLimit} grades remaining this month` },
-                    { icon: "sparkles" as const, text: "Grade Curious: 15 grades/month" },
-                    { icon: "flame" as const, text: "Grade Enthusiast: 50 grades/month" },
-                    { icon: "diamond" as const, text: "Grade Obsessed: Unlimited" },
+                    { icon: "sparkles" as const, text: "Grade Curious: 15 grades/month — \u00a32.99" },
+                    { icon: "flame" as const, text: "Grade Enthusiast: 50 grades/month — \u00a35.99" },
+                    { icon: "diamond" as const, text: "Grade Obsessed: Unlimited — \u00a39.99" },
                   ].map((f) => (
                     <View key={f.text} style={proStyles.featureRow}>
                       <Ionicons name={f.icon} size={18} color="#F59E0B" />

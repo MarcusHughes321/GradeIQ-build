@@ -58,6 +58,7 @@ function RootLayoutNav() {
       <Stack.Screen name="terms" />
       <Stack.Screen name="about" />
       <Stack.Screen name="feedback" />
+      <Stack.Screen name="privacy" />
       <Stack.Screen name="disclaimer" options={{ animation: "fade" }} />
     </Stack>
   );
