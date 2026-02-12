@@ -35,26 +35,30 @@ function BulkResultItem({ item, enabledCompanies }: { item: SavedGrading; enable
         })
       }
     >
-      <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
-      <View style={styles.resultInfo}>
+      <View style={styles.resultTopRow}>
         <Text style={styles.cardName} numberOfLines={1}>
           {item.result.cardName || "Unknown Card"}
         </Text>
-        <Text style={styles.setInfo} numberOfLines={1}>
-          {[item.result.setName, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
-        </Text>
-        <Text style={styles.condition} numberOfLines={1}>
-          {item.result.overallCondition}
-        </Text>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </View>
-      <View style={styles.gradesColumn}>
-        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={32} label="PSA" />}
-        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={32} label="BGS" />}
-        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={32} label="ACE" />}
-        {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={32} label="TAG" />}
-        {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={32} label="CGC" />}
+      <View style={styles.resultMiddleRow}>
+        <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
+        <View style={styles.resultInfo}>
+          <Text style={styles.setInfo} numberOfLines={1}>
+            {[item.result.setName, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
+          </Text>
+          <Text style={styles.condition} numberOfLines={1}>
+            {item.result.overallCondition}
+          </Text>
+        </View>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+      <View style={styles.resultGrades}>
+        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
+        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
+        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
+        {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
+        {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
+      </View>
     </Pressable>
   );
 }
@@ -303,30 +307,40 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   resultItem: {
-    flexDirection: "row",
     backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 12,
-    alignItems: "center",
-    gap: 12,
+    borderRadius: 18,
+    padding: 14,
+    gap: 10,
     marginHorizontal: 20,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
+  resultTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  resultMiddleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   thumbnail: {
-    width: 50,
-    height: 70,
+    width: 48,
+    height: 67,
     borderRadius: 8,
     backgroundColor: Colors.surfaceLight,
   },
   resultInfo: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   cardName: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.text,
+    flex: 1,
   },
   setInfo: {
     fontFamily: "Inter_400Regular",
@@ -337,9 +351,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
+    marginTop: 1,
   },
-  gradesColumn: {
+  resultGrades: {
     flexDirection: "row",
+    justifyContent: "space-evenly",
     gap: 4,
   },
   failedSection: {
