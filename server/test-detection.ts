@@ -103,7 +103,7 @@ function detectBoundsAtResolution(
   pixels: Buffer, sw: number, sh: number,
   xConstraint?: { minPct: number; maxPct: number },
   yConstraint?: { minPct: number; maxPct: number }
-): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; confidence: number; vPeakCount: number; hPeakCount: number } {
+): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; confidence: number; vPeakCount: number; hPeakCount: number; rawLeft: number; rawRight: number; rawTop: number; rawBottom: number; vPeakPositions: string[]; hPeakPositions: string[]; topCandidates: { bounds: string; score: string; debug?: string }[] } {
   const getPixel = (x: number, y: number) => {
     if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
     return pixels[y * sw + x];
@@ -345,14 +345,101 @@ function detectBoundsAtResolution(
   const fallback = { left: Math.round(sw * 0.1), right: Math.round(sw * 0.9), top: Math.round(sh * 0.1), bottom: Math.round(sh * 0.9), score: -1 };
   const result = best || fallback;
 
+  const refineEdge = (
+    edgePos: number, isVertical: boolean, isMinEdge: boolean,
+    crossStart: number, crossEnd: number,
+    searchRadius: number
+  ): number => {
+    const numSamples = 25;
+    const outerBand = Math.max(3, Math.round(searchRadius * 0.4));
+    const refinedPositions: number[] = [];
+    const dim = isVertical ? sw : sh;
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = (i + 0.5) / numSamples;
+      const crossPos = Math.round(crossStart + (crossEnd - crossStart) * t);
+
+      let bestScore = -1;
+      let bestPos = edgePos;
+
+      const scanMin = Math.max(outerBand + 1, edgePos - searchRadius);
+      const scanMax = Math.min(dim - outerBand - 2, edgePos + searchRadius);
+
+      for (let pos = scanMin; pos <= scanMax; pos++) {
+        let outsideSum = 0, insideSum = 0;
+        let outsideSqSum = 0;
+        for (let k = 1; k <= outerBand; k++) {
+          let outPixel: number, inPixel: number;
+          if (isVertical) {
+            if (isMinEdge) {
+              outPixel = getPixel(pos - k, crossPos);
+              inPixel = getPixel(pos + k, crossPos);
+            } else {
+              outPixel = getPixel(pos + k, crossPos);
+              inPixel = getPixel(pos - k, crossPos);
+            }
+          } else {
+            if (isMinEdge) {
+              outPixel = getPixel(crossPos, pos - k);
+              inPixel = getPixel(crossPos, pos + k);
+            } else {
+              outPixel = getPixel(crossPos, pos + k);
+              inPixel = getPixel(crossPos, pos - k);
+            }
+          }
+          outsideSum += outPixel;
+          insideSum += inPixel;
+          outsideSqSum += outPixel * outPixel;
+        }
+
+        const outsideAvg = outsideSum / outerBand;
+        const insideAvg = insideSum / outerBand;
+        const gradient = Math.abs(insideAvg - outsideAvg);
+
+        const outsideVariance = (outsideSqSum / outerBand) - (outsideAvg * outsideAvg);
+        const outsideUniformity = 1 / (1 + Math.max(0, outsideVariance) / 200);
+
+        const distFromOriginal = Math.abs(pos - edgePos) / searchRadius;
+        const proximityBonus = 1 / (1 + distFromOriginal * distFromOriginal);
+
+        const score = gradient * outsideUniformity * proximityBonus;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestPos = pos;
+        }
+      }
+      refinedPositions.push(bestPos);
+    }
+
+    refinedPositions.sort((a, b) => a - b);
+    const q1 = Math.floor(refinedPositions.length * 0.25);
+    const q3 = Math.floor(refinedPositions.length * 0.75);
+    const iqrPositions = refinedPositions.slice(q1, q3 + 1);
+    return iqrPositions[Math.floor(iqrPositions.length / 2)];
+  };
+
+  const cardW = result.right - result.left;
+  const cardH = result.bottom - result.top;
+  const refineRadius = Math.max(4, Math.round(Math.min(cardW, cardH) * 0.15));
+
+  const refinedLeft = refineEdge(result.left, true, true, result.top, result.bottom, refineRadius);
+  const refinedRight = refineEdge(result.right, true, false, result.top, result.bottom, refineRadius);
+  const refinedTop = refineEdge(result.top, false, true, result.left, result.right, refineRadius);
+  const refinedBottom = refineEdge(result.bottom, false, false, result.left, result.right, refineRadius);
+
   return {
-    leftPct: (result.left / sw) * 100,
-    rightPct: (result.right / sw) * 100,
-    topPct: (result.top / sh) * 100,
-    bottomPct: (result.bottom / sh) * 100,
+    leftPct: (refinedLeft / sw) * 100,
+    rightPct: (refinedRight / sw) * 100,
+    topPct: (refinedTop / sh) * 100,
+    bottomPct: (refinedBottom / sh) * 100,
     confidence: result.score,
     vPeakCount: vPeaks.length,
     hPeakCount: hPeaks.length,
+    rawLeft: (result.left / sw) * 100,
+    rawRight: (result.right / sw) * 100,
+    rawTop: (result.top / sh) * 100,
+    rawBottom: (result.bottom / sh) * 100,
     vPeakPositions: vPeaks.map(p => ((p.pos / sw) * 100).toFixed(1)),
     hPeakPositions: hPeaks.map(p => ((p.pos / sh) * 100).toFixed(1)),
     topCandidates: topCandidates.slice(0, 5).map(c => ({
@@ -438,10 +525,11 @@ async function runTest(filePath: string) {
     coarse: `L=${coarse.leftPct.toFixed(1)} T=${coarse.topPct.toFixed(1)} R=${coarse.rightPct.toFixed(1)} B=${coarse.bottomPct.toFixed(1)} (${coarse.vPeakCount}v, ${coarse.hPeakCount}h)`,
     variance: varianceHint ? `L=${varianceHint.leftPct.toFixed(1)} T=${varianceHint.topPct.toFixed(1)} R=${varianceHint.rightPct.toFixed(1)} B=${varianceHint.bottomPct.toFixed(1)}` : "none",
     union: `L=${unionLeft.toFixed(1)} T=${unionTop.toFixed(1)} R=${unionRight.toFixed(1)} B=${unionBottom.toFixed(1)}`,
+    raw: `L=${fine.rawLeft.toFixed(1)} T=${fine.rawTop.toFixed(1)} R=${fine.rawRight.toFixed(1)} B=${fine.rawBottom.toFixed(1)}`,
     fine: `L=${fine.leftPct.toFixed(1)} T=${fine.topPct.toFixed(1)} R=${fine.rightPct.toFixed(1)} B=${fine.bottomPct.toFixed(1)} (${fine.vPeakCount}v, ${fine.hPeakCount}h)`,
-    fineVPeaks: (fine as any).vPeakPositions,
-    fineHPeaks: (fine as any).hPeakPositions,
-    fineCandidates: (fine as any).topCandidates,
+    fineVPeaks: fine.vPeakPositions,
+    fineHPeaks: fine.hPeakPositions,
+    fineCandidates: fine.topCandidates,
   };
 }
 
@@ -473,7 +561,8 @@ async function main() {
       console.log(`  Coarse:   ${r.coarse}`);
       console.log(`  Variance: ${r.variance}${r.usedVariance ? " [USED]" : ""}`);
       console.log(`  Union:    ${r.union}`);
-      console.log(`  Fine:     ${r.fine}`);
+      console.log(`  Raw:      ${r.raw}`);
+      console.log(`  Refined:  ${r.fine}`);
       if (!r.pass) {
         console.log(`  vPeaks:   ${r.fineVPeaks?.join(", ")}`);
         console.log(`  hPeaks:   ${r.fineHPeaks?.join(", ")}`);

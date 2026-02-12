@@ -1627,11 +1627,69 @@ function detectBoundsAtResolution(
 
   console.log(`[detect-bounds] ${sw}x${sh} found ${vPeaks.length} vLines, ${hPeaks.length} hLines → rect [${leftCol},${topRow}]-[${rightCol},${bottomRow}] ratio=${detectedRatio.toFixed(3)} conf=${overallConfidence} angle=${angleDeg.toFixed(2)}`);
 
+  const refineEdge = (
+    edgePos: number, isVert: boolean, isMinEdge: boolean,
+    crossStart: number, crossEnd: number,
+    searchRad: number
+  ): number => {
+    const numSamples = 25;
+    const outerBand = Math.max(3, Math.round(searchRad * 0.4));
+    const refinedPositions: number[] = [];
+    const dim = isVert ? sw : sh;
+    for (let i = 0; i < numSamples; i++) {
+      const t = (i + 0.5) / numSamples;
+      const crossPos = Math.round(crossStart + (crossEnd - crossStart) * t);
+      let bestScore = -1;
+      let bestPos = edgePos;
+      const scanMin = Math.max(outerBand + 1, edgePos - searchRad);
+      const scanMax = Math.min(dim - outerBand - 2, edgePos + searchRad);
+      for (let pos = scanMin; pos <= scanMax; pos++) {
+        let outsideSum = 0, insideSum = 0, outsideSqSum = 0;
+        for (let k = 1; k <= outerBand; k++) {
+          let outPx: number, inPx: number;
+          if (isVert) {
+            if (isMinEdge) { outPx = getPixel(pos - k, crossPos); inPx = getPixel(pos + k, crossPos); }
+            else { outPx = getPixel(pos + k, crossPos); inPx = getPixel(pos - k, crossPos); }
+          } else {
+            if (isMinEdge) { outPx = getPixel(crossPos, pos - k); inPx = getPixel(crossPos, pos + k); }
+            else { outPx = getPixel(crossPos, pos + k); inPx = getPixel(crossPos, pos - k); }
+          }
+          outsideSum += outPx; insideSum += inPx; outsideSqSum += outPx * outPx;
+        }
+        const outsideAvg = outsideSum / outerBand;
+        const insideAvg = insideSum / outerBand;
+        const gradient = Math.abs(insideAvg - outsideAvg);
+        const outsideVar = (outsideSqSum / outerBand) - (outsideAvg * outsideAvg);
+        const outsideUnif = 1 / (1 + Math.max(0, outsideVar) / 200);
+        const distNorm = Math.abs(pos - edgePos) / searchRad;
+        const proxBonus = 1 / (1 + distNorm * distNorm);
+        const score = gradient * outsideUnif * proxBonus;
+        if (score > bestScore) { bestScore = score; bestPos = pos; }
+      }
+      refinedPositions.push(bestPos);
+    }
+    refinedPositions.sort((a, b) => a - b);
+    const rq1 = Math.floor(refinedPositions.length * 0.25);
+    const rq3 = Math.floor(refinedPositions.length * 0.75);
+    const iqrPos = refinedPositions.slice(rq1, rq3 + 1);
+    return iqrPos[Math.floor(iqrPos.length / 2)];
+  };
+
+  const refCardW = rightCol - leftCol;
+  const refCardH = bottomRow - topRow;
+  const refRadius = Math.max(4, Math.round(Math.min(refCardW, refCardH) * 0.15));
+  const rLeft = refineEdge(leftCol, true, true, topRow, bottomRow, refRadius);
+  const rRight = refineEdge(rightCol, true, false, topRow, bottomRow, refRadius);
+  const rTop = refineEdge(topRow, false, true, leftCol, rightCol, refRadius);
+  const rBottom = refineEdge(bottomRow, false, false, leftCol, rightCol, refRadius);
+
+  console.log(`[detect-bounds] Refined: [${rLeft},${rTop}]-[${rRight},${rBottom}] (from [${leftCol},${topRow}]-[${rightCol},${bottomRow}])`);
+
   return {
-    leftPct: (leftCol / sw) * 100,
-    rightPct: (rightCol / sw) * 100,
-    topPct: (topRow / sh) * 100,
-    bottomPct: (bottomRow / sh) * 100,
+    leftPct: (rLeft / sw) * 100,
+    rightPct: (rRight / sw) * 100,
+    topPct: (rTop / sh) * 100,
+    bottomPct: (rBottom / sh) * 100,
     angleDeg: parseFloat(angleDeg.toFixed(3)),
     confidence: overallConfidence,
   };
