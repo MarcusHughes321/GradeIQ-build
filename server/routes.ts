@@ -1056,6 +1056,105 @@ async function optimizeImageForAI(dataUri: string, maxDim: number = 1536): Promi
   }
 }
 
+function detectCardRegionByVariance(
+  pixels: Buffer, sw: number, sh: number
+): { leftPct: number; rightPct: number; topPct: number; bottomPct: number } | null {
+  const CARD_WH_RATIO = 2.5 / 3.5;
+  const getPixel = (x: number, y: number) => {
+    if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+    return pixels[y * sw + x];
+  };
+
+  const colVariance = new Float64Array(sw);
+  const rowSampleStep = Math.max(1, Math.floor(sh / 40));
+  for (let x = 0; x < sw; x++) {
+    const vals: number[] = [];
+    for (let y = 0; y < sh; y += rowSampleStep) vals.push(getPixel(x, y));
+    if (vals.length < 3) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    colVariance[x] = vals.reduce((s, v) => s + (v - mean) * (v - mean), 0) / vals.length;
+  }
+
+  const rowVariance = new Float64Array(sh);
+  const colSampleStep = Math.max(1, Math.floor(sw / 40));
+  for (let y = 0; y < sh; y++) {
+    const vals: number[] = [];
+    for (let x = 0; x < sw; x += colSampleStep) vals.push(getPixel(x, y));
+    if (vals.length < 3) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    rowVariance[y] = vals.reduce((s, v) => s + (v - mean) * (v - mean), 0) / vals.length;
+  }
+
+  const smoothVariance = (profile: Float64Array, radius: number): Float64Array => {
+    const out = new Float64Array(profile.length);
+    for (let i = 0; i < profile.length; i++) {
+      let sum = 0; let count = 0;
+      for (let j = Math.max(0, i - radius); j <= Math.min(profile.length - 1, i + radius); j++) {
+        sum += profile[j]; count++;
+      }
+      out[i] = sum / count;
+    }
+    return out;
+  };
+
+  const smoothCol = smoothVariance(colVariance, Math.max(1, Math.round(sw * 0.02)));
+  const smoothRow = smoothVariance(rowVariance, Math.max(1, Math.round(sh * 0.02)));
+
+  const findEdges = (profile: Float64Array): { start: number; end: number } => {
+    let maxVar = 0;
+    for (let i = 0; i < profile.length; i++) {
+      if (profile[i] > maxVar) maxVar = profile[i];
+    }
+    if (maxVar < 10) return { start: Math.round(profile.length * 0.1), end: Math.round(profile.length * 0.9) };
+
+    const threshold = maxVar * 0.20;
+
+    let start = 0;
+    for (let i = 0; i < profile.length; i++) {
+      if (profile[i] >= threshold) { start = i; break; }
+    }
+    let end = profile.length - 1;
+    for (let i = profile.length - 1; i >= 0; i--) {
+      if (profile[i] >= threshold) { end = i; break; }
+    }
+
+    return { start, end };
+  };
+
+  const hEdges = findEdges(smoothCol);
+  const vEdges = findEdges(smoothRow);
+
+  const varW = hEdges.end - hEdges.start;
+  const varH = vEdges.end - vEdges.start;
+  if (varW < sw * 0.15 || varH < sh * 0.15) return null;
+
+  const rawRatio = varW / varH;
+
+  let adjLeft = hEdges.start;
+  let adjRight = hEdges.end;
+  let adjTop = vEdges.start;
+  let adjBottom = vEdges.end;
+
+  if (rawRatio > CARD_WH_RATIO * 1.3) {
+    const expectedW = varH * CARD_WH_RATIO;
+    const center = (hEdges.start + hEdges.end) / 2;
+    adjLeft = Math.round(center - expectedW / 2);
+    adjRight = Math.round(center + expectedW / 2);
+  } else if (rawRatio < CARD_WH_RATIO * 0.7) {
+    const expectedH = varW / CARD_WH_RATIO;
+    const center = (vEdges.start + vEdges.end) / 2;
+    adjTop = Math.round(center - expectedH / 2);
+    adjBottom = Math.round(center + expectedH / 2);
+  }
+
+  return {
+    leftPct: (Math.max(0, adjLeft) / sw) * 100,
+    rightPct: (Math.min(sw - 1, adjRight) / sw) * 100,
+    topPct: (Math.max(0, adjTop) / sh) * 100,
+    bottomPct: (Math.min(sh - 1, adjBottom) / sh) * 100,
+  };
+}
+
 function detectBoundsAtResolution(
   pixels: Buffer, sw: number, sh: number,
   _scanRange: number, _minVoteRatio: number,
@@ -1131,7 +1230,7 @@ function detectBoundsAtResolution(
     }
     if (maxVal === 0) return [];
 
-    const threshold = maxVal * 0.15;
+    const threshold = maxVal * 0.08;
 
     const rawPeaks: { pos: number; strength: number }[] = [];
     for (let i = cMin + 1; i < cMax; i++) {
@@ -1158,7 +1257,7 @@ function detectBoundsAtResolution(
       }
     }
 
-    return selected.slice(0, 15);
+    return selected.slice(0, 20);
   };
 
   const xCMin = xConstraint ? Math.max(2, Math.round(sw * xConstraint.minPct / 100)) : 2;
@@ -1247,19 +1346,11 @@ function detectBoundsAtResolution(
 
           const sizeRatio = (cardW * cardH) / (sw * sh);
           let sizeScore: number;
-          if (sizeRatio > 0.80) {
-            sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
-          } else if (sizeRatio > 0.15) {
-            sizeScore = 1.0;
+          if (sizeRatio > 0.85) {
+            sizeScore = Math.max(0, 1 - (sizeRatio - 0.85) * 5);
           } else {
-            sizeScore = Math.min(1, sizeRatio / 0.15);
+            sizeScore = Math.min(1, sizeRatio / 0.60);
           }
-
-          const centerX = (lp.pos + rp.pos) / 2;
-          const centerY = (tp.pos + botPos) / 2;
-          const offX = Math.abs(centerX - sw / 2) / (sw / 2);
-          const offY = Math.abs(centerY - sh / 2) / (sh / 2);
-          const centerScore = Math.max(0, 1 - (offX + offY));
 
           const maxEdge = Math.max(lp.strength, rp.strength, tp.strength, botStr, 1);
           const edgeNorm = (lp.strength + rp.strength + tp.strength + botStr) / (4 * maxEdge);
@@ -1272,8 +1363,6 @@ function detectBoundsAtResolution(
           if (botPos > sh - margin) edgeProximityPenalty *= 0.5;
 
           const sampleBand = Math.max(2, Math.round(cardW * 0.05));
-          let contrastScore = 0;
-          let contrastCount = 0;
 
           const sampleBrightness = (x1: number, y1: number, x2: number, y2: number, isVert: boolean): number => {
             let sum = 0;
@@ -1290,6 +1379,23 @@ function detectBoundsAtResolution(
               }
             }
             return ct > 0 ? sum / ct : 0;
+          };
+
+          const sampleVariance = (x1: number, y1: number, x2: number, y2: number, isVert: boolean): number => {
+            const values: number[] = [];
+            const len = isVert ? Math.abs(y2 - y1) : Math.abs(x2 - x1);
+            const steps = Math.max(5, Math.min(30, Math.abs(len)));
+            for (let i = 0; i < steps; i++) {
+              const t = i / (steps - 1);
+              const sx = isVert ? Math.round(x1) : Math.round(x1 + (x2 - x1) * t);
+              const sy = isVert ? Math.round(y1 + (y2 - y1) * t) : Math.round(y1);
+              if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) {
+                values.push(getPixel(sx, sy));
+              }
+            }
+            if (values.length < 3) return 0;
+            const mean = values.reduce((a, b) => a + b, 0) / values.length;
+            return Math.sqrt(values.reduce((s, v) => s + (v - mean) * (v - mean), 0) / values.length);
           };
 
           const midY = Math.round((tp.pos + botPos) / 2);
@@ -1311,10 +1417,21 @@ function detectBoundsAtResolution(
           const topContrast = Math.abs(topInside - topOutside);
           const botContrast = Math.abs(botInside - botOutside);
 
-          contrastScore = (leftContrast + rightContrast + topContrast + botContrast) / 4;
-          const normalizedContrast = Math.min(1, contrastScore / 40);
+          const minContrast = Math.min(leftContrast, rightContrast, topContrast, botContrast);
+          const avgContrast = (leftContrast + rightContrast + topContrast + botContrast) / 4;
+          const normalizedContrast = Math.min(1, avgContrast / 80);
+          const minContrastScore = Math.min(1, minContrast / 30);
 
-          const totalScore = (ratioScore * 4.0 + sizeScore * 1.5 + centerScore * 1.0 + edgeNorm * 2.0 + normalizedContrast * 2.5) * edgeProximityPenalty;
+          const extBand = Math.max(3, Math.round(Math.min(cardW, cardH) * 0.15));
+          const topExtVar = sampleVariance(midX - bandW, Math.max(0, tp.pos - extBand * 2), midX + bandW, Math.max(0, tp.pos - extBand), false);
+          const botExtVar = sampleVariance(midX - bandW, Math.min(sh - 1, botPos + extBand), midX + bandW, Math.min(sh - 1, botPos + extBand * 2), false);
+          const leftExtVar = sampleVariance(Math.max(0, lp.pos - extBand * 2), midY - bandH, Math.max(0, lp.pos - extBand), midY + bandH, true);
+          const rightExtVar = sampleVariance(Math.min(sw - 1, rp.pos + extBand), midY - bandH, Math.min(sw - 1, rp.pos + extBand * 2), midY + bandH, true);
+
+          const avgExtVar = (topExtVar + botExtVar + leftExtVar + rightExtVar) / 4;
+          const exteriorUniformity = 1 / (1 + avgExtVar / 15);
+
+          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * edgeProximityPenalty;
 
           if (totalScore > best.score) {
             best = {
@@ -1650,7 +1767,21 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       .raw()
       .toBuffer({ resolveWithObject: true });
 
+    const varianceHint = detectCardRegionByVariance(coarsePixels as any, csw, csh);
     const coarse = detectBoundsAtResolution(coarsePixels as any, csw, csh, 0.4, 0.12);
+
+    let unionLeft = coarse.leftPct;
+    let unionRight = coarse.rightPct;
+    let unionTop = coarse.topPct;
+    let unionBottom = coarse.bottomPct;
+
+    if (varianceHint) {
+      unionLeft = Math.min(unionLeft, varianceHint.leftPct);
+      unionRight = Math.max(unionRight, varianceHint.rightPct);
+      unionTop = Math.min(unionTop, varianceHint.topPct);
+      unionBottom = Math.max(unionBottom, varianceHint.bottomPct);
+      console.log(`[detect-bounds] Union of coarse+variance: L=${unionLeft.toFixed(1)} T=${unionTop.toFixed(1)} R=${unionRight.toFixed(1)} B=${unionBottom.toFixed(1)}`);
+    }
 
     const FINE_SIZE = 600;
     const fsw = Math.max(40, Math.round(width <= FINE_SIZE ? width : FINE_SIZE * (width / Math.max(width, height))));
@@ -1662,11 +1793,11 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const REFINE_BAND = 12;
+    const REFINE_BAND = 15;
     const fine = detectBoundsAtResolution(
       finePixels as any, fsw, fsh, 0.4, 0.15,
-      { minPct: Math.max(0, coarse.leftPct - REFINE_BAND), maxPct: Math.min(100, coarse.rightPct + REFINE_BAND) },
-      { minPct: Math.max(0, coarse.topPct - REFINE_BAND), maxPct: Math.min(100, coarse.bottomPct + REFINE_BAND) }
+      { minPct: Math.max(0, unionLeft - REFINE_BAND), maxPct: Math.min(100, unionRight + REFINE_BAND) },
+      { minPct: Math.max(0, unionTop - REFINE_BAND), maxPct: Math.min(100, unionBottom + REFINE_BAND) }
     );
 
     let leftPercent = fine.leftPct;

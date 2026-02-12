@@ -5,35 +5,104 @@ import path from "path";
 const CARD_WH_RATIO = 2.5 / 3.5;
 const RATIO_TOLERANCE = 0.12;
 
-interface DetectionResult {
-  file: string;
-  dimensions: string;
-  coarse: BoundsResult;
-  fine: BoundsResult;
-  cardAreaPct: number;
-  pass: boolean;
+function detectCardRegionByVariance(
+  pixels: Buffer, sw: number, sh: number
+): { leftPct: number; rightPct: number; topPct: number; bottomPct: number } | null {
+  const getPixel = (x: number, y: number) => {
+    if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+    return pixels[y * sw + x];
+  };
+
+  const colVariance = new Float64Array(sw);
+  const rowSampleStep = Math.max(1, Math.floor(sh / 40));
+  for (let x = 0; x < sw; x++) {
+    const vals: number[] = [];
+    for (let y = 0; y < sh; y += rowSampleStep) vals.push(getPixel(x, y));
+    if (vals.length < 3) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    colVariance[x] = vals.reduce((s, v) => s + (v - mean) * (v - mean), 0) / vals.length;
+  }
+
+  const rowVariance = new Float64Array(sh);
+  const colSampleStep = Math.max(1, Math.floor(sw / 40));
+  for (let y = 0; y < sh; y++) {
+    const vals: number[] = [];
+    for (let x = 0; x < sw; x += colSampleStep) vals.push(getPixel(x, y));
+    if (vals.length < 3) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    rowVariance[y] = vals.reduce((s, v) => s + (v - mean) * (v - mean), 0) / vals.length;
+  }
+
+  const smoothVariance = (profile: Float64Array, radius: number): Float64Array => {
+    const out = new Float64Array(profile.length);
+    for (let i = 0; i < profile.length; i++) {
+      let sum = 0; let count = 0;
+      for (let j = Math.max(0, i - radius); j <= Math.min(profile.length - 1, i + radius); j++) {
+        sum += profile[j]; count++;
+      }
+      out[i] = sum / count;
+    }
+    return out;
+  };
+
+  const smoothCol = smoothVariance(colVariance, Math.max(1, Math.round(sw * 0.02)));
+  const smoothRow = smoothVariance(rowVariance, Math.max(1, Math.round(sh * 0.02)));
+
+  const findEdges = (profile: Float64Array): { start: number; end: number } => {
+    let maxVar = 0;
+    for (let i = 0; i < profile.length; i++) {
+      if (profile[i] > maxVar) maxVar = profile[i];
+    }
+    if (maxVar < 10) return { start: Math.round(profile.length * 0.1), end: Math.round(profile.length * 0.9) };
+    const threshold = maxVar * 0.20;
+    let start = 0;
+    for (let i = 0; i < profile.length; i++) {
+      if (profile[i] >= threshold) { start = i; break; }
+    }
+    let end = profile.length - 1;
+    for (let i = profile.length - 1; i >= 0; i--) {
+      if (profile[i] >= threshold) { end = i; break; }
+    }
+    return { start, end };
+  };
+
+  const hEdges = findEdges(smoothCol);
+  const vEdges = findEdges(smoothRow);
+  const varW = hEdges.end - hEdges.start;
+  const varH = vEdges.end - vEdges.start;
+  if (varW < sw * 0.15 || varH < sh * 0.15) return null;
+
+  const rawRatio = varW / varH;
+  let adjLeft = hEdges.start;
+  let adjRight = hEdges.end;
+  let adjTop = vEdges.start;
+  let adjBottom = vEdges.end;
+
+  if (rawRatio > CARD_WH_RATIO * 1.3) {
+    const expectedW = varH * CARD_WH_RATIO;
+    const center = (hEdges.start + hEdges.end) / 2;
+    adjLeft = Math.round(center - expectedW / 2);
+    adjRight = Math.round(center + expectedW / 2);
+  } else if (rawRatio < CARD_WH_RATIO * 0.7) {
+    const expectedH = varW / CARD_WH_RATIO;
+    const center = (vEdges.start + vEdges.end) / 2;
+    adjTop = Math.round(center - expectedH / 2);
+    adjBottom = Math.round(center + expectedH / 2);
+  }
+
+  return {
+    leftPct: (Math.max(0, adjLeft) / sw) * 100,
+    rightPct: (Math.min(sw - 1, adjRight) / sw) * 100,
+    topPct: (Math.max(0, adjTop) / sh) * 100,
+    bottomPct: (Math.min(sh - 1, adjBottom) / sh) * 100,
+  };
 }
 
-interface BoundsResult {
-  left: number; top: number; right: number; bottom: number;
-  angle: number; confidence: number;
-  vPeakCount: number; hPeakCount: number;
-  topCandidates: CandidateInfo[];
-}
-
-interface CandidateInfo {
-  left: number; right: number; top: number; bottom: number;
-  score: number;
-  ratioScore: number; sizeScore: number; centerScore: number;
-  edgeNorm: number; contrastScore: number; proximityPenalty: number;
-  ratio: number; sizeRatio: number;
-}
-
-function detectBoundsDebug(
+function detectBoundsAtResolution(
   pixels: Buffer, sw: number, sh: number,
   xConstraint?: { minPct: number; maxPct: number },
   yConstraint?: { minPct: number; maxPct: number }
-): BoundsResult {
+): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; confidence: number; vPeakCount: number; hPeakCount: number } {
   const getPixel = (x: number, y: number) => {
     if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
     return pixels[y * sw + x];
@@ -96,7 +165,7 @@ function detectBoundsDebug(
       if (profile[i] > maxVal) maxVal = profile[i];
     }
     if (maxVal === 0) return [];
-    const threshold = maxVal * 0.15;
+    const threshold = maxVal * 0.08;
     const rawPeaks: { pos: number; strength: number }[] = [];
     for (let i = cMin + 1; i < cMax; i++) {
       if (profile[i] >= threshold && profile[i] >= profile[i - 1] && profile[i] >= profile[i + 1]) {
@@ -116,7 +185,7 @@ function detectBoundsDebug(
         selected.push(p);
       }
     }
-    return selected.slice(0, 15);
+    return selected.slice(0, 20);
   };
 
   const xCMin = xConstraint ? Math.max(2, Math.round(sw * xConstraint.minPct / 100)) : 2;
@@ -130,15 +199,11 @@ function detectBoundsDebug(
   interface RectCandidate {
     left: number; right: number; top: number; bottom: number;
     score: number;
-    ratioScore: number; sizeScore: number; centerScore: number;
-    edgeNorm: number; contrastScore: number; proximityPenalty: number;
-    ratio: number; sizeRatio: number;
-    lStr: number; rStr: number; tStr: number; bStr: number;
+    debug?: string;
   }
 
-  const allCandidates: RectCandidate[] = [];
-
   let best: RectCandidate | null = null;
+  const topCandidates: RectCandidate[] = [];
 
   for (let li = 0; li < vPeaks.length; li++) {
     for (let ri = 0; ri < vPeaks.length; ri++) {
@@ -173,15 +238,8 @@ function detectBoundsDebug(
 
           const sizeRatio = (cardW * cardH) / (sw * sh);
           let sizeScore: number;
-          if (sizeRatio > 0.80) sizeScore = Math.max(0, 1 - (sizeRatio - 0.80) * 5);
-          else if (sizeRatio > 0.15) sizeScore = 1.0;
-          else sizeScore = Math.min(1, sizeRatio / 0.15);
-
-          const centerX = (lp.pos + rp.pos) / 2;
-          const centerY = (tp.pos + botPos) / 2;
-          const offX = Math.abs(centerX - sw / 2) / (sw / 2);
-          const offY = Math.abs(centerY - sh / 2) / (sh / 2);
-          const centerScore = Math.max(0, 1 - (offX + offY));
+          if (sizeRatio > 0.85) sizeScore = Math.max(0, 1 - (sizeRatio - 0.85) * 5);
+          else sizeScore = Math.min(1, sizeRatio / 0.60);
 
           const maxEdge = Math.max(lp.strength, rp.strength, tp.strength, botStr, 1);
           const edgeNorm = (lp.strength + rp.strength + tp.strength + botStr) / (4 * maxEdge);
@@ -194,6 +252,7 @@ function detectBoundsDebug(
           if (botPos > sh - margin) proximityPenalty *= 0.5;
 
           const sampleBand = Math.max(2, Math.round(cardW * 0.05));
+
           const sampleBrightness = (x1: number, y1: number, x2: number, y2: number, isVert: boolean): number => {
             let sum = 0; let ct = 0;
             const len = isVert ? (y2 - y1) : (x2 - x1);
@@ -205,6 +264,21 @@ function detectBoundsDebug(
               if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) { sum += getPixel(sx, sy); ct++; }
             }
             return ct > 0 ? sum / ct : 0;
+          };
+
+          const sampleVariance = (x1: number, y1: number, x2: number, y2: number, isVert: boolean): number => {
+            const values: number[] = [];
+            const len = isVert ? Math.abs(y2 - y1) : Math.abs(x2 - x1);
+            const steps = Math.max(5, Math.min(30, Math.abs(len)));
+            for (let i = 0; i < steps; i++) {
+              const t = i / (steps - 1);
+              const sx = isVert ? Math.round(x1) : Math.round(x1 + (x2 - x1) * t);
+              const sy = isVert ? Math.round(y1 + (y2 - y1) * t) : Math.round(y1);
+              if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) values.push(getPixel(sx, sy));
+            }
+            if (values.length < 3) return 0;
+            const mean = values.reduce((a, b) => a + b, 0) / values.length;
+            return Math.sqrt(values.reduce((s, v) => s + (v - mean) * (v - mean), 0) / values.length);
           };
 
           const midY = Math.round((tp.pos + botPos) / 2);
@@ -224,23 +298,31 @@ function detectBoundsDebug(
           const rightContrast = Math.abs(rightInside - rightOutside);
           const topContrast = Math.abs(topInside - topOutside);
           const botContrast = Math.abs(botInside - botOutside);
-          const contrastScore = (leftContrast + rightContrast + topContrast + botContrast) / 4;
-          const normalizedContrast = Math.min(1, contrastScore / 40);
 
-          const totalScore = (ratioScore * 4.0 + sizeScore * 1.5 + centerScore * 1.0 + edgeNorm * 2.0 + normalizedContrast * 2.5) * proximityPenalty;
+          const minContrast = Math.min(leftContrast, rightContrast, topContrast, botContrast);
+          const avgContrast = (leftContrast + rightContrast + topContrast + botContrast) / 4;
+          const normalizedContrast = Math.min(1, avgContrast / 80);
+          const minContrastScore = Math.min(1, minContrast / 30);
 
-          const candidate: RectCandidate = {
-            left: (lp.pos / sw) * 100, right: (rp.pos / sw) * 100,
-            top: (tp.pos / sh) * 100, bottom: (botPos / sh) * 100,
-            score: totalScore, ratioScore, sizeScore, centerScore, edgeNorm,
-            contrastScore: normalizedContrast, proximityPenalty,
-            ratio, sizeRatio,
-            lStr: lp.strength, rStr: rp.strength, tStr: tp.strength, bStr: botStr,
-          };
-          allCandidates.push(candidate);
+          const extBand = Math.max(3, Math.round(Math.min(cardW, cardH) * 0.15));
+          const topExtVar = sampleVariance(midX - bandW, Math.max(0, tp.pos - extBand * 2), midX + bandW, Math.max(0, tp.pos - extBand), false);
+          const botExtVar = sampleVariance(midX - bandW, Math.min(sh - 1, botPos + extBand), midX + bandW, Math.min(sh - 1, botPos + extBand * 2), false);
+          const leftExtVar = sampleVariance(Math.max(0, lp.pos - extBand * 2), midY - bandH, Math.max(0, lp.pos - extBand), midY + bandH, true);
+          const rightExtVar = sampleVariance(Math.min(sw - 1, rp.pos + extBand), midY - bandH, Math.min(sw - 1, rp.pos + extBand * 2), midY + bandH, true);
+
+          const avgExtVar = (topExtVar + botExtVar + leftExtVar + rightExtVar) / 4;
+          const exteriorUniformity = 1 / (1 + avgExtVar / 15);
+
+          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * proximityPenalty;
+
+          const dbg = `rat=${ratioScore.toFixed(2)} sz=${sizeScore.toFixed(2)} edge=${edgeNorm.toFixed(2)} con=${normalizedContrast.toFixed(2)} minC=${minContrastScore.toFixed(2)} ext=${exteriorUniformity.toFixed(2)} prox=${proximityPenalty.toFixed(2)}`;
+          const cand: RectCandidate = { left: lp.pos, right: rp.pos, top: tp.pos, bottom: botPos, score: totalScore, debug: dbg };
+          topCandidates.push(cand);
+          topCandidates.sort((a, b) => b.score - a.score);
+          if (topCandidates.length > 10) topCandidates.length = 10;
 
           if (!best || totalScore > best.score) {
-            best = candidate;
+            best = cand;
           }
         };
 
@@ -253,52 +335,45 @@ function detectBoundsDebug(
     }
   }
 
-  const fallback = { left: 10, right: 90, top: 10, bottom: 90 };
-  const result = best || { ...fallback, score: 0, ratioScore: 0, sizeScore: 0, centerScore: 0, edgeNorm: 0, contrastScore: 0, proximityPenalty: 1, ratio: 0.71, sizeRatio: 0.64, lStr: 0, rStr: 0, tStr: 0, bStr: 0 };
-
-  allCandidates.sort((a, b) => b.score - a.score);
+  const fallback = { left: Math.round(sw * 0.1), right: Math.round(sw * 0.9), top: Math.round(sh * 0.1), bottom: Math.round(sh * 0.9), score: -1 };
+  const result = best || fallback;
 
   return {
-    left: result.left,
-    top: result.top,
-    right: result.right,
-    bottom: result.bottom,
-    angle: 0,
+    leftPct: (result.left / sw) * 100,
+    rightPct: (result.right / sw) * 100,
+    topPct: (result.top / sh) * 100,
+    bottomPct: (result.bottom / sh) * 100,
     confidence: result.score,
     vPeakCount: vPeaks.length,
     hPeakCount: hPeaks.length,
-    topCandidates: allCandidates.slice(0, 5).map(c => ({
-      left: +c.left.toFixed(1), right: +c.right.toFixed(1),
-      top: +c.top.toFixed(1), bottom: +c.bottom.toFixed(1),
-      score: +c.score.toFixed(3),
-      ratioScore: +c.ratioScore.toFixed(3), sizeScore: +c.sizeScore.toFixed(3),
-      centerScore: +c.centerScore.toFixed(3), edgeNorm: +c.edgeNorm.toFixed(3),
-      contrastScore: +c.contrastScore.toFixed(3), proximityPenalty: +c.proximityPenalty.toFixed(2),
-      ratio: +c.ratio.toFixed(4), sizeRatio: +c.sizeRatio.toFixed(3),
+    vPeakPositions: vPeaks.map(p => ((p.pos / sw) * 100).toFixed(1)),
+    hPeakPositions: hPeaks.map(p => ((p.pos / sh) * 100).toFixed(1)),
+    topCandidates: topCandidates.slice(0, 5).map(c => ({
+      bounds: `L=${((c.left / sw) * 100).toFixed(1)} T=${((c.top / sh) * 100).toFixed(1)} R=${((c.right / sw) * 100).toFixed(1)} B=${((c.bottom / sh) * 100).toFixed(1)}`,
+      score: c.score.toFixed(2),
+      debug: c.debug,
     })),
   };
 }
 
 const EXPECTED_BOUNDS: Record<string, { left: [number, number]; top: [number, number]; right: [number, number]; bottom: [number, number] }> = {
-  "IMG_6631": { left: [18, 28], top: [12, 22], right: [72, 82], bottom: [75, 88] },
-  "IMG_6632": { left: [22, 32], top: [15, 28], right: [70, 80], bottom: [75, 88] },
-  "IMG_6638": { left: [18, 30], top: [12, 25], right: [68, 82], bottom: [75, 90] },
-  "IMG_6639": { left: [25, 38], top: [12, 25], right: [62, 75], bottom: [75, 90] },
-  "IMG_6640": { left: [15, 30], top: [5, 18], right: [65, 82], bottom: [72, 88] },
-  "IMG_6641": { left: [18, 32], top: [8, 20], right: [68, 82], bottom: [72, 88] },
-  "IMG_6646": { left: [12, 25], top: [10, 22], right: [75, 88], bottom: [72, 88] },
-  "IMG_6647": { left: [22, 35], top: [15, 28], right: [68, 80], bottom: [75, 88] },
-  "IMG_6650": { left: [10, 22], top: [5, 15], right: [78, 90], bottom: [82, 95] },
-  "IMG_6651": { left: [8, 22], top: [5, 15], right: [78, 92], bottom: [82, 95] },
-  "IMG_6652": { left: [15, 28], top: [5, 15], right: [72, 85], bottom: [82, 95] },
-  "IMG_6653": { left: [15, 28], top: [5, 15], right: [72, 85], bottom: [82, 95] },
+  "IMG_6631": { left: [17, 25], top: [30, 36], right: [73, 80], bottom: [65, 72] },
+  "IMG_6632": { left: [18, 26], top: [31, 37], right: [73, 80], bottom: [66, 72] },
+  "IMG_6638": { left: [22, 30], top: [18, 32], right: [64, 72], bottom: [72, 80] },
+  "IMG_6639": { left: [26, 34], top: [18, 26], right: [62, 70], bottom: [58, 66] },
+  "IMG_6640": { left: [16, 28], top: [10, 20], right: [68, 80], bottom: [68, 80] },
+  "IMG_6641": { left: [22, 32], top: [26, 34], right: [72, 82], bottom: [76, 84] },
+  "IMG_6650": { left: [14, 24], top: [14, 24], right: [75, 85], bottom: [78, 88] },
+  "IMG_6651": { left: [12, 24], top: [10, 22], right: [75, 88], bottom: [78, 90] },
+  "IMG_6652": { left: [24, 36], top: [20, 30], right: [58, 70], bottom: [68, 80] },
+  "IMG_6653": { left: [24, 38], top: [22, 32], right: [62, 76], bottom: [72, 82] },
 };
 
 function isWithinExpected(val: number, range: [number, number]): boolean {
   return val >= range[0] - 5 && val <= range[1] + 5;
 }
 
-async function runTest(filePath: string): Promise<DetectionResult> {
+async function runTest(filePath: string) {
   const buffer = fs.readFileSync(filePath);
   const meta = await sharp(buffer).metadata();
   const width = meta.width || 1;
@@ -311,7 +386,22 @@ async function runTest(filePath: string): Promise<DetectionResult> {
     .resize(csw, csh, { fit: "fill" }).greyscale().raw()
     .toBuffer({ resolveWithObject: true });
 
-  const coarse = detectBoundsDebug(coarsePixels as any, csw, csh);
+  const varianceHint = detectCardRegionByVariance(coarsePixels as any, csw, csh);
+  const coarse = detectBoundsAtResolution(coarsePixels as any, csw, csh);
+
+  let unionLeft = coarse.leftPct;
+  let unionRight = coarse.rightPct;
+  let unionTop = coarse.topPct;
+  let unionBottom = coarse.bottomPct;
+  let usedVariance = false;
+
+  if (varianceHint) {
+    unionLeft = Math.min(unionLeft, varianceHint.leftPct);
+    unionRight = Math.max(unionRight, varianceHint.rightPct);
+    unionTop = Math.min(unionTop, varianceHint.topPct);
+    unionBottom = Math.max(unionBottom, varianceHint.bottomPct);
+    usedVariance = true;
+  }
 
   const FINE = 600;
   const fsw = Math.max(40, Math.round(width <= FINE ? width : FINE * (width / Math.max(width, height))));
@@ -320,34 +410,31 @@ async function runTest(filePath: string): Promise<DetectionResult> {
     .resize(fsw, fsh, { fit: "fill" }).greyscale().raw()
     .toBuffer({ resolveWithObject: true });
 
-  const BAND = 12;
-  const fine = detectBoundsDebug(
+  const BAND = 15;
+  const fine = detectBoundsAtResolution(
     finePixels as any, fsw, fsh,
-    { minPct: Math.max(0, coarse.left - BAND), maxPct: Math.min(100, coarse.right + BAND) },
-    { minPct: Math.max(0, coarse.top - BAND), maxPct: Math.min(100, coarse.bottom + BAND) }
+    { minPct: Math.max(0, unionLeft - BAND), maxPct: Math.min(100, unionRight + BAND) },
+    { minPct: Math.max(0, unionTop - BAND), maxPct: Math.min(100, unionBottom + BAND) }
   );
-
-  const cardW = (fine.right - fine.left) / 100;
-  const cardH = (fine.bottom - fine.top) / 100;
-  const cardAreaPct = cardW * cardH * 100;
 
   const baseName = path.basename(filePath).replace(/_\d+\.(png|jpeg)$/, "");
   const expected = EXPECTED_BOUNDS[baseName];
   let pass = false;
   if (expected) {
-    pass = isWithinExpected(fine.left, expected.left) &&
-           isWithinExpected(fine.right, expected.right) &&
-           isWithinExpected(fine.top, expected.top) &&
-           isWithinExpected(fine.bottom, expected.bottom);
+    pass = isWithinExpected(fine.leftPct, expected.left) &&
+           isWithinExpected(fine.rightPct, expected.right) &&
+           isWithinExpected(fine.topPct, expected.top) &&
+           isWithinExpected(fine.bottomPct, expected.bottom);
   }
 
-  return {
-    file: path.basename(filePath),
-    dimensions: `${width}x${height}`,
-    coarse,
-    fine,
-    cardAreaPct: +cardAreaPct.toFixed(1),
-    pass,
+  return { filePath: path.basename(filePath), dimensions: `${width}x${height}`, pass, usedVariance,
+    coarse: `L=${coarse.leftPct.toFixed(1)} T=${coarse.topPct.toFixed(1)} R=${coarse.rightPct.toFixed(1)} B=${coarse.bottomPct.toFixed(1)} (${coarse.vPeakCount}v, ${coarse.hPeakCount}h)`,
+    variance: varianceHint ? `L=${varianceHint.leftPct.toFixed(1)} T=${varianceHint.topPct.toFixed(1)} R=${varianceHint.rightPct.toFixed(1)} B=${varianceHint.bottomPct.toFixed(1)}` : "none",
+    union: `L=${unionLeft.toFixed(1)} T=${unionTop.toFixed(1)} R=${unionRight.toFixed(1)} B=${unionBottom.toFixed(1)}`,
+    fine: `L=${fine.leftPct.toFixed(1)} T=${fine.topPct.toFixed(1)} R=${fine.rightPct.toFixed(1)} B=${fine.bottomPct.toFixed(1)} (${fine.vPeakCount}v, ${fine.hPeakCount}h)`,
+    fineVPeaks: (fine as any).vPeakPositions,
+    fineHPeaks: (fine as any).hPeakPositions,
+    fineCandidates: (fine as any).topCandidates,
   };
 }
 
@@ -365,42 +452,37 @@ async function main() {
     "attached_assets/IMG_6653_1770856748265.jpeg",
   ];
 
-  console.log("=== CARD DETECTION TEST SUITE ===\n");
-
-  let passed = 0;
-  let total = 0;
+  console.log("=== CARD DETECTION TEST SUITE (v3 - with variance) ===\n");
+  let passed = 0, total = 0;
 
   for (const img of testImages) {
     if (!fs.existsSync(img)) { console.log(`SKIP: ${img} not found`); continue; }
     total++;
     try {
-      const result = await runTest(img);
-      const status = result.pass ? "PASS" : "FAIL";
-      if (result.pass) passed++;
-
-      console.log(`${status} | ${result.file} (${result.dimensions})`);
-      console.log(`  Coarse: L=${result.coarse.left.toFixed(1)} T=${result.coarse.top.toFixed(1)} R=${result.coarse.right.toFixed(1)} B=${result.coarse.bottom.toFixed(1)} (${result.coarse.vPeakCount}v, ${result.coarse.hPeakCount}h peaks)`);
-      console.log(`  Fine:   L=${result.fine.left.toFixed(1)} T=${result.fine.top.toFixed(1)} R=${result.fine.right.toFixed(1)} B=${result.fine.bottom.toFixed(1)} (${result.fine.vPeakCount}v, ${result.fine.hPeakCount}h peaks)`);
-      console.log(`  Card area: ${result.cardAreaPct}% | Fine confidence: ${result.fine.confidence.toFixed(3)}`);
-
-      if (result.fine.topCandidates.length > 0) {
-        console.log(`  Top candidate breakdown:`);
-        const c = result.fine.topCandidates[0];
-        console.log(`    ratio=${c.ratio} ratioSc=${c.ratioScore} sizeSc=${c.sizeScore} centerSc=${c.centerScore} edgeSc=${c.edgeNorm} contrastSc=${c.contrastScore} proxPen=${c.proximityPenalty} total=${c.score}`);
-        console.log(`    sizeRatio=${c.sizeRatio} (area fill)`);
-      }
-      if (result.fine.topCandidates.length > 1) {
-        console.log(`  Runner-up:`);
-        const c = result.fine.topCandidates[1];
-        console.log(`    L=${c.left} T=${c.top} R=${c.right} B=${c.bottom} score=${c.score} ratio=${c.ratio} sizeRatio=${c.sizeRatio} contrast=${c.contrastScore}`);
+      const r = await runTest(img);
+      const status = r.pass ? "PASS" : "FAIL";
+      if (r.pass) passed++;
+      console.log(`${status} | ${r.filePath} (${r.dimensions})`);
+      console.log(`  Coarse:   ${r.coarse}`);
+      console.log(`  Variance: ${r.variance}${r.usedVariance ? " [USED]" : ""}`);
+      console.log(`  Union:    ${r.union}`);
+      console.log(`  Fine:     ${r.fine}`);
+      if (!r.pass) {
+        console.log(`  vPeaks:   ${r.fineVPeaks?.join(", ")}`);
+        console.log(`  hPeaks:   ${r.fineHPeaks?.join(", ")}`);
+        if (r.fineCandidates) {
+          for (let ci = 0; ci < r.fineCandidates.length; ci++) {
+            const c = r.fineCandidates[ci];
+            console.log(`  Cand#${ci+1}: ${c.bounds} score=${c.score} | ${c.debug}`);
+          }
+        }
       }
       console.log("");
     } catch (err: any) {
-      console.log(`ERROR | ${img}: ${err.message}`);
+      console.log(`ERROR | ${img}: ${err.message}\n`);
     }
   }
-
-  console.log(`\n=== RESULTS: ${passed}/${total} passed ===`);
+  console.log(`=== RESULTS: ${passed}/${total} passed ===`);
 }
 
 main().catch(console.error);
