@@ -17,17 +17,24 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { getGradings, updateGrading } from "@/lib/storage";
-import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate } from "@/lib/types";
+import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate, DefectMarker } from "@/lib/types";
 import { apiRequest } from "@/lib/query-client";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
 import CompanyLabel from "@/components/CompanyLabel";
+import DefectOverlay from "@/components/DefectOverlay";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const SEVERITY_COLORS_MAP: Record<string, string> = {
+  minor: "#F59E0B",
+  moderate: "#FB923C",
+  major: "#EF4444",
+};
 
 function getGradeColor(grade: number): string {
   if (grade >= 9.5) return "#10B981";
@@ -527,6 +534,9 @@ export default function ResultsScreen() {
               style={styles.cardImage}
               contentFit="cover"
             />
+            {result.defects && result.defects.length > 0 && (
+              <DefectOverlay defects={result.defects} side={showFront ? "front" : "back"} />
+            )}
             <View style={styles.viewBadge}>
               <Ionicons name="expand" size={14} color="#fff" />
             </View>
@@ -559,6 +569,26 @@ export default function ResultsScreen() {
           </View>
           <Text style={styles.summaryText}>{result.overallCondition || gradeSummary}</Text>
         </View>
+
+        {result.defects && result.defects.length > 0 && (
+          <View style={styles.defectsCard}>
+            <View style={styles.summaryHeader}>
+              <Ionicons name="alert-circle-outline" size={16} color="#F59E0B" />
+              <Text style={styles.summaryTitle}>Defects Found ({result.defects.length})</Text>
+            </View>
+            {result.defects.map((d, i) => (
+              <View key={i} style={styles.defectRow}>
+                <View style={[styles.defectDot, { backgroundColor: SEVERITY_COLORS_MAP[d.severity] || "#F59E0B" }]} />
+                <View style={styles.defectInfo}>
+                  <Text style={styles.defectDesc}>{d.description}</Text>
+                  <Text style={styles.defectMeta}>
+                    {d.type.charAt(0).toUpperCase() + d.type.slice(1)} · {d.side.charAt(0).toUpperCase() + d.side.slice(1)} · {d.severity}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         <View style={styles.overallGradesCard}>
           <Text style={styles.sectionTitle}>Overall Grades</Text>
@@ -851,6 +881,10 @@ export default function ResultsScreen() {
                 contentFit="contain"
               />
 
+              {showAnnotations && result.defects && result.defects.length > 0 && (
+                <DefectOverlay defects={result.defects} side={viewerShowFront ? "front" : "back"} />
+              )}
+
               {showAnnotations && (
                 <View style={styles.annotationOverlay} pointerEvents="box-none">
                   <Pressable
@@ -1139,6 +1173,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.text,
     lineHeight: 20,
+  },
+  defectsCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.2)",
+    gap: 10,
+  },
+  defectRow: {
+    flexDirection: "row" as const,
+    alignItems: "flex-start" as const,
+    gap: 10,
+  },
+  defectDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 4,
+  },
+  defectInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  defectDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.text,
+    lineHeight: 18,
+  },
+  defectMeta: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textSecondary,
+    textTransform: "capitalize" as const,
   },
   overallGradesCard: {
     backgroundColor: Colors.surface,
