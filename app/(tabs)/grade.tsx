@@ -10,7 +10,7 @@ import {
   ScrollView,
   Animated,
 } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -24,6 +24,16 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import type { GradingResult } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
+
+const TAB_BAR_STYLE = {
+  backgroundColor: Platform.OS === "web" ? Colors.surface : "transparent",
+  borderTopColor: Colors.surfaceBorder,
+  borderTopWidth: 1,
+  position: "absolute" as const,
+  elevation: 0,
+  height: Platform.OS === "web" ? 84 : 85,
+  paddingTop: 8,
+};
 
 const ANALYSIS_STAGES = [
   { label: "Preparing images", icon: "image-outline" as const, duration: 2000 },
@@ -49,9 +59,18 @@ export default function GradeScreen() {
 
   const { canGrade, recordUsage, isGateEnabled } = useSubscription();
   const { submitGrading, activeJob } = useGrading();
+  const parentNav = useNavigation().getParent();
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  useEffect(() => {
+    if (cameraOpen) {
+      parentNav?.setOptions({ tabBarStyle: { display: "none" as const } });
+    } else {
+      parentNav?.setOptions({ tabBarStyle: TAB_BAR_STYLE });
+    }
+  }, [cameraOpen]);
 
   const cropToCard = async (uri: string): Promise<string> => {
     try {
@@ -190,7 +209,10 @@ export default function GradeScreen() {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    if (side) setImageWithCrop(side, uri);
+    if (side) {
+      if (side === "front") setFrontImage(uri);
+      else setBackImage(uri);
+    }
   };
 
   const launchLibrary = async (side: "front" | "back") => {

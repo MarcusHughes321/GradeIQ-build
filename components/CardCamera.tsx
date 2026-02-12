@@ -12,7 +12,11 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Accelerometer from "expo-sensors/build/Accelerometer";
+import * as ImageManipulator from "expo-image-manipulator";
 import Colors from "@/constants/colors";
+
+const GUIDE_FRAME_W = 280;
+const GUIDE_FRAME_H = 392;
 
 interface CardCameraProps {
   side: "front" | "back";
@@ -97,12 +101,51 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
         base64: false,
       });
       if (photo?.uri) {
-        onCapture(photo.uri);
+        const cropped = await cropToGuideFrame(photo.uri, photo.width, photo.height);
+        onCapture(cropped);
       }
     } catch (e) {
       console.error("Camera capture error:", e);
     } finally {
       setCapturing(false);
+    }
+  };
+
+  const cropToGuideFrame = async (uri: string, photoW: number, photoH: number): Promise<string> => {
+    try {
+      const { width: screenW, height: screenH } = Dimensions.get("window");
+
+      const frameX = (screenW - GUIDE_FRAME_W) / 2;
+      const frameY = (screenH - GUIDE_FRAME_H) / 2;
+
+      const screenAspect = screenW / screenH;
+      const photoAspect = photoW / photoH;
+
+      let scale: number, offsetX: number, offsetY: number;
+      if (photoAspect > screenAspect) {
+        scale = photoH / screenH;
+        offsetX = (photoW - screenW * scale) / 2;
+        offsetY = 0;
+      } else {
+        scale = photoW / screenW;
+        offsetX = 0;
+        offsetY = (photoH - screenH * scale) / 2;
+      }
+
+      const cropX = Math.max(0, Math.round(offsetX + frameX * scale));
+      const cropY = Math.max(0, Math.round(offsetY + frameY * scale));
+      const cropW = Math.min(Math.round(GUIDE_FRAME_W * scale), photoW - cropX);
+      const cropH = Math.min(Math.round(GUIDE_FRAME_H * scale), photoH - cropY);
+
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } }],
+        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      return result.uri;
+    } catch (e) {
+      console.error("Guide crop failed, using original:", e);
+      return uri;
     }
   };
 
@@ -297,8 +340,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardFrame: {
-    width: 280,
-    height: 392,
+    width: GUIDE_FRAME_W,
+    height: GUIDE_FRAME_H,
     borderWidth: 1,
     borderRadius: 10,
   },
