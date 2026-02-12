@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { SettingsProvider } from "@/lib/settings-context";
 import { SubscriptionProvider } from "@/lib/subscription";
+import { GradingProvider } from "@/lib/grading-context";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
@@ -75,12 +76,14 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <SettingsProvider>
           <SubscriptionProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <KeyboardProvider>
-                <StatusBar style="light" />
-                <RootLayoutNav />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
+            <GradingProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <KeyboardProvider>
+                  <StatusBar style="light" />
+                  <RootLayoutNav />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </GradingProvider>
           </SubscriptionProvider>
         </SettingsProvider>
       </QueryClientProvider>

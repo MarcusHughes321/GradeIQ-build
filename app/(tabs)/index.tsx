@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   TextInput,
   RefreshControl,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,6 +27,7 @@ import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
+import { useGrading } from "@/lib/grading-context";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const BUBBLE_GAP = 12;
@@ -193,6 +195,7 @@ export default function HomeScreen() {
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
   const { isSubscribed, isGateEnabled, remainingFreeGrades, dailyLimit } = useSubscription();
+  const { activeJob, dismissJob } = useGrading();
   const proReminderShownRef = useRef(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -253,6 +256,12 @@ export default function HomeScreen() {
       }
     }, [isGateEnabled, isSubscribed])
   );
+
+  useEffect(() => {
+    if (activeJob?.status === "completed") {
+      loadGradings();
+    }
+  }, [activeJob?.status]);
 
   const loadGradings = async () => {
     const data = await getGradings();
@@ -342,6 +351,54 @@ export default function HomeScreen() {
         </View>
         <Text style={styles.heroSubtitle}>AI-Powered Pokemon Card Grading</Text>
       </View>
+
+      {activeJob && activeJob.status === "processing" && (
+        <Pressable
+          style={({ pressed }) => [styles.bgJobBanner, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => router.navigate("/(tabs)/grade")}
+        >
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <View style={styles.bgJobInfo}>
+            <Text style={styles.bgJobTitle}>Grading in progress</Text>
+            <Text style={styles.bgJobSubtitle}>Tap to view progress</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        </Pressable>
+      )}
+
+      {activeJob && activeJob.status === "completed" && activeJob.savedGrading && (
+        <Pressable
+          style={({ pressed }) => [styles.bgJobBanner, styles.bgJobBannerDone, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => {
+            const gradingId = activeJob.savedGrading!.id;
+            dismissJob();
+            router.push({ pathname: "/results", params: { gradingId } });
+          }}
+        >
+          <Ionicons name="checkmark-circle" size={22} color="#10B981" />
+          <View style={styles.bgJobInfo}>
+            <Text style={styles.bgJobTitle}>Grading complete</Text>
+            <Text style={styles.bgJobSubtitle}>
+              {activeJob.savedGrading.result.cardName || "Tap to view results"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        </Pressable>
+      )}
+
+      {activeJob && activeJob.status === "failed" && (
+        <Pressable
+          style={({ pressed }) => [styles.bgJobBanner, styles.bgJobBannerFailed, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => dismissJob()}
+        >
+          <Ionicons name="close-circle" size={22} color={Colors.primary} />
+          <View style={styles.bgJobInfo}>
+            <Text style={styles.bgJobTitle}>Grading failed</Text>
+            <Text style={styles.bgJobSubtitle}>Tap to dismiss</Text>
+          </View>
+          <Ionicons name="close" size={16} color={Colors.textMuted} />
+        </Pressable>
+      )}
 
       {isGateEnabled && (
         <Pressable
@@ -801,6 +858,38 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  bgJobBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  bgJobBannerDone: {
+    borderColor: "rgba(16, 185, 129, 0.3)",
+  },
+  bgJobBannerFailed: {
+    borderColor: "rgba(255, 60, 49, 0.3)",
+  },
+  bgJobInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  bgJobTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  bgJobSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   heroSection: {
     alignItems: "center",
