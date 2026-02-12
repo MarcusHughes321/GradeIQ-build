@@ -479,7 +479,12 @@ Analyze the card images carefully. Look for:
 1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
 2. Corners - check all four corners for whitening, dings, or damage. Minor imperfections only visible under magnification should not significantly lower grades.
 3. Edges - look for whitening, chipping, or rough cuts along all edges. Factory-level minor edge variation is acceptable for high grades.
-4. Surface - check for scratches, print lines, staining, ink issues, or other surface defects. Minor factory print texture or very faint print lines common to modern Pokemon cards should not lower surface grades below 9.
+4. Surface - CAREFULLY examine the entire card surface for scratches, scuffs, print lines, staining, ink issues, or other surface defects. Pay special attention to:
+   - The ARTWORK AREA: Look for scratches, scuffs, or wear marks across the Pokemon illustration. These are often visible as faint lines that catch light differently than the surrounding surface.
+   - The HOLOGRAPHIC/FOIL areas: Scratches show up prominently on holo surfaces as white or silvery lines.
+   - The BACK of the card: Check the Pokeball area and blue border for scratches, whitening, or scuffing.
+   - Surface scratches that are visible in the photo are REAL defects — grade them accordingly. A card with visible scratches on the artwork should NOT receive a surface grade above 7-8 depending on severity.
+   Minor factory print texture common to modern Pokemon cards should not lower surface grades below 9, but actual physical scratches, scuffs, and wear marks always should.
 
 DEFECT MAPPING — For any flaw you identify that causes a sub-grade to drop below 10, report its approximate location on the card image as a "defect" entry. Each defect should include:
 - "side": "front" or "back" — which side of the card the defect is on
@@ -617,14 +622,16 @@ CRITICAL REMINDERS:
 GRADING PHILOSOPHY — START AT 10, DEDUCT FOR FLAWS:
 - EVERY sub-grade (centering, corners, edges, surface) starts at 10 (Gem Mint) by default.
 - Only lower a grade from 10 if you can identify a SPECIFIC flaw in the photo. Describe the flaw in your notes.
-- You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. Be mindful that some apparent flaws may be photo artifacts rather than real defects, but use your judgement — if a flaw looks genuine, it probably is.
+- You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. However, if you can see a flaw in the photo, it is almost certainly a real flaw — grade it accordingly. Do NOT dismiss visible scratches, whitening, or wear as "photo artifacts."
 - Deduction guide from the starting point of 10:
-  * 10 → 9: A minor but real flaw (e.g., slight whitening on a corner, very minor edge roughness, slight print texture inconsistency)
-  * 9 → 8: Multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear, minor surface scratching)
-  * 8 → 7 or below: Clearly obvious damage visible at a glance (significant whitening, creasing, surface scratches, heavy off-center)
+  * 10 → 9: A minor but real flaw (e.g., slight whitening on a corner, very minor edge roughness, slight print texture inconsistency, a single faint scratch)
+  * 9 → 8: Multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear, visible surface scratching across artwork)
+  * 8 → 7: Several moderate flaws or one significant flaw (e.g., multiple scratches on surface, obvious corner whitening, edge chipping)
+  * 7 → 6 or below: Clearly obvious damage visible at a glance (significant whitening, creasing, heavy scratches, heavy off-center)
+- SURFACE SCRUTINY: Be especially strict about surface scratches. If you can see ANY scratch lines on the artwork, holographic area, or card back — even faint ones — the surface grade MUST be lowered. Multiple visible scratches = surface grade of 7 or lower.
 - Modern Pokemon cards (2020+) have high print quality. A pack-fresh card with careful handling should score 9s and 10s across most sub-grades. 10s are common for clean cards but a 9 is appropriate when minor imperfections are genuinely present.
-- When in doubt between two grades, lean toward the higher grade.
-- Do not speculatively lower grades without evidence, but do grade honestly when real flaws are visible.`;
+- When in doubt between two grades for surface damage, lean toward the LOWER grade — surface defects like scratches always look less severe in photos than in person.
+- Do not speculatively lower grades without evidence, but do grade honestly and strictly when real flaws are visible.`;
 
 const VALID_PSA_GRADES = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
 
@@ -2309,7 +2316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           content: [
             {
               type: "text",
-              text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.",
+              text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: Carefully examine the artwork area and card back for ANY scratches, scuffs, or wear marks. Zoom in mentally on the Pokemon illustration and the Pokeball on the back — these areas commonly show scratches that catch light. Report every visible scratch as a defect.",
             },
             {
               type: "image_url",
