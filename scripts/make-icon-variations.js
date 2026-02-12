@@ -11,19 +11,28 @@ async function variation4straight(outputFile) {
   const slabY = (size - slabH) / 2;
   const slabR = 24;
 
-  const redBarH = 110;
-  const redBarY = slabY + 18;
-  const redBarX = slabX + 18;
-  const redBarW = slabW - 36;
+  const headerH = 110;
+  const headerY = slabY + 18;
+  const headerX = slabX + 18;
+  const headerW = slabW - 36;
 
   const cardPad = 18;
   const cardX = slabX + cardPad;
-  const cardY = redBarY + redBarH + 12;
+  const cardY = headerY + headerH + 12;
   const cardW = slabW - cardPad * 2;
   const cardH = slabH - (cardY - slabY) - cardPad;
   const cardR = 12;
 
-  const textY = redBarY + 78;
+  const textY = headerY + 78;
+
+  const cornerLen = 28;
+  const cornerOff = 8;
+  const cLeft = cardX + cornerOff;
+  const cRight = cardX + cardW - cornerOff;
+  const cTop = cardY + cornerOff;
+  const cBottom = cardY + cardH - cornerOff;
+  const cStroke = 2;
+  const cColor = "#666666";
 
   const svg = `
   <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
@@ -31,16 +40,34 @@ async function variation4straight(outputFile) {
     
     <rect x="${slabX}" y="${slabY}" width="${slabW}" height="${slabH}" rx="${slabR}" ry="${slabR}" fill="none" stroke="#FFFFFF" stroke-width="3"/>
     
-    <rect x="${redBarX}" y="${redBarY}" width="${redBarW}" height="${redBarH}" rx="8" ry="8" fill="#FF3C31"/>
+    <!-- White header bar with black Grade + red .IQ -->
+    <rect x="${headerX}" y="${headerY}" width="${headerW}" height="${headerH}" rx="8" ry="8" fill="#FFFFFF"/>
     <text x="${size/2}" y="${textY}" 
           font-family="Inter" font-weight="700" font-size="72" 
-          fill="#FFFFFF" text-anchor="middle" letter-spacing="3">Grade.IQ</text>
+          fill="#000000" text-anchor="middle" letter-spacing="3">Grade<tspan fill="#FF3C31">.IQ</tspan></text>
     
+    <!-- Card window -->
     <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="${cardR}" ry="${cardR}" fill="#000000" stroke="#333333" stroke-width="2"/>
+    
+    <!-- Corner brackets - top left -->
+    <line x1="${cLeft}" y1="${cTop}" x2="${cLeft + cornerLen}" y2="${cTop}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    <line x1="${cLeft}" y1="${cTop}" x2="${cLeft}" y2="${cTop + cornerLen}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    
+    <!-- Corner brackets - top right -->
+    <line x1="${cRight}" y1="${cTop}" x2="${cRight - cornerLen}" y2="${cTop}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    <line x1="${cRight}" y1="${cTop}" x2="${cRight}" y2="${cTop + cornerLen}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    
+    <!-- Corner brackets - bottom left -->
+    <line x1="${cLeft}" y1="${cBottom}" x2="${cLeft + cornerLen}" y2="${cBottom}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    <line x1="${cLeft}" y1="${cBottom}" x2="${cLeft}" y2="${cBottom - cornerLen}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    
+    <!-- Corner brackets - bottom right -->
+    <line x1="${cRight}" y1="${cBottom}" x2="${cRight - cornerLen}" y2="${cBottom}" stroke="${cColor}" stroke-width="${cStroke}"/>
+    <line x1="${cRight}" y1="${cBottom}" x2="${cRight}" y2="${cBottom - cornerLen}" stroke="${cColor}" stroke-width="${cStroke}"/>
   </svg>`;
 
   await sharp(Buffer.from(svg)).resize(size, size).png().toFile(outputFile);
-  console.log('V4 straight:', outputFile);
+  console.log('V4 updated:', outputFile);
 }
 
 async function main() {
