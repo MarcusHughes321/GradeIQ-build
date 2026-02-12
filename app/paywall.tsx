@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator, ScrollView } from "react-native";
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -79,7 +79,13 @@ export default function PaywallScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset, paddingBottom: insets.bottom + webBottomInset }]}>
-      <Pressable style={[styles.closeBtn, { top: insets.top + webTopInset + 12 }]} onPress={() => router.back()}>
+      <Pressable style={[styles.closeBtn, { top: insets.top + webTopInset + 12 }]} onPress={() => {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace("/");
+        }
+      }}>
         <Ionicons name="close" size={28} color={Colors.textSecondary} />
       </Pressable>
 
