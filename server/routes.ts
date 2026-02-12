@@ -1627,15 +1627,48 @@ function detectBoundsAtResolution(
 
   console.log(`[detect-bounds] ${sw}x${sh} found ${vPeaks.length} vLines, ${hPeaks.length} hLines → rect [${leftCol},${topRow}]-[${rightCol},${bottomRow}] ratio=${detectedRatio.toFixed(3)} conf=${overallConfidence} angle=${angleDeg.toFixed(2)}`);
 
-  const refineEdge = (
+  const refineEdgeSingle = (
     edgePos: number, isVert: boolean, isMinEdge: boolean,
     crossStart: number, crossEnd: number,
     searchRad: number
   ): number => {
-    const numSamples = 40;
-    const outerBand = Math.max(4, Math.round(searchRad * 0.5));
-    const refinedPositions: number[] = [];
+    const numSamples = 50;
+    const outerBand = Math.max(5, Math.round(searchRad * 0.6));
     const dim = isVert ? sw : sh;
+
+    const scoreAt = (pos: number, crossPos: number): number => {
+      if (pos < outerBand + 1 || pos >= dim - outerBand - 2) return -1;
+      let outsideSum = 0, insideSum = 0, outsideSqSum = 0, insideSqSum = 0;
+      for (let k = 1; k <= outerBand; k++) {
+        let outPx: number, inPx: number;
+        if (isVert) {
+          if (isMinEdge) { outPx = getPixel(pos - k, crossPos); inPx = getPixel(pos + k, crossPos); }
+          else { outPx = getPixel(pos + k, crossPos); inPx = getPixel(pos - k, crossPos); }
+        } else {
+          if (isMinEdge) { outPx = getPixel(crossPos, pos - k); inPx = getPixel(crossPos, pos + k); }
+          else { outPx = getPixel(crossPos, pos + k); inPx = getPixel(crossPos, pos - k); }
+        }
+        outsideSum += outPx; insideSum += inPx;
+        outsideSqSum += outPx * outPx; insideSqSum += inPx * inPx;
+      }
+      const outsideAvg = outsideSum / outerBand;
+      const insideAvg = insideSum / outerBand;
+      const gradient = Math.abs(insideAvg - outsideAvg);
+      const outsideVar = (outsideSqSum / outerBand) - (outsideAvg * outsideAvg);
+      const outsideUnif = 1 / (1 + Math.max(0, outsideVar) / 150);
+      let sobelGrad = 0;
+      if (isVert) {
+        sobelGrad = Math.abs(sobelX(pos, crossPos));
+      } else {
+        sobelGrad = Math.abs(sobelY(crossPos, pos));
+      }
+      const sobelScore = Math.min(1, sobelGrad / 100);
+      const distNorm = Math.abs(pos - edgePos) / searchRad;
+      const proxBonus = 1 / (1 + distNorm * distNorm * 2);
+      return (gradient * 0.6 + sobelGrad * 0.4) * outsideUnif * proxBonus * (1 + sobelScore * 0.3);
+    };
+
+    const refinedPositions: { pos: number; score: number }[] = [];
     for (let i = 0; i < numSamples; i++) {
       const t = (i + 0.5) / numSamples;
       const crossPos = Math.round(crossStart + (crossEnd - crossStart) * t);
@@ -1644,52 +1677,79 @@ function detectBoundsAtResolution(
       const scanMin = Math.max(outerBand + 1, edgePos - searchRad);
       const scanMax = Math.min(dim - outerBand - 2, edgePos + searchRad);
       for (let pos = scanMin; pos <= scanMax; pos++) {
-        let outsideSum = 0, insideSum = 0, outsideSqSum = 0;
-        for (let k = 1; k <= outerBand; k++) {
-          let outPx: number, inPx: number;
-          if (isVert) {
-            if (isMinEdge) { outPx = getPixel(pos - k, crossPos); inPx = getPixel(pos + k, crossPos); }
-            else { outPx = getPixel(pos + k, crossPos); inPx = getPixel(pos - k, crossPos); }
-          } else {
-            if (isMinEdge) { outPx = getPixel(crossPos, pos - k); inPx = getPixel(crossPos, pos + k); }
-            else { outPx = getPixel(crossPos, pos + k); inPx = getPixel(crossPos, pos - k); }
-          }
-          outsideSum += outPx; insideSum += inPx; outsideSqSum += outPx * outPx;
-        }
-        const outsideAvg = outsideSum / outerBand;
-        const insideAvg = insideSum / outerBand;
-        const gradient = Math.abs(insideAvg - outsideAvg);
-        const outsideVar = (outsideSqSum / outerBand) - (outsideAvg * outsideAvg);
-        const outsideUnif = 1 / (1 + Math.max(0, outsideVar) / 200);
-        const distNorm = Math.abs(pos - edgePos) / searchRad;
-        const proxBonus = 1 / (1 + distNorm * distNorm);
-        const score = gradient * outsideUnif * proxBonus;
-        if (score > bestScore) { bestScore = score; bestPos = pos; }
+        const s = scoreAt(pos, crossPos);
+        if (s > bestScore) { bestScore = s; bestPos = pos; }
       }
-      refinedPositions.push(bestPos);
+      if (bestPos > scanMin && bestPos < scanMax && bestScore > 0) {
+        const sLeft = scoreAt(bestPos - 1, crossPos);
+        const sRight = scoreAt(bestPos + 1, crossPos);
+        if (sLeft > 0 && sRight > 0) {
+          const denom = 2 * (2 * bestScore - sLeft - sRight);
+          if (Math.abs(denom) > 0.001) {
+            const offset = (sLeft - sRight) / denom;
+            refinedPositions.push({ pos: bestPos + Math.max(-0.5, Math.min(0.5, offset)), score: bestScore });
+            continue;
+          }
+        }
+      }
+      refinedPositions.push({ pos: bestPos, score: bestScore });
     }
-    refinedPositions.sort((a, b) => a - b);
-    const rq1 = Math.floor(refinedPositions.length * 0.3);
-    const rq3 = Math.floor(refinedPositions.length * 0.7);
-    const iqrPos = refinedPositions.slice(rq1, rq3 + 1);
-    return iqrPos[Math.floor(iqrPos.length / 2)];
+
+    refinedPositions.sort((a, b) => a.pos - b.pos);
+    const q1 = Math.floor(refinedPositions.length * 0.25);
+    const q3 = Math.floor(refinedPositions.length * 0.75);
+    const iqrSlice = refinedPositions.slice(q1, q3 + 1);
+    const medianPos = iqrSlice[Math.floor(iqrSlice.length / 2)].pos;
+    const iqrRange = iqrSlice[iqrSlice.length - 1].pos - iqrSlice[0].pos;
+    const tightTolerance = Math.max(2, iqrRange * 1.2);
+    const tight = iqrSlice.filter(p => Math.abs(p.pos - medianPos) <= tightTolerance);
+    if (tight.length >= 5) {
+      const totalWeight = tight.reduce((s, p) => s + Math.max(0.01, p.score), 0);
+      const weightedPos = tight.reduce((s, p) => s + p.pos * Math.max(0.01, p.score), 0) / totalWeight;
+      return weightedPos;
+    }
+    return medianPos;
   };
 
   const refCardW = rightCol - leftCol;
   const refCardH = bottomRow - topRow;
-  const refRadius = Math.max(4, Math.round(Math.min(refCardW, refCardH) * 0.15));
-  const rLeft = refineEdge(leftCol, true, true, topRow, bottomRow, refRadius);
-  const rRight = refineEdge(rightCol, true, false, topRow, bottomRow, refRadius);
-  const rTop = refineEdge(topRow, false, true, leftCol, rightCol, refRadius);
-  const rBottom = refineEdge(bottomRow, false, false, leftCol, rightCol, refRadius);
+  const pass1Radius = Math.max(6, Math.round(Math.min(refCardW, refCardH) * 0.15));
+  const p1Left = refineEdgeSingle(leftCol, true, true, topRow, bottomRow, pass1Radius);
+  const p1Right = refineEdgeSingle(rightCol, true, false, topRow, bottomRow, pass1Radius);
+  const p1Top = refineEdgeSingle(topRow, false, true, leftCol, rightCol, pass1Radius);
+  const p1Bottom = refineEdgeSingle(bottomRow, false, false, leftCol, rightCol, pass1Radius);
 
-  console.log(`[detect-bounds] Refined: [${rLeft},${rTop}]-[${rRight},${rBottom}] (from [${leftCol},${topRow}]-[${rightCol},${bottomRow}])`);
+  const pass2Radius = Math.max(3, Math.round(pass1Radius * 0.4));
+  const rLeftRaw = refineEdgeSingle(Math.round(p1Left), true, true, topRow, bottomRow, pass2Radius);
+  const rRightRaw = refineEdgeSingle(Math.round(p1Right), true, false, topRow, bottomRow, pass2Radius);
+  const rTopRaw = refineEdgeSingle(Math.round(p1Top), false, true, leftCol, rightCol, pass2Radius);
+  const rBottomRaw = refineEdgeSingle(Math.round(p1Bottom), false, false, leftCol, rightCol, pass2Radius);
+
+  let rLeft = rLeftRaw;
+  let rRight = rRightRaw;
+  let rTop = rTopRaw;
+  let rBottom = rBottomRaw;
+
+  const refinedW = rRight - rLeft;
+  const refinedH = rBottom - rTop;
+  if (refinedW > 0 && refinedH > 0) {
+    const refinedRatio = refinedW / refinedH;
+    const targetAR = Math.abs(refinedRatio - CARD_WH_RATIO) < Math.abs(refinedRatio - CARD_WH_RATIO_ROTATED) ? CARD_WH_RATIO : CARD_WH_RATIO_ROTATED;
+    const arError = (refinedRatio - targetAR) / targetAR;
+    if (Math.abs(arError) > 0.01 && Math.abs(arError) < 0.08) {
+      const correction = (arError * refinedW * 0.3) / 2;
+      rLeft += correction;
+      rRight -= correction;
+    }
+  }
+
+  console.log(`[detect-bounds] Refined: [${rLeft.toFixed(1)},${rTop.toFixed(1)}]-[${rRight.toFixed(1)},${rBottom.toFixed(1)}] (from [${leftCol},${topRow}]-[${rightCol},${bottomRow}], pass1=[${p1Left.toFixed(1)},${p1Top.toFixed(1)}]-[${p1Right.toFixed(1)},${p1Bottom.toFixed(1)}])`);
 
   return {
-    leftPct: (rLeft / sw) * 100,
-    rightPct: (rRight / sw) * 100,
-    topPct: (rTop / sh) * 100,
-    bottomPct: (rBottom / sh) * 100,
+    leftPct: parseFloat(((rLeft / sw) * 100).toFixed(2)),
+    rightPct: parseFloat(((rRight / sw) * 100).toFixed(2)),
+    topPct: parseFloat(((rTop / sh) * 100).toFixed(2)),
+    bottomPct: parseFloat(((rBottom / sh) * 100).toFixed(2)),
     angleDeg: parseFloat(angleDeg.toFixed(3)),
     confidence: overallConfidence,
   };
@@ -1851,7 +1911,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       console.log(`[detect-bounds] Union of coarse+variance: L=${unionLeft.toFixed(1)} T=${unionTop.toFixed(1)} R=${unionRight.toFixed(1)} B=${unionBottom.toFixed(1)}`);
     }
 
-    const FINE_SIZE = 600;
+    const FINE_SIZE = 1000;
     const fsw = Math.max(40, Math.round(width <= FINE_SIZE ? width : FINE_SIZE * (width / Math.max(width, height))));
     const fsh = Math.max(40, Math.round(height <= FINE_SIZE ? height : FINE_SIZE * (height / Math.max(width, height))));
 
@@ -1890,19 +1950,19 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
     );
 
     const result: any = {
-      leftPercent: parseFloat(clamp(leftPercent, 0, 45).toFixed(1)),
-      topPercent: parseFloat(clamp(topPercent, 0, 45).toFixed(1)),
-      rightPercent: parseFloat(clamp(rightPercent, 55, 100).toFixed(1)),
-      bottomPercent: parseFloat(clamp(bottomPercent, 55, 100).toFixed(1)),
+      leftPercent: parseFloat(clamp(leftPercent, 0, 45).toFixed(2)),
+      topPercent: parseFloat(clamp(topPercent, 0, 45).toFixed(2)),
+      rightPercent: parseFloat(clamp(rightPercent, 55, 100).toFixed(2)),
+      bottomPercent: parseFloat(clamp(bottomPercent, 55, 100).toFixed(2)),
       angleDeg,
       confidence,
     };
 
     if (innerBorders) {
-      result.innerLeftPercent = parseFloat(innerBorders.innerLeftPct.toFixed(1));
-      result.innerTopPercent = parseFloat(innerBorders.innerTopPct.toFixed(1));
-      result.innerRightPercent = parseFloat(innerBorders.innerRightPct.toFixed(1));
-      result.innerBottomPercent = parseFloat(innerBorders.innerBottomPct.toFixed(1));
+      result.innerLeftPercent = parseFloat(innerBorders.innerLeftPct.toFixed(2));
+      result.innerTopPercent = parseFloat(innerBorders.innerTopPct.toFixed(2));
+      result.innerRightPercent = parseFloat(innerBorders.innerRightPct.toFixed(2));
+      result.innerBottomPercent = parseFloat(innerBorders.innerBottomPct.toFixed(2));
     }
 
     boundsCache.set(cacheKey, result);
