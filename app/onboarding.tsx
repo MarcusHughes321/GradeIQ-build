@@ -78,7 +78,7 @@ const SLIDES: SlideData[] = [
     icon: "cash",
     iconSet: "ionicons",
     title: "Know Your Card's Value",
-    subtitle: "See estimated UK eBay sold prices for each grade level, plus what your card could be worth at a perfect 10.",
+    subtitle: "See estimated TCGPlayer market prices for each grade level, plus what your card could be worth at a perfect 10.",
     color: "#6366F1",
     gradientColors: ["#0a001a", "#08001a", "#000000"],
   },
