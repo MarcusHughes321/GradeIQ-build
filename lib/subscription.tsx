@@ -23,9 +23,9 @@ export interface TierInfo {
 
 export const TIERS: Record<SubscriptionTier, TierInfo> = {
   free: { id: "free", name: "Free", price: "Free", monthlyLimit: FREE_MONTHLY_LIMIT, entitlementId: "" },
-  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, entitlementId: "grade_curious" },
-  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, entitlementId: "grade_enthusiast" },
-  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, entitlementId: "grade_obsessed" },
+  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, entitlementId: "Grade.IQ Pro" },
+  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, entitlementId: "Grade.IQ Pro" },
+  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, entitlementId: "Grade.IQ Pro" },
 };
 
 interface MonthlyUsage {
@@ -77,10 +77,13 @@ async function saveMonthlyUsage(usage: MonthlyUsage): Promise<void> {
 
 function determineTier(info: CustomerInfo | null): SubscriptionTier {
   if (!info) return "free";
-  if (info.entitlements.active[TIERS.obsessed.entitlementId]) return "obsessed";
-  if (info.entitlements.active[TIERS.enthusiast.entitlementId]) return "enthusiast";
-  if (info.entitlements.active[TIERS.curious.entitlementId]) return "curious";
-  return "free";
+  const entitlement = info.entitlements.active["Grade.IQ Pro"];
+  if (!entitlement) return "free";
+  const productId = entitlement.productIdentifier || "";
+  if (productId.includes("obsessed")) return "obsessed";
+  if (productId.includes("enthusiast")) return "enthusiast";
+  if (productId.includes("curious")) return "curious";
+  return "curious";
 }
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
