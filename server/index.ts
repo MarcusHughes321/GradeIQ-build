@@ -199,6 +199,24 @@ function configureExpoAndLanding(app: express.Application) {
     next();
   });
 
+  const privacyPolicyPath = path.resolve(
+    process.cwd(),
+    "server",
+    "templates",
+    "privacy-policy.html",
+  );
+  const privacyPolicyHtml = fs.readFileSync(privacyPolicyPath, "utf-8");
+
+  app.get("/privacy", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(privacyPolicyHtml);
+  });
+
+  app.get("/privacy-policy", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(privacyPolicyHtml);
+  });
+
   app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
   app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
