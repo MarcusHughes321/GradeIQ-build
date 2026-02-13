@@ -6,7 +6,7 @@ import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases"
 const USAGE_KEY = "gradeiq_monthly_usage";
 const FREE_MONTHLY_LIMIT = 3;
 
-const GATE_ENABLED = process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE === "on";
+const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
 
 const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_RC_IOS_KEY || "";
 const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_RC_ANDROID_KEY || "";
