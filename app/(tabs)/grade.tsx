@@ -415,7 +415,7 @@ export default function GradeScreen() {
   );
 
   const DEEP_STEPS: DeepStep[] = ["front", "angledFront", "back", "angledBack"];
-  const DEEP_STEP_LABELS = ["Front", "Angled\nFront", "Back", "Angled\nBack"];
+  const DEEP_STEP_LABELS = ["Front", "Front\nAngle", "Back", "Back\nAngle"];
 
   const getDeepStepImage = (step: DeepStep) => {
     if (step === "front") return frontImage;
@@ -476,7 +476,7 @@ export default function GradeScreen() {
       <View style={styles.deepCaptureArea}>
         {deepStep === "front" && (
           <ImageCapture
-            label="Front"
+            label=""
             imageUri={frontImage}
             onCapture={() => pickImage("front")}
             onRemove={() => setFrontImage(null)}
@@ -485,7 +485,7 @@ export default function GradeScreen() {
         )}
         {deepStep === "angledFront" && (
           <ImageCapture
-            label="Angled Front"
+            label=""
             imageUri={angledFrontImage}
             onCapture={() => pickImage("angledFront")}
             onRemove={() => setAngledFrontImage(null)}
@@ -494,7 +494,7 @@ export default function GradeScreen() {
         )}
         {deepStep === "back" && (
           <ImageCapture
-            label="Back"
+            label=""
             imageUri={backImage}
             onCapture={() => pickImage("back")}
             onRemove={() => setBackImage(null)}
@@ -503,7 +503,7 @@ export default function GradeScreen() {
         )}
         {deepStep === "angledBack" && (
           <ImageCapture
-            label="Angled Back"
+            label=""
             imageUri={angledBackImage}
             onCapture={() => pickImage("angledBack")}
             onRemove={() => setAngledBackImage(null)}
@@ -1017,7 +1017,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: 30,
   },
   deepStepDot: {
     width: 28,
@@ -1056,7 +1056,8 @@ const styles = StyleSheet.create({
   deepStepLabels: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 30,
+    paddingHorizontal: 20,
+    marginTop: -4,
   },
   deepStepLabel: {
     fontFamily: "Inter_400Regular",
@@ -1092,7 +1093,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   deepCaptureArea: {
-    alignItems: "center",
+    width: "60%",
+    alignSelf: "center" as const,
   },
   deepNextBtn: {
     flexDirection: "row",

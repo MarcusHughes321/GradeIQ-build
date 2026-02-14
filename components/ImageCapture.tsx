@@ -16,7 +16,7 @@ export default function ImageCapture({ label, imageUri, onCapture, onRemove, loa
   if (imageUri) {
     return (
       <View style={styles.container}>
-        <Text style={styles.label}>{label}</Text>
+        {!!label && <Text style={styles.label}>{label}</Text>}
         <View style={styles.imageWrapper}>
           <Image source={{ uri: imageUri }} style={styles.image} contentFit="cover" />
           {loading && (
@@ -38,7 +38,7 @@ export default function ImageCapture({ label, imageUri, onCapture, onRemove, loa
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+      {!!label && <Text style={styles.label}>{label}</Text>}
       <Pressable
         style={({ pressed }) => [styles.captureArea, { opacity: pressed ? 0.8 : 1 }]}
         onPress={onCapture}
