@@ -13,6 +13,11 @@ export interface GradingJob {
   serverJobId: string;
   frontImage: string;
   backImage: string;
+  angledFrontImage?: string;
+  angledBackImage?: string;
+  frontCornerImages?: string[];
+  backCornerImages?: string[];
+  isDeepGrade?: boolean;
   status: GradingJobStatus;
   savedGrading?: SavedGrading;
   error?: string;
@@ -137,7 +142,19 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const pollJobStatus = useCallback(async (serverJobId: string, localJobId: string, frontImage: string, backImage: string) => {
+  const pollJobStatus = useCallback(async (
+    serverJobId: string,
+    localJobId: string,
+    frontImage: string,
+    backImage: string,
+    extraImages?: {
+      angledFrontImage?: string;
+      angledBackImage?: string;
+      frontCornerImages?: string[];
+      backCornerImages?: string[];
+      isDeepGrade?: boolean;
+    },
+  ) => {
     try {
       const resp = await apiRequest("GET", `/api/grade-job/${serverJobId}`);
       const data = await resp.json();
@@ -153,7 +170,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           try { await recordUsageRef.current(1); } catch {}
         }
 
-        const saved = await saveGrading(frontImage, backImage, result);
+        const saved = await saveGrading(frontImage, backImage, result, extraImages);
 
         (async () => {
           try {
@@ -285,11 +302,20 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     recordUsageRef.current = recordUsage;
 
+    const deepExtraImages = {
+      angledFrontImage,
+      angledBackImage,
+      frontCornerImages: frontCorners,
+      backCornerImages: backCorners,
+      isDeepGrade: true,
+    };
+
     setActiveJob({
       id: localJobId,
       serverJobId: "",
       frontImage,
       backImage,
+      ...deepExtraImages,
       status: "processing",
       startTime: Date.now(),
     });
@@ -330,7 +356,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
       stopPolling();
       pollingRef.current = setInterval(() => {
-        pollJobStatus(serverJobId, localJobId, frontImage, backImage);
+        pollJobStatus(serverJobId, localJobId, frontImage, backImage, deepExtraImages);
       }, POLL_INTERVAL);
     } catch (error: any) {
       console.error("Failed to submit deep grading job:", error);
@@ -351,13 +377,20 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && activeJob?.status === "processing" && activeJob.serverJobId) {
         stopPolling();
+        const extra = activeJob.isDeepGrade ? {
+          angledFrontImage: activeJob.angledFrontImage,
+          angledBackImage: activeJob.angledBackImage,
+          frontCornerImages: activeJob.frontCornerImages,
+          backCornerImages: activeJob.backCornerImages,
+          isDeepGrade: true,
+        } : undefined;
         pollingRef.current = setInterval(() => {
-          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage);
+          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra);
         }, POLL_INTERVAL);
       }
     });
     return () => sub.remove();
-  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, pollJobStatus, stopPolling]);
+  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, pollJobStatus, stopPolling]);
 
   useEffect(() => {
     return () => stopPolling();

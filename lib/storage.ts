@@ -6,13 +6,25 @@ const STORAGE_KEY = "cardgrade_history";
 export async function saveGrading(
   frontImage: string,
   backImage: string,
-  result: GradingResult
+  result: GradingResult,
+  extraImages?: {
+    angledFrontImage?: string;
+    angledBackImage?: string;
+    frontCornerImages?: string[];
+    backCornerImages?: string[];
+    isDeepGrade?: boolean;
+  },
 ): Promise<SavedGrading> {
   const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
   const grading: SavedGrading = {
     id,
     frontImage,
     backImage,
+    ...(extraImages?.angledFrontImage && { angledFrontImage: extraImages.angledFrontImage }),
+    ...(extraImages?.angledBackImage && { angledBackImage: extraImages.angledBackImage }),
+    ...(extraImages?.frontCornerImages && { frontCornerImages: extraImages.frontCornerImages }),
+    ...(extraImages?.backCornerImages && { backCornerImages: extraImages.backCornerImages }),
+    ...(extraImages?.isDeepGrade && { isDeepGrade: true }),
     result,
     timestamp: Date.now(),
   };

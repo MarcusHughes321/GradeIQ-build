@@ -113,6 +113,11 @@ export interface SavedGrading {
   id: string;
   frontImage: string;
   backImage: string;
+  angledFrontImage?: string;
+  angledBackImage?: string;
+  frontCornerImages?: string[];
+  backCornerImages?: string[];
+  isDeepGrade?: boolean;
   result: GradingResult;
   timestamp: number;
 }
