@@ -414,16 +414,19 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - BGS uses 0.5 increments for BOTH overall grade AND all sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
 - The LOWEST subgrade heavily influences the overall grade. The lowest subgrade often CAPS the overall.
 - Black Label 10 = ALL FOUR subgrades are perfect 10. This is extremely rare.
+- Gold Label 10 = Overall 10 but allows ONE sub-grade at 9.5 (three 10s + one 9.5).
 - CENTERING THRESHOLDS (front / back):
-  * 10 (Pristine): Front 50/50, Back 60/40 or better
-  * 9.5 (Gem Mint): Front 50/50 one way + 55/45 other, Back 60/40 or better
-  * 9 (Mint): Front 55/45 both ways, Back 70/30 or better
-  * 8.5 (NM-Mint+): Front 60/40 both ways, Back 80/20 or better
-  * 8 (NM-Mint): Front 65/35 both ways
-  * 7 (Near Mint): Front 75/25 both ways, Back 95/5 or better
-- CORNERS: 10 = Perfect to naked eye, Mint under magnification. 9.5 = Mint to naked eye, slight imperfections under magnification. 9 = Speck of wear under intense scrutiny. 8.5 = Sharp to naked eye, slight imperfections under close exam. 7 = Four fuzzy corners, touch of notching or minor ding.
-- EDGES: 10 = Perfect to naked eye, virtually flaw-free under magnification. 9.5 = Speck of wear under intense scrutiny. 9 = Unobtrusive specks of chipping on borders. 8.5 = Specks of chipping visible to naked eye. 7 = Noticeable roughness, very slight notching.
-- SURFACE: 10 = No print spots, flawless color, perfect gloss, no scratches or metallic print lines. 9.5 = Few extremely minor print spots under intense scrutiny, deep color, perfect gloss. 9 = Handful of printing specks or one minor spot, clean gloss with 1-2 tiny scratches, one faint metallic line allowed. 8.5 = Few minor print spots, solid gloss with minor scratches under close inspection.
+  * 10 (Pristine): Front 50/50 perfect, Back 55/45 or better
+  * 9.5 (Gem Mint): Front 55/45 or better both ways, Back 55/45 or better
+  * 9 (Mint): Front 60/40 or better both ways, Back 80/20 or better
+  * 8.5 (NM-Mint+): Front 65/35 or better both ways, Back 90/10 or better. Very slight diamond cutting allowed.
+  * 8 (NM-Mint): Front 70/30 or better both ways, Back 95/5 or better. Slight diamond cutting allowed.
+  * 7 (Near Mint): Front 75/25 or better both ways, Back 95/5 or better
+  * 6 (Excellent-Mint): Front 80/20 or better, Back 100/0 allowed. Moderate diamond cutting allowed.
+  * 5 (Excellent): Front 85/15 or better, Back 100/0 allowed
+- CORNERS: 10 = Perfect to naked eye, virtually flawless under magnification. 9.5 = Sharp corners, minimal imperfection. 9 = Sharp to naked eye, slight imperfections under close exam. 8.5 = Very minor wear on 2-3 corners. 8 = Fuzzy corners but no dings/fraying. 7 = Four fuzzy corners, touch of notching or minor ding. 6 = Slight notching/layering, moderate dings. 5 = Slightly rounded/notched, slight layering.
+- EDGES: 10 = Perfect, no imperfections. 9.5 = Clean edges, minimal flaws. 9 = Relatively smooth, specks of chipping visible. 8.5 = Slight roughness, minor chipping/very minor notching. 8 = Moderate roughness, moderate chipping or minor notching. 7 = Noticeable roughness (no layering), very slight notching/chipping. 6 = Readily chipped/notched, slightly layered. 5 = Heavy notching, moderate layering, heavy chipping.
+- SURFACE: 10 = Flawless surface, no print spots, scratches, or imperfections. 9.5 = Clean surface, possibly one tiny line under bright light. 9 = A few minor print spots; very minor color/focus imperfections; solid gloss with very minor scratches (close inspection only). 8.5 = Few noticeable print spots/speckling; minor color/focus issues; solid gloss, few minor scratches. 8 = Noticeable print spots; minor color/focus issues; minor border discoloration; relatively solid gloss, minor scratches (no scuffing). 7 = Noticeable print spots; minor color/focus flaws; minor wax stains or subtle ink marks.
 
 **Ace Grading (UK) - Scale 1-10, WHOLE NUMBERS ONLY:**
 - Ace uses ONLY whole numbers (1, 2, 3, 4, 5, 6, 7, 8, 9, 10). NO HALF GRADES like 8.5 or 9.5.
@@ -451,30 +454,38 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - TAG does NOT use 9.5 grades. Scores 900-949 = TAG 9.
 - Uses 0.5 increments for sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 10)
 - Fully automated grading using computer vision and Photometric Stereoscopic Imaging — no human subjectivity.
-- CENTERING THRESHOLDS for TCG/Pokemon cards (front / back):
-  * TAG 10: Front ~52/48, Back ~52/48. TAG is the STRICTEST on centering for TCG cards.
-  * TAG 9: Front ~55/45, Back ~65/35
-  * TAG 8: Front ~62.5/37.5, Back ~85/15
-  * TAG 7: Front ~65/35, Back ~95/5
-- CORNERS: Pristine = Virtually flawless, sharp and crisp. Gem Mint 10 = 4 sharp corners with minor fill/fray artifacts. 9 = Sharp & square, light corner touches on reverse. 8 = Light rounding visible.
-- EDGES: Pristine = Virtually flawless. Gem Mint 10 = Minor fill or fray under high-resolution. 9 = Visible but minor surface wear on 1-2 edges. 8 = Minor chipping.
-- SURFACE: TAG is STRICTER on surface than other companies. Pristine = Extremely attractive, slight print imperfection only under hi-res. Gem Mint 10 = Very minor surface wear, tiny pit or light scratch that doesn't penetrate gloss. 9 = Small scratch penetrating gloss on back, multiple print lines, minor scuffing.
+- CENTERING THRESHOLDS for TCG/Pokemon cards (front / back) — TAG has SEPARATE thresholds for Pristine vs Gem Mint:
+  * TAG Pristine 10: Front 51/49, Back 52/48. TAG is the STRICTEST on centering for TCG cards.
+  * TAG Gem Mint 10: Front 60/40, Back 75/25.
+  * TAG 9 (Mint): Front 60/40, Back 75/25 (same as Gem Mint 10 — distinguished by other attributes).
+  * TAG 8.5 (NM-MT+): Front 62.5/37.5, Back 85/15
+  * TAG 8 (NM-MT): Front 65/35, Back 95/5
+  * TAG 7.5 (NM+): Front 67.5/32.5
+  * TAG 7 (NM): Front 70/30
+  * TAG 6.5 (EX-MT+): Front 72.5/27.5
+  * TAG 6 (EX-MT): Front 75/25
+- CORNERS: Pristine = Virtually flawless, sharp & crisp, no visible wear/fraying. Gem Mint 10 = 4 sharp corners with minor fill/fray artifacts. 9 = Sharp & square, up to 2 very light front touches, multiple back touches. 8.5 = Sharp & square, multiple light front touches, missing stock on back corners. 8 = Sharp & square, corners may start showing minor wear. 7.5 = Corners losing sharpness, all 4 may have touches/fraying. 7 = Same as 7.5 but more pronounced.
+- EDGES: Pristine = Virtually flawless, very minor fill/fray under hi-res. Gem Mint 10 = Very minor fill or fray under high-resolution. 9 = Minor fill/fray visible under hi-res. 8.5 = More significant fill/fray artifacts. 8 = Visible edge wear/light chipping on multiple edges. 7 = Edges may chip & fray.
+- SURFACE: TAG is STRICTER on surface than other companies. Pristine = Extremely attractive, slight print imperfection only under hi-res (Non-Human Observable Defects only). Gem Mint 10 = Very minor surface wear, tiny pit or light scratch that doesn't penetrate gloss. 9 = Very minor surface wear, small pits, light scratches (no gloss penetration on front), small scratch penetrating gloss on back, multiple print lines, minor scuffing. 8.5 = Multiple defects: deeper pits, scratches penetrating gloss on back, print lines, minor scuffing. 8 = Multiple surface defects, print lines, very minor scuffing. 7 = Very minor dents visible, multiple print lines, focus imperfections.
 
-**CGC Cards - Scale 1-10 with HALF-GRADE increments, NO sub-grades:**
+**CGC Cards - Scale 1-10 with HALF-GRADE increments, OPTIONAL sub-grades:**
 - CGC uses 0.5 increments for the overall grade (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
-- CGC DISCONTINUED sub-grades in 2023. Only an overall grade is given with text descriptions per category.
+- CGC offers OPTIONAL sub-grades (Centering, Corners, Edges, Surface) — automatically included with Pristine 10 grades. For our grading estimates, we provide text descriptions per category since sub-grades are not always shown.
 - CGC has TWO types of 10:
-  * Pristine 10 (Gold Label): Front centering 50/50, flawless under 10x magnification. Flawless color and registration. This is extremely rare.
-  * Gem Mint 10 (Standard): Corners perfect to naked eye, Mint+ under 10x. Surface free of print spots, perfect gloss. One criterion may fall slightly short of Pristine.
+  * Pristine 10 (Gold Label): Virtually flawless. Front centering 50/50, flawless under 5x magnification. Flawless color and registration. No imperfections. This is extremely rare.
+  * Gem Mint 10 (Standard): Near-perfect. Corners perfect to naked eye, free of wear and white spots. Surface free of print spots, perfect gloss. One criterion may fall slightly short of Pristine.
 - CENTERING THRESHOLDS:
   * Pristine 10: Front 50/50 exactly, Back 55/45 or better
   * Gem Mint 10: Front 55/45, Back 75/25 or better
-  * 9.5 (Mint+): Front ~55/45 to 60/40, Back ~75/25 to 80/20. Nearly perfect centering.
+  * 9.5 (Mint+): Front ~55/45 to 60/40, Back ~75/25 to 80/20. Premium eye appeal, nearly perfect centering.
   * 9 (Mint): Slight centering deviations. Front ~60/40, Back ~80/20.
-  * 8.5 (NM/Mint+): Front ~65/35, Back ~85/15
-- CORNERS: Pristine/Gem 10 = Perfect to naked eye. 9.5 = Mint to naked eye, slight imperfections under magnification. 9 = Minor wear visible. 8 = More noticeable wear.
-- EDGES: Similar standards to corners. Pristine requires flawless edges. Lower grades allow progressive chipping/whitening.
-- SURFACE: Pristine requires no print spots, flawless color, perfect gloss. Manufacturing defects (print lines, roller marks, ink smears) count against the grade. Holographic/chrome cards show defects easily under light.
+  * 8.5 (NM/Mint+): Front ~65/35, Back ~85/15. Average-to-above-average centering. Only one minor flaw allowed.
+  * 8 (NM/Mint): Front ~65/35, Back ~90/10. Original border colors/gloss. Slight imperfections on corners under magnification.
+  * 7.5 (Near Mint+): Front ~70/30. 2-3 worn/rough corners. Image slightly out of focus.
+  * 7 (Near Mint): Front ~70/30. Slightly visible wear on edges/corners. Print pattern may be fuzzy.
+- CORNERS: Pristine/Gem 10 = Free of wear, white spots, perfectly sharp. 9.5 = Mint to naked eye, slight imperfections under magnification. 9 = Minor wear visible. 8.5-8 = Minor touches of wear. 7.5-7 = 2-3 worn or rough corners. 6 = Fuzzy corners.
+- EDGES: Pristine/Gem 10 = Free of wear, white spots. 9-9.5 = Clean, minimal flaws. 8-8.5 = Relatively smooth with minor touches of wear. 7-7.5 = Slightly visible wear. 6 = Slightly rough edges.
+- SURFACE: Pristine requires no print spots, flawless color, perfect gloss, devoid of any surface flaws. Gem Mint 10 = Perfect gloss, free of print spots. 9-9.5 = Deep color, no registration/focus imperfections, no scratches. 8-8.5 = Slight print spots or focus imperfections allowed (subtle). Manufacturing defects (print lines, roller marks, ink smears) count against the grade. Holographic/chrome cards show defects easily under light.
 
 Analyze the card images carefully. Look for:
 1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
