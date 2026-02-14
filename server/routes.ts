@@ -743,11 +743,14 @@ OVERALL GRADE COMPOUNDING — Each company calculates overall grades DIFFERENTLY
 - Since Ace uses whole numbers only, a card that might get BGS 8.5 gets Ace 8. Ace effectively rounds down.
 - Ace overall should be close to PSA (within 1 grade) since both use "weakest area matters" logic.
 
-**TAG Overall (automated scoring):**
+**TAG Overall (automated scoring, strict capping):**
 - TAG uses a 1000-point composite score. The overall is derived from the score, not averaged manually.
 - TAG is the STRICTEST on surface of all companies. If a card has surface issues, TAG will often grade lower than PSA or BGS.
 - TAG does NOT use 9.5 grades. A card that BGS calls 9.5 will be TAG 9 or TAG 10 (no in-between).
 - TAG overall should generally be EQUAL TO or LOWER than BGS for the same card, especially when surface flaws exist.
+- CAPPING: TAG overall can NEVER be more than 1 grade higher than its lowest sub-grade. If Surface = 3, TAG overall CANNOT exceed 4. If Edges = 6, TAG overall CANNOT exceed 7. Apply the same capping logic as Ace.
+- Since TAG is strictest on surface, when the surface sub-grade is the lowest, TAG overall should be within 0.5-1 of the surface sub-grade (e.g., Surface 3 = TAG overall 3-4, Surface 5 = TAG overall 5-6).
+- TAG overall should NEVER be higher than PSA overall + 1. If PSA is 4, TAG should be 3-5 at most.
 
 **CGC Overall (weighted assessment):**
 - CGC evaluates all four categories and gives a single overall grade. CGC is notably stricter on whitening/silvering than PSA.
@@ -2453,6 +2456,17 @@ function enforceGradingScales(result: any): any {
       }
     }
 
+    const aceSubGrades = ["centering", "corners", "edges", "surface"]
+      .map(k => result.ace[k]?.grade)
+      .filter((g): g is number => g !== undefined && g !== null);
+    if (aceSubGrades.length > 0) {
+      const aceLowest = Math.min(...aceSubGrades);
+      const aceMaxOverall = roundToWhole(aceLowest + 1);
+      if (result.ace.overallGrade > aceMaxOverall) {
+        result.ace.overallGrade = aceMaxOverall;
+      }
+    }
+
     if (result.ace.overallGrade === 10) {
       const centering = result.ace.centering?.grade ?? 0;
       const corners = result.ace.corners?.grade ?? 0;
@@ -2477,6 +2491,17 @@ function enforceGradingScales(result: any): any {
     for (const key of ["centering", "corners", "edges", "surface"]) {
       if (result.tag[key]?.grade !== undefined) {
         result.tag[key].grade = roundToHalf(clamp(result.tag[key].grade, 1, 10));
+      }
+    }
+
+    const tagSubGrades = ["centering", "corners", "edges", "surface"]
+      .map(k => result.tag[k]?.grade)
+      .filter((g): g is number => g !== undefined && g !== null);
+    if (tagSubGrades.length > 0) {
+      const tagLowest = Math.min(...tagSubGrades);
+      const tagMaxOverall = roundToHalf(tagLowest + 1);
+      if (result.tag.overallGrade > tagMaxOverall) {
+        result.tag.overallGrade = tagMaxOverall;
       }
     }
   }
