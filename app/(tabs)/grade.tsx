@@ -414,8 +414,8 @@ export default function GradeScreen() {
     </View>
   );
 
-  const DEEP_STEPS: DeepStep[] = ["front", "back", "angledFront", "angledBack"];
-  const DEEP_STEP_LABELS = ["Front", "Back", "Angled\nFront", "Angled\nBack"];
+  const DEEP_STEPS: DeepStep[] = ["front", "angledFront", "back", "angledBack"];
+  const DEEP_STEP_LABELS = ["Front", "Angled\nFront", "Back", "Angled\nBack"];
 
   const getDeepStepImage = (step: DeepStep) => {
     if (step === "front") return frontImage;
@@ -483,15 +483,6 @@ export default function GradeScreen() {
             loading={cropping === "front"}
           />
         )}
-        {deepStep === "back" && (
-          <ImageCapture
-            label="Back"
-            imageUri={backImage}
-            onCapture={() => pickImage("back")}
-            onRemove={() => setBackImage(null)}
-            loading={cropping === "back"}
-          />
-        )}
         {deepStep === "angledFront" && (
           <ImageCapture
             label="Angled Front"
@@ -499,6 +490,15 @@ export default function GradeScreen() {
             onCapture={() => pickImage("angledFront")}
             onRemove={() => setAngledFrontImage(null)}
             loading={cropping === "angledFront"}
+          />
+        )}
+        {deepStep === "back" && (
+          <ImageCapture
+            label="Back"
+            imageUri={backImage}
+            onCapture={() => pickImage("back")}
+            onRemove={() => setBackImage(null)}
+            loading={cropping === "back"}
           />
         )}
         {deepStep === "angledBack" && (
@@ -735,15 +735,15 @@ export default function GradeScreen() {
               <View style={styles.modalStepRow}>
                 <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>2</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Back photo</Text>
-                  <Text style={styles.modalStepDesc}>Flip the card for a straight-on back shot</Text>
+                  <Text style={styles.modalStepTitle}>Front at an angle</Text>
+                  <Text style={styles.modalStepDesc}>Tilt the front to reveal surface scratches</Text>
                 </View>
               </View>
               <View style={styles.modalStepRow}>
                 <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>3</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Front at an angle</Text>
-                  <Text style={styles.modalStepDesc}>Tilt the front to reveal surface scratches</Text>
+                  <Text style={styles.modalStepTitle}>Back photo</Text>
+                  <Text style={styles.modalStepDesc}>Flip the card for a straight-on back shot</Text>
                 </View>
               </View>
               <View style={styles.modalStepRow}>
