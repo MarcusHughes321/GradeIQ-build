@@ -96,13 +96,13 @@ export default function AboutScreen() {
             <Text style={styles.cardTitle}>Deep Grade</Text>
           </View>
           <Text style={styles.cardBody}>
-            Deep Grade is our most thorough analysis mode. By capturing your card from multiple angles — front, back, and tilted — the AI can detect surface scratches, scuffs, and wear marks that are invisible in standard photos.
+            Deep Grade is our most thorough analysis mode. By capturing your card from multiple angles — front, back, front tilted, and back tilted — the AI can detect surface scratches, scuffs, and wear marks that are invisible in standard photos.
           </Text>
           <Text style={[styles.cardBody, { marginTop: 10 }]}>
             The system also automatically crops and zooms into each corner for detailed inspection, and applies image enhancement to reveal subtle flaws. All images are sharpened and contrast-boosted before analysis.
           </Text>
           <Text style={[styles.cardBody, { marginTop: 10 }]}>
-            Quick Grade uses 2 photos (front and back) for a fast assessment. Deep Grade uses 3 photos plus auto-generated corner crops for 7 images total, giving you the most accurate pre-grade possible.
+            Quick Grade uses 2 photos (front and back) for a fast assessment. Deep Grade uses 4 photos plus auto-generated corner crops for 8 images total, giving you the most accurate pre-grade possible.
           </Text>
         </View>
 

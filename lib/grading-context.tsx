@@ -22,7 +22,7 @@ export interface GradingJob {
 interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitDeepGrading: (frontImage: string, backImage: string, angledImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   hasCompletedJob: boolean;
   hasActiveJob: boolean;
@@ -276,7 +276,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const submitDeepGrading = useCallback(async (
     frontImage: string,
     backImage: string,
-    angledImage: string,
+    angledFrontImage: string,
+    angledBackImage: string,
     recordUsage: (n: number) => Promise<void>,
   ) => {
     const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -294,7 +295,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     try {
       const frontBase64 = await getBase64FromUri(frontImage);
       const backBase64 = await getBase64FromUri(backImage);
-      const angledBase64 = await getBase64FromUri(angledImage);
+      const angledFrontBase64 = await getBase64FromUri(angledFrontImage);
+      const angledBackBase64 = await getBase64FromUri(angledBackImage);
 
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -303,7 +305,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const resp = await apiRequest("POST", "/api/deep-grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
-        angledImage: angledBase64,
+        angledImage: angledFrontBase64,
+        angledBackImage: angledBackBase64,
       });
 
       const { jobId: serverJobId } = await resp.json();

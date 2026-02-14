@@ -26,7 +26,7 @@ import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 type GradeMode = "quick" | "deep";
-type DeepStep = "front" | "back" | "angled";
+type DeepStep = "front" | "back" | "angledFront" | "angledBack";
 
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
@@ -55,7 +55,8 @@ const DEEP_STAGES = [
   { label: "Enhancing images", icon: "color-wand-outline" as const, duration: 2000 },
   { label: "Analyzing front side", icon: "scan-outline" as const, duration: 5000 },
   { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 5000 },
-  { label: "Analyzing angled view", icon: "eye-outline" as const, duration: 5000 },
+  { label: "Analyzing angled front", icon: "eye-outline" as const, duration: 4000 },
+  { label: "Analyzing angled back", icon: "eye-outline" as const, duration: 4000 },
   { label: "Cropping corners for detail", icon: "cut-outline" as const, duration: 3000 },
   { label: "Deep surface inspection", icon: "search-outline" as const, duration: 5000 },
   { label: "Checking centering", icon: "resize-outline" as const, duration: 4000 },
@@ -75,9 +76,14 @@ const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; ic
     subtitle: "Flip the card over. Keep it flat and centred in the frame.",
     icon: "swap-horizontal-outline",
   },
-  angled: {
+  angledFront: {
     title: "Front at an Angle",
-    subtitle: "Tilt the card slightly to catch the light. This reveals surface scratches and scuffs invisible in straight-on photos.",
+    subtitle: "Tilt the front of the card slightly to catch the light. This reveals surface scratches and scuffs invisible in straight-on photos.",
+    icon: "flashlight-outline",
+  },
+  angledBack: {
+    title: "Back at an Angle",
+    subtitle: "Tilt the back of the card slightly to catch the light. This reveals scratches on the back surface and Pokeball area.",
     icon: "flashlight-outline",
   },
 };
@@ -87,10 +93,11 @@ export default function GradeScreen() {
   const [mode, setMode] = useState<GradeMode>("quick");
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
-  const [angledImage, setAngledImage] = useState<string | null>(null);
+  const [angledFrontImage, setAngledFrontImage] = useState<string | null>(null);
+  const [angledBackImage, setAngledBackImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [cropping, setCropping] = useState<"front" | "back" | "angled" | null>(null);
-  const [cameraOpen, setCameraOpen] = useState<"front" | "back" | "angled" | null>(null);
+  const [cropping, setCropping] = useState<"front" | "back" | "angledFront" | "angledBack" | null>(null);
+  const [cameraOpen, setCameraOpen] = useState<"front" | "back" | "angledFront" | "angledBack" | null>(null);
   const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,11 +135,12 @@ export default function GradeScreen() {
     }
   };
 
-  const setImageWithCrop = async (side: "front" | "back" | "angled", uri: string) => {
+  const setImageWithCrop = async (side: "front" | "back" | "angledFront" | "angledBack", uri: string) => {
     if (side === "front") setFrontImage(uri);
     else if (side === "back") setBackImage(uri);
-    else setAngledImage(uri);
-    if (side !== "angled") {
+    else if (side === "angledFront") setAngledFrontImage(uri);
+    else setAngledBackImage(uri);
+    if (side === "front" || side === "back") {
       setCropping(side);
       try {
         const cropped = await cropToCard(uri);
@@ -149,7 +157,8 @@ export default function GradeScreen() {
       if (!activeJob || activeJob.status !== "processing") {
         setFrontImage(null);
         setBackImage(null);
-        setAngledImage(null);
+        setAngledFrontImage(null);
+        setAngledBackImage(null);
         setLoading(false);
         setCropping(null);
         setCameraOpen(null);
@@ -206,7 +215,7 @@ export default function GradeScreen() {
     };
   }, [loading]);
 
-  const pickImage = async (side: "front" | "back" | "angled") => {
+  const pickImage = async (side: "front" | "back" | "angledFront" | "angledBack") => {
     if (Platform.OS === "web") {
       return launchLibrary(side);
     }
@@ -224,7 +233,7 @@ export default function GradeScreen() {
     ]);
   };
 
-  const launchCamera = async (side: "front" | "back" | "angled") => {
+  const launchCamera = async (side: "front" | "back" | "angledFront" | "angledBack") => {
     if (Platform.OS !== "web") {
       setCameraOpen(side);
     } else {
@@ -257,11 +266,12 @@ export default function GradeScreen() {
     if (side) {
       if (side === "front") setFrontImage(uri);
       else if (side === "back") setBackImage(uri);
-      else setAngledImage(uri);
+      else if (side === "angledFront") setAngledFrontImage(uri);
+      else setAngledBackImage(uri);
     }
   };
 
-  const launchLibrary = async (side: "front" | "back" | "angled") => {
+  const launchLibrary = async (side: "front" | "back" | "angledFront" | "angledBack") => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Required", "Photo library access is needed to select card photos.");
@@ -335,8 +345,8 @@ export default function GradeScreen() {
         return;
       }
     } else {
-      if (!frontImage || !backImage || !angledImage) {
-        Alert.alert("Photos Required", "Please add all three photos: front, back, and angled.");
+      if (!frontImage || !backImage || !angledFrontImage || !angledBackImage) {
+        Alert.alert("Photos Required", "Please add all four photos: front, back, angled front, and angled back.");
         return;
       }
     }
@@ -362,8 +372,8 @@ export default function GradeScreen() {
 
     setLoading(true);
 
-    if (mode === "deep" && angledImage) {
-      submitDeepGrading(frontImage!, backImage!, angledImage, async (n: number) => {
+    if (mode === "deep" && angledFrontImage && angledBackImage) {
+      submitDeepGrading(frontImage!, backImage!, angledFrontImage, angledBackImage, async (n: number) => {
         await recordDeepUsage();
       });
     } else {
@@ -373,7 +383,7 @@ export default function GradeScreen() {
 
   const canSubmit = mode === "quick"
     ? !!frontImage && !!backImage && !loading
-    : !!frontImage && !!backImage && !!angledImage && !loading;
+    : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && !loading;
 
   const currentStage = ANALYSIS_STAGES[analysisStage];
 
@@ -383,7 +393,8 @@ export default function GradeScreen() {
         style={[styles.modeTab, mode === "quick" && styles.modeTabActive]}
         onPress={() => {
           setMode("quick");
-          setAngledImage(null);
+          setAngledFrontImage(null);
+          setAngledBackImage(null);
           setDeepStep("front");
         }}
       >
@@ -403,11 +414,26 @@ export default function GradeScreen() {
     </View>
   );
 
+  const DEEP_STEPS: DeepStep[] = ["front", "back", "angledFront", "angledBack"];
+  const DEEP_STEP_LABELS = ["Front", "Back", "Angled\nFront", "Angled\nBack"];
+
+  const getDeepStepImage = (step: DeepStep) => {
+    if (step === "front") return frontImage;
+    if (step === "back") return backImage;
+    if (step === "angledFront") return angledFrontImage;
+    return angledBackImage;
+  };
+
+  const getNextStep = (step: DeepStep): DeepStep | null => {
+    const idx = DEEP_STEPS.indexOf(step);
+    return idx < DEEP_STEPS.length - 1 ? DEEP_STEPS[idx + 1] : null;
+  };
+
   const renderDeepGradeSteps = () => (
     <View style={styles.deepStepsContainer}>
       <View style={styles.deepStepIndicator}>
-        {(["front", "back", "angled"] as DeepStep[]).map((step, i) => {
-          const isComplete = step === "front" ? !!frontImage : step === "back" ? !!backImage : !!angledImage;
+        {DEEP_STEPS.map((step, i) => {
+          const isComplete = !!getDeepStepImage(step);
           const isCurrent = deepStep === step;
           return (
             <React.Fragment key={step}>
@@ -432,9 +458,11 @@ export default function GradeScreen() {
       </View>
 
       <View style={styles.deepStepLabels}>
-        <Text style={[styles.deepStepLabel, deepStep === "front" && styles.deepStepLabelActive]}>Front</Text>
-        <Text style={[styles.deepStepLabel, deepStep === "back" && styles.deepStepLabelActive]}>Back</Text>
-        <Text style={[styles.deepStepLabel, deepStep === "angled" && styles.deepStepLabelActive]}>Angled</Text>
+        {DEEP_STEPS.map((step, i) => (
+          <Text key={step} style={[styles.deepStepLabel, deepStep === step && styles.deepStepLabelActive]}>
+            {DEEP_STEP_LABELS[i]}
+          </Text>
+        ))}
       </View>
 
       <View style={styles.deepGuidance}>
@@ -464,27 +492,38 @@ export default function GradeScreen() {
             loading={cropping === "back"}
           />
         )}
-        {deepStep === "angled" && (
+        {deepStep === "angledFront" && (
           <ImageCapture
-            label="Angled"
-            imageUri={angledImage}
-            onCapture={() => pickImage("angled")}
-            onRemove={() => setAngledImage(null)}
-            loading={cropping === "angled"}
+            label="Angled Front"
+            imageUri={angledFrontImage}
+            onCapture={() => pickImage("angledFront")}
+            onRemove={() => setAngledFrontImage(null)}
+            loading={cropping === "angledFront"}
+          />
+        )}
+        {deepStep === "angledBack" && (
+          <ImageCapture
+            label="Angled Back"
+            imageUri={angledBackImage}
+            onCapture={() => pickImage("angledBack")}
+            onRemove={() => setAngledBackImage(null)}
+            loading={cropping === "angledBack"}
           />
         )}
       </View>
 
-      {deepStep !== "angled" && (
+      {getNextStep(deepStep) && (
         <Pressable
           style={({ pressed }) => [styles.deepNextBtn, { opacity: pressed ? 0.7 : 1 }]}
           onPress={() => {
-            if (deepStep === "front") setDeepStep("back");
-            else if (deepStep === "back") setDeepStep("angled");
+            const next = getNextStep(deepStep);
+            if (next) setDeepStep(next);
           }}
         >
           <Text style={styles.deepNextBtnText}>
-            {deepStep === "front" && !frontImage ? "Skip to Back" : deepStep === "front" ? "Next: Back" : !backImage ? "Skip to Angled" : "Next: Angled"}
+            {!getDeepStepImage(deepStep)
+              ? `Skip to ${DEEP_STEP_GUIDANCE[getNextStep(deepStep)!].title}`
+              : `Next: ${DEEP_STEP_GUIDANCE[getNextStep(deepStep)!].title}`}
           </Text>
           <Ionicons name="arrow-forward" size={16} color={Colors.text} />
         </Pressable>
@@ -571,7 +610,8 @@ export default function GradeScreen() {
               setLoading(false);
               setFrontImage(null);
               setBackImage(null);
-              setAngledImage(null);
+              setAngledFrontImage(null);
+              setAngledBackImage(null);
               router.navigate("/(tabs)");
             }}
           >
@@ -660,7 +700,7 @@ export default function GradeScreen() {
 
       {cameraOpen && (
         <CardCamera
-          side={cameraOpen === "angled" ? "front" : cameraOpen}
+          side={cameraOpen === "angledFront" ? "front" : cameraOpen === "angledBack" ? "back" : cameraOpen}
           onCapture={handleCameraCapture}
           onClose={() => setCameraOpen(null)}
         />
@@ -702,8 +742,15 @@ export default function GradeScreen() {
               <View style={styles.modalStepRow}>
                 <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>3</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Angled photo</Text>
-                  <Text style={styles.modalStepDesc}>Tilt the card to reveal surface scratches and wear</Text>
+                  <Text style={styles.modalStepTitle}>Front at an angle</Text>
+                  <Text style={styles.modalStepDesc}>Tilt the front to reveal surface scratches</Text>
+                </View>
+              </View>
+              <View style={styles.modalStepRow}>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>4</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalStepTitle}>Back at an angle</Text>
+                  <Text style={styles.modalStepDesc}>Tilt the back to reveal scratches on the back surface</Text>
                 </View>
               </View>
             </View>
@@ -1013,9 +1060,9 @@ const styles = StyleSheet.create({
   },
   deepStepLabel: {
     fontFamily: "Inter_400Regular",
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.textMuted,
-    width: 50,
+    flex: 1,
     textAlign: "center" as const,
   },
   deepStepLabelActive: {

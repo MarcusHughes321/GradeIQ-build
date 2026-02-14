@@ -2514,20 +2514,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function performDeepGrading(
     frontImage: string,
     backImage: string,
-    angledImage: string,
+    angledFrontImage: string,
+    angledBackImage?: string,
     frontCornerCrops?: string[],
     logPrefix: string = "[deep-grade]"
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
     const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
-    const rawAngledUrl = angledImage.startsWith("data:") ? angledImage : `data:image/jpeg;base64,${angledImage}`;
+    const rawAngledFrontUrl = angledFrontImage.startsWith("data:") ? angledFrontImage : `data:image/jpeg;base64,${angledFrontImage}`;
+    const rawAngledBackUrl = angledBackImage ? (angledBackImage.startsWith("data:") ? angledBackImage : `data:image/jpeg;base64,${angledBackImage}`) : null;
 
-    const [frontUrl, backUrl, angledUrl] = await Promise.all([
+    const optimizePromises: Promise<string>[] = [
       optimizeImageForAI(rawFrontUrl, 2048),
       optimizeImageForAI(rawBackUrl, 2048),
-      optimizeImageForAI(rawAngledUrl, 2048),
-    ]);
+      optimizeImageForAI(rawAngledFrontUrl, 2048),
+    ];
+    if (rawAngledBackUrl) {
+      optimizePromises.push(optimizeImageForAI(rawAngledBackUrl, 2048));
+    }
+
+    const optimizedResults = await Promise.all(optimizePromises);
+    const frontUrl = optimizedResults[0];
+    const backUrl = optimizedResults[1];
+    const angledFrontUrl = optimizedResults[2];
+    const angledBackUrl = optimizedResults[3] || null;
     const optimizeTime = Date.now() - gradeStartTime;
     if (optimizeTime > 50) console.log(`${logPrefix} Image optimization took ${optimizeTime}ms`);
 
@@ -2539,14 +2550,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       cornerCrops = await generateCornerCrops(frontUrl);
     }
 
+    const angledDescription = angledBackUrl
+      ? "Image 3: Front at an angle (to reveal surface scratches). Image 4: Back at an angle (to reveal back surface scratches)."
+      : "Image 3: Front at an angle (to reveal surface scratches).";
+    const cornerStartIdx = angledBackUrl ? 5 : 4;
+
     const imageContent: any[] = [
       {
         type: "text",
-        text: "This is a DEEP GRADE analysis with multiple angles. Image 1: Front (straight-on). Image 2: Back (straight-on). Image 3: Front at an angle (to reveal surface scratches). Images 4-7: Close-up crops of the four corners (top-left, top-right, bottom-left, bottom-right). Use the angled shot to identify surface scratches, scuffs, and wear that may not be visible in the straight-on photos. Use the corner crops to precisely evaluate corner condition.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: Carefully examine the artwork area and card back for ANY scratches, scuffs, or wear marks. Zoom in mentally on the Pokemon illustration and the Pokeball on the back — these areas commonly show scratches that catch light. Report every visible scratch as a defect.",
+        text: `This is a DEEP GRADE analysis with multiple angles. Image 1: Front (straight-on). Image 2: Back (straight-on). ${angledDescription} Images ${cornerStartIdx}-${cornerStartIdx + 3}: Close-up crops of the four corners (top-left, top-right, bottom-left, bottom-right). Use the angled shots to identify surface scratches, scuffs, and wear that may not be visible in the straight-on photos. Use the corner crops to precisely evaluate corner condition.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: Carefully examine the artwork area and card back for ANY scratches, scuffs, or wear marks. Zoom in mentally on the Pokemon illustration and the Pokeball on the back — these areas commonly show scratches that catch light. Report every visible scratch as a defect.`,
       },
       { type: "image_url", image_url: { url: frontUrl, detail: "high" } },
       { type: "image_url", image_url: { url: backUrl, detail: "high" } },
-      { type: "image_url", image_url: { url: angledUrl, detail: "high" } },
+      { type: "image_url", image_url: { url: angledFrontUrl, detail: "high" } },
+      ...(angledBackUrl ? [{ type: "image_url" as const, image_url: { url: angledBackUrl, detail: "high" as const } }] : []),
       ...cornerCrops.map(crop => ({
         type: "image_url" as const,
         image_url: { url: crop, detail: "high" as const },
@@ -3438,7 +3455,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
   app.post("/api/deep-grade-job", async (req, res) => {
     try {
-      const { frontImage, backImage, angledImage, pushToken } = req.body;
+      const { frontImage, backImage, angledImage, angledBackImage, pushToken } = req.body;
       if (!frontImage || !backImage || !angledImage) {
         return res.status(400).json({ error: "Front, back, and angled images are all required" });
       }
@@ -3458,7 +3475,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
       (async () => {
         try {
-          const result = await performDeepGrading(frontImage, backImage, angledImage, undefined, `[deep-grade-job:${jobId}]`);
+          const result = await performDeepGrading(frontImage, backImage, angledImage, angledBackImage || undefined, undefined, `[deep-grade-job:${jobId}]`);
           job.status = "completed";
           job.result = result;
 

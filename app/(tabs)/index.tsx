@@ -826,6 +826,7 @@ const proStyles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: "#fff",
+    flex: 1,
   },
   upgradeBtn: {
     flexDirection: "row",
