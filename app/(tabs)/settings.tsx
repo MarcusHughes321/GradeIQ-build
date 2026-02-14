@@ -121,6 +121,17 @@ export default function SettingsScreen() {
           </Pressable>
           <View style={styles.menuDivider} />
           <Pressable
+            onPress={() => router.push("/grading-standards")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="school-outline" size={20} color="#60A5FA" />
+              <Text style={styles.menuRowLabel}>Grading Standards</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
             onPress={() => router.push("/feedback")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
           >
