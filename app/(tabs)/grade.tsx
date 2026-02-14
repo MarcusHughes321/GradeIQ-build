@@ -776,6 +776,7 @@ export default function GradeScreen() {
         <CardCamera
           side={cameraOpen === "angledFront" || cameraOpen.startsWith("cornerFront") ? "front" : cameraOpen === "angledBack" || cameraOpen.startsWith("cornerBack") ? "back" : cameraOpen === "front" ? "front" : "back"}
           isAngled={cameraOpen === "angledFront" || cameraOpen === "angledBack"}
+          stepLabel={DEEP_STEP_GUIDANCE[cameraOpen]?.title}
           onCapture={handleCameraCapture}
           onClose={() => setCameraOpen(null)}
         />

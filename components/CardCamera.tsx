@@ -22,6 +22,7 @@ const CROP_PADDING = 20;
 interface CardCameraProps {
   side: "front" | "back";
   isAngled?: boolean;
+  stepLabel?: string;
   onCapture: (uri: string) => void;
   onClose: () => void;
 }
@@ -31,7 +32,7 @@ const ANGLED_TARGET = 25;
 const ANGLED_THRESHOLD = 5;
 const BUBBLE_RANGE = 22;
 
-export default function CardCamera({ side, isAngled = false, onCapture, onClose }: CardCameraProps) {
+export default function CardCamera({ side, isAngled = false, stepLabel, onCapture, onClose }: CardCameraProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
@@ -229,10 +230,12 @@ export default function CardCamera({ side, isAngled = false, onCapture, onClose 
           >
             <Ionicons name="close" size={28} color="#fff" />
           </Pressable>
-          <Text style={styles.sideLabel}>
-            {isAngled
-              ? side === "front" ? "Front \u2014 Angled" : "Back \u2014 Angled"
-              : side === "front" ? "Front of Card" : "Back of Card"}
+          <Text style={styles.sideLabel} numberOfLines={2}>
+            {stepLabel
+              ? stepLabel
+              : isAngled
+                ? side === "front" ? "Front \u2014 Angled" : "Back \u2014 Angled"
+                : side === "front" ? "Front of Card" : "Back of Card"}
           </Text>
           <View style={{ width: 44 }} />
         </View>
