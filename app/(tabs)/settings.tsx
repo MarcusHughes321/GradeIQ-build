@@ -23,14 +23,36 @@ export default function SettingsScreen() {
       setTapCount(next);
       if (next >= 5) {
         setTapCount(0);
-        Alert.alert(
-          isAdminMode ? "Disable Admin Mode?" : "Enable Admin Mode?",
-          isAdminMode ? "You will return to your normal subscription tier." : "This will give you unlimited grading access.",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: isAdminMode ? "Disable" : "Enable", onPress: toggleAdminMode },
-          ]
-        );
+        if (isAdminMode) {
+          Alert.alert(
+            "Disable Admin Mode?",
+            "You will return to your normal subscription tier.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Disable", onPress: toggleAdminMode },
+            ]
+          );
+        } else {
+          Alert.prompt(
+            "Enter Admin Code",
+            "Enter the secret code to unlock unlimited access.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Unlock",
+                onPress: (code?: string) => {
+                  if (code === "marceus2026") {
+                    toggleAdminMode();
+                    Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
+                  } else {
+                    Alert.alert("Incorrect Code", "The code you entered is not valid.");
+                  }
+                },
+              },
+            ],
+            "secure-text"
+          );
+        }
       }
     } else {
       setTapCount(1);
@@ -45,7 +67,9 @@ export default function SettingsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Pressable onPress={handleVersionTap}>
+          <Text style={styles.headerTitle}>Settings</Text>
+        </Pressable>
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}>
@@ -86,7 +110,7 @@ export default function SettingsScreen() {
 
         <View style={styles.companyList}>
           <Pressable
-            onPress={() => { handleVersionTap(); router.push("/about"); }}
+            onPress={() => router.push("/about")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
           >
             <View style={styles.menuRowLeft}>
