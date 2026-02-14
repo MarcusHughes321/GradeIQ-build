@@ -26,9 +26,9 @@ export interface TierInfo {
 
 export const TIERS: Record<SubscriptionTier, TierInfo> = {
   free: { id: "free", name: "Free", price: "Free", monthlyLimit: FREE_MONTHLY_LIMIT, deepGradeLimit: 0, entitlementId: "" },
-  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, deepGradeLimit: 3, entitlementId: "Grade.IQ Pro" },
-  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, deepGradeLimit: 10, entitlementId: "Grade.IQ Pro" },
-  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, deepGradeLimit: 50, entitlementId: "Grade.IQ Pro" },
+  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, deepGradeLimit: 2, entitlementId: "Grade.IQ Pro" },
+  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, deepGradeLimit: 7, entitlementId: "Grade.IQ Pro" },
+  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, deepGradeLimit: 30, entitlementId: "Grade.IQ Pro" },
 };
 
 interface MonthlyUsage {

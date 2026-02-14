@@ -22,7 +22,7 @@ export interface GradingJob {
 interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   hasCompletedJob: boolean;
   hasActiveJob: boolean;
@@ -278,6 +278,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     backImage: string,
     angledFrontImage: string,
     angledBackImage: string,
+    frontCorners: string[],
+    backCorners: string[],
     recordUsage: (n: number) => Promise<void>,
   ) => {
     const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -297,6 +299,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const backBase64 = await getBase64FromUri(backImage);
       const angledFrontBase64 = await getBase64FromUri(angledFrontImage);
       const angledBackBase64 = await getBase64FromUri(angledBackImage);
+      const frontCornerBase64 = await Promise.all(frontCorners.map(getBase64FromUri));
+      const backCornerBase64 = await Promise.all(backCorners.map(getBase64FromUri));
 
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -307,6 +311,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         backImage: backBase64,
         angledImage: angledFrontBase64,
         angledBackImage: angledBackBase64,
+        frontCorners: frontCornerBase64,
+        backCorners: backCornerBase64,
       });
 
       const { jobId: serverJobId } = await resp.json();
