@@ -96,7 +96,7 @@ export default function AboutScreen() {
             <Text style={styles.cardTitle}>Deep Grade</Text>
           </View>
           <Text style={styles.cardBody}>
-            Deep Grade is our most thorough analysis mode. By capturing your card from multiple angles — front straight-on, front tilted, back straight-on, and back tilted — the AI can detect surface scratches, scuffs, and wear marks that are invisible in standard photos.
+            Deep Grade is our most thorough analysis mode. Keep your card flat on the table and use the spirit level to tilt your phone at the right angle — no fingers in frame. The AI analyses front, front angled, back, and back angled shots to detect surface scratches, scuffs, and wear marks invisible in standard photos.
           </Text>
           <Text style={[styles.cardBody, { marginTop: 10 }]}>
             The system also automatically crops and zooms into each corner for detailed inspection, and applies image enhancement to reveal subtle flaws. All images are sharpened and contrast-boosted before analysis.

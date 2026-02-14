@@ -78,12 +78,12 @@ const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; ic
   },
   angledFront: {
     title: "Front at an Angle",
-    subtitle: "Tilt the front of the card slightly to catch the light. This reveals surface scratches and scuffs invisible in straight-on photos.",
+    subtitle: "Keep the card flat on the table. Tilt your phone forward \u2014 the spirit level will guide you to the right angle to catch surface scratches.",
     icon: "flashlight-outline",
   },
   angledBack: {
     title: "Back at an Angle",
-    subtitle: "Tilt the back of the card slightly to catch the light. This reveals scratches on the back surface and Pokeball area.",
+    subtitle: "Keep the card flat on the table. Tilt your phone forward \u2014 the spirit level will guide you to reveal scratches on the back surface.",
     icon: "flashlight-outline",
   },
 };
@@ -737,7 +737,7 @@ export default function GradeScreen() {
                 <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>2</Text></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalStepTitle}>Front at an angle</Text>
-                  <Text style={styles.modalStepDesc}>Tilt the front to reveal surface scratches</Text>
+                  <Text style={styles.modalStepDesc}>Keep the card flat, tilt your phone forward to catch scratches</Text>
                 </View>
               </View>
               <View style={styles.modalStepRow}>
@@ -751,7 +751,7 @@ export default function GradeScreen() {
                 <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>4</Text></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.modalStepTitle}>Back at an angle</Text>
-                  <Text style={styles.modalStepDesc}>Tilt the back to reveal scratches on the back surface</Text>
+                  <Text style={styles.modalStepDesc}>Keep the card flat, tilt your phone to reveal back surface scratches</Text>
                 </View>
               </View>
             </View>
