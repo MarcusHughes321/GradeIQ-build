@@ -113,7 +113,7 @@ export default function ResultsScreen() {
   const { gradingId } = useLocalSearchParams<{ gradingId: string }>();
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
-  const { isSubscribed, isGateEnabled } = useSubscription();
+  const { isSubscribed, isGateEnabled, isAdminMode } = useSubscription();
   const [grading, setGrading] = useState<SavedGrading | null>(null);
   const [showFront, setShowFront] = useState(true);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
@@ -685,7 +685,7 @@ export default function ResultsScreen() {
             <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
             <Text style={styles.valueTitle}>Estimated Card Values</Text>
           </View>
-          {isGateEnabled && !isSubscribed ? (
+          {isGateEnabled && !isSubscribed && !isAdminMode ? (
             <View style={{ overflow: "hidden" as const, borderRadius: 12 }}>
               <View style={styles.valueGrid}>
                 <View style={styles.valueSectionHeader}>

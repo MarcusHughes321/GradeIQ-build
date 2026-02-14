@@ -194,7 +194,7 @@ export default function HomeScreen() {
   const [showProReminder, setShowProReminder] = useState(false);
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode } = useSubscription();
   const { activeJob, dismissJob } = useGrading();
   const proReminderShownRef = useRef(false);
 
@@ -469,7 +469,7 @@ export default function HomeScreen() {
               <Text style={styles.countCircleLabel}>Cards{"\n"}Graded</Text>
             </View>
 
-            {isGateEnabled && !isSubscribed ? (
+            {isGateEnabled && !isSubscribed && !isAdminMode ? (
               <Pressable style={styles.portfolioCard} onPress={() => router.push("/paywall")}>
                 <View style={styles.portfolioHeader}>
                   <Ionicons name="cash-outline" size={16} color={Colors.primary} />
