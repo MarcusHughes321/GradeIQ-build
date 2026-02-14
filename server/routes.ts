@@ -629,14 +629,14 @@ CRITICAL REMINDERS:
 - BGS grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10)
 - Ace grades: WHOLE NUMBERS ONLY (1-10, never 8.5 or 9.5)
 - TAG grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - stricter on surface than BGS
-- CGC grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - no sub-grades, text descriptions only
+- CGC grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - optional sub-grades, text descriptions per category
 
 GRADING PHILOSOPHY — POLARISED GRADING (FAVOUR 10 OR GRADE HONESTLY LOW):
 - EVERY sub-grade (centering, corners, edges, surface) starts at 10 (Gem Mint) by default.
 - If you CANNOT see any specific flaw in a category, KEEP IT AT 10. Do not hedge with 9 "just in case." Clean cards deserve 10s — that is the whole point of grading. Users need to trust that a 10 means the card is worth submitting.
 - However, when you DO see a real flaw, grade it HONESTLY and do NOT be generous. Real flaws should pull grades down meaningfully — do not cluster everything in the 8-9 range. A card with clear visible damage should receive grades of 7, 6, or even 5 and below where warranted.
 - You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. However, if you can see a flaw in the photo, it is almost certainly a real flaw — grade it accordingly. Do NOT dismiss visible scratches, whitening, or wear as "photo artifacts."
-- Deduction guide from the starting point of 10:
+- Generic deduction guide from the starting point of 10 (see company-specific tolerances below for fine-tuning):
   * KEEP AT 10: No visible flaws in this category. The card looks clean and sharp. Do not lower speculatively.
   * 9: ONE very minor flaw that requires close inspection to see (e.g., slight whitening on ONE corner only, a single very faint hairline scratch)
   * 8: TWO minor flaws or one clearly visible flaw (e.g., whitening on 2 corners, one obvious scratch across the surface, edge roughness on one side)
@@ -647,13 +647,100 @@ GRADING PHILOSOPHY — POLARISED GRADING (FAVOUR 10 OR GRADE HONESTLY LOW):
   * 3 or below: Severe damage — card has been heavily played, major creases, bends, tears, water damage, or extensive wear across the entire surface
 - KEY PRINCIPLE: The grade range should be WIDE. A clean card = 10. A card with a few visible flaws = 7-8. A card with scratches across the back, edge whitening, AND corner wear = 4-6. A heavily played/damaged card = 3 or below. Do NOT compress everything into 7-9.
 
-OVERALL GRADE COMPOUNDING — The OVERALL grade for each company should reflect the COMBINATION of all flaws:
-- If a card has issues in MULTIPLE categories (e.g., surface scratches AND edge whitening AND corner wear), the overall grade should be LOWER than any individual sub-grade. Flaws compound.
-- Example: A card with Surface 7, Edges 7, Corners 7, Centering 9 should get an overall around 5-6, NOT 7-8.
-- Example: A card with Surface 6, Edges 6, Corners 7, Centering 8 should get an overall around 4-5, NOT 6-7.
+COMPANY-SPECIFIC DEFECT TOLERANCE — Each company has different strictness levels. Apply the generic guide above, then ADJUST for each company:
+
+**PSA Defect Tolerance (weakest-link system):**
+- PSA grades by the WEAKEST category — one bad area drags the whole grade down.
+- PSA 10: ZERO defects. No scratches, no whitening, no wear. Perfectly sharp corners, perfect edges, perfect surface. One very slight printing imperfection allowed only if it doesn't affect eye appeal.
+- PSA 9: ONE minor flaw allowed in the ENTIRE card (not per category). E.g., very slight wax stain on reverse, OR minor printing imperfection, OR slightly off-white borders. Not multiple — just one.
+- PSA 8: Slight fraying at 1-2 corners, OR very slight wax stain, OR minor printing imperfection. Still very clean overall.
+- PSA 7: Slight fraying on some corners, minimal edge wear visible on close inspection, slight surface wear, minor printing blemish. Most original gloss retained.
+- PSA 6: Slightly graduated corner fraying, very slight edge notching, visible surface wear or light scratch (only on close inspection), some gloss loss.
+- PSA 5: Very minor corner rounding, minor edge chipping, several light surface scratches, more apparent gloss loss.
+- PSA is the STRICTEST on overall grade because weakest-link means one category pulls everything down.
+
+**BGS Defect Tolerance (weighted averaging system):**
+- BGS AVERAGES sub-grades but the lowest sub-grade heavily caps the overall. This means BGS can legitimately be 0.5-1.5 HIGHER than PSA for the same card when one category is weak but others are strong.
+- BGS 10 surface: ZERO scratches, zero print spots, zero metallic print lines, flawless colour, perfect gloss.
+- BGS 9.5 surface: ZERO scratches, zero metallic print lines, perfect gloss. A few extremely minor print spots detectable only under intense scrutiny allowed.
+- BGS 9 surface: 1-2 tiny scratches barely noticeable to the naked eye allowed. One faint metallic print line allowed. A handful of printing specks or one minor spot.
+- BGS 8.5 surface: Few noticeable print spots/speckling. Solid gloss, few minor scratches visible under close inspection.
+- BGS 8 surface: Noticeable print spots. Minor border discoloration. Relatively solid gloss, minor scratches but NO scuffing.
+- BGS 7 surface: Noticeable print spots, minor colour/focus flaws, minor wax stains or subtle ink marks. A few minor scratches on close inspection.
+- BGS 10 corners: Perfect to naked eye, virtually flawless under magnification.
+- BGS 9.5 corners: Sharp, minimal imperfection under magnification.
+- BGS 9 corners: Sharp to naked eye, slight imperfections under close exam.
+- BGS 8.5 corners: Very minor wear on 2-3 corners.
+- BGS 8 corners: Fuzzy corners but NO dings or fraying.
+- BGS 7 corners: Four fuzzy corners, touch of notching or minor ding allowed.
+- BGS 10 edges: Perfect, no imperfections.
+- BGS 9 edges: Relatively smooth, specks of chipping visible.
+- BGS 8 edges: Moderate roughness, moderate chipping or minor notching.
+- BGS 7 edges: Noticeable roughness (no layering), very slight notching/chipping.
+
+**Ace Grading Defect Tolerance (whole numbers, strict capping):**
+- Ace uses WHOLE NUMBERS only, so a card that BGS would give 8.5 gets Ace 8 — Ace rounds down.
+- Ace 10: Four undamaged sharp corners, sharp edges with no whitening/chipping/kinks, beautiful surface with no marks/stains/damage. Very minor factory defects allowed ONLY if they don't detract from eye appeal.
+- Ace 9: Nearly identical to 10. May have ONE minor imperfection in ONE category (corners, edges, or surface). One very minor flaw only.
+- Ace 8: Few minor imperfections such as slight whitening. Can be across corners, edges, surface, or a combination. Small amount of damage on all four rear corners is an 8-level flaw.
+- Ace 7: More noticeable damage. More visible whitening on corners/edges/surfaces. May include perceptible printing defects. Slight wear more visible than an 8.
+- Ace 6: More noticeable damage or printing defects. Multiple areas of whitening on corners or edges. Edges may not be sharp.
+- Ace 5: More visible print defects and damage. Corners may be misshapen. Whitening/fraying on edges more noticeable. Scratches may obstruct artwork or text.
+- CAPPING: Overall grade can NEVER be more than 1 above the lowest sub-grade. E.g., Edges 7 = maximum overall Ace 8.
+
+**TAG Grading Defect Tolerance (AI-automated, strictest on surface):**
+- TAG uses "DINGS" (Defects Identified of Notable Grade Significance) — they focus on defects that meaningfully affect the grade, not every microscopic flaw.
+- TAG Pristine 10: Only "Non-Human Observable Defects" (NHODs) allowed — flaws so tiny that only high-resolution imaging can detect them. Virtually flawless in every category.
+- TAG Gem Mint 10: Very minor defects under high-res imaging. 4 sharp corners with minor fill/fray artifacts. Very minor surface wear, tiny pit or light scratch that does NOT penetrate gloss.
+- TAG 9: Sharp & square corners, up to 2 very light front touches, multiple back touches. Minor fill/fray on edges visible under hi-res. Very minor surface wear, small pits, light scratches (NO gloss penetration on front). Back can have small scratch penetrating gloss. Multiple print lines, minor scuffing allowed.
+- TAG 8.5: Multiple light front corner touches, missing stock on back corners. More significant edge fill/fray artifacts. Deeper pits, scratches penetrating gloss on back, print lines, minor scuffing.
+- TAG 8: Corners may start showing minor wear. Visible edge wear/light chipping on multiple edges. Multiple surface defects, print lines, very minor scuffing.
+- TAG 7: Corners losing sharpness, all 4 may have touches/fraying. Edges may chip & fray. Very minor dents visible, multiple print lines, focus imperfections.
+- TAG is the STRICTEST company on SURFACE. A surface scratch that PSA or BGS might grade 8 could be a TAG 7-7.5. TAG's automated imaging catches every flaw.
+
+**CGC Cards Defect Tolerance (strict on whitening/silvering):**
+- CGC is notably STRICT on silvering/whitening on coloured borders — even tiny whitening on blue/coloured borders can drop from 10 to 9. This is their hallmark strictness area.
+- CGC Pristine 10: Virtually flawless. No defects visible under 5x magnification. Perfect centering, perfect corners, perfect edges, flawless surface.
+- CGC Gem Mint 10: Free of wear and white spots on corners/edges. Perfect gloss, no print spots. One criterion may fall very slightly short of Pristine.
+- CGC 9.5: Very minor imperfections only. Slight minor printing defects on surface, or very minor white spots on edges/corners. Nearly indistinguishable from 10.
+- CGC 9: ONE small imperfection allowed — slight minor wear on edges and corners, OR very minor surface scratches, OR slightly off-centre print. Corners mint to naked eye but slight imperfections under magnification.
+- CGC 8.5: Slight wear on some edges and corners. Minor surface blemishes may be visible. Only one minor flaw.
+- CGC 8: Minor wear or printing defects. Surface may have slight scratches and white spots. Wear on edges/corners visible upon closer inspection. Most original border colours and gloss retained.
+- CGC 7: Slightly visible wear on some edges and corners. Print pattern may be fuzzy. Retains most original colour and gloss.
+- CGC WHITENING RULES: Tiny amount of whitening on coloured borders = often drops to 9. Whitening on 2+ corners = typically caps at 8 or 8.5. Considerable whitening = 7 or lower.
+- CGC SCRATCH RULES: Minor surface scratch on holo = 9 instead of 10. Light scratches visible on close inspection = grade 7-8. Obvious scratches = 6 or lower.
+
+OVERALL GRADE COMPOUNDING — Each company calculates overall grades DIFFERENTLY:
+
+**PSA Overall (weakest-link):**
+- PSA overall is determined by the WEAKEST category. One bad area drags everything down.
+- PSA overall is CAPPED by the WEAKEST category minus 0.5 to 1. If the worst sub-grade equivalent is a 6, PSA overall should be 5-5.5. If the worst is 7, PSA overall should be 6-6.5.
+- If flaws span 2+ categories (e.g., corners + edges), PSA overall should be 6 or lower. If flaws span 3+ categories, PSA should be 4-5 or lower.
 - Example: A card with edges showing whitening on multiple sides + corners with rounding + surface scratches = PSA 4-5 maximum.
-- PSA overall is CAPPED by the WEAKEST category minus 1. If the worst sub-grade equivalent is a 6, PSA overall should be 5. If the worst is 7, PSA overall should be 6.
-- BGS overall is heavily pulled down by the lowest sub-grade. A single sub-grade of 6 means the overall cannot exceed 6.5.
+
+**BGS Overall (weighted average, capped by lowest):**
+- BGS AVERAGES the four sub-grades but the lowest sub-grade caps the overall. BGS can legitimately be 0.5-1.5 HIGHER than PSA for the same card.
+- Example: Centering 9.5, Corners 8, Edges 9.5, Surface 9.5 → BGS overall could be 9 (the strong categories pull it up). PSA for the same card would be 8 or lower (corners cap it).
+- A single sub-grade of 6 means BGS overall cannot exceed 6.5. A single sub-grade of 7 means BGS overall cannot exceed 8.
+- BGS overall should NOT be more than 1.5 higher than PSA for the same card.
+
+**Ace Overall (capped by lowest + 1, whole numbers):**
+- Ace overall can NEVER be more than 1 grade HIGHER than its lowest sub-grade.
+- Example: If Edges = 7, maximum overall = Ace 8. If Corners = 6, maximum overall = Ace 7.
+- Since Ace uses whole numbers only, a card that might get BGS 8.5 gets Ace 8. Ace effectively rounds down.
+- Ace overall should be close to PSA (within 1 grade) since both use "weakest area matters" logic.
+
+**TAG Overall (automated scoring):**
+- TAG uses a 1000-point composite score. The overall is derived from the score, not averaged manually.
+- TAG is the STRICTEST on surface of all companies. If a card has surface issues, TAG will often grade lower than PSA or BGS.
+- TAG does NOT use 9.5 grades. A card that BGS calls 9.5 will be TAG 9 or TAG 10 (no in-between).
+- TAG overall should generally be EQUAL TO or LOWER than BGS for the same card, especially when surface flaws exist.
+
+**CGC Overall (weighted assessment):**
+- CGC evaluates all four categories and gives a single overall grade. CGC is notably stricter on whitening/silvering than PSA.
+- A card with minor whitening on coloured borders that PSA might give 9 could get CGC 8.5.
+- CGC overall should be similar to BGS (within 0.5-1 grade) since both assess holistically rather than weakest-link.
+- CGC is also strict on holo/foil surface scratches — faint scratches on holo that PSA might allow at 9 could drop CGC to 8.5.
 
 FLAW DETECTION CHECKLIST — Examine each area systematically:
 - CORNERS: Zoom in on each of the four corners individually. Look for whitening (white dots or lines where the color has worn away), soft/rounded edges instead of sharp points, dings, or bends. Compare front corners to back corners — the back often shows more wear. ANY whitening on a corner means that corner is NOT a 10 or 9. Even light rounding = 7-8 max for corners.
@@ -662,13 +749,22 @@ FLAW DETECTION CHECKLIST — Examine each area systematically:
 - SURFACE — BACK: The back Pokeball area and blue border are highly prone to scratches and scuffing. Examine the white Pokeball surface for scratch lines running across it — these are extremely common and often missed. Look for scuffing on the blue border areas. Back surface scratches should lower the surface grade just as much as front scratches.
 
 CONSISTENCY CHECK — Before finalizing your grades, verify:
-1. Count your defects. If you listed 3+ defects in a SINGLE category, that sub-grade should be 6 or lower. If you listed 2 defects in a category, that sub-grade should be 7 or lower. If you listed 4+ total defects across all categories, the overall grade should be 5 or lower for PSA.
-2. If you identified ANY scratch on the surface (front or back), surface grade should be 7 or lower. Multiple scratches = 5-6 or lower.
+1. Count your defects. If you listed 3+ defects in a SINGLE category, that sub-grade should be 6 or lower. If you listed 2 defects in a category, that sub-grade should be 7 or lower. If you listed 4+ total defects across all categories, the PSA overall should be 5 or lower.
+2. If you identified ANY scratch on the surface (front or back), surface grade should be 8 or lower for BGS/CGC, 7 or lower for TAG (TAG is strictest on surface). Multiple scratches = 6 or lower for all companies.
 3. If you identified edge whitening along a full edge, edges grade should be 6-7 maximum. Whitening on multiple edges = 5-6 or lower.
-4. If you identified corner whitening on 2+ corners, corners grade should be 6-7 maximum. All four corners with whitening = 5.
-5. Your grades must be CONSISTENT across grading companies. If you gave PSA 5, Beckett overall should be 5-6 — the flaws are the same card. BGS cannot be more than 1.5 higher than PSA.
-6. CROSS-CHECK: If your defects list includes flaws in 2+ categories (e.g., corners + edges), the overall PSA grade should be 6 or lower. If flaws span 3+ categories (corners + edges + surface), PSA should be 4-5 or lower. Cards with widespread issues across multiple areas are NOT 7-8 cards.
-7. RE-CHECK GRADES AGAINST DEFECTS: After writing your grades, re-read your own defect descriptions. If you described damage using words like "whitening", "ding", "scuffing", "roughness", "rounding", "chipping", "indent", or "wear", the corresponding sub-grade CANNOT be 8 or above. These words describe moderate-to-significant damage. Only "very faint", "hairline", or "barely visible" flaws warrant an 8.
+4. If you identified corner whitening on 2+ corners, corners grade should be 7 or lower for BGS/Ace, 6-7 for PSA equivalent. All four corners with whitening = 5-6.
+5. COMPANY RELATIONSHIP CHECK — the grades across companies must make sense relative to each other for the SAME card:
+   - PSA should be the LOWEST or tied for lowest overall (weakest-link is harshest).
+   - BGS overall can be 0.5-1.5 HIGHER than PSA (averaging helps when only one category is weak).
+   - Ace should be within 1 grade of PSA (both penalise the weakest area, but Ace uses whole numbers so may round down).
+   - TAG should be EQUAL TO or LOWER than BGS, especially if surface has flaws (TAG is strictest on surface).
+   - CGC should be similar to BGS (within 0.5-1 grade). CGC may be lower if the card has whitening on coloured borders or holo scratches.
+   - If you gave PSA 5, BGS should be 5-6.5. Ace should be 5-6. TAG should be 5-6. CGC should be 5-6.5.
+   - If you gave PSA 9, BGS could be 9-9.5. Ace should be 8-9. TAG should be 8.5-9. CGC should be 8.5-9.5.
+6. CROSS-CHECK: If your defects list includes flaws in 2+ categories (e.g., corners + edges), PSA overall should be 6 or lower. If flaws span 3+ categories (corners + edges + surface), PSA should be 4-5 or lower. Cards with widespread issues across multiple areas are NOT 7-8 cards.
+7. RE-CHECK GRADES AGAINST DEFECTS: After writing your grades, re-read your own defect descriptions. If you described damage using words like "whitening", "ding", "scuffing", "roughness", "rounding", "chipping", "indent", or "wear", the corresponding sub-grade CANNOT be 8 or above for any company. These words describe moderate-to-significant damage. Only "very faint", "hairline", or "barely visible" flaws warrant an 8.
+8. CGC WHITENING CHECK: If you noted any whitening on coloured borders, CGC overall should be 9 maximum. Whitening on 2+ corners = CGC 8-8.5 maximum.
+9. TAG SURFACE CHECK: If you noted ANY surface scratch (even minor), TAG surface sub-grade should be 8.5 or lower. TAG penalises surface more heavily than all other companies.
 
 - When in doubt between two grades for ANY damage, lean toward the LOWER grade — defects always look less severe in photos than in person. Real-world graders would be stricter.
 - Do not speculatively lower grades without evidence, but do grade honestly and strictly when real flaws are visible.
