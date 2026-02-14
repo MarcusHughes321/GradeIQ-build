@@ -622,14 +622,27 @@ CRITICAL REMINDERS:
 GRADING PHILOSOPHY — START AT 10, DEDUCT FOR FLAWS:
 - EVERY sub-grade (centering, corners, edges, surface) starts at 10 (Gem Mint) by default.
 - Only lower a grade from 10 if you can identify a SPECIFIC flaw in the photo. Describe the flaw in your notes.
+- A genuinely pack-fresh card with no visible flaws SHOULD receive 9s and 10s — do not artificially lower grades when nothing is wrong. 10s are achievable and expected for clean cards.
 - You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. However, if you can see a flaw in the photo, it is almost certainly a real flaw — grade it accordingly. Do NOT dismiss visible scratches, whitening, or wear as "photo artifacts."
 - Deduction guide from the starting point of 10:
-  * 10 → 9: A minor but real flaw (e.g., slight whitening on a corner, very minor edge roughness, slight print texture inconsistency, a single faint scratch)
-  * 9 → 8: Multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear, visible surface scratching across artwork)
-  * 8 → 7: Several moderate flaws or one significant flaw (e.g., multiple scratches on surface, obvious corner whitening, edge chipping)
+  * 10 → 9: A minor but real flaw (e.g., slight whitening on ONE corner, very minor edge roughness at one spot, a single faint scratch)
+  * 9 → 8: Multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear along a side, a visible scratch across the surface)
+  * 8 → 7: Several moderate flaws or one significant flaw (e.g., multiple scratches visible on surface, obvious corner whitening on 3+ corners, edge chipping along multiple edges, a crease or dent)
   * 7 → 6 or below: Clearly obvious damage visible at a glance (significant whitening, creasing, heavy scratches, heavy off-center)
-- SURFACE SCRUTINY: Be especially strict about surface scratches. If you can see ANY scratch lines on the artwork, holographic area, or card back — even faint ones — the surface grade MUST be lowered. Multiple visible scratches = surface grade of 7 or lower.
-- Modern Pokemon cards (2020+) have high print quality. A pack-fresh card with careful handling should score 9s and 10s across most sub-grades. 10s are common for clean cards but a 9 is appropriate when minor imperfections are genuinely present.
+
+FLAW DETECTION CHECKLIST — Examine each area systematically:
+- CORNERS: Zoom in on each of the four corners individually. Look for whitening (white dots or lines where the color has worn away), soft/rounded edges instead of sharp points, dings, or bends. Compare front corners to back corners — the back often shows more wear.
+- EDGES: Trace along ALL four edges of both front and back. Look for whitening along the edge line, chipping (small pieces of the card surface lifting), nicks, or roughness. The LEFT and RIGHT edges of the back are the most common places for edge wear. A single edge with whitening along its length = edges grade 8 maximum.
+- SURFACE — FRONT: Examine the entire artwork area. Look for scratches (faint lines running across the surface), scuffs (hazy areas where gloss is lost), print lines (straight lines from the printing process), staining, or indentations. Tilt-angle photos reveal scratches that catch light — any scratch visible in the angled photo is a REAL surface defect.
+- SURFACE — BACK: The back Pokeball area and blue border are highly prone to scratches and scuffing. Examine the white Pokeball surface for scratch lines running across it — these are extremely common and often missed. Look for scuffing on the blue border areas. Back surface scratches should lower the surface grade just as much as front scratches.
+
+CONSISTENCY CHECK — Before finalizing your grades, verify:
+1. Count your defects. If you listed 3+ defects, your grades should NOT all be 9+ — something should be lower.
+2. If you identified ANY scratch on the surface (front or back), surface grade should be 8 or lower for that company.
+3. If you identified edge whitening along a full edge, edges grade should be 8 or lower.
+4. If you identified corner whitening on 2+ corners, corners grade should be 8 or lower.
+5. Your grades must be CONSISTENT across grading companies. If you gave PSA 8, Beckett should not be 9.5 — the flaws are the same card.
+
 - When in doubt between two grades for surface damage, lean toward the LOWER grade — surface defects like scratches always look less severe in photos than in person.
 - Do not speculatively lower grades without evidence, but do grade honestly and strictly when real flaws are visible.`;
 
