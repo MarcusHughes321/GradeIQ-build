@@ -21,14 +21,17 @@ const CROP_PADDING = 20;
 
 interface CardCameraProps {
   side: "front" | "back";
+  isAngled?: boolean;
   onCapture: (uri: string) => void;
   onClose: () => void;
 }
 
 const LEVEL_THRESHOLD = 5;
+const ANGLED_TARGET = 25;
+const ANGLED_THRESHOLD = 5;
 const BUBBLE_RANGE = 22;
 
-export default function CardCamera({ side, onCapture, onClose }: CardCameraProps) {
+export default function CardCamera({ side, isAngled = false, onCapture, onClose }: CardCameraProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
@@ -73,7 +76,13 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
             );
             setTiltX(tx);
             setTiltY(ty);
-            setIsLevel(Math.abs(tx) <= LEVEL_THRESHOLD && Math.abs(ty) <= LEVEL_THRESHOLD);
+            if (isAngled) {
+              const yInRange = Math.abs(ty - ANGLED_TARGET) <= ANGLED_THRESHOLD;
+              const xInRange = Math.abs(tx) <= LEVEL_THRESHOLD;
+              setIsLevel(xInRange && yInRange);
+            } else {
+              setIsLevel(Math.abs(tx) <= LEVEL_THRESHOLD && Math.abs(ty) <= LEVEL_THRESHOLD);
+            }
             setAccelStatus("active");
           }
         );
@@ -192,11 +201,14 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
     );
   }
 
-  const frameColor = isLevel ? "#10B981" : Colors.primary;
-  const frameBorderColor = isLevel ? "rgba(16,185,129,0.35)" : "rgba(255,255,255,0.25)";
-  const levelColor = isLevel ? "#10B981" : Colors.primary;
+  const angledAccentColor = "#F59E0B";
+  const frameColor = isLevel ? "#10B981" : isAngled ? angledAccentColor : Colors.primary;
+  const frameBorderColor = isLevel ? "rgba(16,185,129,0.35)" : isAngled ? "rgba(245,158,11,0.35)" : "rgba(255,255,255,0.25)";
+  const levelColor = isLevel ? "#10B981" : isAngled ? angledAccentColor : Colors.primary;
+
   const bubbleX = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, tiltX * 2));
-  const bubbleY = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, -tiltY * 2));
+  const rawBubbleY = isAngled ? -(tiltY - ANGLED_TARGET) * 2 : -tiltY * 2;
+  const bubbleY = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, rawBubbleY));
 
   return (
     <View style={styles.container}>
@@ -218,7 +230,9 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
             <Ionicons name="close" size={28} color="#fff" />
           </Pressable>
           <Text style={styles.sideLabel}>
-            {side === "front" ? "Front of Card" : "Back of Card"}
+            {isAngled
+              ? side === "front" ? "Front \u2014 Angled" : "Back \u2014 Angled"
+              : side === "front" ? "Front of Card" : "Back of Card"}
           </Text>
           <View style={{ width: 44 }} />
         </View>
@@ -257,8 +271,8 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
               <Text style={[styles.levelLabelText, { color: levelColor }]}>
                 {accelStatus === "active"
                   ? isLevel
-                    ? "Level"
-                    : `${tiltX}\u00B0 / ${tiltY}\u00B0`
+                    ? isAngled ? "Good angle" : "Level"
+                    : isAngled ? `Tilt: ${tiltY}\u00B0 / ${ANGLED_TARGET}\u00B0` : `${tiltX}\u00B0 / ${tiltY}\u00B0`
                   : accelStatus}
               </Text>
             </View>
@@ -268,9 +282,13 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.hintRow}>
             <Text style={styles.hintText}>
-              {isLevel
-                ? "Phone is level. Take the photo!"
-                : "Hold phone flat and parallel to card"}
+              {isAngled
+                ? isLevel
+                  ? "Perfect angle! Take the photo"
+                  : "Tilt phone forward ~25\u00B0 to catch the light"
+                : isLevel
+                  ? "Phone is level. Take the photo!"
+                  : "Hold phone flat and parallel to card"}
             </Text>
           </View>
           <View style={styles.captureRow}>
@@ -282,15 +300,15 @@ export default function CardCamera({ side, onCapture, onClose }: CardCameraProps
                 styles.captureBtn,
                 {
                   opacity: capturing ? 0.5 : pressed ? 0.8 : 1,
-                  borderColor: isLevel ? "#10B981" : "#fff",
+                  borderColor: isLevel ? "#10B981" : isAngled ? angledAccentColor : "#fff",
                 },
               ]}
             >
-              <View style={[styles.captureBtnInner, isLevel && { backgroundColor: "#10B981" }]}>
+              <View style={[styles.captureBtnInner, isLevel && { backgroundColor: "#10B981" }, !isLevel && isAngled && { backgroundColor: angledAccentColor }]}>
                 {capturing ? (
                   <ActivityIndicator color={Colors.background} size="small" />
                 ) : (
-                  <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }]} />
+                  <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }, !isLevel && isAngled && { backgroundColor: angledAccentColor }]} />
                 )}
               </View>
             </Pressable>
