@@ -399,15 +399,16 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - PSA uses HALF GRADES from 1.5 to 8.5 (e.g., 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10)
 - There is NO PSA 9.5. The top grades are PSA 9 (Mint) and PSA 10 (Gem Mint) ONLY.
 - PSA does NOT provide individual sub-grades, only an overall grade. The final grade is determined by the weakest category.
-- CENTERING THRESHOLDS (front / back):
-  * PSA 10 (Gem Mint): Front 55/45 to 60/40, Back up to 75/25. Yes, PSA allows significant back off-centering for a 10.
-  * PSA 9 (Mint): Front ~60/40, Back ~90/10
-  * PSA 8 (NM-MT): Front ~65/35, Back ~90/10
-  * PSA 7 (NM): Front ~70/30, Back ~90/10
-  * PSA 6 (EX-MT): Front 80/20, Back ~90/10
-- CORNERS: PSA 10 requires four perfectly sharp corners. PSA 9 allows corners that are mint to the naked eye. PSA 8 allows very slight fraying at 1-2 corners. PSA 7 allows slight fraying on some corners.
-- EDGES: PSA 10 requires perfect edges. PSA 9 allows clean edges. PSA 8 allows minimal wear. PSA 7 allows minimal wear visible on close inspection.
-- SURFACE: PSA 10 requires sharp focus, full original gloss, free of staining. One slight printing imperfection allowed if it doesn't impair appeal. PSA 9 allows ONE minor flaw only (very slight wax stain on reverse, minor printing imperfection, OR slightly off-white borders). PSA 8 allows very slight wax stain, slightest fraying, minor printing imperfection, or slightly off-white borders.
+- CENTERING THRESHOLDS (front / back) — updated 2025:
+  * PSA 10 (Gem Mint): Front 55/45 or better, Back 75/25 or better. PSA tightened front centering in 2025 from 60/40 to 55/45.
+  * PSA 9 (Mint): Front 60/40 to 65/35, Back ~90/10
+  * PSA 8 (NM-MT): Front 65/35 to 70/30, Back ~90/10
+  * PSA 7 (NM): Front 70/30 to 75/25, Back ~90/10
+  * PSA 6 (EX-MT): Front ~80/20, Back ~90/10
+  * PSA 5 (EX): Front ~85/15, Back ~90/10
+- CORNERS: PSA 10 requires four pristine, perfectly sharp corners. PSA 9 allows corners that are mint to the naked eye with minimal wear. PSA 8 allows slightest fraying at 1-2 corners. PSA 7 allows slight fraying on some corners. PSA 6 allows slightly graduated fraying.
+- EDGES: PSA 10 requires perfect edges to the naked eye, virtually perfect under magnification. PSA 9 allows clean edges with minimal wear. PSA 8 allows clean edges with minimal wear. PSA 7 allows minimal wear visible on close inspection. PSA 6 allows very slight notching.
+- SURFACE: PSA 10 requires sharp focus, full original gloss, free of staining, no damage or blemishes. One slight printing imperfection allowed if it doesn't impair appeal. PSA 9 allows ONE minor flaw only (very slight wax stain on reverse, minor printing imperfection, OR slightly off-white borders). PSA 8 allows very slight wax stain, slightest fraying, minor printing imperfection, or slightly off-white borders. PSA 7 allows slight surface wear visible on close inspection, minor printing blemish, most original gloss retained.
 
 **Beckett (BGS) - Scale 1-10 with HALF-GRADE sub-grades:**
 - BGS uses 0.5 increments for BOTH overall grade AND all sub-grades (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10)
