@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable } from "react-native";
+import React, { useState, useRef, useCallback } from "react";
+import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +12,31 @@ import CompanyLabel from "@/components/CompanyLabel";
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { settings, toggleCompany } = useSettings();
-  const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo } = useSubscription();
+  const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo, isAdminMode, toggleAdminMode } = useSubscription();
+  const [tapCount, setTapCount] = useState(0);
+  const lastTapRef = useRef(0);
+
+  const handleVersionTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 500) {
+      const next = tapCount + 1;
+      setTapCount(next);
+      if (next >= 5) {
+        setTapCount(0);
+        Alert.alert(
+          isAdminMode ? "Disable Admin Mode?" : "Enable Admin Mode?",
+          isAdminMode ? "You will return to your normal subscription tier." : "This will give you unlimited grading access.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: isAdminMode ? "Disable" : "Enable", onPress: toggleAdminMode },
+          ]
+        );
+      }
+    } else {
+      setTapCount(1);
+    }
+    lastTapRef.current = now;
+  }, [tapCount, isAdminMode, toggleAdminMode]);
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -62,7 +86,7 @@ export default function SettingsScreen() {
 
         <View style={styles.companyList}>
           <Pressable
-            onPress={() => router.push("/about")}
+            onPress={() => { handleVersionTap(); router.push("/about"); }}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
           >
             <View style={styles.menuRowLeft}>

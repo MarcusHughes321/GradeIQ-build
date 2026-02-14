@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 
 const USAGE_KEY = "gradeiq_monthly_usage";
+const ADMIN_KEY = "gradeiq_admin_mode";
 const FREE_MONTHLY_LIMIT = 3;
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
@@ -48,6 +49,8 @@ interface SubscriptionContextValue {
   purchaseTier: (tier: SubscriptionTier) => Promise<boolean>;
   restorePurchases: () => Promise<boolean>;
   rcConfigured: boolean;
+  isAdminMode: boolean;
+  toggleAdminMode: () => Promise<void>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -92,6 +95,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [currentTier, setCurrentTier] = useState<SubscriptionTier>("free");
   const [rcConfigured, setRcConfigured] = useState(false);
+  const [isAdminMode, setIsAdminMode] = useState(false);
 
   useEffect(() => {
     getMonthlyUsage().then((usage) => {
@@ -99,8 +103,18 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
+    AsyncStorage.getItem(ADMIN_KEY).then((val) => {
+      if (val === "enabled") setIsAdminMode(true);
+    });
+
     initRevenueCat();
   }, []);
+
+  const toggleAdminMode = useCallback(async () => {
+    const next = !isAdminMode;
+    setIsAdminMode(next);
+    await AsyncStorage.setItem(ADMIN_KEY, next ? "enabled" : "disabled");
+  }, [isAdminMode]);
 
   const initRevenueCat = async () => {
     try {
@@ -130,19 +144,21 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const remainingGrades = monthlyLimit === null ? null : Math.max(0, monthlyLimit - monthlyUsageCount);
 
-  const canGrade = !isGateEnabled || (monthlyLimit === null ? true : (remainingGrades !== null && remainingGrades > 0));
+  const canGrade = isAdminMode || !isGateEnabled || (monthlyLimit === null ? true : (remainingGrades !== null && remainingGrades > 0));
 
   const checkCanGrade = useCallback(
     (count: number = 1) => {
+      if (isAdminMode) return true;
       if (!isGateEnabled) return true;
       if (monthlyLimit === null) return true;
       return monthlyUsageCount + count <= monthlyLimit;
     },
-    [isGateEnabled, monthlyLimit, monthlyUsageCount]
+    [isAdminMode, isGateEnabled, monthlyLimit, monthlyUsageCount]
   );
 
   const recordUsage = useCallback(
     async (count: number = 1): Promise<boolean> => {
+      if (isAdminMode) return true;
       if (!isGateEnabled) return true;
       if (monthlyLimit === null) return true;
       const usage = await getMonthlyUsage();
@@ -152,7 +168,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setMonthlyUsageCount(usage.count);
       return true;
     },
-    [isGateEnabled, monthlyLimit]
+    [isAdminMode, isGateEnabled, monthlyLimit]
   );
 
   const purchaseTier = useCallback(async (tier: SubscriptionTier): Promise<boolean> => {
@@ -215,8 +231,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       purchaseTier,
       restorePurchases,
       rcConfigured,
+      isAdminMode,
+      toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
