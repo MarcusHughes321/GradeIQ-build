@@ -201,36 +201,36 @@ const COMPANIES: CompanySection[] = [
     officialUrl: "https://taggrading.com/pages/scale",
     officialUrlLabel: "taggrading.com/pages/scale",
     philosophy: "1000-Point Precision Scoring System",
-    gradingMethod: "TAG uses a technology-driven 1000-point precision scoring system. Each card receives a TAG Score (100-1000) which maps to an industry-standard 1-10 grade. TAG uses patented Photometric Stereoscopic Imaging for fully automated, AI-driven grading.",
+    gradingMethod: "TAG uses a technology-driven 1000-point precision scoring system. Each card receives a TAG Score (100-1000) which maps to an industry-standard 1-10 grade. TAG uses patented Photometric Stereoscopic Imaging for fully automated, AI-driven grading. TAG applies different centering tolerances for TCG cards compared to sports cards — the values shown below are TCG-specific.",
     gradeScale: "Half-point increments from 1 to 10 (no 9.5 grade). Pristine 10 (990-1000) and Gem Mint 10 (950-989) are separate tiers.",
     keyGrades: [
       {
         grade: "Pristine 10 (Score 990-1000)",
-        description: "\"The TAG Pristine exceeds the industry standard for a Gem Mint 10 and represents less than 1% of the cards TAG'd.\"",
+        description: "\"The TAG Pristine exceeds the industry standard for a Gem Mint 10 and represents less than 1% of the cards TAG'd.\" TCG centering: ~52/48 front, ~52/48 back. Corners and edges virtually flawless with no visible wear or fraying.",
       },
       {
         grade: "Gem Mint 10 (Score 950-989)",
-        description: "Industry-standard Gem Mint grade. The highest grade most cards will receive.",
+        description: "Industry-standard Gem Mint grade. TCG centering: ~55/45 front, ~65/35 back. Four sharp corners with minor fill/fray artifacts visible only under high-resolution imaging. Extremely attractive surface with at most a slight print imperfection.",
       },
       {
         grade: "Mint 9 (Score 900-949)",
-        description: "A card in superb condition with only very minor imperfections detectable under high-resolution imaging.",
+        description: "TCG centering: ~60/40 front, ~75/25 back. Corners still sharp and square with up to two very light corner touches on front. May have small pits, light scratches not penetrating gloss, or a light print line. Minor edge surface wear on one or two edges.",
       },
       {
         grade: "NM-MT+ 8.5 (Score 850-899)",
-        description: "A card that falls between Near Mint-Mint and Mint, showing high-end qualities for an 8 grade.",
+        description: "TCG centering: ~62.5/37.5 front, ~85/15 back. Multiple light corner touches on front where stock may be compromised. Multiple surface defects presenting — small scratch penetrating gloss, print lines, or very minor scuffing. Visible edge wear on multiple edges.",
       },
       {
         grade: "NM-MT 8 (Score 800-849)",
-        description: "A high-quality card with only minor wear visible. Corners remain sharp with very slight imperfections.",
+        description: "TCG centering: ~65/35 front. Corners may start showing minor wear. Visible edge wear or light chipping on multiple edges. Multiple surface defects, print lines, very minor scuffing.",
       },
       {
         grade: "NM+ 7.5 (Score 750-799)",
-        description: "A card between Near Mint and Near Mint-Mint, showing qualities slightly above the NM standard.",
+        description: "TCG centering: ~67.5/32.5. Corners may show touches or fraying on all four. Edges may start to chip and fray. Very minor dent may be visible.",
       },
       {
         grade: "NM 7 (Score 700-749)",
-        description: "A card with slight surface wear visible upon close inspection. Minor fraying may be present on corners.",
+        description: "TCG centering: ~70/30. Corners losing sharpness with visible fraying. All four corners may have touches. Edges chipping and fraying. Surface wear more evident.",
       },
       {
         grade: "EX-MT+ 6.5 (Score 650-699)",
@@ -291,7 +291,7 @@ const COMPANIES: CompanySection[] = [
     officialUrl: "https://www.cgccards.com/card-grading/grading-scale/",
     officialUrlLabel: "cgccards.com/card-grading/grading-scale",
     philosophy: "10-Point Scale with Optional Sub-Grades",
-    gradingMethod: "CGC Cards uses a highly accurate 10-point grading scale to evaluate TCGs, sports cards and non-sports cards. CGC offers optional sub-grades for Centering, Corners, Edges, and Surface. The Pristine 10 label is reserved exclusively for cards that are flawless under 10-times magnification.",
+    gradingMethod: "CGC Cards uses a highly accurate 10-point grading scale. CGC offers optional sub-grades for Centering, Corners, Edges, and Surface. The Pristine 10 label is reserved exclusively for cards that are flawless under 10-times magnification. CGC applies TCG-specific criteria at certain grades — for example, TCG cards are evaluated more on manufacturing and handling defects rather than strict centering ratios used for sports cards.",
     gradeScale: "Half-point increments from 1 to 10 (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10). Pristine 10 is a special tier above Gem Mint 10.",
     keyGrades: [
       {
