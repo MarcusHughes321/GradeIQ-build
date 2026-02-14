@@ -637,26 +637,30 @@ GRADING PHILOSOPHY — POLARISED GRADING (FAVOUR 10 OR GRADE HONESTLY LOW):
 
 OVERALL GRADE COMPOUNDING — The OVERALL grade for each company should reflect the COMBINATION of all flaws:
 - If a card has issues in MULTIPLE categories (e.g., surface scratches AND edge whitening AND corner wear), the overall grade should be LOWER than any individual sub-grade. Flaws compound.
-- Example: A card with Surface 7, Edges 7, Corners 7, Centering 9 should get an overall around 6-7, NOT 8.
-- Example: A card with Surface 6, Edges 6, Corners 7, Centering 8 should get an overall around 5-6, NOT 7.
-- PSA overall is typically capped by the WEAKEST category. If the worst sub-grade equivalent is a 6, PSA overall should be 5-6.
+- Example: A card with Surface 7, Edges 7, Corners 7, Centering 9 should get an overall around 5-6, NOT 7-8.
+- Example: A card with Surface 6, Edges 6, Corners 7, Centering 8 should get an overall around 4-5, NOT 6-7.
+- Example: A card with edges showing whitening on multiple sides + corners with rounding + surface scratches = PSA 4-5 maximum.
+- PSA overall is CAPPED by the WEAKEST category minus 1. If the worst sub-grade equivalent is a 6, PSA overall should be 5. If the worst is 7, PSA overall should be 6.
+- BGS overall is heavily pulled down by the lowest sub-grade. A single sub-grade of 6 means the overall cannot exceed 6.5.
 
 FLAW DETECTION CHECKLIST — Examine each area systematically:
-- CORNERS: Zoom in on each of the four corners individually. Look for whitening (white dots or lines where the color has worn away), soft/rounded edges instead of sharp points, dings, or bends. Compare front corners to back corners — the back often shows more wear.
-- EDGES: Trace along ALL four edges of both front and back. Look for whitening along the edge line, chipping (small pieces of the card surface lifting), nicks, or roughness. The LEFT and RIGHT edges of the back are the most common places for edge wear. A single edge with whitening along its length = edges grade 8 maximum.
+- CORNERS: Zoom in on each of the four corners individually. Look for whitening (white dots or lines where the color has worn away), soft/rounded edges instead of sharp points, dings, or bends. Compare front corners to back corners — the back often shows more wear. ANY whitening on a corner means that corner is NOT a 10 or 9. Even light rounding = 7-8 max for corners.
+- EDGES: Trace along ALL four edges of both front and back. Look for whitening along the edge line, chipping (small pieces of the card surface lifting), nicks, or roughness. The LEFT and RIGHT edges of the back are the most common places for edge wear. A single edge with whitening along its length = edges grade 7 maximum, NOT 8. Whitening on 2+ edges = 6 or lower.
 - SURFACE — FRONT: Examine the entire artwork area. Look for scratches (faint lines running across the surface), scuffs (hazy areas where gloss is lost), print lines (straight lines from the printing process), staining, or indentations. Tilt-angle photos reveal scratches that catch light — any scratch visible in the angled photo is a REAL surface defect.
 - SURFACE — BACK: The back Pokeball area and blue border are highly prone to scratches and scuffing. Examine the white Pokeball surface for scratch lines running across it — these are extremely common and often missed. Look for scuffing on the blue border areas. Back surface scratches should lower the surface grade just as much as front scratches.
 
 CONSISTENCY CHECK — Before finalizing your grades, verify:
-1. Count your defects. If you listed 3+ defects, NO sub-grade in that category should be above 7. If you listed 5+ total defects across all categories, the overall grade should be 6 or lower.
-2. If you identified ANY scratch on the surface (front or back), surface grade should be 7 or lower. Multiple scratches = 6 or lower.
-3. If you identified edge whitening along a full edge, edges grade should be 7 or lower. Whitening on multiple edges = 6 or lower.
-4. If you identified corner whitening on 2+ corners, corners grade should be 7 or lower. All four corners with whitening = 5-6.
-5. Your grades must be CONSISTENT across grading companies. If you gave PSA 5, Beckett should not be 8 — the flaws are the same card.
-6. CROSS-CHECK: If your defects list includes flaws in 3+ categories (e.g., corners + edges + surface), the overall PSA grade should be 5 or lower. Cards with widespread issues across multiple areas are NOT 7-8 cards.
+1. Count your defects. If you listed 3+ defects in a SINGLE category, that sub-grade should be 6 or lower. If you listed 2 defects in a category, that sub-grade should be 7 or lower. If you listed 4+ total defects across all categories, the overall grade should be 5 or lower for PSA.
+2. If you identified ANY scratch on the surface (front or back), surface grade should be 7 or lower. Multiple scratches = 5-6 or lower.
+3. If you identified edge whitening along a full edge, edges grade should be 6-7 maximum. Whitening on multiple edges = 5-6 or lower.
+4. If you identified corner whitening on 2+ corners, corners grade should be 6-7 maximum. All four corners with whitening = 5.
+5. Your grades must be CONSISTENT across grading companies. If you gave PSA 5, Beckett overall should be 5-6 — the flaws are the same card. BGS cannot be more than 1.5 higher than PSA.
+6. CROSS-CHECK: If your defects list includes flaws in 2+ categories (e.g., corners + edges), the overall PSA grade should be 6 or lower. If flaws span 3+ categories (corners + edges + surface), PSA should be 4-5 or lower. Cards with widespread issues across multiple areas are NOT 7-8 cards.
+7. RE-CHECK GRADES AGAINST DEFECTS: After writing your grades, re-read your own defect descriptions. If you described damage using words like "whitening", "ding", "scuffing", "roughness", "rounding", "chipping", "indent", or "wear", the corresponding sub-grade CANNOT be 8 or above. These words describe moderate-to-significant damage. Only "very faint", "hairline", or "barely visible" flaws warrant an 8.
 
-- When in doubt between two grades for surface damage, lean toward the LOWER grade — surface defects like scratches always look less severe in photos than in person.
-- Do not speculatively lower grades without evidence, but do grade honestly and strictly when real flaws are visible.`;
+- When in doubt between two grades for ANY damage, lean toward the LOWER grade — defects always look less severe in photos than in person. Real-world graders would be stricter.
+- Do not speculatively lower grades without evidence, but do grade honestly and strictly when real flaws are visible.
+- REMEMBER: Most cards submitted for grading do NOT get 8+. If you are finding multiple visible flaws, the card is likely a 5-7 card, not a 7-8 card.`;
 
 const VALID_PSA_GRADES = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
 
