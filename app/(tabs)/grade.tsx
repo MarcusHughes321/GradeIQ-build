@@ -701,6 +701,7 @@ export default function GradeScreen() {
       {cameraOpen && (
         <CardCamera
           side={cameraOpen === "angledFront" ? "front" : cameraOpen === "angledBack" ? "back" : cameraOpen}
+          isAngled={cameraOpen === "angledFront" || cameraOpen === "angledBack"}
           onCapture={handleCameraCapture}
           onClose={() => setCameraOpen(null)}
         />
