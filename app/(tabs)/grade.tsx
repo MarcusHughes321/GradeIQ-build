@@ -26,7 +26,7 @@ import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 type GradeMode = "quick" | "deep";
-type DeepStep = "front" | "back" | "angledFront" | "angledBack";
+type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR";
 
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
@@ -53,14 +53,14 @@ const QUICK_STAGES = [
 
 const DEEP_STAGES = [
   { label: "Enhancing images", icon: "color-wand-outline" as const, duration: 2000 },
-  { label: "Analyzing front side", icon: "scan-outline" as const, duration: 5000 },
-  { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 5000 },
-  { label: "Analyzing angled front", icon: "eye-outline" as const, duration: 4000 },
-  { label: "Analyzing angled back", icon: "eye-outline" as const, duration: 4000 },
-  { label: "Cropping corners for detail", icon: "cut-outline" as const, duration: 3000 },
+  { label: "Analyzing front side", icon: "scan-outline" as const, duration: 4000 },
+  { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 4000 },
+  { label: "Analyzing angled shots", icon: "eye-outline" as const, duration: 4000 },
+  { label: "Inspecting front corners", icon: "crop-outline" as const, duration: 5000 },
+  { label: "Inspecting back corners", icon: "crop-outline" as const, duration: 5000 },
   { label: "Deep surface inspection", icon: "search-outline" as const, duration: 5000 },
   { label: "Checking centering", icon: "resize-outline" as const, duration: 4000 },
-  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 4000 },
+  { label: "Cross-referencing flaws", icon: "git-compare-outline" as const, duration: 4000 },
   { label: "Calculating grades", icon: "calculator-outline" as const, duration: 3000 },
   { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
 ];
@@ -86,6 +86,46 @@ const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; ic
     subtitle: "Keep the card flat on the table. Tilt the bottom of your phone down \u2014 the spirit level will guide you to reveal scratches on the back surface.",
     icon: "flashlight-outline",
   },
+  cornerFrontTL: {
+    title: "Front Top-Left Corner",
+    subtitle: "Get close to the top-left corner of the FRONT. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerFrontTR: {
+    title: "Front Top-Right Corner",
+    subtitle: "Get close to the top-right corner of the FRONT. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerFrontBL: {
+    title: "Front Bottom-Left Corner",
+    subtitle: "Get close to the bottom-left corner of the FRONT. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerFrontBR: {
+    title: "Front Bottom-Right Corner",
+    subtitle: "Get close to the bottom-right corner of the FRONT. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerBackTL: {
+    title: "Back Top-Left Corner",
+    subtitle: "Get close to the top-left corner of the BACK. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerBackTR: {
+    title: "Back Top-Right Corner",
+    subtitle: "Get close to the top-right corner of the BACK. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerBackBL: {
+    title: "Back Bottom-Left Corner",
+    subtitle: "Get close to the bottom-left corner of the BACK. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
+  cornerBackBR: {
+    title: "Back Bottom-Right Corner",
+    subtitle: "Get close to the bottom-right corner of the BACK. Fill the frame with just the corner area.",
+    icon: "crop-outline",
+  },
 };
 
 export default function GradeScreen() {
@@ -95,9 +135,13 @@ export default function GradeScreen() {
   const [backImage, setBackImage] = useState<string | null>(null);
   const [angledFrontImage, setAngledFrontImage] = useState<string | null>(null);
   const [angledBackImage, setAngledBackImage] = useState<string | null>(null);
+  const [cornerImages, setCornerImages] = useState<Record<string, string | null>>({
+    cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
+    cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
+  });
   const [loading, setLoading] = useState(false);
-  const [cropping, setCropping] = useState<"front" | "back" | "angledFront" | "angledBack" | null>(null);
-  const [cameraOpen, setCameraOpen] = useState<"front" | "back" | "angledFront" | "angledBack" | null>(null);
+  const [cropping, setCropping] = useState<DeepStep | null>(null);
+  const [cameraOpen, setCameraOpen] = useState<DeepStep | null>(null);
   const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,11 +179,18 @@ export default function GradeScreen() {
     }
   };
 
-  const setImageWithCrop = async (side: "front" | "back" | "angledFront" | "angledBack", uri: string) => {
-    if (side === "front") setFrontImage(uri);
-    else if (side === "back") setBackImage(uri);
-    else if (side === "angledFront") setAngledFrontImage(uri);
-    else setAngledBackImage(uri);
+  const isCornerStep = (step: string): boolean => step.startsWith("corner");
+
+  const setImageForStep = (step: DeepStep, uri: string) => {
+    if (step === "front") setFrontImage(uri);
+    else if (step === "back") setBackImage(uri);
+    else if (step === "angledFront") setAngledFrontImage(uri);
+    else if (step === "angledBack") setAngledBackImage(uri);
+    else if (isCornerStep(step)) setCornerImages(prev => ({ ...prev, [step]: uri }));
+  };
+
+  const setImageWithCrop = async (side: DeepStep, uri: string) => {
+    setImageForStep(side, uri);
     if (side === "front" || side === "back") {
       setCropping(side);
       try {
@@ -159,6 +210,10 @@ export default function GradeScreen() {
         setBackImage(null);
         setAngledFrontImage(null);
         setAngledBackImage(null);
+        setCornerImages({
+          cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
+          cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
+        });
         setLoading(false);
         setCropping(null);
         setCameraOpen(null);
@@ -215,7 +270,7 @@ export default function GradeScreen() {
     };
   }, [loading]);
 
-  const pickImage = async (side: "front" | "back" | "angledFront" | "angledBack") => {
+  const pickImage = async (side: DeepStep) => {
     if (Platform.OS === "web") {
       return launchLibrary(side);
     }
@@ -233,7 +288,7 @@ export default function GradeScreen() {
     ]);
   };
 
-  const launchCamera = async (side: "front" | "back" | "angledFront" | "angledBack") => {
+  const launchCamera = async (side: DeepStep) => {
     if (Platform.OS !== "web") {
       setCameraOpen(side);
     } else {
@@ -264,14 +319,11 @@ export default function GradeScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     if (side) {
-      if (side === "front") setFrontImage(uri);
-      else if (side === "back") setBackImage(uri);
-      else if (side === "angledFront") setAngledFrontImage(uri);
-      else setAngledBackImage(uri);
+      setImageForStep(side, uri);
     }
   };
 
-  const launchLibrary = async (side: "front" | "back" | "angledFront" | "angledBack") => {
+  const launchLibrary = async (side: DeepStep) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Required", "Photo library access is needed to select card photos.");
@@ -345,8 +397,9 @@ export default function GradeScreen() {
         return;
       }
     } else {
-      if (!frontImage || !backImage || !angledFrontImage || !angledBackImage) {
-        Alert.alert("Photos Required", "Please add all four photos: front, back, angled front, and angled back.");
+      const allCornersReady = Object.values(cornerImages).every(v => v !== null);
+      if (!frontImage || !backImage || !angledFrontImage || !angledBackImage || !allCornersReady) {
+        Alert.alert("Photos Required", "Please add all 12 photos for Deep Grade: front, back, angles, and all 8 corner close-ups.");
         return;
       }
     }
@@ -373,7 +426,9 @@ export default function GradeScreen() {
     setLoading(true);
 
     if (mode === "deep" && angledFrontImage && angledBackImage) {
-      submitDeepGrading(frontImage!, backImage!, angledFrontImage, angledBackImage, async (n: number) => {
+      const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
+      const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
+      submitDeepGrading(frontImage!, backImage!, angledFrontImage, angledBackImage, frontCorners, backCorners, async (n: number) => {
         await recordDeepUsage();
       });
     } else {
@@ -381,9 +436,10 @@ export default function GradeScreen() {
     }
   };
 
+  const allCornersReady = Object.values(cornerImages).every(v => v !== null);
   const canSubmit = mode === "quick"
     ? !!frontImage && !!backImage && !loading
-    : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && !loading;
+    : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && allCornersReady && !loading;
 
   const currentStage = ANALYSIS_STAGES[analysisStage];
 
@@ -395,6 +451,10 @@ export default function GradeScreen() {
           setMode("quick");
           setAngledFrontImage(null);
           setAngledBackImage(null);
+          setCornerImages({
+            cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
+            cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
+          });
           setDeepStep("front");
         }}
       >
@@ -414,14 +474,24 @@ export default function GradeScreen() {
     </View>
   );
 
-  const DEEP_STEPS: DeepStep[] = ["front", "angledFront", "back", "angledBack"];
-  const DEEP_STEP_LABELS = ["Front", "Front\nAngle", "Back", "Back\nAngle"];
+  const DEEP_STEPS: DeepStep[] = [
+    "front", "angledFront", "back", "angledBack",
+    "cornerFrontTL", "cornerFrontTR", "cornerFrontBL", "cornerFrontBR",
+    "cornerBackTL", "cornerBackTR", "cornerBackBL", "cornerBackBR",
+  ];
+  const DEEP_STEP_LABELS = [
+    "Front", "Front\nAngle", "Back", "Back\nAngle",
+    "F\nTL", "F\nTR", "F\nBL", "F\nBR",
+    "B\nTL", "B\nTR", "B\nBL", "B\nBR",
+  ];
 
-  const getDeepStepImage = (step: DeepStep) => {
+  const getDeepStepImage = (step: DeepStep): string | null => {
     if (step === "front") return frontImage;
     if (step === "back") return backImage;
     if (step === "angledFront") return angledFrontImage;
-    return angledBackImage;
+    if (step === "angledBack") return angledBackImage;
+    if (isCornerStep(step)) return cornerImages[step] || null;
+    return null;
   };
 
   const getNextStep = (step: DeepStep): DeepStep | null => {
@@ -429,41 +499,66 @@ export default function GradeScreen() {
     return idx < DEEP_STEPS.length - 1 ? DEEP_STEPS[idx + 1] : null;
   };
 
+  const currentStepIdx = DEEP_STEPS.indexOf(deepStep);
+  const isCornerPhase = isCornerStep(deepStep);
+  const isFrontCornerPhase = deepStep.startsWith("cornerFront");
+  const isBackCornerPhase = deepStep.startsWith("cornerBack");
+  const completedCount = DEEP_STEPS.filter(s => !!getDeepStepImage(s)).length;
+
+  const getRemoveHandler = (step: DeepStep) => {
+    if (step === "front") return () => setFrontImage(null);
+    if (step === "back") return () => setBackImage(null);
+    if (step === "angledFront") return () => setAngledFrontImage(null);
+    if (step === "angledBack") return () => setAngledBackImage(null);
+    return () => setCornerImages(prev => ({ ...prev, [step]: null }));
+  };
+
   const renderDeepGradeSteps = () => (
     <View style={styles.deepStepsContainer}>
-      <View style={styles.deepStepIndicator}>
+      <View style={styles.deepProgressRow}>
+        <Text style={styles.deepProgressText}>{completedCount} / 12 photos</Text>
+        <View style={styles.deepProgressBarOuter}>
+          <View style={[styles.deepProgressBarInner, { width: `${(completedCount / 12) * 100}%` }]} />
+        </View>
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.deepStepScroll} contentContainerStyle={styles.deepStepScrollContent}>
         {DEEP_STEPS.map((step, i) => {
           const isComplete = !!getDeepStepImage(step);
           const isCurrent = deepStep === step;
+          const isCorner = isCornerStep(step);
           return (
-            <React.Fragment key={step}>
-              {i > 0 && <View style={[styles.deepStepLine, isComplete && styles.deepStepLineComplete]} />}
-              <Pressable
+            <Pressable key={step} style={styles.deepStepItem} onPress={() => setDeepStep(step)}>
+              <View
                 style={[
                   styles.deepStepDot,
                   isComplete && styles.deepStepDotComplete,
                   isCurrent && !isComplete && styles.deepStepDotCurrent,
+                  isCorner && isCurrent && !isComplete && styles.deepStepDotCornerCurrent,
                 ]}
-                onPress={() => setDeepStep(step)}
               >
                 {isComplete ? (
-                  <Ionicons name="checkmark" size={14} color="#fff" />
+                  <Ionicons name="checkmark" size={12} color="#fff" />
                 ) : (
                   <Text style={[styles.deepStepNumber, isCurrent && styles.deepStepNumberCurrent]}>{i + 1}</Text>
                 )}
-              </Pressable>
-            </React.Fragment>
+              </View>
+              <Text style={[styles.deepStepLabel, isCurrent && styles.deepStepLabelActive]} numberOfLines={2}>
+                {DEEP_STEP_LABELS[i]}
+              </Text>
+            </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
 
-      <View style={styles.deepStepLabels}>
-        {DEEP_STEPS.map((step, i) => (
-          <Text key={step} style={[styles.deepStepLabel, deepStep === step && styles.deepStepLabelActive]}>
-            {DEEP_STEP_LABELS[i]}
+      {isCornerPhase && (
+        <View style={styles.cornerPhaseHeader}>
+          <Ionicons name="crop-outline" size={16} color="#F59E0B" />
+          <Text style={styles.cornerPhaseTitle}>
+            {isFrontCornerPhase ? "Front Corner Close-ups" : "Back Corner Close-ups"}
           </Text>
-        ))}
-      </View>
+        </View>
+      )}
 
       <View style={styles.deepGuidance}>
         <Ionicons name={DEEP_STEP_GUIDANCE[deepStep].icon} size={20} color="#F59E0B" />
@@ -474,42 +569,13 @@ export default function GradeScreen() {
       </View>
 
       <View style={styles.deepCaptureArea}>
-        {deepStep === "front" && (
-          <ImageCapture
-            label=""
-            imageUri={frontImage}
-            onCapture={() => pickImage("front")}
-            onRemove={() => setFrontImage(null)}
-            loading={cropping === "front"}
-          />
-        )}
-        {deepStep === "angledFront" && (
-          <ImageCapture
-            label=""
-            imageUri={angledFrontImage}
-            onCapture={() => pickImage("angledFront")}
-            onRemove={() => setAngledFrontImage(null)}
-            loading={cropping === "angledFront"}
-          />
-        )}
-        {deepStep === "back" && (
-          <ImageCapture
-            label=""
-            imageUri={backImage}
-            onCapture={() => pickImage("back")}
-            onRemove={() => setBackImage(null)}
-            loading={cropping === "back"}
-          />
-        )}
-        {deepStep === "angledBack" && (
-          <ImageCapture
-            label=""
-            imageUri={angledBackImage}
-            onCapture={() => pickImage("angledBack")}
-            onRemove={() => setAngledBackImage(null)}
-            loading={cropping === "angledBack"}
-          />
-        )}
+        <ImageCapture
+          label=""
+          imageUri={getDeepStepImage(deepStep)}
+          onCapture={() => pickImage(deepStep)}
+          onRemove={getRemoveHandler(deepStep)}
+          loading={cropping === deepStep}
+        />
       </View>
 
       {getNextStep(deepStep) && (
@@ -612,6 +678,10 @@ export default function GradeScreen() {
               setBackImage(null);
               setAngledFrontImage(null);
               setAngledBackImage(null);
+              setCornerImages({
+                cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
+                cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
+              });
               router.navigate("/(tabs)");
             }}
           >
@@ -700,7 +770,7 @@ export default function GradeScreen() {
 
       {cameraOpen && (
         <CardCamera
-          side={cameraOpen === "angledFront" ? "front" : cameraOpen === "angledBack" ? "back" : cameraOpen}
+          side={cameraOpen === "angledFront" || cameraOpen.startsWith("cornerFront") ? "front" : cameraOpen === "angledBack" || cameraOpen.startsWith("cornerBack") ? "back" : cameraOpen === "front" ? "front" : "back"}
           isAngled={cameraOpen === "angledFront" || cameraOpen === "angledBack"}
           onCapture={handleCameraCapture}
           onClose={() => setCameraOpen(null)}
@@ -727,37 +797,30 @@ export default function GradeScreen() {
 
             <View style={styles.modalSteps}>
               <View style={styles.modalStepRow}>
-                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>1</Text></View>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>1-4</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Front photo</Text>
-                  <Text style={styles.modalStepDesc}>Straight-on, well-lit shot of the front</Text>
+                  <Text style={styles.modalStepTitle}>Full card shots</Text>
+                  <Text style={styles.modalStepDesc}>Front, front angle, back, and back angle to capture the card from all sides</Text>
                 </View>
               </View>
               <View style={styles.modalStepRow}>
-                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>2</Text></View>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>5-8</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Front at an angle</Text>
-                  <Text style={styles.modalStepDesc}>Keep the card flat, tilt your phone forward to catch scratches</Text>
+                  <Text style={styles.modalStepTitle}>Front corner close-ups</Text>
+                  <Text style={styles.modalStepDesc}>Get close to each corner of the front for detailed whitening and wear inspection</Text>
                 </View>
               </View>
               <View style={styles.modalStepRow}>
-                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>3</Text></View>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>9-12</Text></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Back photo</Text>
-                  <Text style={styles.modalStepDesc}>Flip the card for a straight-on back shot</Text>
-                </View>
-              </View>
-              <View style={styles.modalStepRow}>
-                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>4</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalStepTitle}>Back at an angle</Text>
-                  <Text style={styles.modalStepDesc}>Keep the card flat, tilt your phone to reveal back surface scratches</Text>
+                  <Text style={styles.modalStepTitle}>Back corner close-ups</Text>
+                  <Text style={styles.modalStepDesc}>Get close to each corner of the back for detailed edge and corner grading</Text>
                 </View>
               </View>
             </View>
 
             <Text style={styles.modalNote}>
-              The AI will also auto-crop and zoom into each corner for detailed inspection.
+              12 photos total for the most accurate AI grading possible. Corner close-ups let the AI see details invisible in full-card photos.
             </Text>
 
             <Pressable
@@ -1014,16 +1077,44 @@ const styles = StyleSheet.create({
   deepStepsContainer: {
     gap: 16,
   },
-  deepStepIndicator: {
+  deepProgressRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 30,
+    gap: 10,
+  },
+  deepProgressText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#F59E0B",
+    minWidth: 75,
+  },
+  deepProgressBarOuter: {
+    flex: 1,
+    height: 4,
+    backgroundColor: Colors.surface,
+    borderRadius: 2,
+  },
+  deepProgressBarInner: {
+    height: 4,
+    backgroundColor: "#F59E0B",
+    borderRadius: 2,
+  },
+  deepStepScroll: {
+    maxHeight: 70,
+  },
+  deepStepScrollContent: {
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  deepStepItem: {
+    alignItems: "center",
+    width: 40,
+    gap: 4,
   },
   deepStepDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: Colors.surface,
     borderWidth: 2,
     borderColor: Colors.surfaceBorder,
@@ -1037,38 +1128,41 @@ const styles = StyleSheet.create({
   deepStepDotCurrent: {
     borderColor: "#F59E0B",
   },
-  deepStepLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: Colors.surfaceBorder,
-    marginHorizontal: 4,
-  },
-  deepStepLineComplete: {
-    backgroundColor: Colors.success,
+  deepStepDotCornerCurrent: {
+    borderColor: "#F59E0B",
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
   },
   deepStepNumber: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
+    fontSize: 10,
     color: Colors.textMuted,
   },
   deepStepNumberCurrent: {
     color: "#F59E0B",
   },
-  deepStepLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    marginTop: -4,
-  },
   deepStepLabel: {
     fontFamily: "Inter_400Regular",
-    fontSize: 11,
+    fontSize: 9,
     color: Colors.textMuted,
-    flex: 1,
     textAlign: "center" as const,
+    lineHeight: 11,
   },
   deepStepLabelActive: {
     fontFamily: "Inter_600SemiBold",
+    color: "#F59E0B",
+  },
+  cornerPhaseHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(245, 158, 11, 0.06)",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  cornerPhaseTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
     color: "#F59E0B",
   },
   deepGuidance: {
