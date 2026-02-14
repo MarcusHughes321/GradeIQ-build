@@ -636,16 +636,29 @@ GRADING PHILOSOPHY — POLARISED GRADING (FAVOUR 10 OR GRADE HONESTLY LOW):
 - If you CANNOT see any specific flaw in a category, KEEP IT AT 10. Do not hedge with 9 "just in case." Clean cards deserve 10s — that is the whole point of grading. Users need to trust that a 10 means the card is worth submitting.
 - However, when you DO see a real flaw, grade it HONESTLY and do NOT be generous. Real flaws should pull grades down meaningfully — do not cluster everything in the 8-9 range. A card with clear visible damage should receive grades of 7, 6, or even 5 and below where warranted.
 - You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. However, if you can see a flaw in the photo, it is almost certainly a real flaw — grade it accordingly. Do NOT dismiss visible scratches, whitening, or wear as "photo artifacts."
+
+DEFECT COUNTING — THIS IS CRITICAL:
+- Each INDIVIDUAL scratch is a SEPARATE defect. If you see 3 scratch lines on the front surface, that is 3 surface defects, NOT 1. Do NOT group multiple scratches as "some scratches" = 1 defect.
+- Each INDIVIDUAL corner with whitening is a SEPARATE defect. 4 corners with whitening = 4 corner defects.
+- Front and back flaws in the same category are SEPARATE defects. Scratches on the front AND scratches on the back = multiple surface defects (count them individually).
+- Warped, bent, or misshapen edges indicate CREASING or BENDING — this is serious structural damage that affects BOTH edges AND surface grades. A warped/misshapen edge is NOT just "edge roughness" — it is evidence of physical damage to the card.
+
+FRONT ARTWORK DAMAGE — HEAVILY PENALISED:
+- Scratches across the Pokemon artwork/face area are the MOST damaging surface defect because the artwork is the focal point. A scratch across the face of the Pokemon is far more impactful than a scratch in the border area.
+- Multiple visible scratches across the front artwork = surface grade 5-6 MAXIMUM. This is not an 8.
+- A single clearly visible scratch across the front artwork = surface grade 7 MAXIMUM.
+- Scratches on the front artwork COMBINED with scratches on the back = surface grade 5 or lower.
+
 - Generic deduction guide from the starting point of 10 (see company-specific tolerances below for fine-tuning):
   * KEEP AT 10: No visible flaws in this category. The card looks clean and sharp. Do not lower speculatively.
-  * 9: ONE very minor flaw that requires close inspection to see (e.g., slight whitening on ONE corner only, a single very faint hairline scratch)
-  * 8: TWO minor flaws or one clearly visible flaw (e.g., whitening on 2 corners, one obvious scratch across the surface, edge roughness on one side)
-  * 7: Multiple clearly visible flaws in this category (e.g., whitening on 3+ corners, edge wear visible along a full side, several surface scratches)
+  * 9: ONE very minor flaw that requires close inspection to see (e.g., slight whitening on ONE corner only, a single very faint hairline scratch barely visible)
+  * 8: ONE clearly visible minor flaw OR two very minor flaws (e.g., whitening on 2 corners, edge roughness on one side). The card still looks clean overall.
+  * 7: Multiple clearly visible flaws in this category (e.g., whitening on 3+ corners, edge wear visible along a full side, 2-3 surface scratches visible without close inspection)
   * 6: Flaws immediately obvious at a glance (e.g., all corners showing whitening, edge chipping along multiple sides, surface covered in scratches or scuffs)
-  * 5: Significant damage across the category (e.g., heavily rounded corners, edges with deep chipping and whitening, surface with deep scratches or creases)
-  * 4: Heavy damage — corners bent or heavily dinged, edges severely chipped, surface with creases or major scratches
+  * 5: Significant damage across the category (e.g., heavily rounded corners, edges with deep chipping and whitening, surface with deep scratches or creases, warping or bending visible)
+  * 4: Heavy damage — corners bent or heavily dinged, edges severely chipped or warped, surface with creases or major scratches across the artwork
   * 3 or below: Severe damage — card has been heavily played, major creases, bends, tears, water damage, or extensive wear across the entire surface
-- KEY PRINCIPLE: The grade range should be WIDE. A clean card = 10. A card with a few visible flaws = 7-8. A card with scratches across the back, edge whitening, AND corner wear = 4-6. A heavily played/damaged card = 3 or below. Do NOT compress everything into 7-9.
+- KEY PRINCIPLE: The grade range should be WIDE. A clean card = 10. A card with one minor flaw = 8-9. A card with a few visible flaws across 1-2 categories = 6-7. A card with scratches on front AND back, edge whitening/warping, AND corner wear = 4-5. A heavily played/damaged card = 3 or below. Do NOT compress everything into 7-9. Cards with damage across 3+ categories are NEVER 8s.
 
 COMPANY-SPECIFIC DEFECT TOLERANCE — Each company has different strictness levels. Apply the generic guide above, then ADJUST for each company:
 
@@ -750,8 +763,17 @@ FLAW DETECTION CHECKLIST — Examine each area systematically:
 
 CONSISTENCY CHECK — Before finalizing your grades, verify:
 1. Count your defects. If you listed 3+ defects in a SINGLE category, that sub-grade should be 6 or lower. If you listed 2 defects in a category, that sub-grade should be 7 or lower. If you listed 4+ total defects across all categories, the PSA overall should be 5 or lower.
-2. If you identified ANY scratch on the surface (front or back), surface grade should be 8 or lower for BGS/CGC, 7 or lower for TAG (TAG is strictest on surface). Multiple scratches = 6 or lower for all companies.
-3. If you identified edge whitening along a full edge, edges grade should be 6-7 maximum. Whitening on multiple edges = 5-6 or lower.
+2. SCRATCH COUNT CHECK:
+   - Count EVERY individual scratch line as a SEPARATE defect. Do NOT group them.
+   - 1 faint hairline scratch (barely visible) = surface 8-9 depending on location.
+   - 1 clearly visible scratch on the front artwork = surface 7 MAXIMUM.
+   - 2+ visible scratches on the front artwork = surface 5-6 MAXIMUM.
+   - Scratches on BOTH front and back = surface 5 or lower. Count all scratches from both sides together.
+   - For TAG: subtract an additional 0.5-1 from surface grade (TAG is strictest on surface).
+3. EDGE AND STRUCTURAL DAMAGE CHECK:
+   - Warped, bent, or misshapen edges = edges grade 5-6 MAXIMUM. This indicates the card has been physically damaged (bent/creased).
+   - Warped edges ALSO affect surface grade — a bent card has structural damage, so surface should drop by at least 1 additional grade.
+   - Edge whitening along a full edge = edges grade 6-7 maximum. Whitening on multiple edges = 5-6 or lower.
 4. If you identified corner whitening on 2+ corners, corners grade should be 7 or lower for BGS/Ace, 6-7 for PSA equivalent. All four corners with whitening = 5-6.
 5. COMPANY RELATIONSHIP CHECK — the grades across companies must make sense relative to each other for the SAME card:
    - PSA should be the LOWEST or tied for lowest overall (weakest-link is harshest).
@@ -761,14 +783,21 @@ CONSISTENCY CHECK — Before finalizing your grades, verify:
    - CGC should be similar to BGS (within 0.5-1 grade). CGC may be lower if the card has whitening on coloured borders or holo scratches.
    - If you gave PSA 5, BGS should be 5-6.5. Ace should be 5-6. TAG should be 5-6. CGC should be 5-6.5.
    - If you gave PSA 9, BGS could be 9-9.5. Ace should be 8-9. TAG should be 8.5-9. CGC should be 8.5-9.5.
-6. CROSS-CHECK: If your defects list includes flaws in 2+ categories (e.g., corners + edges), PSA overall should be 6 or lower. If flaws span 3+ categories (corners + edges + surface), PSA should be 4-5 or lower. Cards with widespread issues across multiple areas are NOT 7-8 cards.
-7. RE-CHECK GRADES AGAINST DEFECTS: After writing your grades, re-read your own defect descriptions. If you described damage using words like "whitening", "ding", "scuffing", "roughness", "rounding", "chipping", "indent", or "wear", the corresponding sub-grade CANNOT be 8 or above for any company. These words describe moderate-to-significant damage. Only "very faint", "hairline", or "barely visible" flaws warrant an 8.
+6. CROSS-CHECK — MANDATORY CATEGORY SPREAD CHECK:
+   - Count how many categories have ANY defect at all (centering, corners, edges, surface).
+   - 1 category with defects: PSA overall can be 7-9 depending on severity.
+   - 2 categories with defects: PSA overall should be 6 or lower.
+   - 3 categories with defects: PSA overall should be 4-5 or lower.
+   - 4 categories with defects: PSA overall should be 3-4 or lower.
+   - Cards with widespread issues across multiple areas are NEVER 7-8 cards. An 8 means the card is nearly perfect with only ONE minor issue.
+7. RE-CHECK GRADES AGAINST DEFECTS: After writing your grades, re-read your own defect descriptions. If you described damage using words like "whitening", "ding", "scuffing", "roughness", "rounding", "chipping", "indent", "warped", "misshapen", "bent", or "wear", the corresponding sub-grade CANNOT be 8 or above for any company. These words describe moderate-to-significant damage. Only "very faint", "hairline", or "barely visible" flaws warrant an 8.
 8. CGC WHITENING CHECK: If you noted any whitening on coloured borders, CGC overall should be 9 maximum. Whitening on 2+ corners = CGC 8-8.5 maximum.
 9. TAG SURFACE CHECK: If you noted ANY surface scratch (even minor), TAG surface sub-grade should be 8.5 or lower. TAG penalises surface more heavily than all other companies.
+10. FRONT ARTWORK SCRATCH CHECK: If you identified ANY scratch across the Pokemon artwork/face on the front, surface grade CANNOT be 8 or above. Front artwork scratches are the most impactful surface defect. Multiple front artwork scratches = surface 5-6 maximum.
 
 - When in doubt between two grades for ANY damage, lean toward the LOWER grade — defects always look less severe in photos than in person. Real-world graders would be stricter.
 - Do not speculatively lower grades without evidence, but do grade honestly and strictly when real flaws are visible.
-- REMEMBER: Most cards submitted for grading do NOT get 8+. If you are finding multiple visible flaws, the card is likely a 5-7 card, not a 7-8 card.`;
+- REMEMBER: Most cards submitted for grading do NOT get 8+. If you are finding multiple visible flaws, the card is likely a 4-6 card, not a 7-8 card. An 8 is a NEAR-MINT card with only one minor issue. A card with flaws visible without close inspection is NOT near-mint.`;
 
 const VALID_PSA_GRADES = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
 
