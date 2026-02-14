@@ -475,13 +475,15 @@ export default function GradeScreen() {
   );
 
   const DEEP_STEPS: DeepStep[] = [
-    "front", "angledFront", "back", "angledBack",
+    "front", "angledFront",
     "cornerFrontTL", "cornerFrontTR", "cornerFrontBL", "cornerFrontBR",
+    "back", "angledBack",
     "cornerBackTL", "cornerBackTR", "cornerBackBL", "cornerBackBR",
   ];
   const DEEP_STEP_LABELS = [
-    "Front", "Front\nAngle", "Back", "Back\nAngle",
+    "Front", "Front\nAngle",
     "F\nTL", "F\nTR", "F\nBL", "F\nBR",
+    "Back", "Back\nAngle",
     "B\nTL", "B\nTR", "B\nBL", "B\nBR",
   ];
 
@@ -594,6 +596,8 @@ export default function GradeScreen() {
           <Ionicons name="arrow-forward" size={16} color={Colors.text} />
         </Pressable>
       )}
+
+      <View style={{ height: 100 }} />
     </View>
   );
 
