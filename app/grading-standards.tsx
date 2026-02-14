@@ -65,8 +65,8 @@ const COMPANIES: CompanySection[] = [
     gradeScale: "Half-point increments from 1 to 10 (e.g., 7, 7.5, 8, 8.5, 9, 9.5, 10). Black Label = all four sub-grades at 10.",
     keyGrades: [
       {
-        grade: "Pristine 10",
-        description: "Centering: 50/50 all around on front, 55/45 or better on back. Corners: Perfect to the naked eye and virtually flawless under intense scrutiny. Edges: Perfect to the naked eye and virtually flawless under intense scrutiny. Surface: No print spots, flawless colour, devoid of registration or focus imperfections, devoid of scratches and metallic print lines.",
+        grade: "Pristine 10 (Black Label)",
+        description: "A BGS Pristine 10 with all four sub-grades at 10 receives the coveted Black Label — the highest achievement in Beckett grading. Centering: 50/50 all around on front, 55/45 or better on back. Corners: Perfect to the naked eye and virtually flawless under intense scrutiny. Edges: Perfect to the naked eye and virtually flawless under intense scrutiny. Surface: No print spots, flawless colour, devoid of registration or focus imperfections, devoid of scratches and metallic print lines.",
       },
       {
         grade: "Gem Mint 9.5",
