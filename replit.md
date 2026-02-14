@@ -28,10 +28,13 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
     - **Multi-language Support**: AI can read cards in various languages (Japanese, Korean, Chinese) and provide English names/details.
     - **Card Number Detection**: AI reads card numbers from the card bottom, utilizing multiple strategies for accuracy.
 - **User Features**:
-    - **Progress UI**: An 8-stage animated progress bar provides real-time analysis status during grading.
+    - **Two Grading Modes**: Quick Grade (2 photos: front + back, fast) and Deep Grade (3 photos: front + back + angled, plus 4 auto-cropped corners = 7 images total, premium accuracy). Mode selector on Grade tab with guided step-by-step capture for Deep Grade.
+    - **Deep Grade Features**: Server-side image enhancement (sharpening + contrast boost via Sharp), auto-corner cropping, modified AI prompt analyzing all 7 images for surface detail. First-use onboarding modal (AsyncStorage key: `gradeiq_deep_intro_seen`). Amber/gold (#F59E0B) color accent for Deep Grade UI.
+    - **Image Enhancement Pipeline**: All images sharpened via `sharp().sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })`, brightness adjusted `.modulate({ brightness: 1.02 })`, and contrast boosted `.linear(1.15, -(128 * 0.15))` before AI analysis.
+    - **Progress UI**: Animated progress bar with mode-specific stages (8 for Quick, 10 for Deep) providing real-time analysis status.
     - **Background Grading**: Users can navigate away from the Grade tab while analysis runs in the background. A GradingContext (`lib/grading-context.tsx`) manages the job lifecycle (processing/completed/failed). The Home tab shows a status banner and the tab icon displays a dot badge (red=processing, green=complete). A "Continue browsing" button on the analysis screen lets users return to Home mid-grading. Only one grading job runs at a time.
-    - **Bulk Grading**: Allows grading of up to 20 cards simultaneously, with parallel processing and average grade summaries.
-    - **Subscription Model**: Tiered subscription system controlled by `EXPO_PUBLIC_SUBSCRIPTION_GATE` environment variable. Tiers: Free (3 grades/month), Grade Curious (£2.99/month, 15 grades), Grade Enthusiast (£5.99/month, 50 grades), Grade Obsessed (£9.99/month, unlimited). Usage tracked monthly via AsyncStorage with automatic reset. RevenueCat handles payment processing via App Store/Google Play.
+    - **Bulk Grading**: Allows grading of up to 20 cards simultaneously (Quick Grade only), with parallel processing and average grade summaries.
+    - **Subscription Model**: Tiered subscription system controlled by `EXPO_PUBLIC_SUBSCRIPTION_GATE` environment variable. Tiers: Free (3 Quick Grades/month, 0 Deep), Grade Curious (£2.99/month, 15 Quick + 3 Deep), Grade Enthusiast (£5.99/month, 50 Quick + 10 Deep), Grade Obsessed (£9.99/month, unlimited Quick + 50 Deep). Usage tracked monthly via AsyncStorage with automatic reset. RevenueCat handles payment processing via App Store/Google Play. Admin mode bypasses all limits.
     - **First-use Company Selection**: Guides new users to select grading companies, with all companies off by default.
 
 ### Feature Specifications
