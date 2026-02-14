@@ -619,16 +619,19 @@ CRITICAL REMINDERS:
 - TAG grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - stricter on surface than BGS
 - CGC grades: use 0.5 increments (7, 7.5, 8, 8.5, 9, 9.5, 10) - no sub-grades, text descriptions only
 
-GRADING PHILOSOPHY — START AT 10, DEDUCT FOR FLAWS:
+GRADING PHILOSOPHY — POLARISED GRADING (FAVOUR 10 OR GRADE HONESTLY LOW):
 - EVERY sub-grade (centering, corners, edges, surface) starts at 10 (Gem Mint) by default.
-- Only lower a grade from 10 if you can identify a SPECIFIC flaw in the photo. Describe the flaw in your notes.
-- A genuinely pack-fresh card with no visible flaws SHOULD receive 9s and 10s — do not artificially lower grades when nothing is wrong. 10s are achievable and expected for clean cards.
+- If you CANNOT see any specific flaw in a category, KEEP IT AT 10. Do not hedge with 9 "just in case." Clean cards deserve 10s — that is the whole point of grading. Users need to trust that a 10 means the card is worth submitting.
+- However, when you DO see a real flaw, grade it HONESTLY and do NOT be generous. Real flaws should pull grades down meaningfully — do not cluster everything in the 8-9 range. A card with clear visible damage should receive grades of 7, 6, or even 5 and below where warranted.
 - You are grading from PHONE PHOTOS, not lab-quality scans. Phone cameras can introduce blur, glare, and compression artifacts. However, if you can see a flaw in the photo, it is almost certainly a real flaw — grade it accordingly. Do NOT dismiss visible scratches, whitening, or wear as "photo artifacts."
 - Deduction guide from the starting point of 10:
-  * 10 → 9: A minor but real flaw (e.g., slight whitening on ONE corner, very minor edge roughness at one spot, a single faint scratch)
-  * 9 → 8: Multiple minor flaws or one moderate flaw (e.g., whitening on 2+ corners, noticeable edge wear along a side, a visible scratch across the surface)
-  * 8 → 7: Several moderate flaws or one significant flaw (e.g., multiple scratches visible on surface, obvious corner whitening on 3+ corners, edge chipping along multiple edges, a crease or dent)
-  * 7 → 6 or below: Clearly obvious damage visible at a glance (significant whitening, creasing, heavy scratches, heavy off-center)
+  * KEEP AT 10: No visible flaws in this category. The card looks clean and sharp. Do not lower speculatively.
+  * 10 → 9: ONE very minor flaw (e.g., slight whitening on ONE corner only, a single very faint scratch barely visible)
+  * 9 → 8: TWO minor flaws or one moderate flaw (e.g., whitening on 2 corners, one noticeable scratch across the surface)
+  * 8 → 7: Multiple moderate flaws (e.g., whitening on 3+ corners, edge wear along a full side, multiple surface scratches)
+  * 7 → 6: Several clear flaws easily visible without close inspection (e.g., obvious whitening, edge chipping, surface scuffing across large areas)
+  * 6 → 5 or below: Heavy damage — deep scratches, creases, dents, significant whitening across multiple edges, major surface wear. These cards have been heavily played or poorly stored.
+- KEY PRINCIPLE: The grade range should be WIDE. A clean card = 10. A played card with scratches and edge wear = 6 or 7. A damaged card = 5 or below. Do NOT compress everything into 8-9.
 
 FLAW DETECTION CHECKLIST — Examine each area systematically:
 - CORNERS: Zoom in on each of the four corners individually. Look for whitening (white dots or lines where the color has worn away), soft/rounded edges instead of sharp points, dings, or bends. Compare front corners to back corners — the back often shows more wear.
