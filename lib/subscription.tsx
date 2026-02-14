@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 
 const USAGE_KEY = "gradeiq_monthly_usage";
+const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
 const FREE_MONTHLY_LIMIT = 3;
 
@@ -19,14 +20,15 @@ export interface TierInfo {
   name: string;
   price: string;
   monthlyLimit: number | null;
+  deepGradeLimit: number;
   entitlementId: string;
 }
 
 export const TIERS: Record<SubscriptionTier, TierInfo> = {
-  free: { id: "free", name: "Free", price: "Free", monthlyLimit: FREE_MONTHLY_LIMIT, entitlementId: "" },
-  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, entitlementId: "Grade.IQ Pro" },
-  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, entitlementId: "Grade.IQ Pro" },
-  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, entitlementId: "Grade.IQ Pro" },
+  free: { id: "free", name: "Free", price: "Free", monthlyLimit: FREE_MONTHLY_LIMIT, deepGradeLimit: 0, entitlementId: "" },
+  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, deepGradeLimit: 3, entitlementId: "Grade.IQ Pro" },
+  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, deepGradeLimit: 10, entitlementId: "Grade.IQ Pro" },
+  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, deepGradeLimit: 50, entitlementId: "Grade.IQ Pro" },
 };
 
 interface MonthlyUsage {
@@ -49,6 +51,12 @@ interface SubscriptionContextValue {
   purchaseTier: (tier: SubscriptionTier) => Promise<boolean>;
   restorePurchases: () => Promise<boolean>;
   rcConfigured: boolean;
+  deepMonthlyUsageCount: number;
+  deepMonthlyLimit: number;
+  remainingDeepGrades: number;
+  canDeepGrade: boolean;
+  checkCanDeepGrade: () => boolean;
+  recordDeepUsage: () => Promise<boolean>;
   isAdminMode: boolean;
   toggleAdminMode: () => Promise<void>;
 }
@@ -78,6 +86,29 @@ async function saveMonthlyUsage(usage: MonthlyUsage): Promise<void> {
   await AsyncStorage.setItem(USAGE_KEY, JSON.stringify(usage));
 }
 
+interface DeepMonthlyUsage {
+  month: string;
+  count: number;
+}
+
+async function getDeepMonthlyUsage(): Promise<DeepMonthlyUsage> {
+  try {
+    const data = await AsyncStorage.getItem(DEEP_USAGE_KEY);
+    if (!data) return { month: getMonthKey(), count: 0 };
+    const parsed = JSON.parse(data) as DeepMonthlyUsage;
+    if (parsed.month !== getMonthKey()) {
+      return { month: getMonthKey(), count: 0 };
+    }
+    return parsed;
+  } catch {
+    return { month: getMonthKey(), count: 0 };
+  }
+}
+
+async function saveDeepMonthlyUsage(usage: DeepMonthlyUsage): Promise<void> {
+  await AsyncStorage.setItem(DEEP_USAGE_KEY, JSON.stringify(usage));
+}
+
 function determineTier(info: CustomerInfo | null): SubscriptionTier {
   if (!info) return "free";
   const entitlement = info.entitlements.active["Grade.IQ Pro"];
@@ -92,14 +123,16 @@ function determineTier(info: CustomerInfo | null): SubscriptionTier {
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const isGateEnabled = GATE_ENABLED;
   const [monthlyUsageCount, setMonthlyUsageCount] = useState(0);
+  const [deepMonthlyUsageCount, setDeepMonthlyUsageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentTier, setCurrentTier] = useState<SubscriptionTier>("free");
   const [rcConfigured, setRcConfigured] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
 
   useEffect(() => {
-    getMonthlyUsage().then((usage) => {
+    Promise.all([getMonthlyUsage(), getDeepMonthlyUsage()]).then(([usage, deepUsage]) => {
       setMonthlyUsageCount(usage.count);
+      setDeepMonthlyUsageCount(deepUsage.count);
       setLoading(false);
     });
 
@@ -171,6 +204,35 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     [isAdminMode, isGateEnabled, monthlyLimit]
   );
 
+  const deepGradeLimit = tierInfo.deepGradeLimit;
+  const remainingDeepGrades = Math.max(0, deepGradeLimit - deepMonthlyUsageCount);
+  const canDeepGrade = isAdminMode || !isGateEnabled || (deepGradeLimit > 0 && (deepMonthlyUsageCount < deepGradeLimit));
+
+  const checkCanDeepGrade = useCallback(
+    () => {
+      if (isAdminMode) return true;
+      if (!isGateEnabled) return true;
+      if (deepGradeLimit <= 0) return false;
+      return deepMonthlyUsageCount + 1 <= deepGradeLimit;
+    },
+    [isAdminMode, isGateEnabled, deepGradeLimit, deepMonthlyUsageCount]
+  );
+
+  const recordDeepUsage = useCallback(
+    async (): Promise<boolean> => {
+      if (isAdminMode) return true;
+      if (!isGateEnabled) return true;
+      if (deepGradeLimit <= 0) return false;
+      const usage = await getDeepMonthlyUsage();
+      if (usage.count + 1 > deepGradeLimit) return false;
+      usage.count += 1;
+      await saveDeepMonthlyUsage(usage);
+      setDeepMonthlyUsageCount(usage.count);
+      return true;
+    },
+    [isAdminMode, isGateEnabled, deepGradeLimit]
+  );
+
   const purchaseTier = useCallback(async (tier: SubscriptionTier): Promise<boolean> => {
     if (!rcConfigured) return false;
     try {
@@ -215,6 +277,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   }, [rcConfigured]);
 
+  const deepMonthlyLimit = deepGradeLimit;
+
   const value = useMemo(
     () => ({
       isGateEnabled,
@@ -231,10 +295,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       purchaseTier,
       restorePurchases,
       rcConfigured,
+      deepMonthlyUsageCount,
+      deepMonthlyLimit,
+      remainingDeepGrades,
+      canDeepGrade,
+      checkCanDeepGrade,
+      recordDeepUsage,
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

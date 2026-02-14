@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   Animated,
+  Modal,
 } from "react-native";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,14 +17,18 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
 import CardCamera from "@/components/CardCamera";
 import { apiRequest } from "@/lib/query-client";
-import { saveGrading, updateGrading } from "@/lib/storage";
-import type { GradingResult } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
+
+type GradeMode = "quick" | "deep";
+type DeepStep = "front" | "back" | "angled";
+
+const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
 const TAB_BAR_STYLE = {
   backgroundColor: Platform.OS === "web" ? Colors.surface : "transparent",
@@ -35,7 +40,7 @@ const TAB_BAR_STYLE = {
   paddingTop: 8,
 };
 
-const ANALYSIS_STAGES = [
+const QUICK_STAGES = [
   { label: "Preparing images", icon: "image-outline" as const, duration: 2000 },
   { label: "Analyzing front side", icon: "scan-outline" as const, duration: 5000 },
   { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 5000 },
@@ -46,23 +51,60 @@ const ANALYSIS_STAGES = [
   { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
 ];
 
+const DEEP_STAGES = [
+  { label: "Enhancing images", icon: "color-wand-outline" as const, duration: 2000 },
+  { label: "Analyzing front side", icon: "scan-outline" as const, duration: 5000 },
+  { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 5000 },
+  { label: "Analyzing angled view", icon: "eye-outline" as const, duration: 5000 },
+  { label: "Cropping corners for detail", icon: "cut-outline" as const, duration: 3000 },
+  { label: "Deep surface inspection", icon: "search-outline" as const, duration: 5000 },
+  { label: "Checking centering", icon: "resize-outline" as const, duration: 4000 },
+  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 4000 },
+  { label: "Calculating grades", icon: "calculator-outline" as const, duration: 3000 },
+  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
+];
+
+const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  front: {
+    title: "Front of Card",
+    subtitle: "Hold the card flat, straight-on. Fill the frame and ensure even lighting.",
+    icon: "scan-outline",
+  },
+  back: {
+    title: "Back of Card",
+    subtitle: "Flip the card over. Keep it flat and centred in the frame.",
+    icon: "swap-horizontal-outline",
+  },
+  angled: {
+    title: "Front at an Angle",
+    subtitle: "Tilt the card slightly to catch the light. This reveals surface scratches and scuffs invisible in straight-on photos.",
+    icon: "flashlight-outline",
+  },
+};
+
 export default function GradeScreen() {
   const insets = useSafeAreaInsets();
+  const [mode, setMode] = useState<GradeMode>("quick");
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
+  const [angledImage, setAngledImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [cropping, setCropping] = useState<"front" | "back" | null>(null);
-  const [cameraOpen, setCameraOpen] = useState<"front" | "back" | null>(null);
+  const [cropping, setCropping] = useState<"front" | "back" | "angled" | null>(null);
+  const [cameraOpen, setCameraOpen] = useState<"front" | "back" | "angled" | null>(null);
   const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [deepStep, setDeepStep] = useState<DeepStep>("front");
+  const [showDeepIntro, setShowDeepIntro] = useState(false);
 
-  const { canGrade, recordUsage, isGateEnabled } = useSubscription();
-  const { submitGrading, activeJob } = useGrading();
+  const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode } = useSubscription();
+  const { submitGrading, submitDeepGrading, activeJob } = useGrading();
   const navigation = useNavigation();
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  const ANALYSIS_STAGES = mode === "deep" ? DEEP_STAGES : QUICK_STAGES;
 
   useEffect(() => {
     if (cameraOpen) {
@@ -86,16 +128,19 @@ export default function GradeScreen() {
     }
   };
 
-  const setImageWithCrop = async (side: "front" | "back", uri: string) => {
+  const setImageWithCrop = async (side: "front" | "back" | "angled", uri: string) => {
     if (side === "front") setFrontImage(uri);
-    else setBackImage(uri);
-    setCropping(side);
-    try {
-      const cropped = await cropToCard(uri);
-      if (side === "front") setFrontImage(cropped);
-      else setBackImage(cropped);
-    } finally {
-      setCropping(null);
+    else if (side === "back") setBackImage(uri);
+    else setAngledImage(uri);
+    if (side !== "angled") {
+      setCropping(side);
+      try {
+        const cropped = await cropToCard(uri);
+        if (side === "front") setFrontImage(cropped);
+        else setBackImage(cropped);
+      } finally {
+        setCropping(null);
+      }
     }
   };
 
@@ -104,11 +149,13 @@ export default function GradeScreen() {
       if (!activeJob || activeJob.status !== "processing") {
         setFrontImage(null);
         setBackImage(null);
+        setAngledImage(null);
         setLoading(false);
         setCropping(null);
         setCameraOpen(null);
         setAnalysisStage(0);
         progressAnim.setValue(0);
+        setDeepStep("front");
       }
     }, [activeJob?.status])
   );
@@ -124,11 +171,12 @@ export default function GradeScreen() {
       return;
     }
 
+    const stages = ANALYSIS_STAGES;
     const advanceStage = (stage: number) => {
-      if (stage >= ANALYSIS_STAGES.length) return;
+      if (stage >= stages.length) return;
       setAnalysisStage(stage);
 
-      const isLastStage = stage === ANALYSIS_STAGES.length - 1;
+      const isLastStage = stage === stages.length - 1;
 
       if (isLastStage) {
         Animated.timing(progressAnim, {
@@ -138,14 +186,14 @@ export default function GradeScreen() {
         }).start();
       } else {
         Animated.timing(progressAnim, {
-          toValue: (stage + 1) / ANALYSIS_STAGES.length,
-          duration: ANALYSIS_STAGES[stage].duration * 0.8,
+          toValue: (stage + 1) / stages.length,
+          duration: stages[stage].duration * 0.8,
           useNativeDriver: false,
         }).start();
 
         stageTimerRef.current = setTimeout(() => {
           advanceStage(stage + 1);
-        }, ANALYSIS_STAGES[stage].duration);
+        }, stages[stage].duration);
       }
     };
 
@@ -158,29 +206,25 @@ export default function GradeScreen() {
     };
   }, [loading]);
 
-  const pickImage = async (side: "front" | "back") => {
-    const actionSheet = async () => {
-      if (Platform.OS === "web") {
-        return launchLibrary(side);
-      }
+  const pickImage = async (side: "front" | "back" | "angled") => {
+    if (Platform.OS === "web") {
+      return launchLibrary(side);
+    }
 
-      Alert.alert("Add Photo", "Choose an option", [
-        {
-          text: "Take Photo",
-          onPress: () => launchCamera(side),
-        },
-        {
-          text: "Choose from Library",
-          onPress: () => launchLibrary(side),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    };
-
-    await actionSheet();
+    Alert.alert("Add Photo", "Choose an option", [
+      {
+        text: "Take Photo",
+        onPress: () => launchCamera(side),
+      },
+      {
+        text: "Choose from Library",
+        onPress: () => launchLibrary(side),
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
-  const launchCamera = async (side: "front" | "back") => {
+  const launchCamera = async (side: "front" | "back" | "angled") => {
     if (Platform.OS !== "web") {
       setCameraOpen(side);
     } else {
@@ -199,8 +243,7 @@ export default function GradeScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        const uri = result.assets[0].uri;
-        setImageWithCrop(side, uri);
+        setImageWithCrop(side, result.assets[0].uri);
       }
     }
   };
@@ -213,11 +256,12 @@ export default function GradeScreen() {
     }
     if (side) {
       if (side === "front") setFrontImage(uri);
-      else setBackImage(uri);
+      else if (side === "back") setBackImage(uri);
+      else setAngledImage(uri);
     }
   };
 
-  const launchLibrary = async (side: "front" | "back") => {
+  const launchLibrary = async (side: "front" | "back" | "angled") => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Required", "Photo library access is needed to select card photos.");
@@ -233,8 +277,7 @@ export default function GradeScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      const uri = result.assets[0].uri;
-      setImageWithCrop(side, uri);
+      setImageWithCrop(side, result.assets[0].uri);
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
@@ -242,31 +285,14 @@ export default function GradeScreen() {
   };
 
   const getBase64FromUri = async (uri: string): Promise<string> => {
-    if (Platform.OS === "web") {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          resolve(result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } else {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          resolve(result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    }
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   };
 
   useEffect(() => {
@@ -282,10 +308,37 @@ export default function GradeScreen() {
     }
   }, [activeJob?.status]);
 
-  const handleGrade = async () => {
-    if (!frontImage || !backImage) {
-      Alert.alert("Photos Required", "Please add photos of both the front and back of your card.");
+  const handleSelectDeepMode = async () => {
+    if (isGateEnabled && !canDeepGrade && !isAdminMode) {
+      router.push("/paywall");
       return;
+    }
+
+    const seen = await AsyncStorage.getItem(DEEP_GRADE_INTRO_KEY);
+    if (!seen) {
+      setShowDeepIntro(true);
+    } else {
+      setMode("deep");
+    }
+  };
+
+  const handleDismissDeepIntro = async () => {
+    await AsyncStorage.setItem(DEEP_GRADE_INTRO_KEY, "seen");
+    setShowDeepIntro(false);
+    setMode("deep");
+  };
+
+  const handleGrade = async () => {
+    if (mode === "quick") {
+      if (!frontImage || !backImage) {
+        Alert.alert("Photos Required", "Please add photos of both the front and back of your card.");
+        return;
+      }
+    } else {
+      if (!frontImage || !backImage || !angledImage) {
+        Alert.alert("Photos Required", "Please add all three photos: front, back, and angled.");
+        return;
+      }
     }
 
     if (activeJob?.status === "processing") {
@@ -293,7 +346,12 @@ export default function GradeScreen() {
       return;
     }
 
-    if (isGateEnabled && !canGrade) {
+    if (mode === "quick" && isGateEnabled && !canGrade) {
+      router.push("/paywall");
+      return;
+    }
+
+    if (mode === "deep" && isGateEnabled && !canDeepGrade && !isAdminMode) {
       router.push("/paywall");
       return;
     }
@@ -303,26 +361,162 @@ export default function GradeScreen() {
     }
 
     setLoading(true);
-    submitGrading(frontImage, backImage, recordUsage);
+
+    if (mode === "deep" && angledImage) {
+      submitDeepGrading(frontImage!, backImage!, angledImage, async (n: number) => {
+        await recordDeepUsage();
+      });
+    } else {
+      submitGrading(frontImage!, backImage!, recordUsage);
+    }
   };
 
-  const canSubmit = !!frontImage && !!backImage && !loading;
+  const canSubmit = mode === "quick"
+    ? !!frontImage && !!backImage && !loading
+    : !!frontImage && !!backImage && !!angledImage && !loading;
+
   const currentStage = ANALYSIS_STAGES[analysisStage];
+
+  const renderModeSelector = () => (
+    <View style={styles.modeSelector}>
+      <Pressable
+        style={[styles.modeTab, mode === "quick" && styles.modeTabActive]}
+        onPress={() => {
+          setMode("quick");
+          setAngledImage(null);
+          setDeepStep("front");
+        }}
+      >
+        <Ionicons name="flash-outline" size={16} color={mode === "quick" ? Colors.text : Colors.textMuted} />
+        <Text style={[styles.modeTabText, mode === "quick" && styles.modeTabTextActive]}>Quick Grade</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.modeTab, mode === "deep" && styles.modeTabActive]}
+        onPress={handleSelectDeepMode}
+      >
+        <Ionicons name="search-outline" size={16} color={mode === "deep" ? "#F59E0B" : Colors.textMuted} />
+        <Text style={[styles.modeTabText, mode === "deep" && styles.modeTabTextDeep]}>Deep Grade</Text>
+        {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
+          <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
+        )}
+      </Pressable>
+    </View>
+  );
+
+  const renderDeepGradeSteps = () => (
+    <View style={styles.deepStepsContainer}>
+      <View style={styles.deepStepIndicator}>
+        {(["front", "back", "angled"] as DeepStep[]).map((step, i) => {
+          const isComplete = step === "front" ? !!frontImage : step === "back" ? !!backImage : !!angledImage;
+          const isCurrent = deepStep === step;
+          return (
+            <React.Fragment key={step}>
+              {i > 0 && <View style={[styles.deepStepLine, isComplete && styles.deepStepLineComplete]} />}
+              <Pressable
+                style={[
+                  styles.deepStepDot,
+                  isComplete && styles.deepStepDotComplete,
+                  isCurrent && !isComplete && styles.deepStepDotCurrent,
+                ]}
+                onPress={() => setDeepStep(step)}
+              >
+                {isComplete ? (
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                ) : (
+                  <Text style={[styles.deepStepNumber, isCurrent && styles.deepStepNumberCurrent]}>{i + 1}</Text>
+                )}
+              </Pressable>
+            </React.Fragment>
+          );
+        })}
+      </View>
+
+      <View style={styles.deepStepLabels}>
+        <Text style={[styles.deepStepLabel, deepStep === "front" && styles.deepStepLabelActive]}>Front</Text>
+        <Text style={[styles.deepStepLabel, deepStep === "back" && styles.deepStepLabelActive]}>Back</Text>
+        <Text style={[styles.deepStepLabel, deepStep === "angled" && styles.deepStepLabelActive]}>Angled</Text>
+      </View>
+
+      <View style={styles.deepGuidance}>
+        <Ionicons name={DEEP_STEP_GUIDANCE[deepStep].icon} size={20} color="#F59E0B" />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.deepGuidanceTitle}>{DEEP_STEP_GUIDANCE[deepStep].title}</Text>
+          <Text style={styles.deepGuidanceSubtitle}>{DEEP_STEP_GUIDANCE[deepStep].subtitle}</Text>
+        </View>
+      </View>
+
+      <View style={styles.deepCaptureArea}>
+        {deepStep === "front" && (
+          <ImageCapture
+            label="Front"
+            imageUri={frontImage}
+            onCapture={() => pickImage("front")}
+            onRemove={() => setFrontImage(null)}
+            loading={cropping === "front"}
+          />
+        )}
+        {deepStep === "back" && (
+          <ImageCapture
+            label="Back"
+            imageUri={backImage}
+            onCapture={() => pickImage("back")}
+            onRemove={() => setBackImage(null)}
+            loading={cropping === "back"}
+          />
+        )}
+        {deepStep === "angled" && (
+          <ImageCapture
+            label="Angled"
+            imageUri={angledImage}
+            onCapture={() => pickImage("angled")}
+            onRemove={() => setAngledImage(null)}
+            loading={cropping === "angled"}
+          />
+        )}
+      </View>
+
+      {deepStep !== "angled" && (
+        <Pressable
+          style={({ pressed }) => [styles.deepNextBtn, { opacity: pressed ? 0.7 : 1 }]}
+          onPress={() => {
+            if (deepStep === "front") setDeepStep("back");
+            else if (deepStep === "back") setDeepStep("angled");
+          }}
+        >
+          <Text style={styles.deepNextBtnText}>
+            {deepStep === "front" && !frontImage ? "Skip to Back" : deepStep === "front" ? "Next: Back" : !backImage ? "Skip to Angled" : "Next: Angled"}
+          </Text>
+          <Ionicons name="arrow-forward" size={16} color={Colors.text} />
+        </Pressable>
+      )}
+    </View>
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Grade Card</Text>
+        {mode === "deep" && remainingDeepGrades !== null && !isAdminMode && (
+          <View style={styles.deepBadge}>
+            <Text style={styles.deepBadgeText}>{remainingDeepGrades} deep left</Text>
+          </View>
+        )}
       </View>
 
       {loading ? (
         <View style={styles.analysisContainer}>
           <View style={styles.analysisCard}>
-            <View style={styles.analysisIconWrap}>
-              <View style={styles.analysisIconBg}>
-                <Ionicons name={currentStage.icon as any} size={32} color={Colors.primary} />
+            {mode === "deep" && (
+              <View style={styles.deepAnalysisBadge}>
+                <Ionicons name="search" size={12} color="#F59E0B" />
+                <Text style={styles.deepAnalysisBadgeText}>Deep Grade</Text>
               </View>
-              <ActivityIndicator color={Colors.primary} size="small" style={styles.analysisSpinner} />
+            )}
+            <View style={styles.analysisIconWrap}>
+              <View style={[styles.analysisIconBg, mode === "deep" && { backgroundColor: "rgba(245, 158, 11, 0.12)" }]}>
+                <Ionicons name={currentStage.icon as any} size={32} color={mode === "deep" ? "#F59E0B" : Colors.primary} />
+              </View>
+              <ActivityIndicator color={mode === "deep" ? "#F59E0B" : Colors.primary} size="small" style={styles.analysisSpinner} />
             </View>
 
             <Text style={styles.analysisTitle}>{currentStage.label}...</Text>
@@ -334,6 +528,7 @@ export default function GradeScreen() {
               <Animated.View
                 style={[
                   styles.progressBarInner,
+                  mode === "deep" && { backgroundColor: "#F59E0B" },
                   {
                     width: progressAnim.interpolate({
                       inputRange: [0, 1],
@@ -350,7 +545,7 @@ export default function GradeScreen() {
                   <Ionicons
                     name={i < analysisStage ? "checkmark-circle" : i === analysisStage ? "ellipse" : "ellipse-outline"}
                     size={14}
-                    color={i < analysisStage ? Colors.success : i === analysisStage ? Colors.primary : Colors.textMuted}
+                    color={i < analysisStage ? Colors.success : i === analysisStage ? (mode === "deep" ? "#F59E0B" : Colors.primary) : Colors.textMuted}
                   />
                   <Text
                     style={[
@@ -367,7 +562,7 @@ export default function GradeScreen() {
           </View>
 
           <Text style={styles.analysisWait}>
-            This usually takes 15-30 seconds
+            {mode === "deep" ? "Deep analysis takes 30-60 seconds" : "This usually takes 15-30 seconds"}
           </Text>
 
           <Pressable
@@ -376,6 +571,7 @@ export default function GradeScreen() {
               setLoading(false);
               setFrontImage(null);
               setBackImage(null);
+              setAngledImage(null);
               router.navigate("/(tabs)");
             }}
           >
@@ -389,46 +585,54 @@ export default function GradeScreen() {
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + webBottomInset + 100 }]}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.instructions}>
-              Add clear, well-lit photos of both sides of your card. Place the card on a plain, solid-coloured surface for the best centering accuracy. Avoid holding the card or using busy backgrounds.
-            </Text>
+            {renderModeSelector()}
 
-            <View style={styles.imageRow}>
-              <ImageCapture
-                label="Front"
-                imageUri={frontImage}
-                onCapture={() => pickImage("front")}
-                onRemove={() => setFrontImage(null)}
-                loading={cropping === "front"}
-              />
-              <ImageCapture
-                label="Back"
-                imageUri={backImage}
-                onCapture={() => pickImage("back")}
-                onRemove={() => setBackImage(null)}
-                loading={cropping === "back"}
-              />
-            </View>
+            {mode === "quick" ? (
+              <>
+                <Text style={styles.instructions}>
+                  Add clear, well-lit photos of both sides of your card. Place the card on a plain, solid-coloured surface for the best centering accuracy. Avoid holding the card or using busy backgrounds.
+                </Text>
 
-            <View style={styles.tipsCard}>
-              <Text style={styles.tipsTitle}>Tips for best results</Text>
-              <View style={styles.tipRow}>
-                <Ionicons name="sunny" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Use good, even lighting</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="compass" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Use the spirit level when taking photos</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="resize" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Fill the frame with the card</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="eye-off" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Avoid glare and reflections</Text>
-              </View>
-            </View>
+                <View style={styles.imageRow}>
+                  <ImageCapture
+                    label="Front"
+                    imageUri={frontImage}
+                    onCapture={() => pickImage("front")}
+                    onRemove={() => setFrontImage(null)}
+                    loading={cropping === "front"}
+                  />
+                  <ImageCapture
+                    label="Back"
+                    imageUri={backImage}
+                    onCapture={() => pickImage("back")}
+                    onRemove={() => setBackImage(null)}
+                    loading={cropping === "back"}
+                  />
+                </View>
+
+                <View style={styles.tipsCard}>
+                  <Text style={styles.tipsTitle}>Tips for best results</Text>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="sunny" size={16} color={Colors.accent} />
+                    <Text style={styles.tipText}>Use good, even lighting</Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="compass" size={16} color={Colors.accent} />
+                    <Text style={styles.tipText}>Use the spirit level when taking photos</Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="resize" size={16} color={Colors.accent} />
+                    <Text style={styles.tipText}>Fill the frame with the card</Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="eye-off" size={16} color={Colors.accent} />
+                    <Text style={styles.tipText}>Avoid glare and reflections</Text>
+                  </View>
+                </View>
+              </>
+            ) : (
+              renderDeepGradeSteps()
+            )}
           </ScrollView>
 
           <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || webBottomInset) + 90 }]}>
@@ -441,13 +645,13 @@ export default function GradeScreen() {
               ]}
             >
               <LinearGradient
-                colors={[Colors.gradientStart, Colors.gradientEnd]}
+                colors={mode === "deep" ? ["#F59E0B", "#D97706"] : [Colors.gradientStart, Colors.gradientEnd]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.gradientInner}
               >
-                <Ionicons name="sparkles" size={20} color="#fff" />
-                <Text style={styles.analyzeText}>Analyze & Grade</Text>
+                <Ionicons name={mode === "deep" ? "search" : "sparkles"} size={20} color="#fff" />
+                <Text style={styles.analyzeText}>{mode === "deep" ? "Deep Analyze" : "Analyze & Grade"}</Text>
               </LinearGradient>
             </Pressable>
           </View>
@@ -456,11 +660,69 @@ export default function GradeScreen() {
 
       {cameraOpen && (
         <CardCamera
-          side={cameraOpen}
+          side={cameraOpen === "angled" ? "front" : cameraOpen}
           onCapture={handleCameraCapture}
           onClose={() => setCameraOpen(null)}
         />
       )}
+
+      <Modal
+        visible={showDeepIntro}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeepIntro(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <LinearGradient colors={["#F59E0B", "#D97706"]} style={styles.modalIconBg}>
+                <Ionicons name="search" size={28} color="#fff" />
+              </LinearGradient>
+            </View>
+            <Text style={styles.modalTitle}>Deep Grade</Text>
+            <Text style={styles.modalSubtitle}>
+              Get the most accurate grade possible by capturing your card from multiple angles.
+            </Text>
+
+            <View style={styles.modalSteps}>
+              <View style={styles.modalStepRow}>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>1</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalStepTitle}>Front photo</Text>
+                  <Text style={styles.modalStepDesc}>Straight-on, well-lit shot of the front</Text>
+                </View>
+              </View>
+              <View style={styles.modalStepRow}>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>2</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalStepTitle}>Back photo</Text>
+                  <Text style={styles.modalStepDesc}>Flip the card for a straight-on back shot</Text>
+                </View>
+              </View>
+              <View style={styles.modalStepRow}>
+                <View style={styles.modalStepNum}><Text style={styles.modalStepNumText}>3</Text></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalStepTitle}>Angled photo</Text>
+                  <Text style={styles.modalStepDesc}>Tilt the card to reveal surface scratches and wear</Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.modalNote}>
+              The AI will also auto-crop and zoom into each corner for detailed inspection.
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.modalBtn, { opacity: pressed ? 0.8 : 1 }]}
+              onPress={handleDismissDeepIntro}
+            >
+              <LinearGradient colors={["#F59E0B", "#D97706"]} style={styles.modalBtnGradient}>
+                <Text style={styles.modalBtnText}>Got it</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -477,16 +739,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   headerTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 18,
     color: Colors.text,
+  },
+  deepBadge: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  deepBadgeText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#F59E0B",
+  },
+  modeSelector: {
+    flexDirection: "row",
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  modeTabActive: {
+    backgroundColor: Colors.surfaceLight,
+  },
+  modeTabText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  modeTabTextActive: {
+    color: Colors.text,
+  },
+  modeTabTextDeep: {
+    color: "#F59E0B",
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -564,6 +861,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
+  },
+  deepAnalysisBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  deepAnalysisBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: "#F59E0B",
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
   },
   analysisIconWrap: {
     marginBottom: 16,
@@ -648,5 +962,204 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     color: Colors.text,
+  },
+  deepStepsContainer: {
+    gap: 16,
+  },
+  deepStepIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 40,
+  },
+  deepStepDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    borderWidth: 2,
+    borderColor: Colors.surfaceBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deepStepDotComplete: {
+    backgroundColor: Colors.success,
+    borderColor: Colors.success,
+  },
+  deepStepDotCurrent: {
+    borderColor: "#F59E0B",
+  },
+  deepStepLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: Colors.surfaceBorder,
+    marginHorizontal: 4,
+  },
+  deepStepLineComplete: {
+    backgroundColor: Colors.success,
+  },
+  deepStepNumber: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  deepStepNumberCurrent: {
+    color: "#F59E0B",
+  },
+  deepStepLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 30,
+  },
+  deepStepLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    width: 50,
+    textAlign: "center" as const,
+  },
+  deepStepLabelActive: {
+    fontFamily: "Inter_600SemiBold",
+    color: "#F59E0B",
+  },
+  deepGuidance: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "rgba(245, 158, 11, 0.08)",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.2)",
+  },
+  deepGuidanceTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  deepGuidanceSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  deepCaptureArea: {
+    alignItems: "center",
+  },
+  deepNextBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    alignSelf: "center" as const,
+  },
+  deepNextBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.text,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: Colors.surface,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  modalIconWrap: {
+    marginBottom: 16,
+  },
+  modalIconBg: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    color: Colors.text,
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: "center" as const,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  modalSteps: {
+    width: "100%",
+    gap: 12,
+    marginBottom: 16,
+  },
+  modalStepRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  modalStepNum: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalStepNumText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: "#F59E0B",
+  },
+  modalStepTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  modalStepDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 16,
+  },
+  modalNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: "center" as const,
+    lineHeight: 16,
+    marginBottom: 20,
+  },
+  modalBtn: {
+    width: "100%",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  modalBtnGradient: {
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: "#fff",
   },
 });

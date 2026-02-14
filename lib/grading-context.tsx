@@ -22,6 +22,7 @@ export interface GradingJob {
 interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitDeepGrading: (frontImage: string, backImage: string, angledImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   hasCompletedJob: boolean;
   hasActiveJob: boolean;
@@ -272,6 +273,71 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     }
   }, [pollJobStatus, stopPolling]);
 
+  const submitDeepGrading = useCallback(async (
+    frontImage: string,
+    backImage: string,
+    angledImage: string,
+    recordUsage: (n: number) => Promise<void>,
+  ) => {
+    const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    recordUsageRef.current = recordUsage;
+
+    setActiveJob({
+      id: localJobId,
+      serverJobId: "",
+      frontImage,
+      backImage,
+      status: "processing",
+      startTime: Date.now(),
+    });
+
+    try {
+      const frontBase64 = await getBase64FromUri(frontImage);
+      const backBase64 = await getBase64FromUri(backImage);
+      const angledBase64 = await getBase64FromUri(angledImage);
+
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+
+      const resp = await apiRequest("POST", "/api/deep-grade-job", {
+        frontImage: frontBase64,
+        backImage: backBase64,
+        angledImage: angledBase64,
+      });
+
+      const { jobId: serverJobId } = await resp.json();
+
+      setActiveJob(prev =>
+        prev && prev.id === localJobId
+          ? { ...prev, serverJobId }
+          : prev
+      );
+
+      if (notificationsEnabled.current) {
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = await scheduleGradingNotification(ESTIMATED_GRADE_SECONDS + 30);
+      }
+
+      stopPolling();
+      pollingRef.current = setInterval(() => {
+        pollJobStatus(serverJobId, localJobId, frontImage, backImage);
+      }, POLL_INTERVAL);
+    } catch (error: any) {
+      console.error("Failed to submit deep grading job:", error);
+
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+
+      setActiveJob(prev =>
+        prev && prev.id === localJobId
+          ? { ...prev, status: "failed", error: error.message || "Unknown error" }
+          : prev
+      );
+    }
+  }, [pollJobStatus, stopPolling]);
+
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && activeJob?.status === "processing" && activeJob.serverJobId) {
@@ -299,8 +365,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const hasActiveJob = activeJob?.status === "processing";
 
   const value = useMemo(
-    () => ({ activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob }),
-    [activeJob, submitGrading, dismissJob, hasCompletedJob, hasActiveJob]
+    () => ({ activeJob, submitGrading, submitDeepGrading, dismissJob, hasCompletedJob, hasActiveJob }),
+    [activeJob, submitGrading, submitDeepGrading, dismissJob, hasCompletedJob, hasActiveJob]
   );
 
   return <GradingContext.Provider value={value}>{children}</GradingContext.Provider>;
