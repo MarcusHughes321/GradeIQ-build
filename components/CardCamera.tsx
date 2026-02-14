@@ -77,7 +77,7 @@ export default function CardCamera({ side, isAngled = false, onCapture, onClose 
             setTiltX(tx);
             setTiltY(ty);
             if (isAngled) {
-              const yInRange = Math.abs(ty - ANGLED_TARGET) <= ANGLED_THRESHOLD;
+              const yInRange = Math.abs(ty + ANGLED_TARGET) <= ANGLED_THRESHOLD;
               const xInRange = Math.abs(tx) <= LEVEL_THRESHOLD;
               setIsLevel(xInRange && yInRange);
             } else {
@@ -207,7 +207,7 @@ export default function CardCamera({ side, isAngled = false, onCapture, onClose 
   const levelColor = isLevel ? "#10B981" : isAngled ? angledAccentColor : Colors.primary;
 
   const bubbleX = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, tiltX * 2));
-  const rawBubbleY = isAngled ? -(tiltY - ANGLED_TARGET) * 2 : -tiltY * 2;
+  const rawBubbleY = isAngled ? -(tiltY + ANGLED_TARGET) * 2 : -tiltY * 2;
   const bubbleY = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, rawBubbleY));
 
   return (
@@ -272,7 +272,7 @@ export default function CardCamera({ side, isAngled = false, onCapture, onClose 
                 {accelStatus === "active"
                   ? isLevel
                     ? isAngled ? "Good angle" : "Level"
-                    : isAngled ? `Tilt: ${tiltY}\u00B0 / ${ANGLED_TARGET}\u00B0` : `${tiltX}\u00B0 / ${tiltY}\u00B0`
+                    : isAngled ? `Tilt: ${Math.abs(tiltY)}\u00B0 / ${ANGLED_TARGET}\u00B0` : `${tiltX}\u00B0 / ${tiltY}\u00B0`
                   : accelStatus}
               </Text>
             </View>
@@ -285,7 +285,7 @@ export default function CardCamera({ side, isAngled = false, onCapture, onClose 
               {isAngled
                 ? isLevel
                   ? "Perfect angle! Take the photo"
-                  : "Tilt phone forward ~25\u00B0 to catch the light"
+                  : "Tilt bottom of phone down ~25\u00B0 to catch the light"
                 : isLevel
                   ? "Phone is level. Take the photo!"
                   : "Hold phone flat and parallel to card"}

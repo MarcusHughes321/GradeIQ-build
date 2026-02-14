@@ -78,12 +78,12 @@ const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; ic
   },
   angledFront: {
     title: "Front at an Angle",
-    subtitle: "Keep the card flat on the table. Tilt your phone forward \u2014 the spirit level will guide you to the right angle to catch surface scratches.",
+    subtitle: "Keep the card flat on the table. Tilt the bottom of your phone down \u2014 the spirit level will guide you to the right angle to catch surface scratches.",
     icon: "flashlight-outline",
   },
   angledBack: {
     title: "Back at an Angle",
-    subtitle: "Keep the card flat on the table. Tilt your phone forward \u2014 the spirit level will guide you to reveal scratches on the back surface.",
+    subtitle: "Keep the card flat on the table. Tilt the bottom of your phone down \u2014 the spirit level will guide you to reveal scratches on the back surface.",
     icon: "flashlight-outline",
   },
 };
