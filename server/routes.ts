@@ -1098,17 +1098,95 @@ async function optimizeImageForAI(dataUri: string, maxDim: number = 2048): Promi
     const meta = await sharp(buffer).metadata();
     const w = meta.width || 0;
     const h = meta.height || 0;
-    if (w <= maxDim && h <= maxDim && meta.format === "jpeg" && !isHeif) return dataUri;
+    if (w <= maxDim && h <= maxDim && meta.format === "jpeg" && !isHeif) {
+      const enhanced = await sharp(buffer)
+        .sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })
+        .modulate({ brightness: 1.02 })
+        .linear(1.15, -(128 * 0.15))
+        .jpeg({ quality: 92 })
+        .toBuffer();
+      return `data:image/jpeg;base64,${enhanced.toString("base64")}`;
+    }
     let pipeline = sharp(buffer);
     if (w > maxDim || h > maxDim) {
       pipeline = pipeline.resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true });
     }
+    pipeline = pipeline
+      .sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })
+      .modulate({ brightness: 1.02 })
+      .linear(1.15, -(128 * 0.15));
     const optimized = await pipeline.jpeg({ quality: 92 }).toBuffer();
     return `data:image/jpeg;base64,${optimized.toString("base64")}`;
   } catch (err) {
     console.error("[optimize] Image optimization failed:", err);
     return dataUri;
   }
+}
+
+async function generateCornerCrops(dataUri: string): Promise<string[]> {
+  const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
+  const buffer = Buffer.from(base64Data, "base64");
+  const meta = await sharp(buffer).metadata();
+  const w = meta.width || 0;
+  const h = meta.height || 0;
+  const cropW = Math.round(w * 0.2);
+  const cropH = Math.round(h * 0.2);
+
+  const corners = [
+    { left: 0, top: 0, width: cropW, height: cropH },
+    { left: w - cropW, top: 0, width: cropW, height: cropH },
+    { left: 0, top: h - cropH, width: cropW, height: cropH },
+    { left: w - cropW, top: h - cropH, width: cropW, height: cropH },
+  ];
+
+  const crops = await Promise.all(
+    corners.map(async (region) => {
+      const cropped = await sharp(buffer)
+        .extract(region)
+        .sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })
+        .jpeg({ quality: 92 })
+        .toBuffer();
+      return `data:image/jpeg;base64,${cropped.toString("base64")}`;
+    })
+  );
+
+  return crops;
+}
+
+async function assessImageQuality(dataUri: string): Promise<{
+  blurScore: number;
+  brightnessScore: number;
+  isAcceptable: boolean;
+  warnings: string[];
+}> {
+  const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
+  const buffer = Buffer.from(base64Data, "base64");
+  const warnings: string[] = [];
+
+  const originalStats = await sharp(buffer).greyscale().stats();
+  const brightnessScore = originalStats.channels[0].mean;
+
+  const originalSharpened = await sharp(buffer)
+    .greyscale()
+    .sharpen({ sigma: 2.0, m1: 2.0, m2: 1.0 })
+    .toBuffer();
+  const sharpenedStats = await sharp(originalSharpened).stats();
+  const sharpDiff = Math.abs(sharpenedStats.channels[0].stdev - originalStats.channels[0].stdev);
+  const blurScore = Math.max(0, Math.min(100, 100 - sharpDiff * 2));
+
+  if (blurScore > 70) {
+    warnings.push("Image appears blurry");
+  }
+  if (brightnessScore < 50) {
+    warnings.push("Image too dark");
+  }
+  if (brightnessScore > 220) {
+    warnings.push("Image too bright");
+  }
+
+  const isAcceptable = blurScore <= 70 && brightnessScore >= 50 && brightnessScore <= 220;
+
+  return { blurScore, brightnessScore, isAcceptable, warnings };
 }
 
 function detectCardRegionByVariance(
@@ -2248,7 +2326,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   interface GradingJob {
     id: string;
     status: "processing" | "completed" | "failed";
-    type: "single" | "bulk";
+    type: "single" | "bulk" | "deep";
     result?: any;
     results?: Array<{ status: "completed" | "failed"; result?: any; error?: string }>;
     totalCards?: number;
@@ -2432,6 +2510,167 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     return gradingResult;
   }
+
+  async function performDeepGrading(
+    frontImage: string,
+    backImage: string,
+    angledImage: string,
+    frontCornerCrops?: string[],
+    logPrefix: string = "[deep-grade]"
+  ): Promise<any> {
+    const gradeStartTime = Date.now();
+    const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+    const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+    const rawAngledUrl = angledImage.startsWith("data:") ? angledImage : `data:image/jpeg;base64,${angledImage}`;
+
+    const [frontUrl, backUrl, angledUrl] = await Promise.all([
+      optimizeImageForAI(rawFrontUrl, 2048),
+      optimizeImageForAI(rawBackUrl, 2048),
+      optimizeImageForAI(rawAngledUrl, 2048),
+    ]);
+    const optimizeTime = Date.now() - gradeStartTime;
+    if (optimizeTime > 50) console.log(`${logPrefix} Image optimization took ${optimizeTime}ms`);
+
+    let cornerCrops: string[];
+    if (frontCornerCrops && frontCornerCrops.length === 4) {
+      cornerCrops = frontCornerCrops;
+    } else {
+      console.log(`${logPrefix} Generating corner crops from front image...`);
+      cornerCrops = await generateCornerCrops(frontUrl);
+    }
+
+    const imageContent: any[] = [
+      {
+        type: "text",
+        text: "This is a DEEP GRADE analysis with multiple angles. Image 1: Front (straight-on). Image 2: Back (straight-on). Image 3: Front at an angle (to reveal surface scratches). Images 4-7: Close-up crops of the four corners (top-left, top-right, bottom-left, bottom-right). Use the angled shot to identify surface scratches, scuffs, and wear that may not be visible in the straight-on photos. Use the corner crops to precisely evaluate corner condition.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: Carefully examine the artwork area and card back for ANY scratches, scuffs, or wear marks. Zoom in mentally on the Pokemon illustration and the Pokeball on the back — these areas commonly show scratches that catch light. Report every visible scratch as a defect.",
+      },
+      { type: "image_url", image_url: { url: frontUrl, detail: "high" } },
+      { type: "image_url", image_url: { url: backUrl, detail: "high" } },
+      { type: "image_url", image_url: { url: angledUrl, detail: "high" } },
+      ...cornerCrops.map(crop => ({
+        type: "image_url" as const,
+        image_url: { url: crop, detail: "high" as const },
+      })),
+    ];
+
+    const gradingResponse = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 4096,
+      messages: [
+        { role: "system", content: GRADING_SYSTEM_PROMPT },
+        { role: "user", content: imageContent },
+      ],
+    });
+
+    const aiTime = Date.now() - gradeStartTime;
+    console.log(`${logPrefix} AI call completed in ${aiTime}ms`);
+
+    const content = gradingResponse.choices[0]?.message?.content || "";
+    let gradingResult: any;
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      gradingResult = JSON.parse(jsonMatch[0]);
+    } else {
+      throw new Error("No JSON found in AI response");
+    }
+
+    gradingResult = enforceGradingScales(gradingResult);
+
+    const cardName = gradingResult.cardName || "";
+    const cardNumber = gradingResult.setNumber || "";
+    const setName = gradingResult.setName || "";
+    const setCode = (gradingResult as any).setCode || "";
+
+    console.log(`${logPrefix} AI result: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
+
+    const isAsianCode = /^s\d|^sv\d|^sm\d/i.test(setCode || "");
+    const hasNonLatinName = /[^\u0000-\u007F]/.test(cardName);
+    const isAsianCard = isAsianCode && hasNonLatinName;
+
+    if (isAsianCard) {
+      console.log(`${logPrefix} Asian set code "${setCode}" — trying Bulbapedia database lookup`);
+      const cardNum = parseInt((cardNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
+      const numbersToTry = new Set<number>();
+      if (cardNum > 0) numbersToTry.add(cardNum);
+
+      const boundsPromise = Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]);
+      const lookupPromises = [...numbersToTry].map(num =>
+        lookupJapaneseCard(setCode, num, setName).then(name => ({ num, name }))
+      );
+
+      const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
+      const [detectedFront, detectedBack] = boundsResults;
+      gradingResult.frontCardBounds = detectedFront;
+      gradingResult.backCardBounds = detectedBack;
+
+      const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+      if (foundResults.length > 0) {
+        const bestBulbapedia = foundResults[0];
+        gradingResult.cardName = bestBulbapedia.name;
+        const setTotal = (cardNumber || "").split("/")[1] || "";
+        gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
+        const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
+        if (cachedSetPage) {
+          gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+        }
+      }
+    } else {
+      const [boundsResults, lookupResult] = await Promise.all([
+        Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]),
+        lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
+      ]);
+
+      const [detectedFront, detectedBack] = boundsResults;
+
+      if (lookupResult) {
+        let displayName = lookupResult.cardName;
+        if (displayName && cardName) {
+          const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
+          const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
+          const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
+          const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
+          if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
+            displayName = cardName;
+          }
+        }
+        gradingResult.cardName = displayName;
+        gradingResult.setName = lookupResult.setName;
+        gradingResult.setNumber = lookupResult.setNumber;
+      }
+      gradingResult.frontCardBounds = detectedFront;
+      gradingResult.backCardBounds = detectedBack;
+    }
+
+    if (setCode) {
+      const resolvedSet = resolveSetName(setCode, gradingResult.setName || "");
+      if (resolvedSet !== gradingResult.setName) {
+        console.log(`${logPrefix} Set code correction: "${setCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
+        gradingResult.setName = resolvedSet;
+      }
+    }
+
+    gradingResult = syncCenteringToGrades(gradingResult);
+
+    const totalTime = Date.now() - gradeStartTime;
+    console.log(`${logPrefix} Total time: ${totalTime}ms (AI: ${aiTime}ms, lookup+bounds: ${totalTime - aiTime}ms)`);
+
+    return gradingResult;
+  }
+
+  app.post("/api/check-image-quality", async (req, res) => {
+    try {
+      const { image } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: "Image is required" });
+      }
+      const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+      const quality = await assessImageQuality(uri);
+      res.json(quality);
+    } catch (error: any) {
+      console.error("Error checking image quality:", error);
+      res.status(500).json({ error: error.message || "Failed to check image quality" });
+    }
+  });
 
   app.post("/api/grade-card", async (req, res) => {
     try {
@@ -3197,13 +3436,58 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     }
   });
 
+  app.post("/api/deep-grade-job", async (req, res) => {
+    try {
+      const { frontImage, backImage, angledImage, pushToken } = req.body;
+      if (!frontImage || !backImage || !angledImage) {
+        return res.status(400).json({ error: "Front, back, and angled images are all required" });
+      }
+
+      const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+      console.log(`[deep-grade-job] Creating job ${jobId}, pushToken: ${pushToken ? pushToken.substring(0, 20) + "..." : "none"}`);
+      const job: GradingJob = {
+        id: jobId,
+        status: "processing",
+        type: "deep",
+        pushToken,
+        createdAt: Date.now(),
+      };
+      gradingJobs.set(jobId, job);
+
+      res.json({ jobId });
+
+      (async () => {
+        try {
+          const result = await performDeepGrading(frontImage, backImage, angledImage, undefined, `[deep-grade-job:${jobId}]`);
+          job.status = "completed";
+          job.result = result;
+
+          if (job.pushToken) {
+            const resultName = result.cardName || "your card";
+            sendPushNotification(job.pushToken, "Deep Grading Complete", `${resultName} has been deep graded!`);
+          }
+        } catch (err: any) {
+          console.error(`[deep-grade-job] Job ${jobId} failed:`, err.message);
+          job.status = "failed";
+          job.error = err.message || "Unknown error";
+
+          if (job.pushToken) {
+            sendPushNotification(job.pushToken, "Deep Grading Failed", "There was an error deep grading your card. Please try again.");
+          }
+        }
+      })();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/grade-job/:id", (req, res) => {
     const job = gradingJobs.get(req.params.id);
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
     }
 
-    if (job.type === "single") {
+    if (job.type === "single" || job.type === "deep") {
       res.json({
         id: job.id,
         status: job.status,
