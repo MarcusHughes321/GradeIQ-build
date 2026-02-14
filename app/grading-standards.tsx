@@ -50,6 +50,34 @@ const COMPANIES: CompanySection[] = [
         grade: "NM 7",
         description: "\"A card with just a slight surface wear visible upon close inspection. There may be slight fraying on some corners. Picture focus may be slightly out-of register. A minor printing blemish is acceptable. Slight wax staining is acceptable on the back of the card only. Most of the original gloss is retained. Centering must be approximately 70/30 or better on the front and 90/10 or better on the back.\"",
       },
+      {
+        grade: "EX-MT 6",
+        description: "\"A card may have visible surface wear or a printing defect which does not detract from its overall appeal. A very light scratch may be detected only upon close inspection. Corners may have slightly graduated fraying. Picture focus may be slightly out-of-register. Card may show some loss of original gloss, may have minor wax stain on reverse, may exhibit very slight notching on edges and may also show some off-whiteness on borders. Centering must be 80/20 or better on the front and 90/10 or better on the reverse.\"",
+      },
+      {
+        grade: "EX 5",
+        description: "\"Very minor rounding of the corners is becoming evident. Surface wear or printing defects are more visible. There may be minor chipping on edges. Loss of original gloss will be more apparent. Focus of picture may be slightly out-of-register. Several light scratches may be visible upon close inspection, but do not detract from the appeal of the card. Centering must be 85/15 or better on the front and 90/10 or better on the back.\"",
+      },
+      {
+        grade: "VG-EX 4",
+        description: "\"Corners may be slightly rounded. Surface wear is noticeable but modest. The card may have light scuffing or light scratches. Some original gloss will be retained. Borders may be slightly off-white. A light crease may be visible. Centering must be 85/15 or better on the front and 90/10 or better on the back.\"",
+      },
+      {
+        grade: "VG 3",
+        description: "\"Some rounding of the corners, though not extreme. Some surface wear will be apparent, along with possible light scuffing or light scratches. Focus may be somewhat off-register and edges may exhibit noticeable wear. Much, but not all, of the card's original gloss will be lost. Borders may be somewhat yellowed and/or discolored. A crease may be visible. Centering must be 90/10 or better on the front and back.\"",
+      },
+      {
+        grade: "Good 2",
+        description: "\"Corners show accelerated rounding and surface wear is starting to become obvious. May have scratching, scuffing, light staining, or chipping of enamel on obverse. There may be several creases. Original gloss may be completely absent. Card may show considerable discoloration. Centering must be 90/10 or better on the front and back.\"",
+      },
+      {
+        grade: "Fair 1.5",
+        description: "\"Corners will show extreme wear, possibly affecting framing of the picture. The surface will show advanced stages of wear, including scuffing, scratching, pitting, chipping and staining. The picture will possibly be quite out-of-register and the borders may have become brown and dirty. The card may have one or more heavy creases. In order to achieve a Fair grade, a card must be fully intact.\"",
+      },
+      {
+        grade: "Poor 1",
+        description: "\"Will exhibit many of the same qualities of a PSA 1.5 but the defects may have advanced to such a serious stage that the eye appeal of the card has nearly vanished in its entirety. A Poor card may be missing one or two small pieces, exhibit major creasing that nearly breaks through all the layers of cardboard or it may contain extreme discoloration or dirtiness throughout.\"",
+      },
     ],
     source: "PSA Grading Standards (psacard.com)",
   },
@@ -77,8 +105,36 @@ const COMPANIES: CompanySection[] = [
         description: "Centering: 60/40 or better on front, 65/35 or better on back. Corners: Sharp to the naked eye, slight imperfections under close examination. Edges: Relatively smooth edges, specks of chipping visible. Surface: A few minor print spots; very minor colour/focus imperfections; solid gloss with very minor scratches visible on close inspection only.",
       },
       {
+        grade: "Near Mint-Mint 8.5",
+        description: "Centering: 65/35 or better on front, 75/25 or better on back. Corners: Slight touch of wear visible on close inspection. Edges: Slight roughness, minor chipping. Surface: Minor print spots; very minor colour imperfections; solid gloss with minor scratches visible on close inspection.",
+      },
+      {
         grade: "Near Mint 8",
         description: "Centering: 65/35 or better on front, 80/20 or better on back. Corners: Fuzzy corners but no dings or fraying. Edges: Moderate roughness, moderate chipping or minor notching. Surface: Noticeable print spots; minor border discoloration; relatively solid gloss, minor scratches but no scuffing.",
+      },
+      {
+        grade: "Near Mint 7",
+        description: "Centering: 70/30 or better on front, 85/15 or better on back. Corners: Slightly rounded, minor dings visible. Edges: Noticeable roughness, visible chipping and notching. Surface: Moderate print spots; some border discoloration; gloss diminishing, light scuffing may be visible.",
+      },
+      {
+        grade: "Excellent-Mint 6",
+        description: "Centering: 75/25 or better on front, 90/10 or better on back. Corners: Rounded with moderate wear. Edges: Heavy roughness, noticeable chipping. Surface: Noticeable wear; moderate border discoloration; gloss noticeably diminished, visible scuffing.",
+      },
+      {
+        grade: "Excellent 5",
+        description: "Centering: 80/20 or better. Corners: Rounding and wear clearly evident. Edges: Significant roughness and chipping. Surface: Significant wear visible; borders may be off-white; loss of original gloss; scratches and scuffing apparent.",
+      },
+      {
+        grade: "Very Good 4-3",
+        description: "Cards show obvious wear. Corners are noticeably rounded. Surface may exhibit creases, scratches, and staining. Edges show heavy wear with major chipping. Significant loss of gloss and possible discoloration throughout.",
+      },
+      {
+        grade: "Good 2",
+        description: "Heavy wear throughout. Corners heavily rounded. Surface shows significant damage including heavy creasing, staining, and scratching. Edges heavily worn. Card may show major discoloration.",
+      },
+      {
+        grade: "Poor 1",
+        description: "Extreme wear and damage throughout. Card may have catastrophic flaws such as major tears, missing pieces, or extreme damage. Card is intact but barely presentable.",
       },
     ],
     source: "Beckett Grading Standards (beckett.com)",
@@ -108,7 +164,31 @@ const COMPANIES: CompanySection[] = [
       },
       {
         grade: "Near Mint 7",
-        description: "\"A card that has slight wear which is more visible than the Near Mint - Mint 8, including more noticeable damage on edges, corners or surfaces, such as whitening. This may include more perceptible printing defects. Centering must be greater than 75/25 on the front, and 80/20 on the rear.\"",
+        description: "\"A card that has slight wear which is more visible than the Near Mint - Mint 8, including more noticeable damage on edges, corners or surfaces, such as whitening. This may include more perceptible printing defects, and the centering for a card must be greater than 75/25 for any opposite pair on the front, and 80/20 for any opposite pair on the rear of the card.\"",
+      },
+      {
+        grade: "Excellent-Mint 6",
+        description: "\"A card may have more noticeable damage or printing defects. There may be more than one area of whitening on the corners or edges, and these areas may not be sharp. The centering for a card must be greater than 80/20 for any opposite pair on the front, and 80/20 for any opposite pair on the rear of the card.\"",
+      },
+      {
+        grade: "Excellent 5",
+        description: "\"May show more visible printing defects and damage. Corners may be misshapen and whitening / fraying and edges may be more noticeable. Scratches may be obstructing the focal points of a card, including the artwork or text. The centering for a card must be greater than 80/20 for any opposite pair on the front, and 80/20 for any opposite pair on the rear of the card.\"",
+      },
+      {
+        grade: "Very Good 4",
+        description: "\"A card may be starting to lose integrity of the card in a single area. This card may exhibit moderate scratching throughout key focal points of the card, for example the artwork or text. Corners may be misshapen and edges may be warped, or not sharp. The centering for a card must be greater than 80/20 for any opposite pair on the front, and 80/20 for any opposite pair on the rear of the card.\"",
+      },
+      {
+        grade: "Good 3",
+        description: "\"A card may be starting to lose integrity of the card in multiple areas. This card may exhibit moderate scratching throughout key focal points of the card, for example the artwork or text. Corners may be misshapen and edges may be warped, or not sharp. There may be very obvious defects to any of the key areas of the card. The centering for a card must be greater than 85/15 for any opposite pair on the front, and 85/15 for any opposite pair on the rear of the card.\"",
+      },
+      {
+        grade: "Fair 2",
+        description: "\"A card may have lost integrity in the card in any one area. This card may exhibit heavy scratching throughout key focal points of the card, for example the artwork or text. Corners may be misshapen and edges may be warped, or not sharp. There may be very obvious defects to any of the key areas of the card. The centering for a card must be greater than 85/15 for any opposite pair on the front, and 85/15 for any opposite pair on the rear of the card.\"",
+      },
+      {
+        grade: "Poor 1",
+        description: "\"A card may have lost integrity in the card in multiple areas. This card may exhibit heavy scratching throughout key focal points of the card, for example the artwork or text. Corners may be misshapen and edges may be warped, or not sharp. There may be very obvious defects to any of the key areas of the card. The centering for a card must be greater than 85/15 for any opposite pair on the front, and 85/15 for any opposite pair on the rear of the card.\"",
       },
     ],
     source: "Ace Grading Scale (acegrading.com)",
@@ -126,19 +206,79 @@ const COMPANIES: CompanySection[] = [
     keyGrades: [
       {
         grade: "Pristine 10 (Score 990-1000)",
-        description: "The TAG Pristine exceeds the industry standard for a Gem Mint 10 and represents less than 1% of the cards graded by TAG. Reserved for cards with only Non-Human Observable Defects (NHODs).",
+        description: "\"The TAG Pristine exceeds the industry standard for a Gem Mint 10 and represents less than 1% of the cards TAG'd.\"",
       },
       {
         grade: "Gem Mint 10 (Score 950-989)",
-        description: "Industry-standard Gem Mint grade. Cards display very minor defects under high-resolution imaging. Four sharp corners with minor fill/fray artifacts. Very minor surface wear.",
+        description: "Industry-standard Gem Mint grade. The highest grade most cards will receive.",
       },
       {
         grade: "Mint 9 (Score 900-949)",
-        description: "Sharp and square corners, minor edge fill/fray visible under high-resolution imaging. Very minor surface wear, small pits, light scratches. Multiple print lines and minor scuffing allowed.",
+        description: "A card in superb condition with only very minor imperfections detectable under high-resolution imaging.",
+      },
+      {
+        grade: "NM-MT+ 8.5 (Score 850-899)",
+        description: "A card that falls between Near Mint-Mint and Mint, showing high-end qualities for an 8 grade.",
       },
       {
         grade: "NM-MT 8 (Score 800-849)",
-        description: "Corners may start showing minor wear. Visible edge wear or light chipping on multiple edges. Multiple surface defects, print lines, very minor scuffing.",
+        description: "A high-quality card with only minor wear visible. Corners remain sharp with very slight imperfections.",
+      },
+      {
+        grade: "NM+ 7.5 (Score 750-799)",
+        description: "A card between Near Mint and Near Mint-Mint, showing qualities slightly above the NM standard.",
+      },
+      {
+        grade: "NM 7 (Score 700-749)",
+        description: "A card with slight surface wear visible upon close inspection. Minor fraying may be present on corners.",
+      },
+      {
+        grade: "EX-MT+ 6.5 (Score 650-699)",
+        description: "A card between Excellent-Mint and Near Mint, with visible but moderate wear.",
+      },
+      {
+        grade: "EX-MT 6 (Score 600-649)",
+        description: "Visible surface wear or printing defects. Corners may show graduated fraying. Some loss of original gloss.",
+      },
+      {
+        grade: "EX+ 5.5 (Score 550-599)",
+        description: "A card between Excellent and Excellent-Mint showing moderate wear across multiple areas.",
+      },
+      {
+        grade: "EX 5 (Score 500-549)",
+        description: "Minor rounding of corners evident. More visible surface wear and printing defects. Minor chipping on edges.",
+      },
+      {
+        grade: "VG-EX+ 4.5 (Score 450-499)",
+        description: "A card between Very Good-Excellent and Excellent with noticeable wear throughout.",
+      },
+      {
+        grade: "VG-EX 4 (Score 400-449)",
+        description: "Corners slightly rounded. Noticeable surface wear including light scuffing or scratches. Light creases may be visible.",
+      },
+      {
+        grade: "VG+ 3.5 (Score 350-399)",
+        description: "A card between Very Good and Very Good-Excellent with significant visible wear.",
+      },
+      {
+        grade: "VG 3 (Score 300-349)",
+        description: "Rounded corners, surface wear apparent with possible creasing and scratches. Noticeable loss of gloss.",
+      },
+      {
+        grade: "Good+ 2.5 (Score 250-299)",
+        description: "A card between Good and Very Good with heavy wear throughout.",
+      },
+      {
+        grade: "Good 2 (Score 200-249)",
+        description: "Accelerated corner rounding, obvious surface wear. May have multiple creases and significant discoloration.",
+      },
+      {
+        grade: "Fair 1.5 (Score 150-199)",
+        description: "Extreme corner wear, advanced surface damage. Heavy creases possible. Card must still be fully intact.",
+      },
+      {
+        grade: "Poor 1 (Score 100-149)",
+        description: "Severe damage throughout. Card may be missing small pieces, exhibit major creasing, or show extreme discoloration.",
       },
     ],
     source: "TAG Grading Scale (taggrading.com)",
@@ -163,12 +303,76 @@ const COMPANIES: CompanySection[] = [
         description: "\"A card that has received a 10 grade overall; however, one of the grading criteria does not meet the requirements of a Pristine 10. Corners will appear perfect to the naked eye and Mint+ under 10x magnification. The surface is free of print spots and should also display perfect gloss, devoid of any surface flaws. Centering is not to exceed approximately 55/45, and reverse centering is not to exceed 75/25.\"",
       },
       {
+        grade: "Mint+ 9.5",
+        description: "\"A card that displays premium eye appeal for a Mint card. Qualities such as exceptional centering, surface qualities/color or other key elements can elevate a card to a Mint+ grade.\"",
+      },
+      {
         grade: "Mint 9",
-        description: "\"A Mint card has four sharp corners with only minor wear visible. Slight minor flaws on the edges may be visible. The surface must have all original gloss; however, a small number of specks or one minor spot or surface defect is allowed. For TCG cards, cards will have only a few minor manufacturing or handling defects.\"",
+        description: "\"A Mint card has four sharp corners with only minor wear visible. Slight minor flaws on the edges may be visible. The surface must have all original gloss; however, a small number of specks or one minor spot or surface defect is allowed. For TCG cards, cards will have only a few minor manufacturing or handling defects. For sports and non-sports cards, centering must be 60/40 or better for the front of the card, and 90/10 for the back.\"",
+      },
+      {
+        grade: "NM/Mint+ 8.5",
+        description: "\"A card graded 8.5 has relatively smooth edges with only minor touches of wear. It must have original color borders and gloss. One of the following very minor flaws is allowed: corners are sharp to the naked eye but reveal slight imperfections under magnification; a small amount of minor print spots; subtle focus imperfections of the image. A very slight diamond cut is allowed. TCG cards could show small handling defects.\"",
       },
       {
         grade: "NM/Mint 8",
-        description: "\"A card graded 8 must have relatively smooth edges with only minor touches of wear. It must have original color borders and gloss. One of the following very minor flaws is allowed: corners are sharp to the naked eye but reveal slight imperfections under magnification; a small amount of minor print spots; subtle focus imperfections of the image.\"",
+        description: "\"A card graded 8 must have relatively smooth edges with only minor touches of wear. It must have original color borders and gloss. One of the following very minor flaws is allowed: corners are sharp to the naked eye but reveal slight imperfections under magnification; a small amount of minor print spots; subtle focus imperfections of the image. For sports and non-sports cards, centering must be 65/35 or better.\"",
+      },
+      {
+        grade: "Near Mint+ 7.5",
+        description: "\"A card graded 7.5 may also have a touch of wear on two or three corners or slightly rough edges. The image may be slightly out of register. A slight diamond cut is allowed, and very slight wax staining is allowed on the reverse. TCG cards could have a moderate defect or a number of small handling defects.\"",
+      },
+      {
+        grade: "Near Mint 7",
+        description: "\"A card graded 7 may also have a touch of wear on three or more corners and/or slightly rough edges. The image may be slightly out of register. A slight diamond cut is allowed, and very slight wax staining is allowed on the reverse. For sports and non-sports cards, centering should be 70/30 or better.\"",
+      },
+      {
+        grade: "Ex/NM+ 6.5",
+        description: "\"For a grade of 6.5, no more than one slightly \"dinged\" corner is allowed, or no more than two of the following flaws: two or three fuzzy corners; slightly rough edges; noticeable print spots. A moderate diamond cut is allowed, and light wax staining on the front is acceptable.\"",
+      },
+      {
+        grade: "Ex/NM 6",
+        description: "\"For a grade of 6, no more than one \"dinged\" corner is allowed or no more than two of the following flaws: two or three fuzzy corners; slightly rough edges; noticeable print spots. A moderate diamond cut is allowed, and wax staining on the front is acceptable. For sports and non-sports cards, centering may be no worse than 75/25.\"",
+      },
+      {
+        grade: "Excellent+ 5.5",
+        description: "\"Corners may exhibit light \"fuzzyness\" and very minor rounding. The corners may come to a point but may have one or two \"dinged\" corners. There may also be chipping on the edges, minor border discoloration, noticeable print spots and/or color or focus imperfections on the surface.\"",
+      },
+      {
+        grade: "Excellent 5",
+        description: "\"Corners may exhibit \"fuzzyness\" and very minor rounding. The corners may come to a point but may have two to three \"dinged\" corners. There may also be chipping on the edges, minor border discoloration, noticeable print spots and/or color or focus imperfections on the surface.\"",
+      },
+      {
+        grade: "VG/Ex+ 4.5",
+        description: "\"Corners may display slight rounding. Noticeable surface flaws may include scuffing, scratches or one light crease. While some original surface gloss may be visible, the borders may be off-white, and a small amount of minor staining is allowed. For sports and non-sports cards, the centering is 85/15.\"",
+      },
+      {
+        grade: "VG/Ex 4",
+        description: "\"Corners may display slight rounding. Noticeable surface flaws may include scuffing, scratches and one or more light creases. While some original surface gloss may be visible, borders may be off-white, and some minor staining is allowed.\"",
+      },
+      {
+        grade: "Very Good+ 3.5",
+        description: "\"May have 90/10 centering and four rounded corners, but not extreme rounding. The surface may exhibit one moderate crease or more than one light crease, and may also display scuffing or scratches and loss of original gloss. The edges may have moderate wear.\"",
+      },
+      {
+        grade: "Very Good 3",
+        description: "\"Can have four rounded corners, but not extreme rounding. The surface may exhibit one moderate crease or more than one light crease, and may also display scuffing or scratches and loss of original gloss. The edges may have moderate wear, and heavier staining of the stock can be visible on both the front and back.\"",
+      },
+      {
+        grade: "Good+ 2.5",
+        description: "\"May have heavier creasing, but the creasing does not travel across the surface from edge to edge. The card may also have some surface damage such as one small writing mark on the back. An extremely heavy diamond cut resulting in a near miscut is allowed.\"",
+      },
+      {
+        grade: "Good 2",
+        description: "\"Can have heavier creasing that may travel across the surface of the card from edge to edge. The card may also have some surface damage such as a small amount of writing on the front or back.\"",
+      },
+      {
+        grade: "Fair 1.5",
+        description: "\"Can have one catastrophic flaw such as a staple hole, small area of missing surface, severe creasing and/or writing on the surface. The card may be miscut.\"",
+      },
+      {
+        grade: "Poor 1",
+        description: "\"May suffer from major surface damage such as severe creasing that breaks the surface, and/or it may be missing a small portion of the cardstock itself such as a portion of the corner that has been torn away from the card. The card will have multiple catastrophic flaws.\"",
       },
     ],
     source: "CGC Cards Grading Scale (cgccards.com)",
@@ -277,7 +481,7 @@ export default function GradingStandardsScreen() {
                   </View>
 
                   <View style={styles.gradeSection}>
-                    <Text style={[styles.gradeSectionTitle, { color: company.color }]}>Key Grade Definitions</Text>
+                    <Text style={[styles.gradeSectionTitle, { color: company.color }]}>Grade Definitions</Text>
                     {company.keyGrades.map((g, i) => (
                       <View key={i} style={styles.gradeItem}>
                         <Text style={styles.gradeName}>{g.grade}</Text>
