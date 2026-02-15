@@ -151,12 +151,25 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
         }
 
         if (deepGradeFlow) {
+          const msg = CAPTURE_MESSAGES[Math.floor(Math.random() * CAPTURE_MESSAGES.length)];
+          setFeedbackMessage(msg);
           setShowCapturedFlash(true);
-          RNAnimated.sequence([
-            RNAnimated.timing(flashOpacity, { toValue: 1, duration: 100, useNativeDriver: true }),
-            RNAnimated.timing(flashOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+          feedbackTextOpacity.setValue(0);
+          feedbackScale.setValue(0.7);
+          RNAnimated.parallel([
+            RNAnimated.timing(flashOpacity, { toValue: 0.35, duration: 200, useNativeDriver: true }),
+            RNAnimated.spring(feedbackScale, { toValue: 1, friction: 6, tension: 120, useNativeDriver: true }),
+            RNAnimated.timing(feedbackTextOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
           ]).start(() => {
-            setShowCapturedFlash(false);
+            setTimeout(() => {
+              RNAnimated.parallel([
+                RNAnimated.timing(flashOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+                RNAnimated.timing(feedbackTextOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+              ]).start(() => {
+                setShowCapturedFlash(false);
+                setFeedbackMessage("");
+              });
+            }, 500);
           });
         }
 
@@ -282,9 +295,16 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
 
       {showCapturedFlash && (
         <RNAnimated.View
-          style={[StyleSheet.absoluteFill, { backgroundColor: "#fff", opacity: flashOpacity, zIndex: 200 }]}
+          style={[StyleSheet.absoluteFill, { backgroundColor: "#10B981", opacity: flashOpacity, zIndex: 200, alignItems: "center", justifyContent: "center" }]}
           pointerEvents="none"
-        />
+        >
+          <RNAnimated.View style={{ opacity: feedbackTextOpacity, transform: [{ scale: feedbackScale }], alignItems: "center", gap: 8 }}>
+            <View style={styles.feedbackCheckCircle}>
+              <Ionicons name="checkmark" size={32} color="#fff" />
+            </View>
+            <Text style={styles.feedbackText}>{feedbackMessage}</Text>
+          </RNAnimated.View>
+        </RNAnimated.View>
       )}
 
       <View style={[styles.overlay, { paddingTop: insets.top + 12 }]} pointerEvents="box-none">
@@ -689,5 +709,19 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.textMuted,
+  },
+  feedbackCheckCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feedbackText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    color: "#fff",
+    textAlign: "center",
   },
 });
