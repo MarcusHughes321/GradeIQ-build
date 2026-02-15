@@ -138,41 +138,55 @@ function SquareCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps &
   );
 }
 
-function StoryCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
-  const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies);
+function StoryCard({ grading, enabledCompanies, cardValue, showMarketData, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
+  const { result, displaySetName, displaySetNumber, companies, subGrades, rawValue } = useCardData(grading, enabledCompanies, cardValue);
+  const hasValues = showMarketData && cardValue && companies.some(c => c.value && !c.value.includes("No value"));
   return (
-    <View style={{ width: 360, height: 640, backgroundColor: "#0A0A0A", padding: 30, justifyContent: "space-between", alignItems: "center" }}>
-      <LogoHeader fontSize={32} />
-      <View style={{ width: 200, height: 280, borderRadius: 12, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-        <RNImage source={{ uri: grading.frontImage }} style={{ width: 200, height: 280 }} resizeMode="contain" onLoad={onImageLoad} />
+    <View style={{ width: 360, height: 640, backgroundColor: "#0A0A0A", padding: 24, justifyContent: "space-between", alignItems: "center" }}>
+      <LogoHeader fontSize={26} />
+      <View style={{ flexDirection: "row", gap: 16, width: "100%", alignItems: "center" }}>
+        <View style={{ width: 120, height: 168, borderRadius: 10, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
+          <RNImage source={{ uri: grading.frontImage }} style={{ width: 120, height: 168 }} resizeMode="contain" onLoad={onImageLoad} />
+        </View>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 18, color: "#FFFFFF", lineHeight: 23 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
+          {displaySetName ? <Text style={{ fontFamily: "Inter_400Regular", fontSize: 13, color: "#A0A0A0" }} numberOfLines={1}>{displaySetName}</Text> : null}
+          {displaySetNumber ? <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#666666" }}>{displaySetNumber}</Text> : null}
+          {rawValue && showMarketData && !rawValue.includes("No value") ? (
+            <View style={{ marginTop: 6, backgroundColor: "#1A1A1A", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 10, color: "#666" }}>Raw Value</Text>
+              <Text style={{ fontFamily: "Inter_700Bold", fontSize: 15, color: "#FFFFFF" }}>{rawValue}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
-      <View style={{ alignItems: "center", gap: 6, width: "100%" }}>
-        <Text style={{ fontFamily: "Inter_700Bold", fontSize: 22, color: "#FFFFFF", textAlign: "center", lineHeight: 28 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
-        {displaySetName ? <Text style={{ fontFamily: "Inter_400Regular", fontSize: 14, color: "#A0A0A0", textAlign: "center" }} numberOfLines={1}>{displaySetName}</Text> : null}
-        {displaySetNumber ? <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 12, color: "#666666" }}>{displaySetNumber}</Text> : null}
-      </View>
-      <View style={{ flexDirection: "row", justifyContent: "space-around", width: "100%" }}>
+      <View style={{ width: "100%", gap: 8 }}>
         {companies.map((c) => (
-          <View key={c.key} style={{ alignItems: "center", gap: 4 }}>
-            <CompanyLabel company={c.key} fontSize={16} fontFamily="Inter_600SemiBold" />
-            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 28, color: getGradientColor(c.grade) }}>
+          <View key={c.key} style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#111111", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}>
+            <View style={{ width: 50 }}>
+              <CompanyLabel company={c.key} fontSize={14} fontFamily="Inter_600SemiBold" />
+            </View>
+            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 24, color: getGradientColor(c.grade), flex: 1 }}>
               {c.grade % 1 === 0 ? c.grade.toString() : c.grade.toFixed(1)}
             </Text>
+            {hasValues && c.value && !c.value.includes("No value") ? (
+              <Text style={{ fontFamily: "Inter_500Medium", fontSize: 13, color: "#A0A0A0" }}>{c.value}</Text>
+            ) : null}
           </View>
         ))}
       </View>
       <View style={{ height: 1, backgroundColor: "#2A2A2A", width: "100%" }} />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", width: "100%" }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", width: "100%", paddingHorizontal: 8 }}>
         {subGrades.map((s) => (
           <View key={s.name} style={{ alignItems: "center", gap: 3 }}>
-            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: "#666666" }}>{s.name}</Text>
-            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 18, color: getGradientColor(s.grade) }}>{s.grade}</Text>
+            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "#666666" }}>{s.name}</Text>
+            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, color: getGradientColor(s.grade) }}>{s.grade}</Text>
           </View>
         ))}
       </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, width: "100%" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, width: "100%" }}>
         <View style={{ flex: 1, height: 1, backgroundColor: "#2A2A2A" }} />
-        <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: "#666666" }}>Graded with Grade.IQ</Text>
+        <Text style={{ fontFamily: "Inter_500Medium", fontSize: 10, color: "#666666" }}>Graded with Grade.IQ</Text>
         <View style={{ flex: 1, height: 1, backgroundColor: "#2A2A2A" }} />
       </View>
     </View>
