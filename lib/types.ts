@@ -3,11 +3,24 @@ export interface SubGrade {
   notes: string;
 }
 
+export interface SavedLinePositions {
+  outerLeftPct: number;
+  innerLeftPct: number;
+  innerRightPct: number;
+  outerRightPct: number;
+  outerTopPct: number;
+  innerTopPct: number;
+  innerBottomPct: number;
+  outerBottomPct: number;
+}
+
 export interface CenteringMeasurement {
   frontLeftRight: number;
   frontTopBottom: number;
   backLeftRight: number;
   backTopBottom: number;
+  frontLinePositions?: SavedLinePositions;
+  backLinePositions?: SavedLinePositions;
 }
 
 export interface CardBounds {
