@@ -1915,26 +1915,40 @@ function detectBoundsAtResolution(
   };
 
   const cardWidthPx = rightCol - leftCol;
+  const cardHeightPx = bottomRow - topRow;
   const angleBand = Math.max(3, Math.round(cardWidthPx * 0.04));
-  const cardTop10 = Math.round(topRow + (bottomRow - topRow) * 0.1);
-  const cardBot90 = Math.round(topRow + (bottomRow - topRow) * 0.9);
+  const hAngleBand = Math.max(3, Math.round(cardHeightPx * 0.04));
+  const cardTop10 = Math.round(topRow + cardHeightPx * 0.1);
+  const cardBot90 = Math.round(topRow + cardHeightPx * 0.9);
+  const cardLeft10 = Math.round(leftCol + cardWidthPx * 0.1);
+  const cardRight90 = Math.round(leftCol + cardWidthPx * 0.9);
 
   let angleDeg = 0;
   if (cardWidthPx > sw * 0.1) {
     const leftAngle = extractAngleFromEdge(leftCol, true, angleBand, cardTop10, cardBot90);
     const rightAngle = extractAngleFromEdge(rightCol, true, angleBand, cardTop10, cardBot90);
+    const topAngleRaw = extractAngleFromEdge(topRow, false, hAngleBand, cardLeft10, cardRight90);
+    const bottomAngleRaw = extractAngleFromEdge(bottomRow, false, hAngleBand, cardLeft10, cardRight90);
+    const topAngle = -topAngleRaw;
+    const bottomAngle = -bottomAngleRaw;
 
-    if (Math.abs(leftAngle) < 5 && Math.abs(rightAngle) < 5) {
-      if (Math.abs(leftAngle - rightAngle) < 2) {
-        angleDeg = (leftAngle + rightAngle) / 2;
-      } else {
-        angleDeg = Math.abs(leftAngle) < Math.abs(rightAngle) ? leftAngle : rightAngle;
-      }
-    } else if (Math.abs(leftAngle) < 5) {
-      angleDeg = leftAngle;
-    } else if (Math.abs(rightAngle) < 5) {
-      angleDeg = rightAngle;
+    const validAngles: number[] = [];
+    if (Math.abs(leftAngle) < 8) validAngles.push(leftAngle);
+    if (Math.abs(rightAngle) < 8) validAngles.push(rightAngle);
+    if (Math.abs(topAngle) < 8) validAngles.push(topAngle);
+    if (Math.abs(bottomAngle) < 8) validAngles.push(bottomAngle);
+
+    if (validAngles.length >= 2) {
+      validAngles.sort((a, b) => a - b);
+      const trimmed = validAngles.length >= 4
+        ? validAngles.slice(1, -1)
+        : validAngles;
+      angleDeg = trimmed.reduce((s, v) => s + v, 0) / trimmed.length;
+    } else if (validAngles.length === 1) {
+      angleDeg = validAngles[0];
     }
+
+    console.log(`[detect-angle] L=${leftAngle.toFixed(2)} R=${rightAngle.toFixed(2)} T=${topAngle.toFixed(2)} B=${bottomAngle.toFixed(2)} → combined=${angleDeg.toFixed(2)}°`);
   }
 
   const detW = rightCol - leftCol;
@@ -3471,7 +3485,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
       const initialBounds = await detectCardBounds(uri);
       const angle = initialBounds.angleDeg ?? 0;
 
-      if (Math.abs(angle) > 0.3) {
+      if (Math.abs(angle) > 0.15) {
         try {
           const rotBase64 = uri.replace(/^data:image\/\w+;base64,/, "");
           const rotBuffer = Buffer.from(rotBase64, "base64");
