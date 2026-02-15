@@ -2,53 +2,30 @@ import type { Express } from "express";
 import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
 import sharp from "sharp";
+import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt } from "./pokemon-sets";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
-const SET_CODE_TO_NAME: Record<string, string> = {
-  "s6a": "Eevee Heroes", "s6b": "Fusion Arts", "s8": "Fusion Arts",
-  "s8a": "25th Anniversary Collection", "s8b": "VMAX Climax",
-  "s9": "Star Birth", "s9a": "Battle Region",
-  "s10": "Time Gazer / Space Juggler", "s10a": "Dark Phantasma", "s10b": "Pokemon GO",
-  "s11": "Lost Abyss", "s11a": "Incandescent Arcana",
-  "s12": "Silver Tempest", "s12a": "VSTAR Universe",
-  "sv1": "Scarlet ex", "sv1a": "Triplet Beat", "sv2": "Snow Hazard / Clay Burst",
-  "sv2a": "Pokemon Card 151", "sv3": "Ruler of the Black Flame",
-  "sv3a": "Raging Surf", "sv4": "Shiny Treasure ex", "sv4a": "Ancient Roar / Future Flash",
-  "sv5k": "Wild Force", "sv5m": "Cyber Judge",
-  "sv6": "Night Wanderer", "sv6a": "Transformation Mask",
-  "sv7": "Stellar Crown", "sv7a": "Paradise Dragona",
-  "sv8": "Super Electric Breaker", "sv8a": "Terastal Fest ex",
-  "s1a": "VMAX Rising", "s1h": "Shield", "s1w": "Sword",
-  "s2": "Rebellion Crash", "s2a": "Explosive Walker",
-  "s3": "Infinity Zone", "s3a": "Legendary Heartbeat",
-  "s4": "Amazing Volt Tackle", "s4a": "Shiny Star V",
-  "s5a": "Matchless Fighters", "s5i": "Single Strike / Rapid Strike",
-  "s5r": "Rapid Strike Master", "s6h": "Silver Lance", "s6k": "Jet Black Spirit",
-  "s7d": "Skyscraping Perfection", "s7r": "Blue Sky Stream",
-  "pflen": "Phantasmal Flames", "sfa": "Surging Sparks",
-  "paf": "Paldean Fates", "obf": "Obsidian Flames",
-  "pal": "Paldea Evolved", "svi": "Scarlet & Violet",
-  "crz": "Crown Zenith", "sit": "Silver Tempest",
-  "lor": "Lost Origin", "asr": "Astral Radiance",
-  "brs": "Brilliant Stars", "fst": "Fusion Strike",
-  "evs": "Evolving Skies", "cre": "Chilling Reign",
-  "bst": "Battle Styles", "shf": "Shining Fates",
-  "viv": "Vivid Voltage", "daa": "Darkness Ablaze",
-  "rcl": "Rebel Clash", "ssh": "Sword & Shield",
-  "pre": "Prismatic Evolutions", "tef": "Temporal Forces",
-  "twm": "Twilight Masquerade", "scr": "Stellar Crown",
-  "ssp": "Surging Sparks", "mev": "Mythical Island",
-  "sm1": "Sun & Moon", "sm2": "Guardians Rising",
-  "sm3": "Burning Shadows", "sm4": "Crimson Invasion",
-  "sm5": "Ultra Prism", "sm6": "Forbidden Light",
-  "sm7": "Celestial Storm", "sm8": "Lost Thunder",
-  "sm9": "Team Up", "sm10": "Unbroken Bonds",
-  "sm11": "Unified Minds", "sm12": "Cosmic Eclipse",
-};
+const SET_CODE_TO_NAME: Record<string, string> = {};
+for (const [code, name] of Object.entries(ENGLISH_SETS)) {
+  SET_CODE_TO_NAME[code.toLowerCase()] = name;
+}
+for (const [code, name] of Object.entries(JAPANESE_SETS)) {
+  SET_CODE_TO_NAME[code.toLowerCase()] = name;
+}
+for (const [code, name] of Object.entries(KOREAN_SETS)) {
+  if (!SET_CODE_TO_NAME[code.toLowerCase()]) {
+    SET_CODE_TO_NAME[code.toLowerCase()] = name;
+  }
+}
+for (const [code, name] of Object.entries(CHINESE_SETS)) {
+  if (!SET_CODE_TO_NAME[code.toLowerCase()]) {
+    SET_CODE_TO_NAME[code.toLowerCase()] = name;
+  }
+}
 
 function resolveSetName(setCode: string, aiSetName: string): string {
   if (!setCode) return aiSetName;
@@ -391,6 +368,8 @@ async function lookupJapaneseCard(setCode: string, cardNumber: number, aiSetName
   return null;
 }
 
+const SET_REFERENCE = generateSetReferenceForPrompt();
+
 const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
 
 IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
@@ -546,14 +525,24 @@ Step 2: READ THE CARD NUMBER AND SET CODE
   * If partially obscured, use visible digits + set symbol to narrow it down
 
 Step 3: READ THE SET CODE AND IDENTIFY THE SET
-- READ the actual set code printed on the card near the card number. This is the SHORT ALPHANUMERIC CODE like "s8b", "sv2a", "PFLen", "SV5K", etc.
+- READ the actual set code printed on the card near the card number. This is the SHORT ALPHANUMERIC CODE like "s8b", "sv2a", "PFL", "SV5K", etc.
 - The set code is your PRIMARY source of truth for identifying the set. Do NOT guess the set from the Pokemon name alone.
-- Report the set code EXACTLY as printed (e.g., "PFLen", "s8b", "sv2a", "SV5K").
-- Use this set code mapping to determine the English set name:
-  Japanese/Korean/Chinese sets: s6a = Eevee Heroes, s6b = Fusion Arts, s8 = Fusion Arts, s8a = 25th Anniversary Collection, s8b = VMAX Climax, s9 = Star Birth, s9a = Battle Region, s10 = Time Gazer/Space Juggler, s11 = Lost Abyss, s11a = Incandescent Arcana, s12 = Silver Tempest, s12a = VSTAR Universe, sv1 = Scarlet ex, sv2a = Pokemon Card 151, sv3 = Ruler of the Black Flame, SV5K = Wild Force, SV5M = Cyber Judge, sv6 = Night Wanderer, sv7 = Stellar Crown, sv8 = Super Electric Breaker
-  English sets: PFLen = Phantasmal Flames, SFA = Surging Sparks, PAF = Paldean Fates, OBF = Obsidian Flames, PAL = Paldea Evolved, SVI = Scarlet & Violet, CRZ = Crown Zenith, SIT = Silver Tempest, LOR = Lost Origin, ASR = Astral Radiance, BRS = Brilliant Stars, FST = Fusion Strike, EVS = Evolving Skies, CRE = Chilling Reign, BST = Battle Styles, SHF = Shining Fates, VIV = Vivid Voltage, DAA = Darkness Ablaze, RCL = Rebel Clash, SSH = Sword & Shield, PRE = Prismatic Evolutions, TEF = Temporal Forces, TWM = Twilight Masquerade, SCR = Stellar Crown, SSP = Surging Sparks
+- Report the set code EXACTLY as printed (e.g., "PFL", "PFLen", "s8b", "sv2a", "SV5K").
+- IMPORTANT: Do NOT rely on your training data for set names — your knowledge may be outdated or wrong. Use ONLY the set code mapping below.
+- For OLDER CARDS (WOTC era through EX era) that may not have a printed set code, identify the set by the SET SYMBOL (the small icon near the card number) combined with the card number range and card design/border style. Here are key set symbols:
+  * Base Set: no symbol (1st edition has "1st Edition" stamp)
+  * Jungle: palm tree/flower, Fossil: skeletal claw, Team Rocket: R, Gym Heroes: arena, Gym Challenge: hexagon
+  * Neo Genesis: stars, Neo Discovery: fossil/ruins, Neo Revelation: shining, Neo Destiny: dark star
+  * Expedition: e-card reader, Aquapolis: e-card H, Skyridge: e-card H (different border)
+  * EX Ruby & Sapphire through EX Power Keepers: various symbols with "EX" branding
+
+- Use this COMPREHENSIVE set code mapping to determine the set name:
+
+${SET_REFERENCE}
+
 - If the set code is not in the mapping above, still report the exact set code — do NOT invent a set name.
-- Consider the card's era (vintage WOTC, modern Scarlet & Violet, etc.) based on card design/border style
+- Consider the card's era (vintage WOTC, modern Scarlet & Violet, Mega Evolution, etc.) based on card design/border style
+- NEVER call a set "Phantom Forces" — the correct name for the PFL/PFLen set is "Phantasmal Flames". The XY-era set with code PHF is "Phantom Forces" — these are DIFFERENT sets.
 
 Step 4: REPORT WHAT YOU READ
 - The set code and card number you READ from the card are the source of truth.
