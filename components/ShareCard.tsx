@@ -14,11 +14,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import CompanyLabel from "@/components/CompanyLabel";
-import type { SavedGrading } from "@/lib/types";
+import type { SavedGrading, CardValueEstimate } from "@/lib/types";
 
 interface ShareCardProps {
   grading: SavedGrading;
   enabledCompanies: string[];
+  cardValue?: CardValueEstimate | null;
+  showMarketData?: boolean;
 }
 
 type ShareFormat = "instagram_post" | "instagram_story" | "twitter";
@@ -55,17 +57,17 @@ function getGradientColor(grade: number): string {
   }
 }
 
-function useCardData(grading: SavedGrading, enabledCompanies: string[]) {
+function useCardData(grading: SavedGrading, enabledCompanies: string[], cardValue?: CardValueEstimate | null) {
   const { result } = grading;
   const displaySetName = result.setName || result.setInfo || "";
   const displaySetNumber = result.setNumber || "";
 
-  const companies: { key: string; label: string; grade: number }[] = [];
-  if (enabledCompanies.includes("PSA")) companies.push({ key: "PSA", label: "PSA", grade: result.psa.grade });
-  if (enabledCompanies.includes("Beckett")) companies.push({ key: "BGS", label: "BGS", grade: result.beckett.overallGrade });
-  if (enabledCompanies.includes("Ace")) companies.push({ key: "ACE", label: "ACE", grade: result.ace.overallGrade });
-  if (enabledCompanies.includes("TAG") && result.tag) companies.push({ key: "TAG", label: "TAG", grade: result.tag.overallGrade });
-  if (enabledCompanies.includes("CGC") && result.cgc) companies.push({ key: "CGC", label: "CGC", grade: result.cgc.grade });
+  const companies: { key: string; label: string; grade: number; value?: string }[] = [];
+  if (enabledCompanies.includes("PSA")) companies.push({ key: "PSA", label: "PSA", grade: result.psa.grade, value: cardValue?.psaValue });
+  if (enabledCompanies.includes("Beckett")) companies.push({ key: "BGS", label: "BGS", grade: result.beckett.overallGrade, value: cardValue?.bgsValue });
+  if (enabledCompanies.includes("Ace")) companies.push({ key: "ACE", label: "ACE", grade: result.ace.overallGrade, value: cardValue?.aceValue });
+  if (enabledCompanies.includes("TAG") && result.tag) companies.push({ key: "TAG", label: "TAG", grade: result.tag.overallGrade, value: cardValue?.tagValue });
+  if (enabledCompanies.includes("CGC") && result.cgc) companies.push({ key: "CGC", label: "CGC", grade: result.cgc.grade, value: cardValue?.cgcValue });
 
   const subGrades = [
     { name: "Centering", grade: result.beckett.centering.grade },
@@ -74,7 +76,9 @@ function useCardData(grading: SavedGrading, enabledCompanies: string[]) {
     { name: "Surface", grade: result.beckett.surface.grade },
   ];
 
-  return { result, displaySetName, displaySetNumber, companies, subGrades };
+  const rawValue = cardValue?.rawValue;
+
+  return { result, displaySetName, displaySetNumber, companies, subGrades, rawValue };
 }
 
 function LogoHeader({ fontSize }: { fontSize: number }) {
