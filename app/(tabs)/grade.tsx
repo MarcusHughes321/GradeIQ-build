@@ -320,6 +320,10 @@ export default function GradeScreen() {
 
     setImageForStep(side, uri);
 
+    if (side === "front" || side === "back") {
+      straightenInBackground(side, uri);
+    }
+
     if (deepCameraActive && mode === "deep") {
       const nextStep = getNextDeepStep(side);
       if (nextStep) {
@@ -334,6 +338,19 @@ export default function GradeScreen() {
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
+    }
+  };
+
+  const straightenInBackground = async (side: DeepStep, uri: string) => {
+    try {
+      const base64 = await getBase64FromUri(uri);
+      const resp = await apiRequest("POST", "/api/crop-to-card", { image: base64 });
+      const data = await resp.json();
+      if (data.croppedImage) {
+        setImageForStep(side, data.croppedImage);
+      }
+    } catch (e) {
+      console.log("Background straighten failed, keeping original:", e);
     }
   };
 
