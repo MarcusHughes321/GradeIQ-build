@@ -1023,7 +1023,7 @@ export default function ResultsScreen() {
         animationType="slide"
         onRequestClose={() => setCenteringToolVisible(false)}
       >
-        <CenteringTool
+        {centeringToolVisible && <CenteringTool
           frontImage={grading.frontImage}
           backImage={grading.backImage}
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
@@ -1039,7 +1039,7 @@ export default function ResultsScreen() {
               handleReAnalyse();
             }
           }}
-        />
+        />}
       </Modal>
     </View>
   );
