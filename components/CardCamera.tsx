@@ -7,12 +7,14 @@ import {
   Platform,
   ActivityIndicator,
   Dimensions,
+  Animated as RNAnimated,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Accelerometer from "expo-sensors/build/Accelerometer";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 
 const GUIDE_FRAME_W = 280;
@@ -25,6 +27,14 @@ interface CardCameraProps {
   stepLabel?: string;
   onCapture: (uri: string) => void;
   onClose: () => void;
+  deepGradeFlow?: {
+    currentStep: number;
+    totalSteps: number;
+    stepTitle: string;
+    stepSubtitle: string;
+    stepIcon: keyof typeof Ionicons.glyphMap;
+    isCornerStep: boolean;
+  };
 }
 
 const LEVEL_THRESHOLD = 5;
@@ -32,11 +42,13 @@ const ANGLED_TARGET = 25;
 const ANGLED_THRESHOLD = 5;
 const BUBBLE_RANGE = 22;
 
-export default function CardCamera({ side, isAngled = false, stepLabel, onCapture, onClose }: CardCameraProps) {
+export default function CardCamera({ side, isAngled = false, stepLabel, onCapture, onClose, deepGradeFlow }: CardCameraProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
   const cameraRef = useRef<any>(null);
+  const flashOpacity = useRef(new RNAnimated.Value(0)).current;
+  const [showCapturedFlash, setShowCapturedFlash] = useState(false);
 
   const [tiltX, setTiltX] = useState(0);
   const [tiltY, setTiltY] = useState(0);
@@ -103,6 +115,12 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
     };
   }, []);
 
+  useEffect(() => {
+    if (isAngled) {
+      setIsLevel(false);
+    }
+  }, [isAngled]);
+
   const handleCapture = async () => {
     if (!cameraRef.current || capturing) return;
     setCapturing(true);
@@ -113,6 +131,21 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
       });
       if (photo?.uri) {
         const cropped = await cropToGuideFrame(photo.uri, photo.width, photo.height);
+
+        if (deepGradeFlow && Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        if (deepGradeFlow) {
+          setShowCapturedFlash(true);
+          RNAnimated.sequence([
+            RNAnimated.timing(flashOpacity, { toValue: 1, duration: 100, useNativeDriver: true }),
+            RNAnimated.timing(flashOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+          ]).start(() => {
+            setShowCapturedFlash(false);
+          });
+        }
+
         onCapture(cropped);
       }
     } catch (e) {
@@ -211,6 +244,20 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
   const rawBubbleY = isAngled ? -(tiltY + ANGLED_TARGET) * 2 : -tiltY * 2;
   const bubbleY = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, rawBubbleY));
 
+  const isCorner = deepGradeFlow?.isCornerStep ?? false;
+  const guideW = isCorner ? 180 : GUIDE_FRAME_W;
+  const guideH = isCorner ? 180 : GUIDE_FRAME_H;
+
+  const hintText = deepGradeFlow
+    ? deepGradeFlow.stepSubtitle
+    : isAngled
+      ? isLevel
+        ? "Perfect angle! Take the photo"
+        : "Tilt bottom of phone down ~25\u00B0 to catch the light"
+      : isLevel
+        ? "Phone is level. Take the photo!"
+        : "Hold phone flat and parallel to card";
+
   return (
     <View style={styles.container}>
       <CameraView
@@ -218,6 +265,13 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
         style={StyleSheet.absoluteFill}
         facing="back"
       />
+
+      {showCapturedFlash && (
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { backgroundColor: "#fff", opacity: flashOpacity, zIndex: 200 }]}
+          pointerEvents="none"
+        />
+      )}
 
       <View style={[styles.overlay, { paddingTop: insets.top + 12 }]} pointerEvents="box-none">
         <View style={styles.topBar}>
@@ -230,26 +284,52 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
           >
             <Ionicons name="close" size={28} color="#fff" />
           </Pressable>
-          <Text style={styles.sideLabel} numberOfLines={2}>
-            {stepLabel
-              ? stepLabel
-              : isAngled
-                ? side === "front" ? "Front \u2014 Angled" : "Back \u2014 Angled"
-                : side === "front" ? "Front of Card" : "Back of Card"}
-          </Text>
+          {deepGradeFlow ? (
+            <View style={styles.deepFlowHeader}>
+              <View style={styles.deepFlowStepBadge}>
+                <Text style={styles.deepFlowStepNum}>{deepGradeFlow.currentStep}</Text>
+                <Text style={styles.deepFlowStepTotal}> / {deepGradeFlow.totalSteps}</Text>
+              </View>
+              <Text style={styles.sideLabel} numberOfLines={1}>{deepGradeFlow.stepTitle}</Text>
+            </View>
+          ) : (
+            <Text style={styles.sideLabel} numberOfLines={2}>
+              {stepLabel
+                ? stepLabel
+                : isAngled
+                  ? side === "front" ? "Front \u2014 Angled" : "Back \u2014 Angled"
+                  : side === "front" ? "Front of Card" : "Back of Card"}
+            </Text>
+          )}
           <View style={{ width: 44 }} />
         </View>
 
+        {deepGradeFlow && (
+          <View style={styles.deepProgressContainer}>
+            <View style={styles.deepProgressBarOuter}>
+              <View style={[styles.deepProgressBarInner, { width: `${((deepGradeFlow.currentStep - 1) / deepGradeFlow.totalSteps) * 100}%` }]} />
+            </View>
+          </View>
+        )}
+
         <View style={styles.centerContent} pointerEvents="none">
-          <View style={[styles.cardFrame, { borderColor: frameBorderColor }]}>
+          <View style={[styles.cardFrame, { borderColor: frameBorderColor, width: guideW, height: guideH }]}>
             <View style={[styles.corner, styles.cornerTL, { borderTopColor: frameColor, borderLeftColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerTR, { borderTopColor: frameColor, borderRightColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerBL, { borderBottomColor: frameColor, borderLeftColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
           </View>
+
+          {deepGradeFlow && (
+            <View style={styles.deepStepIconRow}>
+              <View style={styles.deepStepIconBubble}>
+                <Ionicons name={deepGradeFlow.stepIcon} size={20} color="#fff" />
+              </View>
+            </View>
+          )}
         </View>
 
-        {Platform.OS !== "web" && (
+        {Platform.OS !== "web" && !isCorner && (
           <View style={[styles.levelBadge, { top: insets.top + 60 }]}>
             <View style={[styles.levelCircle, { borderColor: levelColor }]}>
               <View style={styles.crossH} />
@@ -284,14 +364,8 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.hintRow}>
-            <Text style={styles.hintText}>
-              {isAngled
-                ? isLevel
-                  ? "Perfect angle! Take the photo"
-                  : "Tilt bottom of phone down ~25\u00B0 to catch the light"
-                : isLevel
-                  ? "Phone is level. Take the photo!"
-                  : "Hold phone flat and parallel to card"}
+            <Text style={styles.hintText} numberOfLines={3}>
+              {hintText}
             </Text>
           </View>
           <View style={styles.captureRow}>
@@ -357,6 +431,55 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.8)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+  },
+  deepFlowHeader: {
+    alignItems: "center",
+    gap: 4,
+  },
+  deepFlowStepBadge: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    backgroundColor: "rgba(245,158,11,0.85)",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  deepFlowStepNum: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  deepFlowStepTotal: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+  },
+  deepProgressContainer: {
+    paddingHorizontal: 40,
+    marginTop: 8,
+  },
+  deepProgressBarOuter: {
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  deepProgressBarInner: {
+    height: "100%",
+    backgroundColor: "#F59E0B",
+    borderRadius: 2,
+  },
+  deepStepIconRow: {
+    marginTop: 12,
+    alignItems: "center",
+  },
+  deepStepIconBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(245,158,11,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   centerContent: {
     flex: 1,
@@ -471,6 +594,7 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.8)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+    paddingHorizontal: 16,
   },
   captureRow: {
     flexDirection: "row",
