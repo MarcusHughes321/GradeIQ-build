@@ -1297,9 +1297,9 @@ async function enhanceForSurfaceDetection(dataUri: string): Promise<string> {
     const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
     const enhanced = await sharp(buffer)
-      .sharpen({ sigma: 2.5, m1: 3.0, m2: 1.5 })
-      .modulate({ brightness: 1.05 })
-      .linear(1.35, -(128 * 0.35))
+      .sharpen({ sigma: 1.8, m1: 2.0, m2: 1.0 })
+      .modulate({ brightness: 1.03 })
+      .linear(1.2, -(128 * 0.2))
       .jpeg({ quality: 92 })
       .toBuffer();
     return `data:image/jpeg;base64,${enhanced.toString("base64")}`;
