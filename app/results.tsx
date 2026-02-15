@@ -450,6 +450,77 @@ export default function ResultsScreen() {
       Math.abs(curr - cgcRawAvg) < Math.abs(prev - cgcRawAvg) ? curr : prev
     ) : prevResult.cgc?.grade ?? 0;
 
+    const generatePsaNote = (): string => {
+      const lowestArea = (() => {
+        const areas = [
+          { name: "centering", grade: psaCenteringGrade },
+          { name: "corners", grade: prevResult.beckett.corners.grade },
+          { name: "edges", grade: prevResult.beckett.edges.grade },
+          { name: "surface", grade: prevResult.beckett.surface.grade },
+        ];
+        return areas.reduce((a, b) => a.grade <= b.grade ? a : b);
+      })();
+      if (psaGrade === 10) return "All areas meet PSA Gem Mint 10 standards.";
+      if (psaGrade === 9) return `PSA 9 (Mint). ${lowestArea.name === "centering" ? "Centering is the primary limiting factor." : `${lowestArea.name.charAt(0).toUpperCase() + lowestArea.name.slice(1)} is the primary limiting factor.`}`;
+      return `Grade is primarily determined by ${lowestArea.name}; overall PSA ${psaGrade}.`;
+    };
+
+    const generateBgsNote = (): string => {
+      const bgsOv = roundHalf(bgsAvg);
+      const subs = [
+        { name: "centering", grade: bgsCenteringGrade },
+        { name: "corners", grade: prevResult.beckett.corners.grade },
+        { name: "edges", grade: prevResult.beckett.edges.grade },
+        { name: "surface", grade: prevResult.beckett.surface.grade },
+      ];
+      const lowest = subs.reduce((a, b) => a.grade <= b.grade ? a : b);
+      if (bgsOv >= 10) return "All sub-grades meet BGS Pristine 10 standards.";
+      if (bgsOv >= 9.5) return "BGS 9.5 Gem Mint — all sub-grades are strong.";
+      return `BGS ${bgsOv}; ${lowest.name} at ${lowest.grade} is the primary limiting factor.`;
+    };
+
+    const generateAceNote = (): string => {
+      const subs = [
+        { name: "centering", grade: aceCenteringGrade },
+        { name: "corners", grade: prevResult.ace.corners.grade },
+        { name: "edges", grade: prevResult.ace.edges.grade },
+        { name: "surface", grade: prevResult.ace.surface.grade },
+      ];
+      const lowest = subs.reduce((a, b) => a.grade <= b.grade ? a : b);
+      if (aceOverall === 10) return "All sub-grades meet Ace Gem Mint 10 standards.";
+      if (aceOverall < 10 && aceCenteringGrade < 10) {
+        return `Ace 10 is not possible because centering is ${aceCenteringGrade}; with other sub-grades considered, overall projects as Ace ${aceOverall}.`;
+      }
+      if (aceOverall < 10 && aceCenteringGrade === 10) {
+        const otherGrades = [prevResult.ace.corners.grade, prevResult.ace.edges.grade, prevResult.ace.surface.grade];
+        const tensCount = otherGrades.filter(g => g === 10).length;
+        if (tensCount < 2) {
+          return `Centering is a 10, but Ace 10 requires at least 2 other sub-grades at 10; overall projects as Ace ${aceOverall}.`;
+        }
+      }
+      return `${lowest.name.charAt(0).toUpperCase() + lowest.name.slice(1)} at ${lowest.grade} limits the overall to Ace ${aceOverall}.`;
+    };
+
+    const generateTagNote = (): string => {
+      if (!prevResult.tag) return "";
+      const subs = [
+        { name: "centering", grade: tagCenteringGrade },
+        { name: "corners", grade: prevResult.tag.corners.grade },
+        { name: "edges", grade: prevResult.tag.edges.grade },
+        { name: "surface", grade: prevResult.tag.surface.grade },
+      ];
+      const lowest = subs.reduce((a, b) => a.grade <= b.grade ? a : b);
+      if (tagOverall >= 10) return "All sub-grades meet TAG Pristine 10 standards.";
+      return `TAG ${tagOverall}; ${lowest.name} at ${lowest.grade} is the primary limiting factor.`;
+    };
+
+    const generateCgcNote = (): string => {
+      if (!prevResult.cgc) return "";
+      if (cgcGrade >= 10) return "All areas meet CGC Pristine 10 standards.";
+      if (cgcGrade >= 9.5) return "CGC 9.5 Gem Mint — strong across all categories.";
+      return `CGC ${cgcGrade}; centering at ${cgcCenteringGrade} is a factor in the overall grade.`;
+    };
+
     const updatedResult: GradingResult = {
       ...prevResult,
       centering: newCentering,
@@ -458,22 +529,26 @@ export default function ResultsScreen() {
         grade: psaGrade,
         centeringGrade: psaCenteringGrade,
         centering: centeringNote,
+        notes: generatePsaNote(),
       },
       beckett: {
         ...prevResult.beckett,
         centering: { grade: bgsCenteringGrade, notes: centeringNote },
         overallGrade: roundHalf(bgsAvg),
+        notes: generateBgsNote(),
       },
       ace: {
         ...prevResult.ace,
         centering: { grade: aceCenteringGrade, notes: centeringNote },
         overallGrade: aceOverall,
+        notes: generateAceNote(),
       },
       ...(prevResult.tag ? {
         tag: {
           ...prevResult.tag,
           centering: { grade: tagCenteringGrade, notes: centeringNote },
           overallGrade: tagOverall,
+          notes: generateTagNote(),
         },
       } : {}),
       ...(prevResult.cgc ? {
@@ -481,6 +556,7 @@ export default function ResultsScreen() {
           ...prevResult.cgc,
           grade: cgcGrade,
           centering: centeringNote,
+          notes: generateCgcNote(),
         },
       } : {}),
     };
