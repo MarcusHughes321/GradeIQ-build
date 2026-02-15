@@ -1170,7 +1170,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           <View style={styles.ratioDot} />
           <Text style={[styles.ratioText, { color: tbColor }]}>T/B {formatRatio(normTB)}</Text>
         </View>
-        <Pressable onPress={() => onClose(wasStraightenedRef.current)} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
+        <Pressable onPress={() => { handleSave(); onClose(wasStraightenedRef.current); }} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
           <Ionicons name="checkmark" size={16} color="#fff" />
           <Text style={styles.saveBtnText}>Done</Text>
         </Pressable>
