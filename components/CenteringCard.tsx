@@ -39,6 +39,10 @@ const ALL_STANDARDS: CenteringStandard[] = [
   { company: "CGC", front10: 55, back10: 75, color: Colors.cardCGC },
 ];
 
+function normVal(v: number): number {
+  return Math.max(v, 100 - v);
+}
+
 function getCenteringGradeForCompany(
   frontLR: number,
   frontTB: number,
@@ -46,8 +50,8 @@ function getCenteringGradeForCompany(
   backTB: number,
   standard: CenteringStandard
 ): { grade: number; passes10: boolean } {
-  const frontWorst = Math.max(frontLR, frontTB);
-  const backWorst = Math.max(backLR, backTB);
+  const frontWorst = Math.max(normVal(frontLR), normVal(frontTB));
+  const backWorst = Math.max(normVal(backLR), normVal(backTB));
 
   if (standard.company === "PSA") {
     if (frontWorst <= 55 && backWorst <= 75) return { grade: 10, passes10: true };
@@ -150,8 +154,8 @@ export default function CenteringCard({ centering, onOpenTool, enabledCompanies 
       <Text style={styles.hintText}>Not sure you agree with the centering? Use Measure to adjust the lines and update it.</Text>
 
       <View style={styles.ratiosContainer}>
-        <RatioDisplay label="Front" lr={c.frontLeftRight} tb={c.frontTopBottom} />
-        <RatioDisplay label="Back" lr={c.backLeftRight} tb={c.backTopBottom} />
+        <RatioDisplay label="Front" lr={normVal(c.frontLeftRight)} tb={normVal(c.frontTopBottom)} />
+        <RatioDisplay label="Back" lr={normVal(c.backLeftRight)} tb={normVal(c.backTopBottom)} />
       </View>
 
       <View style={styles.divider} />
@@ -166,7 +170,7 @@ export default function CenteringCard({ centering, onOpenTool, enabledCompanies 
             standard
           );
           const gradeColor = result.passes10 ? "#10B981" : getCenteringColor(
-            Math.max(c.frontLeftRight, c.frontTopBottom)
+            Math.max(normVal(c.frontLeftRight), normVal(c.frontTopBottom))
           );
 
           const displayName = standard.company === "Ace" ? "ACE" : standard.company;

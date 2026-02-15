@@ -143,8 +143,8 @@ function computeRatio(pos: BorderPositions) {
   const lrRaw = totalH > 0 ? Math.round((leftBorder / totalH) * 100) : 50;
   const tbRaw = totalV > 0 ? Math.round((topBorder / totalV) * 100) : 50;
   return {
-    lr: Math.max(50, Math.min(95, Math.max(lrRaw, 100 - lrRaw))),
-    tb: Math.max(50, Math.min(95, Math.max(tbRaw, 100 - tbRaw))),
+    lr: Math.max(5, Math.min(95, lrRaw)),
+    tb: Math.max(5, Math.min(95, tbRaw)),
   };
 }
 
@@ -227,7 +227,7 @@ function findNearLines(
   x: number, y: number, pos: BorderPositions,
   containerW: number, containerH: number, scale: number
 ): LineCandidate[] {
-  const lineTouchPad = 30 / scale;
+  const lineTouchPad = Math.max(22, 44 / scale);
   const candidates: LineCandidate[] = [];
 
   for (const config of LINE_CONFIGS) {
@@ -1057,8 +1057,10 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     }),
   []);
 
-  const lrColor = getCenteringColor(ratio.lr);
-  const tbColor = getCenteringColor(ratio.tb);
+  const normLR = Math.max(ratio.lr, 100 - ratio.lr);
+  const normTB = Math.max(ratio.tb, 100 - ratio.tb);
+  const lrColor = getCenteringColor(normLR);
+  const tbColor = getCenteringColor(normTB);
   const cw = containerSize.width;
   const ch = containerSize.height;
 
@@ -1071,9 +1073,9 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           <Ionicons name="help-circle-outline" size={22} color="#fff" />
         </Pressable>
         <View style={styles.ratioInline}>
-          <Text style={[styles.ratioText, { color: lrColor }]}>L/R {formatRatio(ratio.lr)}</Text>
+          <Text style={[styles.ratioText, { color: lrColor }]}>L/R {formatRatio(normLR)}</Text>
           <View style={styles.ratioDot} />
-          <Text style={[styles.ratioText, { color: tbColor }]}>T/B {formatRatio(ratio.tb)}</Text>
+          <Text style={[styles.ratioText, { color: tbColor }]}>T/B {formatRatio(normTB)}</Text>
         </View>
         <Pressable onPress={() => onClose(wasStraightenedRef.current)} style={({ pressed }) => [styles.saveBtn, { opacity: pressed ? 0.7 : 1 }]}>
           <Ionicons name="checkmark" size={16} color="#fff" />

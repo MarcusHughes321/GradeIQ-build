@@ -343,8 +343,9 @@ export default function ResultsScreen() {
   const handleCenteringChange = async (newCentering: CenteringMeasurement) => {
     if (!grading) return;
     const c = newCentering;
-    const frontWorst = Math.max(c.frontLeftRight, c.frontTopBottom);
-    const backWorst = Math.max(c.backLeftRight, c.backTopBottom);
+    const norm = (v: number) => Math.max(v, 100 - v);
+    const frontWorst = Math.max(norm(c.frontLeftRight), norm(c.frontTopBottom));
+    const backWorst = Math.max(norm(c.backLeftRight), norm(c.backTopBottom));
 
     const calcPsaCentering = (): number => {
       if (frontWorst <= 55 && backWorst <= 75) return 10;
@@ -384,7 +385,11 @@ export default function ResultsScreen() {
     };
 
     const prevResult = grading.result;
-    const centeringNote = `Front: ${c.frontLeftRight}/${100 - c.frontLeftRight} LR, ${c.frontTopBottom}/${100 - c.frontTopBottom} TB. Back: ${c.backLeftRight}/${100 - c.backLeftRight} LR, ${c.backTopBottom}/${100 - c.backTopBottom} TB.`;
+    const fLR = norm(c.frontLeftRight);
+    const fTB = norm(c.frontTopBottom);
+    const bLR = norm(c.backLeftRight);
+    const bTB = norm(c.backTopBottom);
+    const centeringNote = `Front: ${fLR}/${100 - fLR} LR, ${fTB}/${100 - fTB} TB. Back: ${bLR}/${100 - bLR} LR, ${bTB}/${100 - bTB} TB.`;
 
     const psaCenteringGrade = calcPsaCentering();
     const bgsCenteringGrade = calcBgsCentering();
