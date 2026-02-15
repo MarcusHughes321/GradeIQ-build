@@ -1292,6 +1292,23 @@ async function optimizeImageForAI(dataUri: string, maxDim: number = 2048): Promi
   }
 }
 
+async function enhanceForSurfaceDetection(dataUri: string): Promise<string> {
+  try {
+    const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
+    const buffer = Buffer.from(base64Data, "base64");
+    const enhanced = await sharp(buffer)
+      .sharpen({ sigma: 2.5, m1: 3.0, m2: 1.5 })
+      .modulate({ brightness: 1.05 })
+      .linear(1.35, -(128 * 0.35))
+      .jpeg({ quality: 92 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${enhanced.toString("base64")}`;
+  } catch (err) {
+    console.error("[enhance-surface] Surface enhancement failed:", err);
+    return dataUri;
+  }
+}
+
 async function generateCornerCrops(dataUri: string): Promise<string[]> {
   const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
   const buffer = Buffer.from(base64Data, "base64");
@@ -2403,8 +2420,11 @@ function syncCenteringToGrades(result: any): any {
   if (result.tag) {
     result.tag.centering.grade = tagCentering;
     result.tag.centering.notes = centeringNote;
-    const avg = (tagCentering + result.tag.corners.grade + result.tag.edges.grade + result.tag.surface.grade) / 4;
-    result.tag.overallGrade = roundToHalf(avg);
+    const tagGrades = [tagCentering, result.tag.corners.grade, result.tag.edges.grade, result.tag.surface.grade];
+    const tagLowest = Math.min(...tagGrades);
+    const tagAvg = tagGrades.reduce((a: number, b: number) => a + b, 0) / 4;
+    const tagFromAvg = roundToHalf(tagAvg);
+    result.tag.overallGrade = Math.min(tagFromAvg, roundToHalf(tagLowest + 1));
   }
 
   if (result.cgc) {
@@ -2494,13 +2514,16 @@ function enforceGradingScales(result: any): any {
       }
     }
 
-    const tagSubGrades = ["centering", "corners", "edges", "surface"]
-      .map(k => result.tag[k]?.grade)
-      .filter((g): g is number => g !== undefined && g !== null);
+    const tagCentering = result.tag.centering?.grade;
+    const tagCorners = result.tag.corners?.grade;
+    const tagEdges = result.tag.edges?.grade;
+    const tagSurface = result.tag.surface?.grade;
+    const tagSubGrades = [tagCentering, tagCorners, tagEdges, tagSurface].filter((g): g is number => typeof g === "number");
     if (tagSubGrades.length > 0) {
       const tagLowest = Math.min(...tagSubGrades);
       const tagMaxOverall = roundToHalf(tagLowest + 1);
       if (result.tag.overallGrade > tagMaxOverall) {
+        console.log(`[enforce] TAG capped: ${result.tag.overallGrade} -> ${tagMaxOverall} (lowest sub: ${tagLowest})`);
         result.tag.overallGrade = tagMaxOverall;
       }
     }
@@ -2572,6 +2595,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const optimizeTime = Date.now() - gradeStartTime;
     if (optimizeTime > 50) console.log(`${logPrefix} Image optimization took ${optimizeTime}ms`);
 
+    const [enhancedFrontUrl, enhancedBackUrl] = await Promise.all([
+      enhanceForSurfaceDetection(frontUrl),
+      enhanceForSurfaceDetection(backUrl),
+    ]);
+    const enhanceTime = Date.now() - gradeStartTime - optimizeTime;
+    if (enhanceTime > 50) console.log(`${logPrefix} Surface enhancement took ${enhanceTime}ms`);
+
     const gradingResponse = await openai.chat.completions.create({
       model: "gpt-5.2",
       max_completion_tokens: 4096,
@@ -2585,7 +2615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           content: [
             {
               type: "text",
-              text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. The first image is the front of the card and the second image is the back.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: Carefully examine the artwork area and card back for ANY scratches, scuffs, or wear marks. Zoom in mentally on the Pokemon illustration and the Pokeball on the back — these areas commonly show scratches that catch light. Report every visible scratch as a defect.",
+              text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.\n\nYou are given 4 images:\n- Image 1: FRONT of card (standard)\n- Image 2: BACK of card (standard)\n- Image 3: FRONT of card (SURFACE-ENHANCED — sharpened and contrast-boosted to reveal scratches, scuffs, and surface wear)\n- Image 4: BACK of card (SURFACE-ENHANCED — sharpened and contrast-boosted to reveal scratches, scuffs, and surface wear)\n\nIMPORTANT: Use images 1 and 2 for card identification, centering, and corners. Use images 3 and 4 SPECIFICALLY for surface and edge inspection — the enhanced contrast makes scratches, scuffs, whitening, and wear marks much more visible. Any line, mark, or blemish visible in the enhanced images is a REAL defect and must be counted and reported.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: Using the ENHANCED images (3 and 4), carefully examine the artwork area and card back for ANY scratches, scuffs, or wear marks. The enhanced contrast will make surface damage much more obvious — look for lines, haze, or marks that appear in the enhanced version. Report every visible scratch as a separate defect.",
             },
             {
               type: "image_url",
@@ -2594,6 +2624,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             {
               type: "image_url",
               image_url: { url: backUrl, detail: "high" },
+            },
+            {
+              type: "image_url",
+              image_url: { url: enhancedFrontUrl, detail: "high" },
+            },
+            {
+              type: "image_url",
+              image_url: { url: enhancedBackUrl, detail: "high" },
             },
           ],
         },
