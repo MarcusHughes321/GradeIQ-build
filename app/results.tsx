@@ -26,6 +26,7 @@ import CenteringTool from "@/components/CenteringTool";
 import CompanyLabel from "@/components/CompanyLabel";
 import DefectOverlay from "@/components/DefectOverlay";
 import GradingTips from "@/components/GradingTips";
+import ShareButton from "@/components/ShareCard";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
 
@@ -838,6 +839,8 @@ export default function ResultsScreen() {
             AI estimates based on photo analysis. Actual grades and values may differ.
           </Text>
         </View>
+
+        <ShareButton grading={grading} enabledCompanies={enabledCompanies} />
       </ScrollView>
 
       <Modal
