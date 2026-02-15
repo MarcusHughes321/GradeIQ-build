@@ -25,7 +25,6 @@ import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
 import CompanyLabel from "@/components/CompanyLabel";
 import DefectOverlay from "@/components/DefectOverlay";
-import GradingTips from "@/components/GradingTips";
 import ShareButton from "@/components/ShareCard";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
@@ -575,13 +574,6 @@ export default function ResultsScreen() {
           </View>
           <Text style={styles.summaryText}>{result.overallCondition || gradeSummary}</Text>
         </View>
-
-        <GradingTips
-          centeringGrade={result.beckett.centering.grade}
-          cornersGrade={result.beckett.corners.grade}
-          edgesGrade={result.beckett.edges.grade}
-          surfaceGrade={result.beckett.surface.grade}
-        />
 
         {result.defects && result.defects.length > 0 && (
           <View style={styles.defectsCard}>
