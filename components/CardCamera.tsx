@@ -69,6 +69,11 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
   const [isLevel, setIsLevel] = useState(false);
   const [accelStatus, setAccelStatus] = useState("init");
   const subscriptionRef = useRef<any>(null);
+  const isAngledRef = useRef(isAngled);
+
+  useEffect(() => {
+    isAngledRef.current = isAngled;
+  }, [isAngled]);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -103,7 +108,7 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
             );
             setTiltX(tx);
             setTiltY(ty);
-            if (isAngled) {
+            if (isAngledRef.current) {
               const yInRange = Math.abs(ty + ANGLED_TARGET) <= ANGLED_THRESHOLD;
               const xInRange = Math.abs(tx) <= LEVEL_THRESHOLD;
               setIsLevel(xInRange && yInRange);
@@ -354,13 +359,6 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
             <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
           </View>
 
-          {deepGradeFlow && (
-            <View style={styles.deepStepIconRow}>
-              <View style={styles.deepStepIconBubble}>
-                <Ionicons name={deepGradeFlow.stepIcon} size={20} color="#fff" />
-              </View>
-            </View>
-          )}
         </View>
 
         {Platform.OS !== "web" && !isCorner && (
@@ -502,18 +500,6 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "#F59E0B",
     borderRadius: 2,
-  },
-  deepStepIconRow: {
-    marginTop: 12,
-    alignItems: "center",
-  },
-  deepStepIconBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(245,158,11,0.7)",
-    alignItems: "center",
-    justifyContent: "center",
   },
   centerContent: {
     flex: 1,
