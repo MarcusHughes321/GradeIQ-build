@@ -227,7 +227,7 @@ function findNearLines(
   x: number, y: number, pos: BorderPositions,
   containerW: number, containerH: number, scale: number
 ): LineCandidate[] {
-  const lineTouchPad = Math.max(22, 44 / scale);
+  const lineTouchPad = Math.max(28, 52 / scale);
   const candidates: LineCandidate[] = [];
 
   for (const config of LINE_CONFIGS) {
@@ -695,12 +695,25 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     }
   }, [containerSize]);
 
+  const viewportRef = useRef<View>(null);
+
+  const measureViewport = useCallback(() => {
+    if (viewportRef.current) {
+      viewportRef.current.measureInWindow((x, y) => {
+        if (x != null && y != null) {
+          viewportLayoutRef.current = { x, y };
+        }
+      });
+    }
+  }, []);
+
   const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     if (width > 0 && height > 0) {
       setContainerSize({ width, height });
+      setTimeout(() => measureViewport(), 50);
     }
-  }, []);
+  }, [measureViewport]);
 
   const handleFrontLoad = useCallback((e: any) => {
     if (frontLoadLoggedRef.current) return;
@@ -941,6 +954,15 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         const touches = evt.nativeEvent.touches;
         didDragRef.current = false;
         hapticFiredRef.current = false;
+
+        if (viewportRef.current) {
+          viewportRef.current.measureInWindow((mx, my) => {
+            if (mx != null && my != null) {
+              viewportLayoutRef.current = { x: mx, y: my };
+            }
+          });
+        }
+
         if (touches.length >= 2) {
           gestureMode.current = "pinch";
           pinchStartDistRef.current = getTouchDistance(touches);
@@ -954,11 +976,14 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         const cs = containerSizeRef.current;
         const px = panOffsetRef.current.x;
         const py = panOffsetRef.current.y;
-        const lx = evt.nativeEvent.locationX;
-        const ly = evt.nativeEvent.locationY;
+        const pageX = evt.nativeEvent.pageX;
+        const pageY = evt.nativeEvent.pageY;
+        const vl = viewportLayoutRef.current;
+        const lx = pageX - vl.x;
+        const ly = pageY - vl.y;
 
         viewportOriginRef.current = { x: lx, y: ly };
-        pageOriginRef.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
+        pageOriginRef.current = { x: pageX, y: pageY };
         panStartOffRef.current = { ...panOffsetRef.current };
 
         const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
@@ -1152,7 +1177,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       </View>
 
       <View style={styles.imageArea}>
-        <View style={styles.imageViewport} onLayout={onContainerLayout} {...viewportPan.panHandlers}>
+        <View ref={viewportRef} style={styles.imageViewport} onLayout={onContainerLayout} {...viewportPan.panHandlers}>
           <View
             style={[
               styles.imageContainer,
