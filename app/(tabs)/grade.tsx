@@ -142,6 +142,7 @@ export default function GradeScreen() {
   const [loading, setLoading] = useState(false);
   const [cropping, setCropping] = useState<DeepStep | null>(null);
   const [cameraOpen, setCameraOpen] = useState<DeepStep | null>(null);
+  const [deepCameraActive, setDeepCameraActive] = useState(false);
   const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,6 +218,7 @@ export default function GradeScreen() {
         setLoading(false);
         setCropping(null);
         setCameraOpen(null);
+        setDeepCameraActive(false);
         setAnalysisStage(0);
         progressAnim.setValue(0);
         setDeepStep("front");
@@ -314,13 +316,41 @@ export default function GradeScreen() {
 
   const handleCameraCapture = (uri: string) => {
     const side = cameraOpen;
-    setCameraOpen(null);
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!side) return;
+
+    setImageForStep(side, uri);
+
+    if (deepCameraActive && mode === "deep") {
+      const nextStep = getNextDeepStep(side);
+      if (nextStep) {
+        setDeepStep(nextStep);
+        setCameraOpen(nextStep);
+      } else {
+        setCameraOpen(null);
+        setDeepCameraActive(false);
+      }
+    } else {
+      setCameraOpen(null);
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
     }
-    if (side) {
-      setImageForStep(side, uri);
-    }
+  };
+
+  const getNextDeepStep = (step: DeepStep): DeepStep | null => {
+    const DEEP_STEP_ORDER: DeepStep[] = [
+      "front", "angledFront",
+      "cornerFrontTL", "cornerFrontTR", "cornerFrontBL", "cornerFrontBR",
+      "back", "angledBack",
+      "cornerBackTL", "cornerBackTR", "cornerBackBL", "cornerBackBR",
+    ];
+    const idx = DEEP_STEP_ORDER.indexOf(step);
+    return idx < DEEP_STEP_ORDER.length - 1 ? DEEP_STEP_ORDER[idx + 1] : null;
+  };
+
+  const launchDeepCamera = () => {
+    setDeepCameraActive(true);
+    setCameraOpen(deepStep);
   };
 
   const launchLibrary = async (side: DeepStep) => {
@@ -570,6 +600,24 @@ export default function GradeScreen() {
         </View>
       </View>
 
+      {completedCount === 0 && Platform.OS !== "web" && (
+        <Pressable
+          style={({ pressed }) => [styles.deepCaptureAllBtn, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={launchDeepCamera}
+        >
+          <LinearGradient
+            colors={["#F59E0B", "#D97706"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.deepCaptureAllGradient}
+          >
+            <Ionicons name="camera" size={22} color="#fff" />
+            <Text style={styles.deepCaptureAllText}>Capture All 12 Photos</Text>
+            <Ionicons name="arrow-forward" size={16} color="rgba(255,255,255,0.7)" />
+          </LinearGradient>
+        </Pressable>
+      )}
+
       <View style={styles.deepCaptureArea}>
         <ImageCapture
           label=""
@@ -778,7 +826,15 @@ export default function GradeScreen() {
           isAngled={cameraOpen === "angledFront" || cameraOpen === "angledBack"}
           stepLabel={DEEP_STEP_GUIDANCE[cameraOpen]?.title}
           onCapture={handleCameraCapture}
-          onClose={() => setCameraOpen(null)}
+          onClose={() => { setCameraOpen(null); setDeepCameraActive(false); }}
+          deepGradeFlow={deepCameraActive && mode === "deep" ? {
+            currentStep: DEEP_STEPS.indexOf(cameraOpen) + 1,
+            totalSteps: DEEP_STEPS.length,
+            stepTitle: DEEP_STEP_GUIDANCE[cameraOpen].title,
+            stepSubtitle: DEEP_STEP_GUIDANCE[cameraOpen].subtitle,
+            stepIcon: DEEP_STEP_GUIDANCE[cameraOpen].icon,
+            isCornerStep: isCornerStep(cameraOpen),
+          } : undefined}
         />
       )}
 
@@ -1212,6 +1268,25 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     color: Colors.text,
+  },
+  deepCaptureAllBtn: {
+    marginBottom: 12,
+    borderRadius: 16,
+    overflow: "hidden" as const,
+  },
+  deepCaptureAllGradient: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+  },
+  deepCaptureAllText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
   },
   modalOverlay: {
     flex: 1,
