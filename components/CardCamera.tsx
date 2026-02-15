@@ -48,7 +48,21 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
   const [capturing, setCapturing] = useState(false);
   const cameraRef = useRef<any>(null);
   const flashOpacity = useRef(new RNAnimated.Value(0)).current;
+  const feedbackTextOpacity = useRef(new RNAnimated.Value(0)).current;
+  const feedbackScale = useRef(new RNAnimated.Value(0.5)).current;
   const [showCapturedFlash, setShowCapturedFlash] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+
+  const CAPTURE_MESSAGES = [
+    "Nice work!",
+    "Got it!",
+    "Perfect!",
+    "Looking good!",
+    "Great shot!",
+    "Nailed it!",
+    "Spot on!",
+    "Sharp!",
+  ];
 
   const [tiltX, setTiltX] = useState(0);
   const [tiltY, setTiltY] = useState(0);
