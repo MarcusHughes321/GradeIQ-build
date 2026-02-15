@@ -8,8 +8,8 @@ import {
   Platform,
   ActivityIndicator,
   Modal,
+  Image as RNImage,
 } from "react-native";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
@@ -92,14 +92,14 @@ function LogoHeader({ fontSize }: { fontSize: number }) {
   );
 }
 
-function SquareCard({ grading, enabledCompanies }: ShareCardProps) {
+function SquareCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
   const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies);
   return (
     <View style={{ width: 380, height: 380, backgroundColor: "#0A0A0A", padding: 24, justifyContent: "space-between" }}>
       <LogoHeader fontSize={22} />
       <View style={{ flexDirection: "row", gap: 14 }}>
         <View style={{ width: 90, height: 126, borderRadius: 8, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-          <Image source={{ uri: grading.frontImage }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+          <RNImage source={{ uri: grading.frontImage }} style={{ width: 90, height: 126 }} resizeMode="cover" onLoad={onImageLoad} />
         </View>
         <View style={{ flex: 1, justifyContent: "center", gap: 4 }}>
           <Text style={{ fontFamily: "Inter_700Bold", fontSize: 17, color: "#FFFFFF", lineHeight: 22 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
@@ -135,13 +135,13 @@ function SquareCard({ grading, enabledCompanies }: ShareCardProps) {
   );
 }
 
-function StoryCard({ grading, enabledCompanies }: ShareCardProps) {
+function StoryCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
   const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies);
   return (
     <View style={{ width: 360, height: 640, backgroundColor: "#0A0A0A", padding: 30, justifyContent: "space-between", alignItems: "center" }}>
       <LogoHeader fontSize={32} />
       <View style={{ width: 200, height: 280, borderRadius: 12, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-        <Image source={{ uri: grading.frontImage }} style={{ width: "100%", height: "100%" }} contentFit="contain" />
+        <RNImage source={{ uri: grading.frontImage }} style={{ width: 200, height: 280 }} resizeMode="contain" onLoad={onImageLoad} />
       </View>
       <View style={{ alignItems: "center", gap: 6, width: "100%" }}>
         <Text style={{ fontFamily: "Inter_700Bold", fontSize: 22, color: "#FFFFFF", textAlign: "center", lineHeight: 28 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
@@ -176,13 +176,13 @@ function StoryCard({ grading, enabledCompanies }: ShareCardProps) {
   );
 }
 
-function WideCard({ grading, enabledCompanies }: ShareCardProps) {
+function WideCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
   const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies);
   return (
     <View style={{ width: 600, height: 315, backgroundColor: "#0A0A0A", flexDirection: "row" }}>
       <View style={{ width: 210, height: 315, padding: 20, justifyContent: "center", alignItems: "center" }}>
         <View style={{ width: 170, height: 238, borderRadius: 10, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-          <Image source={{ uri: grading.frontImage }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+          <RNImage source={{ uri: grading.frontImage }} style={{ width: 170, height: 238 }} resizeMode="cover" onLoad={onImageLoad} />
         </View>
       </View>
       <View style={{ flex: 1, padding: 20, paddingLeft: 0, justifyContent: "space-between" }}>
@@ -223,14 +223,8 @@ export default function ShareButton({ grading, enabledCompanies }: ShareCardProp
   const [sharing, setSharing] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [activeFormat, setActiveFormat] = useState<ShareFormat | null>(null);
-
-  const handleFormatSelected = useCallback((format: ShareFormat) => {
-    setActiveFormat(format);
-    setShowPicker(false);
-    setTimeout(() => {
-      doCapture(format);
-    }, 500);
-  }, [grading, sharing]);
+  const imageLoadedRef = useRef(false);
+  const pendingCaptureRef = useRef<ShareFormat | null>(null);
 
   const doCapture = useCallback(async (format: ShareFormat) => {
     if (!captureViewRef.current || sharing) {
@@ -240,7 +234,7 @@ export default function ShareButton({ grading, enabledCompanies }: ShareCardProp
     setSharing(true);
 
     try {
-      const config = FORMATS.find((f) => f.key === format)!;
+      await new Promise(resolve => setTimeout(resolve, 100));
       const uri = await captureRef(captureViewRef, {
         format: "png",
         quality: 1,
@@ -271,9 +265,31 @@ export default function ShareButton({ grading, enabledCompanies }: ShareCardProp
     }
   }, [grading, sharing]);
 
+  const onCardImageLoaded = useCallback(() => {
+    imageLoadedRef.current = true;
+    if (pendingCaptureRef.current) {
+      const fmt = pendingCaptureRef.current;
+      pendingCaptureRef.current = null;
+      setTimeout(() => doCapture(fmt), 150);
+    }
+  }, [doCapture]);
+
+  const handleFormatSelected = useCallback((format: ShareFormat) => {
+    imageLoadedRef.current = false;
+    pendingCaptureRef.current = format;
+    setActiveFormat(format);
+    setShowPicker(false);
+    setTimeout(() => {
+      if (!imageLoadedRef.current) {
+        pendingCaptureRef.current = null;
+        doCapture(format);
+      }
+    }, 2000);
+  }, [doCapture]);
+
   const renderActiveCard = () => {
     if (!activeFormat) return null;
-    const props = { grading, enabledCompanies };
+    const props = { grading, enabledCompanies, onImageLoad: onCardImageLoaded };
     switch (activeFormat) {
       case "instagram_post": return <SquareCard {...props} />;
       case "instagram_story": return <StoryCard {...props} />;
