@@ -46,8 +46,7 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
 - **Market Value Estimation**: Integrates with TCGCSV API for accurate TCGPlayer market prices (USD to GBP conversion) for graded and raw cards, including estimated Grade 10 prices.
 - **Grading History**: Local storage (AsyncStorage) maintains a history of graded cards.
 - **Customization**: Users can toggle grading companies in settings.
-- **Grading Tips & Education**: After results, shows universal (non-company-specific) grading tips based on the weakest sub-grades. Collapsible card with area-specific advice for centering, corners, edges, and surface. Tips are tiered by grade severity (<8, 8-9, 9-9.4).
-- **Share Results**: Branded shareable results card with Grade.IQ logo, card image, all company grades, and sub-grades. Uses `react-native-view-shot` to capture and `expo-sharing` for the native share sheet. Red "Share Results" button at the bottom of the results screen.
+- **Share Results**: Branded shareable results card with Grade.IQ logo, card image, all company grades, and sub-grades. Uses `react-native-view-shot` to capture and `expo-sharing` for the native share sheet. Red "Share Results" button at the bottom of the results screen. Supports multiple social media formats: Instagram Post (1080x1080), Instagram/TikTok Story (1080x1920), and Twitter/Facebook (1200x630).
 
 ## External Dependencies
 - **OpenAI GPT-5.2 vision**: For AI-powered image analysis and grading.
