@@ -415,13 +415,17 @@ export default function ResultsScreen() {
     const roundHalf = (v: number) => Math.round(v * 2) / 2;
 
     const aceGrades = [aceCenteringGrade, prevResult.ace.corners.grade, prevResult.ace.edges.grade, prevResult.ace.surface.grade];
-    const aceCount10 = aceGrades.filter(g => g === 10).length;
-    const aceCount9 = aceGrades.filter(g => g === 9).length;
-    let aceOverall: number;
-    if (aceCount10 >= 3 && aceCount9 >= 1 && aceCenteringGrade === 10) {
-      aceOverall = 10;
-    } else {
-      aceOverall = Math.round(aceGrades.reduce((a, b) => a + b, 0) / 4);
+    const aceLowest = Math.min(...aceGrades);
+    const aceAvg = Math.round(aceGrades.reduce((a, b) => a + b, 0) / 4);
+    let aceOverall = Math.min(aceAvg, aceLowest + 1);
+    if (aceOverall === 10) {
+      const otherGrades = [prevResult.ace.corners.grade, prevResult.ace.edges.grade, prevResult.ace.surface.grade];
+      const tensCount = otherGrades.filter(g => g === 10).length;
+      const ninesCount = otherGrades.filter(g => g === 9).length;
+      const meetsAce10 = aceCenteringGrade === 10 && tensCount >= 2 && ninesCount <= 1;
+      if (!meetsAce10) {
+        aceOverall = 9;
+      }
     }
 
     const VALID_PSA = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
