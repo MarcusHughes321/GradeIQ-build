@@ -652,22 +652,29 @@ FRONT ARTWORK DAMAGE — HEAVILY PENALISED:
 
 - Generic deduction guide from the starting point of 10 (see company-specific tolerances below for fine-tuning):
   * KEEP AT 10: No visible flaws in this category. The card looks clean and sharp. Do not lower speculatively.
-  * 9: ONE very minor flaw that requires close inspection to see (e.g., slight whitening on ONE corner only, a single very faint hairline scratch barely visible)
-  * 8: ONE clearly visible minor flaw OR two very minor flaws (e.g., whitening on 2 corners, edge roughness on one side). The card still looks clean overall.
-  * 7: Multiple clearly visible flaws in this category (e.g., whitening on 3+ corners, edge wear visible along a full side, 2-3 surface scratches visible without close inspection)
-  * 6: Flaws immediately obvious at a glance (e.g., all corners showing whitening, edge chipping along multiple sides, surface covered in scratches or scuffs)
+  * 9: ONE or TWO very minor flaws that require close inspection to see (e.g., slight whitening on 1-2 back corners, a single very faint hairline scratch barely visible, tiny edge roughness in one spot)
+  * 8: A few minor flaws OR one clearly visible flaw (e.g., whitening on 3-4 back corners, one noticeable scratch, edge roughness along one side). The card still looks clean overall at arm's length.
+  * 7: Multiple clearly visible flaws in this category (e.g., whitening visible on front corners, edge wear visible along multiple sides, 2-3 surface scratches visible without close inspection)
+  * 6: Flaws immediately obvious at a glance (e.g., all corners showing clear whitening front AND back, edge chipping along multiple sides, surface covered in scratches or scuffs)
   * 5: Significant damage across the category (e.g., heavily rounded corners, edges with deep chipping and whitening, surface with deep scratches or creases, warping or bending visible)
   * 4: Heavy damage — corners bent or heavily dinged, edges severely chipped or warped, surface with creases or major scratches across the artwork
   * 3 or below: Severe damage — card has been heavily played, major creases, bends, tears, water damage, or extensive wear across the entire surface
-- KEY PRINCIPLE: The grade range should be WIDE. A clean card = 10. A card with one minor flaw = 8-9. A card with a few visible flaws across 1-2 categories = 6-7. A card with scratches on front AND back, edge whitening/warping, AND corner wear = 4-5. A heavily played/damaged card = 3 or below. Do NOT compress everything into 7-9. Cards with damage across 3+ categories are NEVER 8s.
+
+BACK VS FRONT DEFECT WEIGHTING — CRITICAL:
+- Minor back-corner whitening is EXTREMELY COMMON, even on pack-fresh modern cards, because factory cutting naturally leaves slight marks on the back. Light whitening on 2-3 back corners that requires close inspection to see is a 9-level flaw, NOT an 8 or 7. Many real PSA 9 and BGS 9 cards have minor whitening on multiple back corners.
+- FRONT corner or edge whitening is much more impactful than back-only whitening. Front-visible whitening should be graded more strictly.
+- Back surface scratches that are only "faintly visible" or require close inspection are VERY minor — a couple of faint back scratches alone should not drop surface below 9.
+- Reserve grades of 8 and below for flaws that are clearly visible at normal viewing distance or that appear on the FRONT of the card.
+
+- KEY PRINCIPLE: The grade range should be WIDE. A clean card = 10. A card with minor back-only flaws = 9. A card with one clearly visible flaw or front-visible issues = 8. A card with multiple visible flaws across categories = 6-7. A card with scratches on front AND back, edge whitening/warping, AND corner wear = 4-5. A heavily played/damaged card = 3 or below. Do NOT compress everything into 7-9. Cards with damage across 3+ categories are NEVER 8s.
 
 COMPANY-SPECIFIC DEFECT TOLERANCE — Each company has different strictness levels. Apply the generic guide above, then ADJUST for each company:
 
 **PSA Defect Tolerance (weakest-link system):**
 - PSA grades by the WEAKEST category — one bad area drags the whole grade down.
 - PSA 10: ZERO defects. No scratches, no whitening, no wear. Perfectly sharp corners, perfect edges, perfect surface. One very slight printing imperfection allowed only if it doesn't affect eye appeal.
-- PSA 9: ONE minor flaw allowed in the ENTIRE card (not per category). E.g., very slight wax stain on reverse, OR minor printing imperfection, OR slightly off-white borders. Not multiple — just one.
-- PSA 8: Slight fraying at 1-2 corners, OR very slight wax stain, OR minor printing imperfection. Still very clean overall.
+- PSA 9: A couple of very minor flaws allowed (e.g., slight whitening on 1-3 back corners, OR one very faint hairline scratch on the back, OR minor printing imperfection). The card should still look excellent overall. Minor back-only whitening on multiple corners is common on PSA 9 cards.
+- PSA 8: Slight fraying at 1-2 corners visible from the front, OR whitening across all 4 back corners, OR very slight wax stain, OR a noticeable scratch. Still very clean overall.
 - PSA 7: Slight fraying on some corners, minimal edge wear visible on close inspection, slight surface wear, minor printing blemish. Most original gloss retained.
 - PSA 6: Slightly graduated corner fraying, very slight edge notching, visible surface wear or light scratch (only on close inspection), some gloss loss.
 - PSA 5: Very minor corner rounding, minor edge chipping, several light surface scratches, more apparent gloss loss.
