@@ -10,21 +10,61 @@ const openai = new OpenAI({
 });
 
 const SET_CODE_TO_NAME: Record<string, string> = {};
-for (const [code, name] of Object.entries(ENGLISH_SETS)) {
-  SET_CODE_TO_NAME[code.toLowerCase()] = name;
-}
-for (const [code, name] of Object.entries(JAPANESE_SETS)) {
-  SET_CODE_TO_NAME[code.toLowerCase()] = name;
-}
-for (const [code, name] of Object.entries(KOREAN_SETS)) {
-  if (!SET_CODE_TO_NAME[code.toLowerCase()]) {
+function initHardcodedSets() {
+  for (const [code, name] of Object.entries(ENGLISH_SETS)) {
     SET_CODE_TO_NAME[code.toLowerCase()] = name;
   }
-}
-for (const [code, name] of Object.entries(CHINESE_SETS)) {
-  if (!SET_CODE_TO_NAME[code.toLowerCase()]) {
+  for (const [code, name] of Object.entries(JAPANESE_SETS)) {
     SET_CODE_TO_NAME[code.toLowerCase()] = name;
   }
+  for (const [code, name] of Object.entries(KOREAN_SETS)) {
+    if (!SET_CODE_TO_NAME[code.toLowerCase()]) {
+      SET_CODE_TO_NAME[code.toLowerCase()] = name;
+    }
+  }
+  for (const [code, name] of Object.entries(CHINESE_SETS)) {
+    if (!SET_CODE_TO_NAME[code.toLowerCase()]) {
+      SET_CODE_TO_NAME[code.toLowerCase()] = name;
+    }
+  }
+}
+initHardcodedSets();
+
+let dynamicSetReference = generateSetReferenceForPrompt();
+let apiDiscoveredSets: Record<string, string> = {};
+
+function mergeApiSetsIntoLookup(apiSets: CachedSet[]) {
+  let newCount = 0;
+  for (const s of apiSets) {
+    if (s.ptcgoCode && s.name) {
+      const key = s.ptcgoCode.toLowerCase();
+      if (!SET_CODE_TO_NAME[key]) {
+        SET_CODE_TO_NAME[key] = s.name;
+        apiDiscoveredSets[s.ptcgoCode] = s.name;
+        newCount++;
+      }
+    }
+    if (s.id && s.name) {
+      const key = s.id.toLowerCase();
+      if (!SET_CODE_TO_NAME[key]) {
+        SET_CODE_TO_NAME[key] = s.name;
+        apiDiscoveredSets[s.id] = s.name;
+        newCount++;
+      }
+    }
+  }
+  if (newCount > 0) {
+    console.log(`[set-cache] Discovered ${newCount} new set codes from API`);
+    const apiSection = Object.entries(apiDiscoveredSets)
+      .map(([code, name]) => `  ${code} = ${name}`)
+      .join("\n");
+    dynamicSetReference = generateSetReferenceForPrompt() +
+      "\n\n=== ADDITIONAL SETS (auto-discovered from Pokemon TCG API) ===\n" + apiSection;
+  }
+}
+
+function getCurrentSetReference(): string {
+  return dynamicSetReference;
 }
 
 function resolveSetName(setCode: string, aiSetName: string): string {
@@ -70,6 +110,7 @@ async function fetchAndCacheSets(): Promise<void> {
     }));
     setsLastFetched = Date.now();
     console.log(`[set-cache] Cached ${cachedSets.length} sets`);
+    mergeApiSetsIntoLookup(cachedSets);
   } catch (e: any) {
     console.log(`[set-cache] Failed to fetch sets: ${e?.message}`);
   }
@@ -368,9 +409,11 @@ async function lookupJapaneseCard(setCode: string, cardNumber: number, aiSetName
   return null;
 }
 
-const SET_REFERENCE = generateSetReferenceForPrompt();
+function buildGradingSystemPrompt(): string {
+  return GRADING_PROMPT_TEMPLATE.replace("{{SET_REFERENCE}}", getCurrentSetReference());
+}
 
-const GRADING_SYSTEM_PROMPT = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
+const GRADING_PROMPT_TEMPLATE = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
 
 IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 
@@ -538,7 +581,7 @@ Step 3: READ THE SET CODE AND IDENTIFY THE SET
 
 - Use this COMPREHENSIVE set code mapping to determine the set name:
 
-${SET_REFERENCE}
+{{SET_REFERENCE}}
 
 - If the set code is not in the mapping above, still report the exact set code — do NOT invent a set name.
 - Consider the card's era (vintage WOTC, modern Scarlet & Violet, Mega Evolution, etc.) based on card design/border style
@@ -2619,7 +2662,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       messages: [
         {
           role: "system",
-          content: GRADING_SYSTEM_PROMPT,
+          content: buildGradingSystemPrompt(),
         },
         {
           role: "user",
@@ -2854,7 +2897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       model: "gpt-5.2",
       max_completion_tokens: 4096,
       messages: [
-        { role: "system", content: GRADING_SYSTEM_PROMPT },
+        { role: "system", content: buildGradingSystemPrompt() },
         { role: "user", content: imageContent },
       ],
     });
@@ -3010,7 +3053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           messages: [
             {
               role: "system",
-              content: GRADING_SYSTEM_PROMPT,
+              content: buildGradingSystemPrompt(),
             },
             {
               role: "user",
