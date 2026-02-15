@@ -95,28 +95,32 @@ function LogoHeader({ fontSize }: { fontSize: number }) {
   );
 }
 
-function SquareCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
-  const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies);
+function SquareCard({ grading, enabledCompanies, cardValue, showMarketData, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
+  const { result, displaySetName, displaySetNumber, companies, subGrades, rawValue } = useCardData(grading, enabledCompanies, cardValue);
+  const hasValues = showMarketData && cardValue && companies.some(c => c.value && !c.value.includes("No value"));
   return (
-    <View style={{ width: 380, height: 380, backgroundColor: "#0A0A0A", padding: 24, justifyContent: "space-between" }}>
-      <LogoHeader fontSize={22} />
-      <View style={{ flexDirection: "row", gap: 14 }}>
-        <View style={{ width: 90, height: 126, borderRadius: 8, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-          <RNImage source={{ uri: grading.frontImage }} style={{ width: 90, height: 126 }} resizeMode="cover" onLoad={onImageLoad} />
+    <View style={{ width: 380, height: 380, backgroundColor: "#0A0A0A", padding: 20, justifyContent: "space-between" }}>
+      <LogoHeader fontSize={20} />
+      <View style={{ flexDirection: "row", gap: 12 }}>
+        <View style={{ width: 80, height: 112, borderRadius: 8, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
+          <RNImage source={{ uri: grading.frontImage }} style={{ width: 80, height: 112 }} resizeMode="cover" onLoad={onImageLoad} />
         </View>
-        <View style={{ flex: 1, justifyContent: "center", gap: 4 }}>
-          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 17, color: "#FFFFFF", lineHeight: 22 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
-          {displaySetName ? <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: "#A0A0A0" }} numberOfLines={1}>{displaySetName}</Text> : null}
-          {displaySetNumber ? <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 11, color: "#666666" }}>{displaySetNumber}</Text> : null}
+        <View style={{ flex: 1, justifyContent: "center", gap: 3 }}>
+          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, color: "#FFFFFF", lineHeight: 20 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
+          {displaySetName ? <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "#A0A0A0" }} numberOfLines={1}>{displaySetName}</Text> : null}
+          {displaySetNumber ? <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#666666" }}>{displaySetNumber}</Text> : null}
         </View>
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-around" }}>
         {companies.map((c) => (
-          <View key={c.key} style={{ alignItems: "center", gap: 3 }}>
-            <CompanyLabel company={c.key} fontSize={14} fontFamily="Inter_600SemiBold" />
-            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 22, color: getGradientColor(c.grade) }}>
+          <View key={c.key} style={{ alignItems: "center", gap: 2 }}>
+            <CompanyLabel company={c.key} fontSize={12} fontFamily="Inter_600SemiBold" />
+            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: getGradientColor(c.grade) }}>
               {c.grade % 1 === 0 ? c.grade.toString() : c.grade.toFixed(1)}
             </Text>
+            {hasValues && c.value && !c.value.includes("No value") ? (
+              <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: "#888" }}>{c.value}</Text>
+            ) : null}
           </View>
         ))}
       </View>
@@ -193,8 +197,9 @@ function StoryCard({ grading, enabledCompanies, cardValue, showMarketData, onIma
   );
 }
 
-function WideCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
-  const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies);
+function WideCard({ grading, enabledCompanies, cardValue, showMarketData, onImageLoad }: ShareCardProps & { onImageLoad?: () => void }) {
+  const { result, displaySetName, displaySetNumber, companies, subGrades } = useCardData(grading, enabledCompanies, cardValue);
+  const hasValues = showMarketData && cardValue && companies.some(c => c.value && !c.value.includes("No value"));
   return (
     <View style={{ width: 600, height: 315, backgroundColor: "#0A0A0A", flexDirection: "row" }}>
       <View style={{ width: 210, height: 315, padding: 20, justifyContent: "center", alignItems: "center" }}>
@@ -216,6 +221,9 @@ function WideCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & {
               <Text style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: getGradientColor(c.grade) }}>
                 {c.grade % 1 === 0 ? c.grade.toString() : c.grade.toFixed(1)}
               </Text>
+              {hasValues && c.value && !c.value.includes("No value") ? (
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 8, color: "#888" }}>{c.value}</Text>
+              ) : null}
             </View>
           ))}
         </View>
@@ -234,7 +242,7 @@ function WideCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & {
   );
 }
 
-export default function ShareButton({ grading, enabledCompanies }: ShareCardProps) {
+export default function ShareButton({ grading, enabledCompanies, cardValue, showMarketData }: ShareCardProps) {
   const captureViewRef = useRef<View>(null);
   const [sharing, setSharing] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
@@ -305,7 +313,7 @@ export default function ShareButton({ grading, enabledCompanies }: ShareCardProp
 
   const renderActiveCard = () => {
     if (!activeFormat) return null;
-    const props = { grading, enabledCompanies, onImageLoad: onCardImageLoaded };
+    const props = { grading, enabledCompanies, cardValue, showMarketData, onImageLoad: onCardImageLoaded };
     switch (activeFormat) {
       case "instagram_post": return <SquareCard {...props} />;
       case "instagram_story": return <StoryCard {...props} />;

@@ -917,7 +917,7 @@ export default function ResultsScreen() {
           </Text>
         </View>
 
-        <ShareButton grading={grading} enabledCompanies={enabledCompanies} />
+        <ShareButton grading={grading} enabledCompanies={enabledCompanies} cardValue={cardValue} showMarketData={isSubscribed || isAdminMode} />
       </ScrollView>
 
       <Modal
