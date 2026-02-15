@@ -82,8 +82,7 @@ function LogoHeader({ fontSize }: { fontSize: number }) {
     <View style={{ alignItems: "center" }}>
       <View style={{ flexDirection: "row", alignItems: "baseline" }}>
         <Text style={{ fontFamily: "Inter_700Bold", fontSize, color: "#FFFFFF" }}>Grade</Text>
-        <Text style={{ fontFamily: "Inter_700Bold", fontSize, color: "#FF3C31" }}>.</Text>
-        <Text style={{ fontFamily: "Inter_700Bold", fontSize, color: "#FFFFFF" }}>IQ</Text>
+        <Text style={{ fontFamily: "Inter_700Bold", fontSize, color: "#FF3C31" }}>.IQ</Text>
       </View>
       <Text style={{ fontFamily: "Inter_400Regular", fontSize: Math.round(fontSize * 0.4), color: "#666666", marginTop: 1 }}>
         AI Card Grading
@@ -188,8 +187,7 @@ function WideCard({ grading, enabledCompanies, onImageLoad }: ShareCardProps & {
       <View style={{ flex: 1, padding: 20, paddingLeft: 0, justifyContent: "space-between" }}>
         <View style={{ flexDirection: "row", alignItems: "baseline" }}>
           <Text style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: "#FFFFFF" }}>Grade</Text>
-          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: "#FF3C31" }}>.</Text>
-          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: "#FFFFFF" }}>IQ</Text>
+          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 20, color: "#FF3C31" }}>.IQ</Text>
         </View>
         <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, color: "#FFFFFF", lineHeight: 20 }} numberOfLines={2}>{result.cardName || "Pokemon Card"}</Text>
         {displaySetName ? <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: "#A0A0A0" }} numberOfLines={1}>{displaySetName}</Text> : null}
