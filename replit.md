@@ -24,9 +24,11 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
     - **Auto-Straighten**: Detects and corrects card tilt angle using Sobel edge detection.
 - **Grading Logic**:
     - **Single AI Call Architecture**: A streamlined approach where one AI call handles both card identification and condition assessment, reporting exact set codes and card numbers.
-    - **Grading Philosophy**: Follows a "start at 10, deduct for visible flaws" methodology.
+    - **Grading Philosophy**: Follows a "start at 10, deduct for visible flaws" methodology. Back-only minor defects (whitening, faint scratches) are treated more leniently than front defects — minor back-corner whitening on 2-3 corners is grade 9 territory, matching real PSA/BGS standards.
+    - **Comprehensive Set Knowledge**: `server/pokemon-sets.ts` contains full set code mappings for English (all eras from Base Set through Mega Evolution), Japanese, Korean, and Chinese TCG sets. The AI prompt includes this data so the AI can accurately identify sets from printed set codes. Server-side `resolveSetName()` also validates/corrects set names using this data.
     - **Multi-language Support**: AI can read cards in various languages (Japanese, Korean, Chinese) and provide English names/details.
     - **Card Number Detection**: AI reads card numbers from the card bottom, utilizing multiple strategies for accuracy.
+    - **Vintage Card Support**: AI can identify older cards (WOTC, e-Card, EX era) by their set symbols when printed set codes are not available.
 - **User Features**:
     - **Two Grading Modes**: Quick Grade (2 photos: front + back, fast) and Deep Grade (12 photos: front + back + angled front + angled back + 4 front corner close-ups + 4 back corner close-ups, plus 4 auto-crops backup = up to 16 images to AI, premium accuracy). Mode selector on Grade tab with guided step-by-step capture for Deep Grade.
     - **Deep Grade Features**: Server-side image enhancement (sharpening + contrast boost via Sharp), auto-corner cropping, modified AI prompt analyzing all 8 images for surface detail. First-use onboarding modal (AsyncStorage key: `gradeiq_deep_intro_seen`). Amber/gold (#F59E0B) color accent for Deep Grade UI.
