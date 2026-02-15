@@ -303,16 +303,50 @@ function viewportToContainer(
 const HANDLE_W = 16;
 const HANDLE_H = 32;
 
-function renderLine(config: LineConfig, pos: number, containerSize: { width: number; height: number }, isActive?: boolean) {
-  const lineW = isActive ? 3 : (config.isOuter ? 2 : 2.5);
-  const opacity = isActive ? 1 : (config.isOuter ? 0.7 : 1);
-  const handleOffset = getHandleOffset(config);
-  const handleScale = isActive ? 1.4 : 1;
-  const handleW = HANDLE_W * handleScale;
-  const handleH = HANDLE_H * handleScale;
+interface ViewportInfo {
+  scale: number;
+  panX: number;
+  panY: number;
+}
+
+function getVisibleCenter(
+  config: LineConfig,
+  containerSize: { width: number; height: number },
+  viewport: ViewportInfo
+): number {
+  if (viewport.scale <= 1.05) return 0.5;
+
+  const s = viewport.scale;
+  const cw = containerSize.width;
+  const ch = containerSize.height;
 
   if (config.orientation === "v") {
-    const handleTop = containerSize.height * handleOffset - handleH / 2;
+    const centerContainerY = ch / 2 - viewport.panY / s;
+    const fraction = Math.max(0.1, Math.min(0.9, centerContainerY / ch));
+    return fraction;
+  } else {
+    const centerContainerX = cw / 2 - viewport.panX / s;
+    const fraction = Math.max(0.1, Math.min(0.9, centerContainerX / cw));
+    return fraction;
+  }
+}
+
+function renderLine(
+  config: LineConfig, pos: number,
+  containerSize: { width: number; height: number },
+  isActive?: boolean, viewport?: ViewportInfo
+) {
+  const lineW = isActive ? 3 : (config.isOuter ? 2 : 2.5);
+  const opacity = isActive ? 1 : (config.isOuter ? 0.7 : 1);
+  const s = viewport?.scale ?? 1;
+  const sizeScale = s > 1.05 ? 1 / s : 1;
+  const activeScale = isActive ? 1.4 : 1;
+  const handleW = HANDLE_W * activeScale * sizeScale;
+  const handleH = HANDLE_H * activeScale * sizeScale;
+  const handleCenter = viewport ? getVisibleCenter(config, containerSize, viewport) : 0.5;
+
+  if (config.orientation === "v") {
+    const handleTop = containerSize.height * handleCenter - handleH / 2;
     return (
       <React.Fragment key={config.key}>
         <View
@@ -347,7 +381,7 @@ function renderLine(config: LineConfig, pos: number, containerSize: { width: num
     );
   }
 
-  const handleLeft = containerSize.width * handleOffset - handleH / 2;
+  const handleLeft = containerSize.width * handleCenter - handleH / 2;
   return (
     <React.Fragment key={config.key}>
       <View
@@ -1125,7 +1159,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
             {pos && cw > 0 && (
               <View style={styles.linesOverlay} pointerEvents="none">
-                {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize, activeHandle === config.key))}
+                {LINE_CONFIGS.map(config => renderLine(config, pos[config.key], containerSize, activeHandle === config.key, { scale: zoomScale, panX: panOffset.x, panY: panOffset.y }))}
 
                 {renderHatchOverlay(pos, containerSize)}
               </View>
