@@ -557,6 +557,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const backUsedFallbackRef = useRef(false);
   const frontLoadLoggedRef = useRef(false);
   const backLoadLoggedRef = useRef(false);
+  const prevCenteringRef = useRef(centering);
   const [frontRotation, setFrontRotation] = useState(0);
   const [backRotation, setBackRotation] = useState(0);
   const [showRotation, setShowRotation] = useState(false);
@@ -603,6 +604,28 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     const bounds = calcContainBounds(cw, ch, nw, nh);
     setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, bounds, backCardBounds));
   }, [centering, backCardBounds]);
+
+  useEffect(() => {
+    const prev = prevCenteringRef.current;
+    if (
+      prev.frontLeftRight !== centering.frontLeftRight ||
+      prev.frontTopBottom !== centering.frontTopBottom ||
+      prev.backLeftRight !== centering.backLeftRight ||
+      prev.backTopBottom !== centering.backTopBottom
+    ) {
+      prevCenteringRef.current = centering;
+      frontPosInitRef.current = false;
+      backPosInitRef.current = false;
+      frontUsedFallbackRef.current = false;
+      backUsedFallbackRef.current = false;
+      if (containerSize.width > 0 && frontNatural.w > 0) {
+        doInitFront(containerSize.width, containerSize.height, frontNatural.w, frontNatural.h);
+      }
+      if (containerSize.width > 0 && backNatural.w > 0) {
+        doInitBack(containerSize.width, containerSize.height, backNatural.w, backNatural.h);
+      }
+    }
+  }, [centering]);
 
   useEffect(() => {
     if (containerSize.width > 0 && frontNatural.w > 0) {

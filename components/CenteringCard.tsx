@@ -147,6 +147,8 @@ export default function CenteringCard({ centering, onOpenTool, enabledCompanies 
         </Pressable>
       </View>
 
+      <Text style={styles.hintText}>Not sure you agree with the centering? Use Measure to adjust the lines and update it.</Text>
+
       <View style={styles.ratiosContainer}>
         <RatioDisplay label="Front" lr={c.frontLeftRight} tb={c.frontTopBottom} />
         <RatioDisplay label="Back" lr={c.backLeftRight} tb={c.backTopBottom} />
@@ -221,6 +223,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
     color: "#fff",
+  },
+  hintText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 12,
+    lineHeight: 17,
   },
   ratiosContainer: {
     flexDirection: "row",
