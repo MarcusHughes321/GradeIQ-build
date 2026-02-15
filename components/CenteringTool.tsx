@@ -268,6 +268,35 @@ function findNearLines(
     }
   }
 
+  const CROSS_PAIRS: [LineKey, LineKey][] = [
+    ["innerTop", "innerBottom"],
+    ["outerTop", "outerBottom"],
+    ["innerLeft", "innerRight"],
+    ["outerLeft", "outerRight"],
+  ];
+  for (const [keyA, keyB] of CROSS_PAIRS) {
+    const candA = candidates.find(c => c.key === keyA);
+    const candB = candidates.find(c => c.key === keyB);
+    if (candA && candB) {
+      const posA = pos[keyA];
+      const posB = pos[keyB];
+      const midpoint = (posA + posB) / 2;
+      const touchCoord = candA.orientation === "v" ? x : y;
+
+      if (touchCoord <= midpoint) {
+        const smaller = posA < posB ? keyA : keyB;
+        const larger = posA < posB ? keyB : keyA;
+        const idxToRemove = candidates.findIndex(c => c.key === larger);
+        if (idxToRemove >= 0) candidates.splice(idxToRemove, 1);
+      } else {
+        const smaller = posA < posB ? keyA : keyB;
+        const larger = posA < posB ? keyB : keyA;
+        const idxToRemove = candidates.findIndex(c => c.key === smaller);
+        if (idxToRemove >= 0) candidates.splice(idxToRemove, 1);
+      }
+    }
+  }
+
   candidates.sort((a, b) => a.dist - b.dist);
   return candidates;
 }
