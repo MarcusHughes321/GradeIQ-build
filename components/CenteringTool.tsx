@@ -180,7 +180,7 @@ function calcContainBounds(containerW: number, containerH: number, naturalW: num
 
 const HANDLE_OFFSET_INNER = 0.5;
 const HANDLE_OFFSET_OUTER = 0.5;
-const TENTATIVE_MOVE_THRESHOLD = 6;
+const TENTATIVE_MOVE_THRESHOLD_BASE = 6;
 
 type LineKey = "outerLeft" | "innerLeft" | "outerRight" | "innerRight" | "outerTop" | "innerTop" | "outerBottom" | "innerBottom";
 
@@ -851,6 +851,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const dragLineKey = useRef<LineKey | null>(null);
   const dragTouchOffset = useRef(0);
   const viewportOriginRef = useRef({ x: 0, y: 0 });
+  const pageOriginRef = useRef({ x: 0, y: 0 });
   const tentativeCandidatesRef = useRef<LineCandidate[]>([]);
   const tentativeTouchRef = useRef<{ containerX: number; containerY: number }>({ containerX: 0, containerY: 0 });
   const didDragRef = useRef(false);
@@ -894,6 +895,7 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         const ly = evt.nativeEvent.locationY;
 
         viewportOriginRef.current = { x: lx, y: ly };
+        pageOriginRef.current = { x: evt.nativeEvent.pageX, y: evt.nativeEvent.pageY };
         panStartOffRef.current = { ...panOffsetRef.current };
 
         const { x: containerX, y: containerY } = viewportToContainer(lx, ly, scale, px, py, cs.width, cs.height);
@@ -940,7 +942,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
 
         if (gestureMode.current === "tentative" && tentativeCandidatesRef.current.length > 0) {
           const totalMove = Math.sqrt(g.dx * g.dx + g.dy * g.dy);
-          if (totalMove >= TENTATIVE_MOVE_THRESHOLD) {
+          const scaledThreshold = TENTATIVE_MOVE_THRESHOLD_BASE / Math.max(1, zoomScaleRef.current * 0.5);
+          if (totalMove >= scaledThreshold) {
             const movesMoreHorizontal = Math.abs(g.dx) >= Math.abs(g.dy);
 
             const hCandidates = tentativeCandidatesRef.current.filter(c => c.orientation === "h");
@@ -961,7 +964,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             const perpMove = chosenOrient === "v" ? Math.abs(g.dx) : Math.abs(g.dy);
             const paraMove = chosenOrient === "v" ? Math.abs(g.dy) : Math.abs(g.dx);
 
-            if (perpMove >= paraMove * 0.5) {
+            const perpThreshold = zoomScaleRef.current > 1.5 ? 0.3 : 0.5;
+            if (perpMove >= paraMove * perpThreshold) {
               const currentPos = posRef.current;
               if (currentPos) {
                 const lineVal = currentPos[chosen.key];
@@ -1004,11 +1008,12 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
           const key = dragLineKey.current;
           const s = zoomScaleRef.current;
           const cs = containerSizeRef.current;
-          const px = panOffsetRef.current.x;
-          const py = panOffsetRef.current.y;
-          const currentLx = viewportOriginRef.current.x + g.dx;
-          const currentLy = viewportOriginRef.current.y + g.dy;
-          const { x: cx, y: cy } = viewportToContainer(currentLx, currentLy, s, px, py, cs.width, cs.height);
+          const deltaContainerX = g.dx / s;
+          const deltaContainerY = g.dy / s;
+          const initCx = tentativeTouchRef.current.containerX;
+          const initCy = tentativeTouchRef.current.containerY;
+          const cx = initCx + deltaContainerX;
+          const cy = initCy + deltaContainerY;
           const currentPos = posRef.current;
           if (!currentPos) return;
           const { min, max } = getLineMinMax(key, currentPos, cs.width, cs.height);
