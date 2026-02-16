@@ -247,18 +247,19 @@ export default function ShareButton({ grading, enabledCompanies, cardValue, show
   const [sharing, setSharing] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [activeFormat, setActiveFormat] = useState<ShareFormat | null>(null);
+  const sharingRef = useRef(false);
   const imageLoadedRef = useRef(false);
   const pendingCaptureRef = useRef<ShareFormat | null>(null);
 
   const doCapture = useCallback(async (format: ShareFormat) => {
-    if (!captureViewRef.current || sharing) {
-      setActiveFormat(null);
+    if (!captureViewRef.current || sharingRef.current) {
       return;
     }
+    sharingRef.current = true;
     setSharing(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 300));
       const uri = await captureRef(captureViewRef, {
         format: "png",
         quality: 1,
@@ -284,31 +285,33 @@ export default function ShareButton({ grading, enabledCompanies, cardValue, show
       console.error("Share error:", err);
       Alert.alert("Error", "Failed to create share image. Please try again.");
     } finally {
+      sharingRef.current = false;
       setSharing(false);
       setActiveFormat(null);
     }
-  }, [grading, sharing]);
+  }, [grading]);
 
   const onCardImageLoaded = useCallback(() => {
     imageLoadedRef.current = true;
     if (pendingCaptureRef.current) {
       const fmt = pendingCaptureRef.current;
       pendingCaptureRef.current = null;
-      setTimeout(() => doCapture(fmt), 150);
+      setTimeout(() => doCapture(fmt), 300);
     }
   }, [doCapture]);
 
   const handleFormatSelected = useCallback((format: ShareFormat) => {
+    if (sharingRef.current) return;
     imageLoadedRef.current = false;
     pendingCaptureRef.current = format;
     setActiveFormat(format);
     setShowPicker(false);
     setTimeout(() => {
-      if (!imageLoadedRef.current) {
+      if (!imageLoadedRef.current && pendingCaptureRef.current === format) {
         pendingCaptureRef.current = null;
         doCapture(format);
       }
-    }, 2000);
+    }, 2500);
   }, [doCapture]);
 
   const renderActiveCard = () => {
