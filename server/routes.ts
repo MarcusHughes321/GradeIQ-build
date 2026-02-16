@@ -883,13 +883,14 @@ function formatSetNumber(num: string | number, total: string | number): string {
   return n;
 }
 
-async function queryPokemonTcgApi(q: string): Promise<any[]> {
+async function queryPokemonTcgApi(q: string, includePrices = false): Promise<any[]> {
   try {
-    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=15&select=name,set,number`;
+    const fields = includePrices ? "name,set,number,rarity,tcgplayer" : "name,set,number";
+    const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=15&select=${fields}`;
     console.log(`[card-lookup] Querying: ${q}`);
     const resp = await fetch(url, {
       headers: { "Accept": "application/json" },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!resp.ok) {
       console.log(`[card-lookup] API returned ${resp.status}`);
