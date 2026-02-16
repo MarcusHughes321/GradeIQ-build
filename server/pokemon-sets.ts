@@ -492,6 +492,86 @@ export const ENGLISH_SET_SYMBOLS: Record<string, string> = {
   "Sword / shield emblem DP-HGSS style": "Undaunted",
   "Trophy / triumph": "Triumphant",
   "Legendary bird silhouette": "Call of Legends",
+
+  // === BLACK & WHITE ERA (2011-2013) ===
+  "Stylized BW logo / black and white yin-yang": "Black & White",
+  "Green leaf / emerging powers": "Emerging Powers",
+  "Red shield / noble victories": "Noble Victories",
+  "Blue gear / next destinies": "Next Destinies",
+  "Dark swirl / dark explorers": "Dark Explorers",
+  "Ice crystal / dragons exalted": "Dragons Exalted",
+  "Dragon skull / dragon vault": "Dragon Vault",
+  "Frozen snowflake / boundaries crossed": "Boundaries Crossed",
+  "Purple plasma bolt": "Plasma Storm",
+  "Blue plasma shield": "Plasma Freeze",
+  "Orange plasma flame / blast": "Plasma Blast",
+  "Red and gold legendary": "Legendary Treasures",
+
+  // === XY ERA (2014-2016) ===
+  "Blue X or red Y shape": "XY",
+  "Flame / flashfire": "Flashfire",
+  "Green leaf / furious fists": "Furious Fists",
+  "Yellow bolt / phantom forces": "Phantom Forces",
+  "Red omega / blue alpha symbol": "Primal Clash",
+  "Swirling dragon / roaring skies": "Roaring Skies",
+  "Ancient stone / ancient origins": "Ancient Origins",
+  "Red BREAK symbol / BREAKthrough": "BREAKthrough",
+  "Blue BREAK symbol / BREAKpoint": "BREAKpoint",
+  "Green vines / fates collide": "Fates Collide",
+  "Red steam / steam siege": "Steam Siege",
+  "Blue and orange evolution symbol": "Evolutions",
+  "Generations flower / radiant collection": "Generations",
+  "Double crisis / dual team symbol": "Double Crisis",
+
+  // === SUN & MOON ERA (2017-2019) ===
+  "Sun and moon logo / dual celestial": "Sun & Moon",
+  "Guardians rising shield / guardian": "Guardians Rising",
+  "Fire / burning shadows flame": "Burning Shadows",
+  "Light / shining legends star": "Shining Legends",
+  "Purple ultra prism / prism star": "Ultra Prism",
+  "Red / forbidden light beam": "Forbidden Light",
+  "Blue storm / celestial storm cloud": "Celestial Storm",
+  "Dragon majesty crown / dragon": "Dragon Majesty",
+  "Yellow lightning bolt / lost thunder": "Lost Thunder",
+  "Green plant / team up fist": "Team Up",
+  "Purple dark / unbroken bonds chain": "Unbroken Bonds",
+  "Yellow sun / unified minds brain": "Unified Minds",
+  "Purple ghost / hidden fates eye": "Hidden Fates",
+  "Blue ice / cosmic eclipse moon": "Cosmic Eclipse",
+
+  // === SWORD & SHIELD ERA (2020-2023) ===
+  "Sword and shield crossed": "Sword & Shield",
+  "Red fist / rebel clash": "Rebel Clash",
+  "Purple / darkness ablaze flame": "Darkness Ablaze",
+  "Yellow lightning / vivid voltage bolt": "Vivid Voltage",
+  "Blue crown / champion's path trophy": "Champion's Path",
+  "Shining star / shining fates sparkle": "Shining Fates",
+  "Green leaf / battle styles martial": "Battle Styles",
+  "Ice / chilling reign snowflake": "Chilling Reign",
+  "Red flame / evolving skies dragon": "Evolving Skies",
+  "25th anniversary pokeball": "Celebrations",
+  "Star / fusion strike energy": "Fusion Strike",
+  "Gold / brilliant stars sparkle": "Brilliant Stars",
+  "Gear / astral radiance light": "Astral Radiance",
+  "Dark / lost origin portal": "Lost Origin",
+  "Silver / silver tempest wind": "Silver Tempest",
+  "Crown / crown zenith peak": "Crown Zenith",
+  "Pokemon GO logo / pokeball with GO": "Pokemon GO",
+
+  // === SCARLET & VIOLET ERA (2023-present) ===
+  "Scarlet and violet SV logo": "Scarlet & Violet",
+  "Purple / paldea evolved emblem": "Paldea Evolved",
+  "Blue / obsidian flames fire": "Obsidian Flames",
+  "151 / original 151 logo": "151",
+  "Yellow / paradox rift portal": "Paradox Rift",
+  "Green / paldean fates star": "Paldean Fates",
+  "Red / temporal forces clock": "Temporal Forces",
+  "Blue / twilight masquerade mask": "Twilight Masquerade",
+  "Gold / shrouded fable shadow": "Shrouded Fable",
+  "Red / stellar crown star": "Stellar Crown",
+  "Purple / surging sparks bolt": "Surging Sparks",
+  "Blue / prismatic evolutions prism": "Prismatic Evolutions",
+  "Red / journey together emblem": "Journey Together",
 };
 
 export function getSetNameBySymbol(symbolDescription: string): string | null {
@@ -506,7 +586,7 @@ export function getSetNameBySymbol(symbolDescription: string): string | null {
 }
 
 export function generateSymbolReferenceForPrompt(): string {
-  const lines: string[] = ["=== ENGLISH SET SYMBOLS (for older cards without printed set codes) ==="];
+  const lines: string[] = ["=== ENGLISH SET SYMBOLS (use when set code is not printed or not readable) ==="];
   let currentEra = "";
   for (const [symbol, setName] of Object.entries(ENGLISH_SET_SYMBOLS)) {
     if (symbol.startsWith("//")) continue;
