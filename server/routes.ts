@@ -127,6 +127,132 @@ function findSetsByTotal(printedTotal: number): CachedSet[] {
   return cachedSets.filter(s => s.printedTotal === printedTotal || s.total === printedTotal);
 }
 
+const KNOWN_SET_TOTALS: Record<number, string[]> = {
+  102: ["Base Set"],
+  64: ["Jungle"],
+  62: ["Fossil"],
+  82: ["Team Rocket"],
+  75: ["Neo Discovery"],
+  66: ["Neo Revelation"],
+  92: ["EX Delta Species"],
+  93: ["EX Legend Maker"],
+  95: ["EX Team Magma vs Team Aqua"],
+  97: ["EX Dragon"],
+  100: ["EX Sandstorm", "EX Crystal Guardians"],
+  101: ["EX Hidden Legends", "EX FireRed & LeafGreen"],
+  106: ["EX Emerald", "EX Unseen Forces", "Flashfire"],
+  107: ["EX Deoxys"],
+  108: ["Roaring Skies", "Evolutions"],
+  109: ["EX Ruby & Sapphire"],
+  110: ["EX Holon Phantoms"],
+  111: ["Neo Genesis", "Furious Fists"],
+  113: ["Legendary Collection", "Emerging Powers"],
+  114: ["Black & White", "Steam Siege"],
+  119: ["Phantom Forces"],
+  122: ["Plasma Freeze", "BREAKpoint"],
+  123: ["Mysterious Treasures", "HeartGold & SoulSilver"],
+  124: ["Fates Collide"],
+  127: ["Stormfront"],
+  130: ["Diamond & Pearl"],
+  131: ["Forbidden Light"],
+  132: ["Gym Heroes", "Gym Challenge", "Secret Wonders"],
+  135: ["Plasma Storm"],
+  144: ["Skyridge"],
+  145: ["Guardians Rising"],
+  146: ["Legendary Treasures", "XY"],
+  147: ["Aquapolis", "Burning Shadows"],
+  149: ["Boundaries Crossed", "Sun & Moon"],
+  156: ["Ultra Prism"],
+  159: ["Crown Zenith"],
+  160: ["Primal Clash"],
+  162: ["BREAKthrough"],
+  163: ["Battle Styles"],
+  165: ["Expedition Base Set", "151"],
+  167: ["Twilight Masquerade"],
+  168: ["Celestial Storm"],
+  172: ["Brilliant Stars"],
+  175: ["Stellar Crown"],
+  181: ["Team Up"],
+  182: ["Temporal Forces"],
+  185: ["Vivid Voltage"],
+  189: ["Darkness Ablaze", "Astral Radiance"],
+  191: ["Surging Sparks"],
+  192: ["Rebel Clash"],
+  193: ["Paldea Evolved"],
+  195: ["Silver Tempest"],
+  196: ["Cosmic Eclipse", "Lost Origin"],
+  197: ["Obsidian Flames"],
+  198: ["Chilling Reign", "Scarlet & Violet"],
+  202: ["Sword & Shield"],
+  203: ["Evolving Skies"],
+  207: ["Paradox Rift"],
+  214: ["Lost Thunder", "Unbroken Bonds"],
+  236: ["Unified Minds"],
+  252: ["Prismatic Evolutions"],
+  264: ["Fusion Strike"],
+};
+
+function crossCheckSetByCardNumber(aiSetName: string, cardNumber: string, logPrefix: string): string {
+  if (!cardNumber || !cardNumber.includes("/")) return aiSetName;
+  const parts = cardNumber.split("/");
+  const denominator = parseInt(parts[1], 10);
+  if (isNaN(denominator) || denominator <= 0) return aiSetName;
+
+  const normAiName = aiSetName.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const aiSet = findSetByName(aiSetName);
+  if (aiSet && (aiSet.printedTotal === denominator || aiSet.total === denominator)) {
+    return aiSetName;
+  }
+
+  const knownSets = KNOWN_SET_TOTALS[denominator];
+  if (knownSets) {
+    const alreadyCorrect = knownSets.some(s => s.toLowerCase().replace(/[^a-z0-9]/g, "") === normAiName);
+    if (alreadyCorrect) return aiSetName;
+  }
+
+  if (aiSet) {
+    console.log(`${logPrefix} Set cross-check MISMATCH: AI said "${aiSetName}" (${aiSet.printedTotal} cards) but card number says /${denominator}`);
+  } else if (knownSets) {
+    const aiInKnown = knownSets.some(s => s.toLowerCase().replace(/[^a-z0-9]/g, "") === normAiName);
+    if (!aiInKnown) {
+      console.log(`${logPrefix} Set cross-check MISMATCH: AI said "${aiSetName}" but /${denominator} maps to ${knownSets.join(" or ")}`);
+    }
+  }
+
+  const candidates = cachedSets.length > 0 ? findSetsByTotal(denominator) : [];
+  if (candidates.length === 1) {
+    console.log(`${logPrefix} Set cross-check corrected: "${aiSetName}" → "${candidates[0].name}" (matches /${denominator})`);
+    return candidates[0].name;
+  } else if (candidates.length > 1) {
+    const close = candidates.find(c => {
+      const normC = c.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return normC.includes(normAiName) || normAiName.includes(normC);
+    });
+    if (close) {
+      console.log(`${logPrefix} Set cross-check corrected: "${aiSetName}" → "${close.name}" (partial match + /${denominator})`);
+      return close.name;
+    }
+  }
+
+  if (knownSets && knownSets.length === 1) {
+    console.log(`${logPrefix} Set cross-check corrected (hardcoded): "${aiSetName}" → "${knownSets[0]}" (matches /${denominator})`);
+    return knownSets[0];
+  } else if (knownSets && knownSets.length > 1) {
+    const close = knownSets.find(s => {
+      const normS = s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return normS.includes(normAiName) || normAiName.includes(normS);
+    });
+    if (close) {
+      console.log(`${logPrefix} Set cross-check corrected (hardcoded): "${aiSetName}" → "${close}" (partial match + /${denominator})`);
+      return close;
+    }
+    console.log(`${logPrefix} Set cross-check found ${knownSets.length} candidates for /${denominator}: ${knownSets.join(", ")}`);
+  }
+
+  return aiSetName;
+}
+
 function findSetByName(name: string): CachedSet | null {
   const cleanName = (n: string) => n.toLowerCase()
     .replace(/\(english\)|\(unlimited\)|\(1st edition\)|\(japanese\)/gi, "")
@@ -570,12 +696,17 @@ Step 2: READ THE CARD NUMBER AND SET CODE
   * If partially obscured, use visible digits + set symbol to narrow it down
 
 Step 3: READ THE SET CODE AND IDENTIFY THE SET
-- READ the actual set code printed on the card near the card number. This is the SHORT ALPHANUMERIC CODE like "s8b", "sv2a", "PFL", "SV5K", etc.
-- The set code is your PRIMARY source of truth for identifying the set. Do NOT guess the set from the Pokemon name alone.
-- Report the set code EXACTLY as printed (e.g., "PFL", "PFLen", "s8b", "sv2a", "SV5K").
+- READ the actual set code printed on the card near the card number. This is the SHORT ALPHANUMERIC CODE like "s8b", "sv2a", "PFL", "SV5K", "CRZ", etc.
+- The set code is your PRIMARY source of truth for identifying the set. Do NOT guess the set from the Pokemon name, artwork, or your training data.
+- Report the set code EXACTLY as printed (e.g., "PFL", "PFLen", "s8b", "sv2a", "SV5K", "CRZ").
 - IMPORTANT: Do NOT rely on your training data for set names — your knowledge may be outdated or wrong. Use ONLY the set code mapping below.
-- For OLDER CARDS (WOTC era through HGSS era) that may not have a printed set code, identify the set by the SET SYMBOL (the small icon near the card number) combined with the card number range and card design/border style.
-- Use this COMPREHENSIVE symbol-to-set mapping for cards without printed set codes:
+- CRITICAL: The card number's denominator (the number after "/") tells you the set size. Use this to VERIFY your set identification:
+  * If card says 160/159, the set has 159 cards — look for sets with ~159 cards (e.g., Crown Zenith = 159 cards, NOT "151" which has 165 cards)
+  * If card says 006/197, the set has 197 cards — look for sets with ~197 cards (e.g., Obsidian Flames)
+  * "151" is ONLY the name of the set with code "MEW" / "sv2a" — do NOT use "151" as a set name unless the set code is MEW/sv2a
+- COMMON MISTAKE: Do NOT confuse Crown Zenith (CRZ, 159 cards, Sword & Shield era, yellow border) with 151 (MEW, 165 cards, Scarlet & Violet era). These are completely different sets.
+- For OLDER CARDS (WOTC era through Scarlet & Violet era) that may not have a clearly readable set code, identify the set by the SET SYMBOL (the small icon near the card number) combined with the card number range and card design/border style.
+- Use this COMPREHENSIVE symbol-to-set mapping for cards without clearly readable set codes:
 
 {{SYMBOL_REFERENCE}}
 
@@ -2787,6 +2918,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    if (gradingResult.setNumber && gradingResult.setName) {
+      await ensureSetsCached();
+      const crossChecked = crossCheckSetByCardNumber(gradingResult.setName, gradingResult.setNumber, logPrefix);
+      if (crossChecked !== gradingResult.setName) {
+        gradingResult.setName = crossChecked;
+      }
+    }
+
     gradingResult = syncCenteringToGrades(gradingResult);
 
     const totalTime = Date.now() - gradeStartTime;
@@ -2987,6 +3126,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (resolvedSet !== gradingResult.setName) {
         console.log(`${logPrefix} Set code correction: "${setCode}" → "${resolvedSet}" (was "${gradingResult.setName}")`);
         gradingResult.setName = resolvedSet;
+      }
+    }
+
+    if (gradingResult.setNumber && gradingResult.setName) {
+      await ensureSetsCached();
+      const crossChecked = crossCheckSetByCardNumber(gradingResult.setName, gradingResult.setNumber, logPrefix);
+      if (crossChecked !== gradingResult.setName) {
+        gradingResult.setName = crossChecked;
       }
     }
 
@@ -3256,6 +3403,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "wizards promos": "WoTC Promo",
     "mega evolution promos": "ME: Mega Evolution Promo",
     "me promos": "ME: Mega Evolution Promo",
+
+    // Modern set name aliases
+    "151": "SV: Scarlet & Violet 151",
+    "scarlet violet 151": "SV: Scarlet & Violet 151",
+    "sv 151": "SV: Scarlet & Violet 151",
+    "pokemon 151": "SV: Scarlet & Violet 151",
+    "crown zenith": "Crown Zenith",
+    "crown zenith galarian gallery": "Crown Zenith: Galarian Gallery",
+    "hidden fates": "Hidden Fates",
+    "hidden fates shiny vault": "Hidden Fates: Shiny Vault",
+    "shining fates": "Shining Fates",
+    "shining fates shiny vault": "Shining Fates: Shiny Vault",
+    "celebrations": "Celebrations",
+    "celebrations classic collection": "Celebrations: Classic Collection",
+    "pokemon go": "Pokemon GO",
+    "champions path": "Champion's Path",
+    "paldean fates": "Paldean Fates",
   };
 
   function findBestGroup(groups: TCGGroup[], setName: string): TCGGroup | null {
@@ -3584,7 +3748,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Card name is required" });
       }
 
-      const tcgResult = await lookupTCGPlayerPrice(cardName, setName, setNumber);
+      let correctedSetName = setName || "";
+      if (setNumber && correctedSetName) {
+        await ensureSetsCached();
+        const crossChecked = crossCheckSetByCardNumber(correctedSetName, setNumber, "[card-value]");
+        if (crossChecked !== correctedSetName) {
+          console.log(`[card-value] Set corrected: "${correctedSetName}" → "${crossChecked}"`);
+          correctedSetName = crossChecked;
+        }
+      }
+
+      const tcgResult = await lookupTCGPlayerPrice(cardName, correctedSetName, setNumber);
 
       const allKeys = ["psaValue", "psa10Value", "bgsValue", "bgs10Value", "aceValue", "ace10Value", "tagValue", "tag10Value", "cgcValue", "cgc10Value", "rawValue"];
 
