@@ -3318,8 +3318,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   function findBestProduct(products: TCGProduct[], cardName: string, cardNumber: string): TCGProduct | null {
     const normName = normalizeForMatch(cardName);
-    const numberOnly = cardNumber ? cardNumber.split("/")[0].replace(/^0+/, "") : "";
-    const fullNumber = cardNumber || "";
+    const fullNumber = cardNumber ? cardNumber.trim() : "";
+    const numBefore = fullNumber.includes("/") ? fullNumber.split("/")[0].replace(/^0+/, "") : fullNumber.replace(/^0+/, "");
+    const numAfter = fullNumber.includes("/") ? fullNumber.split("/")[1] : "";
 
     let bestMatch: TCGProduct | null = null;
     let bestScore = 0;
@@ -3331,7 +3332,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pClean = normalizeForMatch(p.cleanName);
 
       const pNumber = p.extendedData?.find(e => e.name === "Number")?.value || "";
-      const pNumOnly = pNumber.split("/")[0].replace(/^0+/, "");
+      const pNumBefore = pNumber.includes("/") ? pNumber.split("/")[0].replace(/^0+/, "") : pNumber.replace(/^0+/, "");
+      const pNumAfter = pNumber.includes("/") ? pNumber.split("/")[1] : "";
 
       if (pName.includes(normName) || pClean.includes(normName)) {
         nameScore = 50;
@@ -3346,10 +3348,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         nameScore = (wordMatches / Math.max(nameWords.length, 1)) * 35;
       }
 
-      if (fullNumber && pNumber === fullNumber) {
-        numberScore = 30;
-      } else if (numberOnly && pNumOnly === numberOnly) {
-        numberScore = 20;
+      if (numBefore && pNumBefore === numBefore) {
+        numberScore += 30;
+        if (numAfter && pNumAfter === numAfter) {
+          numberScore += 20;
+        }
       }
 
       const score = nameScore + numberScore;
@@ -3414,16 +3417,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   }
 
-  function pickBestCardByName(cards: any[], cardName: string, cardNumber: string): any | null {
+  function pickBestCardByName(cards: any[], cardName: string, cardNumber: string, setName?: string): any | null {
     if (cards.length === 0) return null;
     const normName = normalizeForMatch(cardName);
-    const numberOnly = cardNumber ? cardNumber.split("/")[0].replace(/^0+/, "") : "";
+    const normSet = setName ? normalizeForMatch(setName) : "";
+    const fullNum = cardNumber ? cardNumber.trim() : "";
+    const numBefore = fullNum.includes("/") ? fullNum.split("/")[0].replace(/^0+/, "") : fullNum.replace(/^0+/, "");
+    const numAfter = fullNum.includes("/") ? fullNum.split("/")[1] : "";
+
     let best: any = null;
     let bestScore = -1;
     for (const c of cards) {
       const cName = normalizeForMatch(c.name || "");
-      const cNum = String(c.number || "").replace(/^0+/, "");
+      const cNum = String(c.number || "").trim();
+      const cSetName = normalizeForMatch(c.set?.name || "");
+      const cSetTotal = String(c.set?.printedTotal || c.set?.total || "");
       let score = 0;
+
       if (cName === normName) score += 100;
       else if (cName.includes(normName) || normName.includes(cName)) score += 60;
       else {
@@ -3432,7 +3442,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const overlap = nWords.filter((w: string) => w.length >= 3 && cWords.includes(w)).length;
         score += (overlap / Math.max(nWords.length, 1)) * 40;
       }
-      if (numberOnly && cNum === numberOnly) score += 30;
+
+      if (numBefore) {
+        const cNumClean = cNum.replace(/^0+/, "");
+        if (cNumClean === numBefore) score += 30;
+      }
+
+      if (numAfter && cSetTotal === numAfter) score += 20;
+      else if (normSet && cSetName.includes(normSet)) score += 20;
+      else if (normSet && normSet.includes(cSetName) && cSetName.length > 3) score += 15;
+
       const hasPrices = c.tcgplayer?.prices && Object.keys(c.tcgplayer.prices).length > 0;
       if (hasPrices) score += 5;
       if (score > bestScore) {
@@ -3453,7 +3472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[tcgplayer] Step 1: Searching by name "${cardName}" + number ${numberOnly}`);
         const preciseResults = await queryPokemonTcgApi(`name:"${cardName}" number:${numberOnly}`, true);
         if (preciseResults.length > 0) {
-          const match = pickBestCardByName(preciseResults, cardName, cardNumber);
+          const match = pickBestCardByName(preciseResults, cardName, cardNumber, setName);
           if (match) {
             const result = extractTCGPlayerPrice(match);
             if (result.found) {
@@ -3468,7 +3487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[tcgplayer] Step 1b: Trying base name "${baseName}" + number ${numberOnly}`);
           const baseResults = await queryPokemonTcgApi(`name:"${baseName}*" number:${numberOnly}`, true);
           if (baseResults.length > 0) {
-            const match = pickBestCardByName(baseResults, cardName, cardNumber);
+            const match = pickBestCardByName(baseResults, cardName, cardNumber, setName);
             if (match) {
               const result = extractTCGPlayerPrice(match);
               if (result.found) {
@@ -3484,7 +3503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[tcgplayer] Step 2: Searching by name only "${cardName}"`);
       const nameResults = await queryPokemonTcgApi(`name:"${cardName}"`, true);
       if (nameResults.length > 0) {
-        const match = pickBestCardByName(nameResults, cardName, cardNumber);
+        const match = pickBestCardByName(nameResults, cardName, cardNumber, setName);
         if (match) {
           const result = extractTCGPlayerPrice(match);
           if (result.found) {
@@ -3499,7 +3518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[tcgplayer] Step 3: Searching by number ${numberOnly} + set "${setName}"`);
         const setResults = await queryPokemonTcgApi(`number:${numberOnly} set.name:"${setName}*"`, true);
         if (setResults.length > 0) {
-          const match = pickBestCardByName(setResults, cardName, cardNumber);
+          const match = pickBestCardByName(setResults, cardName, cardNumber, setName);
           if (match) {
             const result = extractTCGPlayerPrice(match);
             if (result.found) {
