@@ -21,6 +21,8 @@ export interface CenteringMeasurement {
   backTopBottom: number;
   frontLinePositions?: SavedLinePositions;
   backLinePositions?: SavedLinePositions;
+  frontRotation?: number;
+  backRotation?: number;
 }
 
 export interface CardBounds {

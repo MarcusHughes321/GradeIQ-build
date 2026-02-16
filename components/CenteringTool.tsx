@@ -543,11 +543,6 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
       desc: "Opens the rotation slider below the controls. Use it to manually straighten your card if the photo is slightly tilted. Tap \u2212 or + for fine 0.5\u00B0 adjustments.",
     },
     {
-      icon: "scan-outline" as const,
-      title: "Auto-align button",
-      desc: "Re-runs the automatic edge detection to reposition all lines. Useful if the initial detection wasn\u2019t accurate or after straightening the image.",
-    },
-    {
       icon: "magnet-outline" as const,
       title: "Straighten button",
       desc: "Automatically detects the card's tilt and corrects it. Only adjusts the rotation \u2014 does not move the lines. Works best on cards placed on a contrasting background.",
@@ -637,16 +632,14 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const backUsedFallbackRef = useRef(false);
   const frontLoadLoggedRef = useRef(false);
   const backLoadLoggedRef = useRef(false);
-  const [frontRotation, setFrontRotation] = useState(0);
-  const [backRotation, setBackRotation] = useState(0);
+  const [frontRotation, setFrontRotation] = useState(centering.frontRotation ?? 0);
+  const [backRotation, setBackRotation] = useState(centering.backRotation ?? 0);
   const [showRotation, setShowRotation] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [showHelp, setShowHelp] = useState(false);
   const [activeHandle, setActiveHandle] = useState<LineKey | null>(null);
   const [autoStraightening, setAutoStraightening] = useState(false);
-  const [autoAligning, setAutoAligning] = useState(false);
-  const [lowConfidence, setLowConfidence] = useState(false);
   const wasStraightenedRef = useRef(false);
 
   const rotation = showFront ? frontRotation : backRotation;
@@ -798,6 +791,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       backTopBottom: br.tb,
       frontLinePositions: posToLinePositions(frontPos, fBounds),
       backLinePositions: posToLinePositions(backPos, bBounds),
+      frontRotation,
+      backRotation,
     });
   };
 
@@ -924,29 +919,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
     }
   };
 
-  const handleAutoAlign = async () => {
-    const imageUri = showFront ? frontImage : backImage;
-    if (!imageUri || autoAligning) return;
-
-    setAutoAligning(true);
-    setLowConfidence(false);
-    try {
-      const base64 = await getBase64FromUri(imageUri);
-      const boundsResp = await apiRequest("POST", "/api/detect-bounds", { image: base64 });
-      const newBounds = await boundsResp.json();
-      if (newBounds && newBounds.leftPercent !== undefined) {
-        repositionLinesWithBounds(newBounds);
-        if (newBounds.confidence !== undefined && newBounds.confidence < 0.6) {
-          setLowConfidence(true);
-        }
-      }
-    } catch (err) {
-      console.error("Auto-align failed:", err);
-    } finally {
-      setAutoAligning(false);
-    }
-  };
-
   const pinchStartDistRef = useRef(0);
   const pinchStartScaleRef = useRef(1);
   const panStartOffRef = useRef({ x: 0, y: 0 });
@@ -961,6 +933,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const frontPosRef = useRef(frontPos);
   const backPosRef = useRef(backPos);
   const setActiveHandleRef = useRef(setActiveHandle);
+  const frontRotationRef = useRef(frontRotation);
+  const backRotationRef = useRef(backRotation);
   zoomScaleRef.current = zoomScale;
   panOffsetRef.current = panOffset;
   containerSizeRef.current = containerSize;
@@ -972,6 +946,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   frontPosRef.current = frontPos;
   backPosRef.current = backPos;
   setActiveHandleRef.current = setActiveHandle;
+  frontRotationRef.current = frontRotation;
+  backRotationRef.current = backRotation;
 
   const viewportLayoutRef = useRef({ x: 0, y: 0 });
 
@@ -1203,6 +1179,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
                 backTopBottom: br.tb,
                 frontLinePositions: mkLP(fp, fBounds),
                 backLinePositions: mkLP(bp, bBounds),
+                frontRotation: frontRotationRef.current,
+                backRotation: backRotationRef.current,
               });
             }
           }, 50);
@@ -1312,18 +1290,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
             <Text style={[styles.labelBtnText, showRotation && styles.labelBtnTextActive]}>Rotate</Text>
           </Pressable>
           <Pressable
-            onPress={handleAutoAlign}
-            disabled={autoAligning}
-            style={({ pressed }) => [styles.labelBtn, { opacity: autoAligning ? 0.4 : pressed ? 0.6 : 1 }]}
-          >
-            {autoAligning ? (
-              <ActivityIndicator size="small" color={Colors.primary} />
-            ) : (
-              <Ionicons name="scan-outline" size={15} color={Colors.textMuted} />
-            )}
-            <Text style={styles.labelBtnText}>Auto</Text>
-          </Pressable>
-          <Pressable
             onPress={handleAutoStraighten}
             disabled={autoStraightening}
             style={({ pressed }) => [styles.labelBtn, { opacity: autoStraightening ? 0.4 : pressed ? 0.6 : 1 }]}
@@ -1364,16 +1330,6 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
               <Ionicons name="add" size={14} color="#fff" />
             </Pressable>
             <Text style={styles.rotDeg}>{rotation > 0 ? "+" : ""}{rotation.toFixed(1)}</Text>
-          </View>
-        )}
-
-        {lowConfidence && (
-          <View style={styles.lowConfBanner}>
-            <Ionicons name="warning" size={13} color="#FFB800" />
-            <Text style={styles.lowConfText}>Auto-align struggled with this image. Manual adjustment advised.</Text>
-            <Pressable onPress={() => setLowConfidence(false)} hitSlop={8}>
-              <Ionicons name="close" size={14} color="rgba(255,255,255,0.5)" />
-            </Pressable>
           </View>
         )}
 
@@ -1424,7 +1380,5 @@ const styles = StyleSheet.create({
   rotThumb: { position: "absolute", width: 12, height: 12, borderRadius: 6, backgroundColor: Colors.primary, top: 7, marginLeft: -6, borderWidth: 1.5, borderColor: "#fff" },
   rotScrub: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   rotDeg: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textSecondary, width: 32, textAlign: "right" as const },
-  lowConfBanner: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, backgroundColor: "rgba(255,184,0,0.12)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginTop: 4, marginHorizontal: 4 },
-  lowConfText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 11, color: "#FFB800" },
   hint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center" as const, marginTop: 3, marginBottom: 2 },
 });
