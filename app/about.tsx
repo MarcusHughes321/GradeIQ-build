@@ -90,24 +90,6 @@ export default function AboutScreen() {
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <View style={[styles.cardIcon, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
-              <Ionicons name="search" size={20} color="#F59E0B" />
-            </View>
-            <Text style={styles.cardTitle}>Deep Grade</Text>
-          </View>
-          <Text style={styles.cardBody}>
-            Deep Grade is our most thorough analysis mode. Keep your card flat on the table and use the spirit level to tilt your phone at the right angle — no fingers in frame. The AI analyses front, front angled, back, and back angled shots to detect surface scratches, scuffs, and wear marks invisible in standard photos.
-          </Text>
-          <Text style={[styles.cardBody, { marginTop: 10 }]}>
-            The system also automatically crops and zooms into each corner for detailed inspection, and applies image enhancement to reveal subtle flaws. All images are sharpened and contrast-boosted before analysis.
-          </Text>
-          <Text style={[styles.cardBody, { marginTop: 10 }]}>
-            Quick Grade uses 2 photos (front and back) for a fast assessment. Deep Grade uses 4 photos plus auto-generated corner crops for 8 images total, giving you the most accurate pre-grade possible.
-          </Text>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
             <View style={styles.cardIcon}>
               <Ionicons name="people" size={20} color="#10B981" />
             </View>
