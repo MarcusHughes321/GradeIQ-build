@@ -3342,41 +3342,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     tcgplayerUrl?: string;
   }
 
+  function extractTCGPlayerPrice(card: any): TCGPlayerLookupResult {
+    const prices = card.tcgplayer?.prices || {};
+    const priceTypes = ["holofoil", "reverseHolofoil", "normal", "1stEditionHolofoil", "unlimitedHolofoil", "1stEditionNormal", "unlimitedNormal"];
+    let bestMarket = 0;
+    let bestLow: number | undefined;
+    let bestMid: number | undefined;
+    let bestHigh: number | undefined;
+    for (const pt of priceTypes) {
+      const p = prices[pt];
+      if (p?.market && p.market > bestMarket) {
+        bestMarket = p.market;
+        bestLow = p.low || undefined;
+        bestMid = p.mid || undefined;
+        bestHigh = p.high || undefined;
+      }
+    }
+    if (!bestMarket) return { found: false };
+    return {
+      found: true,
+      productName: card.name,
+      setName: card.set?.name || "",
+      rarity: card.rarity || "",
+      marketPriceUSD: bestMarket,
+      lowPriceUSD: bestLow,
+      midPriceUSD: bestMid,
+      highPriceUSD: bestHigh,
+      marketPriceGBP: Math.round(bestMarket * USD_TO_GBP * 100) / 100,
+      lowPriceGBP: bestLow ? Math.round(bestLow * USD_TO_GBP * 100) / 100 : undefined,
+      midPriceGBP: bestMid ? Math.round(bestMid * USD_TO_GBP * 100) / 100 : undefined,
+      tcgplayerUrl: card.tcgplayer?.url || undefined,
+    };
+  }
+
+  function pickBestCardByName(cards: any[], cardName: string, cardNumber: string): any | null {
+    if (cards.length === 0) return null;
+    const normName = normalizeForMatch(cardName);
+    const numberOnly = cardNumber ? cardNumber.split("/")[0].replace(/^0+/, "") : "";
+    let best: any = null;
+    let bestScore = -1;
+    for (const c of cards) {
+      const cName = normalizeForMatch(c.name || "");
+      const cNum = String(c.number || "").replace(/^0+/, "");
+      let score = 0;
+      if (cName === normName) score += 100;
+      else if (cName.includes(normName) || normName.includes(cName)) score += 60;
+      else {
+        const cWords = cName.split(" ");
+        const nWords = normName.split(" ");
+        const overlap = nWords.filter((w: string) => w.length >= 3 && cWords.includes(w)).length;
+        score += (overlap / Math.max(nWords.length, 1)) * 40;
+      }
+      if (numberOnly && cNum === numberOnly) score += 30;
+      const hasPrices = c.tcgplayer?.prices && Object.keys(c.tcgplayer.prices).length > 0;
+      if (hasPrices) score += 5;
+      if (score > bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+    return bestScore >= 30 ? best : null;
+  }
+
   async function lookupTCGPlayerPrice(cardName: string, setName: string, cardNumber: string): Promise<TCGPlayerLookupResult> {
     try {
+      const numberOnly = cardNumber ? cardNumber.split("/")[0].replace(/^0+/, "") : "";
+      const baseName = stripSuffix(cardName);
+
+      // STEP 1: Search by full card name (the primary lookup)
+      console.log(`[tcgplayer] Step 1: Searching by full name "${cardName}"`);
+      const nameResults = await queryPokemonTcgApi(`name:"${cardName}"`, true);
+      if (nameResults.length > 0) {
+        const match = pickBestCardByName(nameResults, cardName, cardNumber);
+        if (match) {
+          const result = extractTCGPlayerPrice(match);
+          if (result.found) {
+            console.log(`[tcgplayer] Found by name: "${match.name}" #${match.number} (${match.set?.name}) | Market: $${result.marketPriceUSD} (£${result.marketPriceGBP})`);
+            return result;
+          }
+        }
+      }
+
+      // STEP 2: Try base name (without suffix like "ex") + number
+      if (baseName !== cardName) {
+        console.log(`[tcgplayer] Step 2: Searching by base name "${baseName}" + number ${numberOnly}`);
+        const baseQuery = numberOnly ? `name:"${baseName}*" number:${numberOnly}` : `name:"${baseName}*"`;
+        const baseResults = await queryPokemonTcgApi(baseQuery, true);
+        if (baseResults.length > 0) {
+          const match = pickBestCardByName(baseResults, cardName, cardNumber);
+          if (match) {
+            const result = extractTCGPlayerPrice(match);
+            if (result.found) {
+              console.log(`[tcgplayer] Found by base name: "${match.name}" #${match.number} (${match.set?.name}) | Market: $${result.marketPriceUSD} (£${result.marketPriceGBP})`);
+              return result;
+            }
+          }
+        }
+      }
+
+      // STEP 3: Try card number + set name as fallback
+      if (numberOnly && setName) {
+        console.log(`[tcgplayer] Step 3: Searching by number ${numberOnly} + set "${setName}"`);
+        const setResults = await queryPokemonTcgApi(`number:${numberOnly} set.name:"${setName}*"`, true);
+        if (setResults.length > 0) {
+          const match = pickBestCardByName(setResults, cardName, cardNumber);
+          if (match) {
+            const result = extractTCGPlayerPrice(match);
+            if (result.found) {
+              console.log(`[tcgplayer] Found by number+set: "${match.name}" #${match.number} (${match.set?.name}) | Market: $${result.marketPriceUSD} (£${result.marketPriceGBP})`);
+              return result;
+            }
+          }
+        }
+      }
+
+      // STEP 4: Last resort — old TCGCSV set-based lookup
+      console.log(`[tcgplayer] Step 4: Falling back to TCGCSV set-based lookup`);
       const groups = await fetchTCGGroups();
       if (groups.length === 0) return { found: false };
-
       const matchedGroup = findBestGroup(groups, setName);
       if (!matchedGroup) {
-        console.log(`[tcgplayer] No matching set for "${setName}"`);
+        console.log(`[tcgplayer] No matching set for "${setName}" in TCGCSV`);
         return { found: false };
       }
-
-      console.log(`[tcgplayer] Matched set "${setName}" -> "${matchedGroup.name}" (groupId=${matchedGroup.groupId})`);
-
+      console.log(`[tcgplayer] TCGCSV matched set "${setName}" -> "${matchedGroup.name}" (groupId=${matchedGroup.groupId})`);
       const { products, prices } = await fetchTCGSetData(matchedGroup.groupId);
       if (products.length === 0) return { found: false };
-
       const matchedProduct = findBestProduct(products, cardName, cardNumber);
       if (!matchedProduct) {
-        console.log(`[tcgplayer] No matching card for "${cardName}" #${cardNumber} in ${matchedGroup.name} (${products.length} products searched)`);
+        console.log(`[tcgplayer] No matching card for "${cardName}" #${cardNumber} in ${matchedGroup.name}`);
         return { found: false };
       }
-
       const matchedNum = matchedProduct.extendedData?.find(e => e.name === "Number")?.value || "";
-      console.log(`[tcgplayer] Matched card: "${matchedProduct.name}" #${matchedNum} (searched: name="${cardName}" #${cardNumber})`);
-
-
+      console.log(`[tcgplayer] TCGCSV matched: "${matchedProduct.name}" #${matchedNum}`);
       const rarity = matchedProduct.extendedData?.find(e => e.name === "Rarity")?.value || "";
       const cardPrices = prices.filter(p => p.productId === matchedProduct.productId);
-
       const bestPrice = cardPrices.sort((a, b) => (b.marketPrice || 0) - (a.marketPrice || 0))[0];
       if (!bestPrice || !bestPrice.marketPrice) {
         console.log(`[tcgplayer] Found card but no price data for "${matchedProduct.name}"`);
         return { found: false };
       }
-
       const result: TCGPlayerLookupResult = {
         found: true,
         productName: matchedProduct.name,
@@ -3390,8 +3495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lowPriceGBP: bestPrice.lowPrice ? Math.round(bestPrice.lowPrice * USD_TO_GBP * 100) / 100 : undefined,
         midPriceGBP: bestPrice.midPrice ? Math.round(bestPrice.midPrice * USD_TO_GBP * 100) / 100 : undefined,
       };
-
-      console.log(`[tcgplayer] Found: "${matchedProduct.name}" | Rarity: ${rarity} | Market: $${bestPrice.marketPrice} (£${result.marketPriceGBP}) | Low: $${bestPrice.lowPrice} | Mid: $${bestPrice.midPrice}`);
+      console.log(`[tcgplayer] TCGCSV found: "${matchedProduct.name}" | Market: $${bestPrice.marketPrice} (£${result.marketPriceGBP})`);
       return result;
     } catch (err: any) {
       console.log(`[tcgplayer] Lookup error: ${err?.message}`);
