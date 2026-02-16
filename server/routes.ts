@@ -3325,41 +3325,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let bestScore = 0;
 
     for (const p of products) {
-      let score = 0;
+      let nameScore = 0;
+      let numberScore = 0;
       const pName = normalizeForMatch(p.name);
       const pClean = normalizeForMatch(p.cleanName);
 
       const pNumber = p.extendedData?.find(e => e.name === "Number")?.value || "";
       const pNumOnly = pNumber.split("/")[0].replace(/^0+/, "");
 
-      if (fullNumber && pNumber === fullNumber) {
-        score += 50;
-      } else if (numberOnly && pNumOnly === numberOnly) {
-        score += 40;
-      }
-
       if (pName.includes(normName) || pClean.includes(normName)) {
-        score += 30;
-      } else if (pClean.includes(normName.replace(/\s*ex$/i, "")) && normName.includes("ex")) {
-        score += 28;
+        nameScore = 50;
+      } else if (normName.includes("ex") && pClean.includes(normName.replace(/\s*ex$/i, ""))) {
+        nameScore = 45;
       } else {
         const nameWords = normName.split(" ");
         let wordMatches = 0;
         for (const w of nameWords) {
           if (w.length >= 3 && (pClean.includes(w) || pName.includes(w))) wordMatches++;
         }
-        score += (wordMatches / Math.max(nameWords.length, 1)) * 25;
+        nameScore = (wordMatches / Math.max(nameWords.length, 1)) * 35;
       }
 
-      if (score > bestScore || (score === bestScore && score >= 30 && bestMatch)) {
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = p;
-        }
+      if (fullNumber && pNumber === fullNumber) {
+        numberScore = 30;
+      } else if (numberOnly && pNumOnly === numberOnly) {
+        numberScore = 20;
+      }
+
+      const score = nameScore + numberScore;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = p;
       }
     }
 
-    if (bestScore >= 30) {
+    if (bestScore >= 35) {
       return bestMatch;
     }
     return null;
@@ -3447,8 +3448,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const numberOnly = cardNumber ? cardNumber.split("/")[0].replace(/^0+/, "") : "";
       const baseName = stripSuffix(cardName);
 
-      // STEP 1: Search by full card name (the primary lookup)
-      console.log(`[tcgplayer] Step 1: Searching by full name "${cardName}"`);
+      // STEP 1: Search by name + number together (most precise)
+      if (numberOnly) {
+        console.log(`[tcgplayer] Step 1: Searching by name "${cardName}" + number ${numberOnly}`);
+        const preciseResults = await queryPokemonTcgApi(`name:"${cardName}" number:${numberOnly}`, true);
+        if (preciseResults.length > 0) {
+          const match = pickBestCardByName(preciseResults, cardName, cardNumber);
+          if (match) {
+            const result = extractTCGPlayerPrice(match);
+            if (result.found) {
+              console.log(`[tcgplayer] Found by name+number: "${match.name}" #${match.number} (${match.set?.name}) | Market: $${result.marketPriceUSD} (£${result.marketPriceGBP})`);
+              return result;
+            }
+          }
+        }
+
+        // Also try base name + number if card has a suffix like "ex", "V", etc.
+        if (baseName !== cardName) {
+          console.log(`[tcgplayer] Step 1b: Trying base name "${baseName}" + number ${numberOnly}`);
+          const baseResults = await queryPokemonTcgApi(`name:"${baseName}*" number:${numberOnly}`, true);
+          if (baseResults.length > 0) {
+            const match = pickBestCardByName(baseResults, cardName, cardNumber);
+            if (match) {
+              const result = extractTCGPlayerPrice(match);
+              if (result.found) {
+                console.log(`[tcgplayer] Found by base name+number: "${match.name}" #${match.number} (${match.set?.name}) | Market: $${result.marketPriceUSD} (£${result.marketPriceGBP})`);
+                return result;
+              }
+            }
+          }
+        }
+      }
+
+      // STEP 2: Search by name only (for unique card names or when no number available)
+      console.log(`[tcgplayer] Step 2: Searching by name only "${cardName}"`);
       const nameResults = await queryPokemonTcgApi(`name:"${cardName}"`, true);
       if (nameResults.length > 0) {
         const match = pickBestCardByName(nameResults, cardName, cardNumber);
@@ -3461,24 +3494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // STEP 2: Try base name (without suffix like "ex") + number
-      if (baseName !== cardName) {
-        console.log(`[tcgplayer] Step 2: Searching by base name "${baseName}" + number ${numberOnly}`);
-        const baseQuery = numberOnly ? `name:"${baseName}*" number:${numberOnly}` : `name:"${baseName}*"`;
-        const baseResults = await queryPokemonTcgApi(baseQuery, true);
-        if (baseResults.length > 0) {
-          const match = pickBestCardByName(baseResults, cardName, cardNumber);
-          if (match) {
-            const result = extractTCGPlayerPrice(match);
-            if (result.found) {
-              console.log(`[tcgplayer] Found by base name: "${match.name}" #${match.number} (${match.set?.name}) | Market: $${result.marketPriceUSD} (£${result.marketPriceGBP})`);
-              return result;
-            }
-          }
-        }
-      }
-
-      // STEP 3: Try card number + set name as fallback
+      // STEP 3: Search by number + set name (when name search fails entirely)
       if (numberOnly && setName) {
         console.log(`[tcgplayer] Step 3: Searching by number ${numberOnly} + set "${setName}"`);
         const setResults = await queryPokemonTcgApi(`number:${numberOnly} set.name:"${setName}*"`, true);
