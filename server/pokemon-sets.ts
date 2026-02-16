@@ -433,6 +433,88 @@ export const CHINESE_SETS: Record<string, string> = {
   "AC2b": "Dreams Come True Collection B",
 };
 
+export const ENGLISH_SET_SYMBOLS: Record<string, string> = {
+  // === WIZARDS OF THE COAST ERA (1999-2003) ===
+  "No symbol": "Base Set",
+  "1st Edition stamp, no set symbol": "Base Set (Shadowless)",
+  "Pokeball with shadow": "Base Set 2",
+  "Palm tree / jungle flower": "Jungle",
+  "Skeletal claw / fossil bone": "Fossil",
+  "Large letter R": "Team Rocket",
+  "Stadium / arena": "Gym Heroes",
+  "Hexagonal badge": "Gym Challenge",
+  "Two overlapping stars": "Neo Genesis",
+  "Fossil / ancient ruins": "Neo Discovery",
+  "Shining / burst of light": "Neo Revelation",
+  "Dark star / black star": "Neo Destiny",
+  "Pikachu face / lightning bolt circle": "Legendary Collection",
+
+  // === E-CARD ERA (2002-2003) ===
+  "E-reader stripe / dot code border": "Expedition Base Set",
+  "E-reader with crystal droplet": "Aquapolis",
+  "E-reader with crystal shard": "Skyridge",
+
+  // === EX ERA (2003-2007) ===
+  "Red and blue orbs": "EX Ruby & Sapphire",
+  "Desert dunes / sandstorm": "EX Sandstorm",
+  "Dragon silhouette": "EX Dragon",
+  "Two opposing teams (magma/aqua)": "EX Team Magma vs Team Aqua",
+  "Leaf / hidden shape": "EX Hidden Legends",
+  "Fire / leaf dual symbol": "EX FireRed & LeafGreen",
+  "Large R with gear": "EX Team Rocket Returns",
+  "DNA helix / triangle": "EX Deoxys",
+  "Emerald gem": "EX Emerald",
+  "Yin-yang / dual forces": "EX Unseen Forces",
+  "Greek delta symbol": "EX Delta Species",
+  "Star map / constellation": "EX Legend Maker",
+  "Ghost / phantom": "EX Holon Phantoms",
+  "Crystal / prism": "EX Crystal Guardians",
+  "Dragon in flight / frontier": "EX Dragon Frontiers",
+  "Crown / royal symbol": "EX Power Keepers",
+
+  // === DIAMOND & PEARL ERA (2007-2009) ===
+  "Diamond shape": "Diamond & Pearl",
+  "Treasure / jewels": "Mysterious Treasures",
+  "Starry wonders": "Secret Wonders",
+  "Dawn / sunrise": "Majestic Dawn",
+  "Ruins / ancient statue": "Legends Awakened",
+  "Storm cloud / dark sky": "Stormfront",
+
+  // === PLATINUM ERA (2009-2010) ===
+  "Platinum emblem": "Platinum",
+  "Shield / rivalry": "Rising Rivals",
+  "Crown / supreme": "Supreme Victors",
+  "Arceus rings": "Arceus",
+
+  // === HEARTGOLD & SOULSILVER ERA (2010-2011) ===
+  "Heart / soul wing": "HeartGold & SoulSilver",
+  "Chain link / unleashed": "Unleashed",
+  "Sword / shield emblem DP-HGSS style": "Undaunted",
+  "Trophy / triumph": "Triumphant",
+  "Legendary bird silhouette": "Call of Legends",
+};
+
+export function getSetNameBySymbol(symbolDescription: string): string | null {
+  if (!symbolDescription) return null;
+  const desc = symbolDescription.toLowerCase().trim();
+  for (const [key, name] of Object.entries(ENGLISH_SET_SYMBOLS)) {
+    if (key.toLowerCase().includes(desc) || desc.includes(key.toLowerCase())) {
+      return name;
+    }
+  }
+  return null;
+}
+
+export function generateSymbolReferenceForPrompt(): string {
+  const lines: string[] = ["=== ENGLISH SET SYMBOLS (for older cards without printed set codes) ==="];
+  let currentEra = "";
+  for (const [symbol, setName] of Object.entries(ENGLISH_SET_SYMBOLS)) {
+    if (symbol.startsWith("//")) continue;
+    lines.push(`  "${symbol}" = ${setName}`);
+  }
+  return lines.join("\n");
+}
+
 export function getEnglishSetName(code: string): string | null {
   if (!code) return null;
   const cleaned = code.trim();

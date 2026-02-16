@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
 import sharp from "sharp";
-import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt } from "./pokemon-sets";
+import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -410,7 +410,9 @@ async function lookupJapaneseCard(setCode: string, cardNumber: number, aiSetName
 }
 
 function buildGradingSystemPrompt(): string {
-  return GRADING_PROMPT_TEMPLATE.replace("{{SET_REFERENCE}}", getCurrentSetReference());
+  return GRADING_PROMPT_TEMPLATE
+    .replace("{{SET_REFERENCE}}", getCurrentSetReference())
+    .replace("{{SYMBOL_REFERENCE}}", generateSymbolReferenceForPrompt());
 }
 
 const GRADING_PROMPT_TEMPLATE = `You are an expert Pokemon card grading analyst with deep knowledge of card grading standards from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards. You will analyze images of a Pokemon card (front and back) and provide estimated grades based on each company's published grading criteria.
@@ -572,12 +574,10 @@ Step 3: READ THE SET CODE AND IDENTIFY THE SET
 - The set code is your PRIMARY source of truth for identifying the set. Do NOT guess the set from the Pokemon name alone.
 - Report the set code EXACTLY as printed (e.g., "PFL", "PFLen", "s8b", "sv2a", "SV5K").
 - IMPORTANT: Do NOT rely on your training data for set names — your knowledge may be outdated or wrong. Use ONLY the set code mapping below.
-- For OLDER CARDS (WOTC era through EX era) that may not have a printed set code, identify the set by the SET SYMBOL (the small icon near the card number) combined with the card number range and card design/border style. Here are key set symbols:
-  * Base Set: no symbol (1st edition has "1st Edition" stamp)
-  * Jungle: palm tree/flower, Fossil: skeletal claw, Team Rocket: R, Gym Heroes: arena, Gym Challenge: hexagon
-  * Neo Genesis: stars, Neo Discovery: fossil/ruins, Neo Revelation: shining, Neo Destiny: dark star
-  * Expedition: e-card reader, Aquapolis: e-card H, Skyridge: e-card H (different border)
-  * EX Ruby & Sapphire through EX Power Keepers: various symbols with "EX" branding
+- For OLDER CARDS (WOTC era through HGSS era) that may not have a printed set code, identify the set by the SET SYMBOL (the small icon near the card number) combined with the card number range and card design/border style.
+- Use this COMPREHENSIVE symbol-to-set mapping for cards without printed set codes:
+
+{{SYMBOL_REFERENCE}}
 
 - Use this COMPREHENSIVE set code mapping to determine the set name:
 
@@ -3218,6 +3218,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "expedition base set": "Expedition Base Set",
     "aquapolis": "Aquapolis",
     "skyridge": "Skyridge",
+
+    // Promo sets — exact TCGPlayer names
+    "scarlet violet promos": "SV: Scarlet & Violet Promo Cards",
+    "scarlet  violet promos": "SV: Scarlet & Violet Promo Cards",
+    "sv promos": "SV: Scarlet & Violet Promo Cards",
+    "sv promo cards": "SV: Scarlet & Violet Promo Cards",
+    "sv black star promos": "SV: Scarlet & Violet Promo Cards",
+    "svp black star promos": "SV: Scarlet & Violet Promo Cards",
+    "svp promos": "SV: Scarlet & Violet Promo Cards",
+    "scarlet  violet promo cards": "SV: Scarlet & Violet Promo Cards",
+    "sword shield promos": "SWSH: Sword & Shield Promo Cards",
+    "sword  shield promos": "SWSH: Sword & Shield Promo Cards",
+    "swsh promos": "SWSH: Sword & Shield Promo Cards",
+    "swsh promo cards": "SWSH: Sword & Shield Promo Cards",
+    "swsh black star promos": "SWSH: Sword & Shield Promo Cards",
+    "swshp promos": "SWSH: Sword & Shield Promo Cards",
+    "sun moon promos": "SM Promos",
+    "sun  moon promos": "SM Promos",
+    "sm promos": "SM Promos",
+    "sm black star promos": "SM Promos",
+    "smp promos": "SM Promos",
+    "xy promos": "XY Promos",
+    "xy black star promos": "XY Promos",
+    "xyp promos": "XY Promos",
+    "black white promos": "Black and White Promos",
+    "black  white promos": "Black and White Promos",
+    "bw promos": "Black and White Promos",
+    "bw black star promos": "Black and White Promos",
+    "bwp promos": "Black and White Promos",
+    "hgss promos": "HGSS Promos",
+    "heartgold soulsilver promos": "HGSS Promos",
+    "diamond pearl promos": "Diamond and Pearl Promos",
+    "dp promos": "Diamond and Pearl Promos",
+    "nintendo promos": "Nintendo Promos",
+    "wotc promos": "WoTC Promo",
+    "wizards promos": "WoTC Promo",
+    "mega evolution promos": "ME: Mega Evolution Promo",
+    "me promos": "ME: Mega Evolution Promo",
   };
 
   function findBestGroup(groups: TCGGroup[], setName: string): TCGGroup | null {
