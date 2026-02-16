@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 36" width="600" height="36">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400&amp;display=swap');
+    </style>
+  </defs>
+  <text x="300" y="26" text-anchor="middle" font-family="Inter, sans-serif" font-weight="400" font-size="22" fill="#A0A0A0" letter-spacing="-0.3">Pre-grade your cards before submission</text>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 50" width="600" height="50">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@700&amp;display=swap');
+    </style>
+  </defs>
+  <text x="300" y="38" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="36" fill="#FFFFFF" letter-spacing="-0.5">AI-Powered Card Grading</text>
+</svg>
