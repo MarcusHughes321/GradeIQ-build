@@ -217,6 +217,24 @@ function configureExpoAndLanding(app: express.Application) {
     res.status(200).send(privacyPolicyHtml);
   });
 
+  const termsPath = path.resolve(
+    process.cwd(),
+    "server",
+    "templates",
+    "terms.html",
+  );
+  const termsHtml = fs.readFileSync(termsPath, "utf-8");
+
+  app.get("/terms", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(termsHtml);
+  });
+
+  app.get("/terms-of-use", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(termsHtml);
+  });
+
   app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
   app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
