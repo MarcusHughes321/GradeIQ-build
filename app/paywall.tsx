@@ -176,6 +176,20 @@ export default function PaywallScreen() {
         <Text style={styles.freeNote}>
           {TIERS.free.monthlyLimit} free grades per month included with the free plan
         </Text>
+
+        <Text style={styles.autoRenewNote}>
+          Subscriptions auto-renew monthly unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your App Store or Google Play settings.
+        </Text>
+
+        <View style={styles.legalLinks}>
+          <Pressable onPress={() => router.push("/terms")}>
+            <Text style={styles.legalLinkText}>Terms of Use</Text>
+          </Pressable>
+          <Text style={styles.legalDivider}>|</Text>
+          <Pressable onPress={() => router.push("/privacy")}>
+            <Text style={styles.legalLinkText}>Privacy Policy</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </View>
   );
@@ -351,5 +365,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     textAlign: "center",
+  },
+  autoRenewNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: 12,
+    paddingHorizontal: 16,
+    lineHeight: 16,
+  },
+  legalLinks: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 16,
+    gap: 12,
+  },
+  legalLinkText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.primary,
+    textDecorationLine: "underline",
+  },
+  legalDivider: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
   },
 });
