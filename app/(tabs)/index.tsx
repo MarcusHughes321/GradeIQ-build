@@ -368,23 +368,31 @@ export default function HomeScreen() {
       )}
 
       {activeJob && activeJob.status === "completed" && activeJob.savedGrading && (
-        <Pressable
-          style={({ pressed }) => [styles.bgJobBanner, styles.bgJobBannerDone, { opacity: pressed ? 0.8 : 1 }]}
-          onPress={() => {
-            const gradingId = activeJob.savedGrading!.id;
-            dismissJob();
-            router.push({ pathname: "/results", params: { gradingId } });
-          }}
-        >
-          <Ionicons name="checkmark-circle" size={22} color="#10B981" />
-          <View style={styles.bgJobInfo}>
-            <Text style={styles.bgJobTitle}>Grading complete</Text>
-            <Text style={styles.bgJobSubtitle}>
-              {activeJob.savedGrading.result.cardName || "Tap to view results"}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-        </Pressable>
+        <View style={[styles.bgJobBanner, styles.bgJobBannerDone]}>
+          <Pressable
+            style={({ pressed }) => [styles.bgJobTapArea, { opacity: pressed ? 0.8 : 1 }]}
+            onPress={() => {
+              const gradingId = activeJob.savedGrading!.id;
+              router.push({ pathname: "/results", params: { gradingId } });
+            }}
+          >
+            <Ionicons name="checkmark-circle" size={22} color="#10B981" />
+            <View style={styles.bgJobInfo}>
+              <Text style={styles.bgJobTitle}>Grading complete</Text>
+              <Text style={styles.bgJobSubtitle}>
+                {activeJob.savedGrading.result.cardName || "Tap to view results"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+          </Pressable>
+          <Pressable
+            onPress={() => dismissJob()}
+            style={({ pressed }) => [styles.bgJobDismissBtn, { opacity: pressed ? 0.5 : 1 }]}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={18} color={Colors.textSecondary} />
+          </Pressable>
+        </View>
       )}
 
       {activeJob && activeJob.status === "failed" && (
@@ -890,6 +898,16 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  bgJobTapArea: {
+    flex: 1,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+  },
+  bgJobDismissBtn: {
+    padding: 4,
+    marginLeft: 4,
   },
   heroSection: {
     alignItems: "center",
