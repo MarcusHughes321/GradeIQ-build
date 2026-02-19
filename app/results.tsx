@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
+  TextInput,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { BlurView } from "expo-blur";
@@ -127,6 +128,11 @@ export default function ResultsScreen() {
   const [loadingValue, setLoadingValue] = useState(false);
   const [reAnalysing, setReAnalysing] = useState(false);
   const [reAnalyseStage, setReAnalyseStage] = useState("");
+  const [correctionVisible, setCorrectionVisible] = useState(false);
+  const [correctionName, setCorrectionName] = useState("");
+  const [correctionNumber, setCorrectionNumber] = useState("");
+  const [correctionSet, setCorrectionSet] = useState("");
+  const [correcting, setCorrecting] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -191,6 +197,66 @@ export default function ResultsScreen() {
       });
     } finally {
       setLoadingValue(false);
+    }
+  };
+
+  const openCorrectionModal = () => {
+    if (!grading) return;
+    setCorrectionName(grading.result.cardName || "");
+    setCorrectionNumber(grading.result.setNumber || "");
+    setCorrectionSet(grading.result.setName || grading.result.setInfo || "");
+    setCorrectionVisible(true);
+  };
+
+  const applyCorrection = async () => {
+    if (!grading) return;
+    setCorrecting(true);
+    try {
+      const updatedResult = {
+        ...grading.result,
+        cardName: correctionName.trim() || grading.result.cardName,
+        setNumber: correctionNumber.trim() || grading.result.setNumber,
+        setName: correctionSet.trim() || grading.result.setName,
+        cardValue: undefined,
+      };
+      const updatedGrading = { ...grading, result: updatedResult };
+      await updateGrading(grading.id, { result: updatedResult });
+      setGrading(updatedGrading);
+      setCardValue(null);
+      setCorrectionVisible(false);
+      setLoadingValue(true);
+      try {
+        const resp = await apiRequest("POST", "/api/card-value", {
+          cardName: updatedResult.cardName,
+          setName: updatedResult.setName || updatedResult.setInfo,
+          setNumber: updatedResult.setNumber,
+          psaGrade: updatedResult.psa.grade,
+          bgsGrade: updatedResult.beckett.overallGrade,
+          aceGrade: updatedResult.ace.overallGrade,
+          tagGrade: updatedResult.tag?.overallGrade,
+          cgcGrade: updatedResult.cgc?.grade,
+        });
+        const data = await resp.json();
+        setCardValue(data);
+        const withValue = { ...updatedResult, cardValue: data };
+        await updateGrading(grading.id, { result: withValue });
+        setGrading({ ...updatedGrading, result: withValue });
+      } catch {
+        setCardValue({
+          psaValue: "No value data found",
+          bgsValue: "No value data found",
+          aceValue: "No value data found",
+          tagValue: "No value data found",
+          cgcValue: "No value data found",
+          rawValue: "No value data found",
+          source: "Error fetching values",
+        });
+      } finally {
+        setLoadingValue(false);
+      }
+    } catch {
+    } finally {
+      setCorrecting(false);
     }
   };
 
@@ -649,6 +715,13 @@ export default function ResultsScreen() {
                 <Text style={styles.setNumberText}>{displaySetNumber}</Text>
               </View>
             ) : null}
+            <Pressable
+              onPress={openCorrectionModal}
+              style={({ pressed }) => [styles.wrongCardBtn, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Ionicons name="create-outline" size={13} color={Colors.primary} />
+              <Text style={styles.wrongCardText}>Wrong card? Correct it</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -1125,6 +1198,88 @@ export default function ResultsScreen() {
             }
           }}
         />}
+      </Modal>
+
+      <Modal
+        visible={correctionVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setCorrectionVisible(false)}
+      >
+        <View style={styles.correctionOverlay}>
+          <View style={[styles.correctionSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.correctionHandle} />
+            <View style={styles.correctionHeader}>
+              <View style={styles.correctionHeaderLeft}>
+                <Ionicons name="search-outline" size={20} color={Colors.primary} />
+                <Text style={styles.correctionTitle}>Correct Card Details</Text>
+              </View>
+              <Pressable
+                onPress={() => setCorrectionVisible(false)}
+                style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </Pressable>
+            </View>
+            <Text style={styles.correctionSubtitle}>
+              Update the card name, set, or number below to fix identification and refresh market values.
+            </Text>
+
+            <View style={styles.correctionField}>
+              <Text style={styles.correctionLabel}>Card Name</Text>
+              <TextInput
+                style={styles.correctionInput}
+                value={correctionName}
+                onChangeText={setCorrectionName}
+                placeholder="e.g. Charizard ex"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={styles.correctionField}>
+              <Text style={styles.correctionLabel}>Set Name</Text>
+              <TextInput
+                style={styles.correctionInput}
+                value={correctionSet}
+                onChangeText={setCorrectionSet}
+                placeholder="e.g. Obsidian Flames"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={styles.correctionField}>
+              <Text style={styles.correctionLabel}>Card Number</Text>
+              <TextInput
+                style={styles.correctionInput}
+                value={correctionNumber}
+                onChangeText={setCorrectionNumber}
+                placeholder="e.g. 006/197"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <Pressable
+              onPress={applyCorrection}
+              disabled={correcting}
+              style={({ pressed }) => [
+                styles.correctionSaveBtn,
+                { opacity: pressed || correcting ? 0.7 : 1 },
+              ]}
+            >
+              {correcting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={styles.correctionSaveBtnText}>Update & Refresh Prices</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -1783,5 +1938,94 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 11,
     color: "rgba(255,255,255,0.7)",
+  },
+  wrongCardBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  wrongCardText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.primary,
+  },
+  correctionOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  correctionSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    gap: 14,
+  },
+  correctionHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.surfaceBorder,
+    alignSelf: "center",
+    marginBottom: 4,
+  },
+  correctionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  correctionHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  correctionTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+  },
+  correctionSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  correctionField: {
+    gap: 6,
+  },
+  correctionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  correctionInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  correctionSaveBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  correctionSaveBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#fff",
   },
 });
