@@ -3260,6 +3260,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // --- TCGPlayer pricing via TCGCSV (free, no auth, daily-updated TCGPlayer market data) ---
   const USD_TO_GBP = 0.79;
+  const EXCHANGE_RATES: Record<string, { rate: number; symbol: string }> = {
+    GBP: { rate: 0.79, symbol: "£" },
+    USD: { rate: 1.0, symbol: "$" },
+    EUR: { rate: 0.92, symbol: "€" },
+    AUD: { rate: 1.55, symbol: "A$" },
+    CAD: { rate: 1.38, symbol: "C$" },
+    JPY: { rate: 150, symbol: "¥" },
+  };
 
   interface TCGGroup {
     groupId: number;
@@ -3742,8 +3750,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/card-value", async (req, res) => {
     try {
-      const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade } = req.body;
-      console.log("[card-value] Request received:", { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade });
+      const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade, currency = "GBP" } = req.body;
+      console.log("[card-value] Request received:", { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade, currency });
       if (!cardName) {
         return res.status(400).json({ error: "Card name is required" });
       }
@@ -3762,19 +3770,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const allKeys = ["psaValue", "psa10Value", "bgsValue", "bgs10Value", "aceValue", "ace10Value", "tagValue", "tag10Value", "cgcValue", "cgc10Value", "rawValue"];
 
+      const cx = EXCHANGE_RATES[currency] || EXCHANGE_RATES.GBP;
+      const convertUSD = (usd: number) => Math.round(usd * cx.rate * 100) / 100;
+
+      const marketConverted = tcgResult.marketPriceUSD ? convertUSD(tcgResult.marketPriceUSD) : undefined;
+      const lowConverted = tcgResult.lowPriceUSD ? convertUSD(tcgResult.lowPriceUSD) : undefined;
+      const midConverted = tcgResult.midPriceUSD ? convertUSD(tcgResult.midPriceUSD) : undefined;
+
       const tcgContext = tcgResult.found
         ? `REAL TCGPlayer Market Data (verified, daily-updated):
 - Card: ${tcgResult.productName}
 - Set: ${tcgResult.setName}
 - Rarity: ${tcgResult.rarity}
-- TCGPlayer Market Price: $${tcgResult.marketPriceUSD} USD (£${tcgResult.marketPriceGBP} GBP)
-${tcgResult.lowPriceUSD ? `- TCGPlayer Low: $${tcgResult.lowPriceUSD} USD (£${tcgResult.lowPriceGBP} GBP)` : ""}
-${tcgResult.midPriceUSD ? `- TCGPlayer Mid: $${tcgResult.midPriceUSD} USD (£${tcgResult.midPriceGBP} GBP)` : ""}
+- TCGPlayer Market Price: $${tcgResult.marketPriceUSD} USD (${cx.symbol}${marketConverted} ${currency})
+${tcgResult.lowPriceUSD ? `- TCGPlayer Low: $${tcgResult.lowPriceUSD} USD (${cx.symbol}${lowConverted} ${currency})` : ""}
+${tcgResult.midPriceUSD ? `- TCGPlayer Mid: $${tcgResult.midPriceUSD} USD (${cx.symbol}${midConverted} ${currency})` : ""}
 
 This is the UNGRADED raw card price from TCGPlayer. Use it as your primary baseline.`
         : "";
 
-      console.log(`[card-value] TCGPlayer data: ${tcgResult.found ? `Found - $${tcgResult.marketPriceUSD} / £${tcgResult.marketPriceGBP}` : "Not found"}`);
+      console.log(`[card-value] TCGPlayer data: ${tcgResult.found ? `Found - $${tcgResult.marketPriceUSD} / ${cx.symbol}${marketConverted} ${currency}` : "Not found"}`);
+
+      const cheapThreshold = currency === "JPY" ? "¥750" : `${cx.symbol}5`;
+      const expThreshold = currency === "JPY" ? "¥15000" : `${cx.symbol}100`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
@@ -3782,12 +3800,12 @@ This is the UNGRADED raw card price from TCGPlayer. Use it as your primary basel
         messages: [
           {
             role: "system",
-            content: `You are an expert Pokemon TCG market price analyst. Your job is to estimate graded card values in GBP.
+            content: `You are an expert Pokemon TCG market price analyst. Your job is to estimate graded card values in ${currency}.
 
 ${tcgResult.found ? `You have been given REAL TCGPlayer market data for the raw/ungraded card price. This is AUTHORITATIVE — base ALL your estimates on this verified price.
 
 The TCGPlayer market price is the UNGRADED Near Mint value. Use it to calculate graded premiums:
-- Raw/ungraded value = TCGPlayer market price converted to GBP (already provided)
+- Raw/ungraded value = TCGPlayer market price converted to ${currency} (already provided)
 - PSA 9 = 1.5-2.5x raw value (popular cards higher)
 - PSA 10 = 3-8x raw value (chase cards can be 10-20x)
 - BGS 9.5 = similar to PSA 10 value
@@ -3799,28 +3817,28 @@ The TCGPlayer market price is the UNGRADED Near Mint value. Use it to calculate 
 - TAG 9.5 = 60-75% of BGS 9.5
 - TAG 10 = 60-75% of PSA 10
 
-For very cheap cards (raw < £5): grading premiums are minimal (graded = £10-25 at best for a 10).
-For expensive cards (raw > £100): premiums scale significantly, especially for grade 10s.` : `TCGPlayer data was not available. Use your expert knowledge of Pokemon TCG market prices (2024-2025) to estimate.`}
+For very cheap cards (raw < ${cheapThreshold}): grading premiums are minimal.
+For expensive cards (raw > ${expThreshold}): premiums scale significantly, especially for grade 10s.` : `TCGPlayer data was not available. Use your expert knowledge of Pokemon TCG market prices (2024-2025) to estimate.`}
 
 RULES:
-1. All prices in GBP (£). Format: "£XX.XX" or "£XX - £XX" for ranges.
+1. All prices in ${currency} using the "${cx.symbol}" symbol. Format: "${cx.symbol}XX.XX" or "${cx.symbol}XX - ${cx.symbol}XX" for ranges.${currency === "JPY" ? " For JPY, use whole numbers (no decimals)." : ""}
 2. Use TIGHT price ranges based on the TCGPlayer data.
 3. NEVER say "No value data found" — every card has value.
 4. Raw value should closely reflect the TCGPlayer market price when available.
 
 Respond ONLY with valid JSON:
 {
-  "psaValue": "£XX - £XX",
-  "bgsValue": "£XX - £XX",
-  "aceValue": "£XX - £XX",
-  "tagValue": "£XX - £XX",
-  "cgcValue": "£XX - £XX",
-  "rawValue": "£XX - £XX",
-  "psa10Value": "£XX - £XX",
-  "bgs10Value": "£XX - £XX",
-  "ace10Value": "£XX - £XX",
-  "tag10Value": "£XX - £XX",
-  "cgc10Value": "£XX - £XX",
+  "psaValue": "${cx.symbol}XX - ${cx.symbol}XX",
+  "bgsValue": "${cx.symbol}XX - ${cx.symbol}XX",
+  "aceValue": "${cx.symbol}XX - ${cx.symbol}XX",
+  "tagValue": "${cx.symbol}XX - ${cx.symbol}XX",
+  "cgcValue": "${cx.symbol}XX - ${cx.symbol}XX",
+  "rawValue": "${cx.symbol}XX - ${cx.symbol}XX",
+  "psa10Value": "${cx.symbol}XX - ${cx.symbol}XX",
+  "bgs10Value": "${cx.symbol}XX - ${cx.symbol}XX",
+  "ace10Value": "${cx.symbol}XX - ${cx.symbol}XX",
+  "tag10Value": "${cx.symbol}XX - ${cx.symbol}XX",
+  "cgc10Value": "${cx.symbol}XX - ${cx.symbol}XX",
   "source": "${tcgResult.found ? "Based on TCGPlayer market data" : "Estimated from market data"}"
 }`,
           },
@@ -3842,7 +3860,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
         const aiData = JSON.parse(jsonMatch[0]);
         aiData.source = tcgResult.found ? "Based on TCGPlayer market data" : "Estimated from market data";
         if (tcgResult.found) {
-          aiData.tcgplayerMarketPrice = `£${tcgResult.marketPriceGBP}`;
+          aiData.tcgplayerMarketPrice = `${cx.symbol}${marketConverted}`;
           aiData.tcgplayerMarketPriceUSD = `$${tcgResult.marketPriceUSD}`;
         }
         console.log("[card-value] Success, returning:", aiData);

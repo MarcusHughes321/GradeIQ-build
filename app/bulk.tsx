@@ -21,6 +21,7 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
+import { getSettings } from "@/lib/settings";
 import type { GradingResult } from "@/lib/types";
 import CardCamera from "@/components/CardCamera";
 import { useSubscription } from "@/lib/subscription";
@@ -370,6 +371,7 @@ export default function BulkScreen() {
 
                 (async () => {
                   try {
+                    const bulkSettings = await getSettings();
                     const vResp = await apiRequest("POST", "/api/card-value", {
                       cardName: gr.cardName,
                       setName: gr.setName || gr.setInfo,
@@ -379,6 +381,7 @@ export default function BulkScreen() {
                       aceGrade: gr.ace.overallGrade,
                       tagGrade: gr.tag?.overallGrade,
                       cgcGrade: gr.cgc?.grade,
+                      currency: bulkSettings.currency || "GBP",
                     });
                     const vData = await vResp.json();
                     await updateGrading(saved.id, { result: { ...gr, cardValue: vData } });

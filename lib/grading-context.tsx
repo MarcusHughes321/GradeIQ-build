@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
+import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 
 export type GradingJobStatus = "processing" | "completed" | "failed";
@@ -174,6 +175,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
         (async () => {
           try {
+            const userSettings = await getSettings();
             const vResp = await apiRequest("POST", "/api/card-value", {
               cardName: result.cardName,
               setName: result.setName || result.setInfo,
@@ -183,6 +185,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
               aceGrade: result.ace.overallGrade,
               tagGrade: result.tag?.overallGrade,
               cgcGrade: result.cgc?.grade,
+              currency: userSettings.currency || "GBP",
             });
             const vData = await vResp.json();
             await updateGrading(saved.id, { result: { ...result, cardValue: vData } });

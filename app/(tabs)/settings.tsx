@@ -6,12 +6,12 @@ import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
-import { ALL_COMPANIES, type CompanyId } from "@/lib/settings";
+import { ALL_COMPANIES, CURRENCIES, type CompanyId, type CurrencyCode } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { settings, toggleCompany } = useSettings();
+  const { settings, toggleCompany, setCurrency } = useSettings();
   const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo, isAdminMode, toggleAdminMode } = useSubscription();
   const [tapCount, setTapCount] = useState(0);
   const lastTapRef = useRef(0);
@@ -103,6 +103,39 @@ export default function SettingsScreen() {
         <Text style={styles.hint}>
           At least one grading company must remain enabled. More companies coming soon.
         </Text>
+
+        {(isSubscribed || isAdminMode) && (
+          <>
+            <View style={[styles.section, { marginTop: 32 }]}>
+              <Text style={styles.sectionTitle}>Currency</Text>
+              <Text style={styles.sectionSubtitle}>
+                Choose your preferred currency for market values
+              </Text>
+            </View>
+
+            <View style={styles.companyList}>
+              {CURRENCIES.map((c, i) => {
+                const selected = (settings.currency || "GBP") === c.code;
+                return (
+                  <React.Fragment key={c.code}>
+                    {i > 0 && <View style={styles.menuDivider} />}
+                    <Pressable
+                      onPress={() => setCurrency(c.code)}
+                      style={({ pressed }) => [styles.currencyRow, { opacity: pressed ? 0.7 : 1 }]}
+                    >
+                      <Text style={[styles.currencyLabel, selected && styles.currencySelected]}>{c.label}</Text>
+                      {selected && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
+                    </Pressable>
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            <Text style={styles.hint}>
+              New grades will use this currency. Existing results keep their original currency.
+            </Text>
+          </>
+        )}
 
         <View style={[styles.section, { marginTop: 32 }]}>
           <Text style={styles.sectionTitle}>About</Text>
@@ -431,5 +464,21 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: Colors.surfaceBorder,
     marginHorizontal: 16,
+  },
+  currencyRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  currencyLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  currencySelected: {
+    color: Colors.primary,
+    fontFamily: "Inter_700Bold",
   },
 });

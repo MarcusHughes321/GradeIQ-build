@@ -295,6 +295,7 @@ export default function HomeScreen() {
             aceGrade: g.result.ace.overallGrade,
             tagGrade: g.result.tag?.overallGrade,
             cgcGrade: g.result.cgc?.grade,
+            currency: settings.currency || "GBP",
           });
           const valData = await resp.json();
           await updateGrading(g.id, { result: { ...g.result, cardValue: valData } });

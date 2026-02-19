@@ -114,7 +114,7 @@ function getAnnotations(result: GradingResult): AreaAnnotation[] {
 export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
   const { gradingId } = useLocalSearchParams<{ gradingId: string }>();
-  const { settings } = useSettings();
+  const { settings, setCurrency } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
   const { isSubscribed, isGateEnabled, isAdminMode } = useSubscription();
   const [grading, setGrading] = useState<SavedGrading | null>(null);
@@ -178,6 +178,7 @@ export default function ResultsScreen() {
         aceGrade: result.ace.overallGrade,
         tagGrade: result.tag?.overallGrade,
         cgcGrade: result.cgc?.grade,
+        currency: settings.currency || "GBP",
       });
       const data = await resp.json();
       setCardValue(data);
@@ -236,6 +237,7 @@ export default function ResultsScreen() {
           aceGrade: updatedResult.ace.overallGrade,
           tagGrade: updatedResult.tag?.overallGrade,
           cgcGrade: updatedResult.cgc?.grade,
+          currency: settings.currency || "GBP",
         });
         const data = await resp.json();
         setCardValue(data);
