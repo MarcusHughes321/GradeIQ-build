@@ -32,9 +32,9 @@ const SECTIONS = [
     body: `Grade.IQ is provided "as is" without warranty of any kind, express or implied. We do not accept liability for any loss, damage, or expense arising from reliance on grades, valuations, or any other information provided by this app.\n\nBy using Grade.IQ, you acknowledge that AI-estimated grades are approximations and agree not to hold Grade.IQ responsible for any discrepancy between our estimates and actual professional grading results.`,
   },
   {
-    title: "Subscriptions",
+    title: "Subscriptions & Auto-Renewal",
     icon: "card-outline" as const,
-    body: `Subscription purchases are processed through Apple App Store or Google Play Store. All subscription management, billing, and cancellations are handled through your respective app store account.\n\nYou may cancel your subscription at any time through your app store settings. Cancellation takes effect at the end of the current billing period.`,
+    body: `Grade.IQ offers the following auto-renewable subscription plans:\n\n\u2022 Grade Curious — £2.99/month (15 Quick Grades + 2 Deep Grades)\n\u2022 Grade Enthusiast — £5.99/month (50 Quick Grades + 7 Deep Grades)\n\u2022 Grade Obsessed — £9.99/month (Unlimited Quick Grades + 30 Deep Grades)\n\nPayment is charged to your Apple ID or Google Play account at confirmation of purchase. Subscriptions automatically renew each month unless cancelled at least 24 hours before the end of the current billing period. Your account will be charged for renewal within 24 hours prior to the end of the current period at the same price.\n\nYou can manage or cancel your subscription at any time by going to your account settings in the App Store or Google Play Store. Cancellation takes effect at the end of the current billing period — you will retain access until then.\n\nFree trial periods, if offered, will automatically convert to a paid subscription unless cancelled before the trial ends. Any unused portion of a free trial is forfeited upon purchasing a subscription.`,
   },
 ];
 
