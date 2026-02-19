@@ -521,10 +521,12 @@ export default function GradeScreen() {
         </Pressable>
       </View>
       {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
-        <Pressable onPress={handleSelectDeepMode} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+        <Pressable onPress={handleSelectDeepMode} style={({ pressed }) => [styles.deepTeaserBtn, { opacity: pressed ? 0.7 : 1 }]}>
+          <Ionicons name="sparkles" size={12} color="#F59E0B" />
           <Text style={styles.deepTeaser}>
-            <Text style={{ color: "#F59E0B", fontFamily: "Inter_700Bold" }}>6x</Text> more data for the most accurate grade
+            <Text style={{ color: "#F59E0B", fontFamily: "Inter_700Bold" }}>6x</Text> more accurate grading
           </Text>
+          <Ionicons name="chevron-forward" size={11} color="#F59E0B" />
         </Pressable>
       )}
     </View>
@@ -986,12 +988,23 @@ const styles = StyleSheet.create({
   modeTabTextDeep: {
     color: "#F59E0B",
   },
+  deepTeaserBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    gap: 4,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.25)",
+  },
   deepTeaser: {
-    fontFamily: "Inter_500Medium",
+    fontFamily: "Inter_600SemiBold",
     fontSize: 11,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    paddingTop: 6,
+    color: "#F59E0B",
   },
   scrollContent: {
     paddingHorizontal: 20,
