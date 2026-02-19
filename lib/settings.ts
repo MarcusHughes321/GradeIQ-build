@@ -4,8 +4,20 @@ const SETTINGS_KEY = "gradeiq_settings";
 
 export type CompanyId = "PSA" | "Beckett" | "Ace" | "TAG" | "CGC";
 
+export type CurrencyCode = "GBP" | "USD" | "EUR" | "AUD" | "CAD" | "JPY";
+
+export const CURRENCIES: { code: CurrencyCode; symbol: string; label: string }[] = [
+  { code: "GBP", symbol: "£", label: "GBP (£)" },
+  { code: "USD", symbol: "$", label: "USD ($)" },
+  { code: "EUR", symbol: "€", label: "EUR (€)" },
+  { code: "AUD", symbol: "A$", label: "AUD (A$)" },
+  { code: "CAD", symbol: "C$", label: "CAD (C$)" },
+  { code: "JPY", symbol: "¥", label: "JPY (¥)" },
+];
+
 export interface AppSettings {
   enabledCompanies: CompanyId[];
+  currency: CurrencyCode;
 }
 
 export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; color: string }[] = [
@@ -18,6 +30,7 @@ export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; 
 
 export const DEFAULT_SETTINGS: AppSettings = {
   enabledCompanies: [],
+  currency: "GBP",
 };
 
 export async function getSettings(): Promise<AppSettings> {
