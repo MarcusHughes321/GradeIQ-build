@@ -419,7 +419,7 @@ export default function GradeScreen() {
 
   const handleSelectDeepMode = async () => {
     if (isGateEnabled && !canDeepGrade && !isAdminMode) {
-      router.push("/paywall");
+      router.push("/deep-grade-info");
       return;
     }
 
