@@ -10,6 +10,7 @@ import {
   Modal,
   Dimensions,
   TextInput,
+  KeyboardAvoidingView,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { BlurView } from "expo-blur";
@@ -1206,7 +1207,11 @@ export default function ResultsScreen() {
         animationType="slide"
         onRequestClose={() => setCorrectionVisible(false)}
       >
-        <View style={styles.correctionOverlay}>
+        <KeyboardAvoidingView
+          style={styles.correctionOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable style={{ flex: 1 }} onPress={() => setCorrectionVisible(false)} />
           <View style={[styles.correctionSheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.correctionHandle} />
             <View style={styles.correctionHeader}>
@@ -1279,7 +1284,7 @@ export default function ResultsScreen() {
               )}
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
