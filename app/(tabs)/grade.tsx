@@ -491,33 +491,35 @@ export default function GradeScreen() {
   const currentStage = ANALYSIS_STAGES[analysisStage];
 
   const renderModeSelector = () => (
-    <View style={styles.modeSelector}>
-      <Pressable
-        style={[styles.modeTab, mode === "quick" && styles.modeTabActive]}
-        onPress={() => {
-          setMode("quick");
-          setAngledFrontImage(null);
-          setAngledBackImage(null);
-          setCornerImages({
-            cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
-            cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
-          });
-          setDeepStep("front");
-        }}
-      >
-        <Ionicons name="flash-outline" size={16} color={mode === "quick" ? Colors.text : Colors.textMuted} />
-        <Text style={[styles.modeTabText, mode === "quick" && styles.modeTabTextActive]}>Quick Grade</Text>
-      </Pressable>
-      <Pressable
-        style={[styles.modeTab, mode === "deep" && styles.modeTabActive]}
-        onPress={handleSelectDeepMode}
-      >
-        <Ionicons name="search-outline" size={16} color={mode === "deep" ? "#F59E0B" : Colors.textMuted} />
-        <Text style={[styles.modeTabText, mode === "deep" && styles.modeTabTextDeep]}>Deep Grade</Text>
-        {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
-          <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
-        )}
-      </Pressable>
+    <View style={styles.modeSelectorWrap}>
+      <View style={styles.modeSelector}>
+        <Pressable
+          style={[styles.modeTab, mode === "quick" && styles.modeTabActive]}
+          onPress={() => {
+            setMode("quick");
+            setAngledFrontImage(null);
+            setAngledBackImage(null);
+            setCornerImages({
+              cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
+              cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
+            });
+            setDeepStep("front");
+          }}
+        >
+          <Ionicons name="flash-outline" size={16} color={mode === "quick" ? Colors.text : Colors.textMuted} />
+          <Text style={[styles.modeTabText, mode === "quick" && styles.modeTabTextActive]}>Quick Grade</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.modeTab, mode === "deep" && styles.modeTabActive]}
+          onPress={handleSelectDeepMode}
+        >
+          <Ionicons name="search-outline" size={16} color={mode === "deep" ? "#F59E0B" : Colors.textMuted} />
+          <Text style={[styles.modeTabText, mode === "deep" && styles.modeTabTextDeep]}>Deep Grade</Text>
+          {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
+            <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
+          )}
+        </Pressable>
+      </View>
       {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
         <Pressable onPress={handleSelectDeepMode} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
           <Text style={styles.deepTeaser}>
@@ -950,6 +952,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 12,
     color: "#F59E0B",
+  },
+  modeSelectorWrap: {
+    gap: 0,
   },
   modeSelector: {
     flexDirection: "row",
