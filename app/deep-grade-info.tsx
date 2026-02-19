@@ -74,7 +74,7 @@ export default function DeepGradeInfoScreen() {
           </LinearGradient>
           <Text style={styles.heroTitle}>The Ultimate AI Grade</Text>
           <Text style={styles.heroSubtitle}>
-            Deep Grade captures your card from every angle, giving the AI 4x more data to deliver the most accurate grade estimate possible.
+            Deep Grade captures your card from every angle, giving the AI 6x more data to deliver the most accurate grade estimate possible.
           </Text>
         </View>
 

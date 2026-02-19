@@ -518,6 +518,13 @@ export default function GradeScreen() {
           <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
         )}
       </Pressable>
+      {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
+        <Pressable onPress={handleSelectDeepMode} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+          <Text style={styles.deepTeaser}>
+            <Text style={{ color: "#F59E0B", fontFamily: "Inter_700Bold" }}>6x</Text> more data for the most accurate grade
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 
@@ -973,6 +980,13 @@ const styles = StyleSheet.create({
   },
   modeTabTextDeep: {
     color: "#F59E0B",
+  },
+  deepTeaser: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    paddingTop: 6,
   },
   scrollContent: {
     paddingHorizontal: 20,
