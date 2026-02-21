@@ -134,6 +134,7 @@ export default function ResultsScreen() {
   const [correctionNumber, setCorrectionNumber] = useState("");
   const [correctionSet, setCorrectionSet] = useState("");
   const [correcting, setCorrecting] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -260,6 +261,28 @@ export default function ResultsScreen() {
     } catch {
     } finally {
       setCorrecting(false);
+    }
+  };
+
+  const handleRescan = async () => {
+    if (!grading || rescanning) return;
+    setRescanning(true);
+    try {
+      const frontBase64 = await getBase64FromUri(grading.frontImage);
+      const resp = await apiRequest("POST", "/api/reidentify-card", {
+        frontImage: frontBase64,
+        previousCardName: grading.result.cardName,
+        previousSetName: grading.result.setName || grading.result.setInfo,
+        previousSetNumber: grading.result.setNumber,
+      });
+      const newId = await resp.json();
+      if (newId.cardName) setCorrectionName(newId.cardName);
+      if (newId.setName) setCorrectionSet(newId.setName);
+      if (newId.setNumber) setCorrectionNumber(newId.setNumber);
+    } catch (err) {
+      console.error("Re-scan failed:", err);
+    } finally {
+      setRescanning(false);
     }
   };
 
@@ -1235,6 +1258,27 @@ export default function ResultsScreen() {
               Update the card name, set, or number below to fix identification and refresh market values.
             </Text>
 
+            <Pressable
+              onPress={handleRescan}
+              disabled={rescanning}
+              style={({ pressed }) => [
+                styles.rescanBtn,
+                { opacity: pressed || rescanning ? 0.7 : 1 },
+              ]}
+            >
+              {rescanning ? (
+                <>
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                  <Text style={styles.rescanBtnText}>Re-scanning card...</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="refresh" size={18} color={Colors.primary} />
+                  <Text style={styles.rescanBtnText}>Don't know the name? Re-scan</Text>
+                </>
+              )}
+            </Pressable>
+
             <View style={styles.correctionField}>
               <Text style={styles.correctionLabel}>Card Name</Text>
               <TextInput
@@ -2003,6 +2047,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
     lineHeight: 18,
+  },
+  rescanBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderStyle: "dashed",
+    marginTop: 4,
+  },
+  rescanBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.primary,
   },
   correctionField: {
     gap: 6,
