@@ -89,7 +89,7 @@ export default function PaywallScreen() {
         <Ionicons name="close" size={28} color={Colors.textSecondary} />
       </Pressable>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never" automaticallyAdjustContentInsets={false}>
         <Text style={styles.title}>
           Upgrade Your{"\n"}
           <Text style={{ color: Colors.primary }}>Grading</Text>

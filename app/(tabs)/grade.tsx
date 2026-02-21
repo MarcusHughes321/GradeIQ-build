@@ -774,6 +774,8 @@ export default function GradeScreen() {
           <ScrollView
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + webBottomInset + 140 }]}
             showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
           >
             {renderModeSelector()}
 

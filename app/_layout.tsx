@@ -3,7 +3,7 @@ import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { KeyboardProvider } from "react-native-keyboard-controller";
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
@@ -88,10 +88,8 @@ export default function RootLayout() {
           <SubscriptionProvider>
             <GradingProvider>
               <GestureHandlerRootView style={{ flex: 1 }}>
-                <KeyboardProvider>
                   <StatusBar style="light" />
                   <RootLayoutNav />
-                </KeyboardProvider>
               </GestureHandlerRootView>
             </GradingProvider>
           </SubscriptionProvider>

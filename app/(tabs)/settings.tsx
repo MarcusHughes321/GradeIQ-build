@@ -72,7 +72,7 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}>
+      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }} contentInsetAdjustmentBehavior="never" automaticallyAdjustContentInsets={false}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Grading Companies</Text>
           <Text style={styles.sectionSubtitle}>

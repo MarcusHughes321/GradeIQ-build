@@ -552,6 +552,8 @@ export default function BulkScreen() {
             style={styles.scrollView}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + webBottomInset + 100 }]}
             showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
           >
             {cards.length === 0 ? (
               <View style={styles.emptyState}>

@@ -706,6 +706,8 @@ export default function HomeScreen() {
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + webBottomInset + 100 }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={true}
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

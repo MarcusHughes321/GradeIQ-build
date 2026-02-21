@@ -262,6 +262,8 @@ export default function OnboardingScreen() {
           offset: SCREEN_WIDTH * index,
           index,
         })}
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
       />
 
       <View style={[styles.bottomArea, { paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 16) }]}>

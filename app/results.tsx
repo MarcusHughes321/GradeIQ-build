@@ -677,6 +677,9 @@ export default function ResultsScreen() {
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + webBottomInset + 30 }]}
         showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.cardPreview}>
           <Pressable

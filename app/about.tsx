@@ -25,6 +25,8 @@ export default function AboutScreen() {
         style={styles.content}
         contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 40 }}
         showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
       >
         <View style={styles.heroSection}>
           <View style={styles.logoContainer}>

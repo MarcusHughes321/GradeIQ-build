@@ -60,6 +60,8 @@ export default function FeedbackScreen() {
           contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 120 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
         >
           <View style={styles.introSection}>
             <Text style={styles.introTitle}>We'd love to hear from you</Text>
