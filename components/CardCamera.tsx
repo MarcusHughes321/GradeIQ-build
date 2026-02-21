@@ -20,6 +20,7 @@ import Colors from "@/constants/colors";
 const GUIDE_FRAME_W = 280;
 const GUIDE_FRAME_H = 392;
 const CROP_PADDING = 20;
+const FOCUS_SQUARE_SIZE = 70;
 
 interface CardCameraProps {
   side: "front" | "back";
@@ -52,6 +53,11 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
   const feedbackScale = useRef(new RNAnimated.Value(0.5)).current;
   const [showCapturedFlash, setShowCapturedFlash] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState("");
+
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
+  const focusOpacity = useRef(new RNAnimated.Value(0)).current;
+  const focusScale = useRef(new RNAnimated.Value(1.4)).current;
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const CAPTURE_MESSAGES = [
     "Nice work!",
@@ -187,6 +193,30 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
     }
   };
 
+  const handleTapToFocus = (evt: any) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+
+    setFocusPoint({ x: locationX, y: locationY });
+
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    focusScale.setValue(1.4);
+    focusOpacity.setValue(1);
+    RNAnimated.parallel([
+      RNAnimated.spring(focusScale, { toValue: 1, friction: 6, tension: 160, useNativeDriver: true }),
+      RNAnimated.timing(focusOpacity, { toValue: 1, duration: 100, useNativeDriver: true }),
+    ]).start();
+
+    focusTimerRef.current = setTimeout(() => {
+      RNAnimated.timing(focusOpacity, { toValue: 0, duration: 600, useNativeDriver: true }).start(() => {
+        setFocusPoint(null);
+      });
+    }, 1200);
+  };
+
   const cropToGuideFrame = async (uri: string, photoW: number, photoH: number): Promise<string> => {
     try {
       const { width: screenW, height: screenH } = Dimensions.get("window");
@@ -297,6 +327,26 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
         style={StyleSheet.absoluteFill}
         facing="back"
       />
+
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={handleTapToFocus}
+      />
+
+      {focusPoint && (
+        <RNAnimated.View
+          pointerEvents="none"
+          style={[
+            styles.focusSquare,
+            {
+              left: focusPoint.x - FOCUS_SQUARE_SIZE / 2,
+              top: focusPoint.y - FOCUS_SQUARE_SIZE / 2,
+              opacity: focusOpacity,
+              transform: [{ scale: focusScale }],
+            },
+          ]}
+        />
+      )}
 
       {showCapturedFlash && (
         <RNAnimated.View
@@ -709,5 +759,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: "#fff",
     textAlign: "center",
+  },
+  focusSquare: {
+    position: "absolute",
+    width: FOCUS_SQUARE_SIZE,
+    height: FOCUS_SQUARE_SIZE,
+    borderWidth: 1.5,
+    borderColor: "#FFD60A",
+    borderRadius: 2,
+    zIndex: 150,
   },
 });
