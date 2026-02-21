@@ -3258,6 +3258,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  app.post("/api/reidentify-card", async (req, res) => {
+    try {
+      const { frontImage, previousCardName, previousSetName, previousSetNumber } = req.body;
+
+      if (!frontImage) {
+        return res.status(400).json({ error: "Front card image is required" });
+      }
+
+      const rawFront = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
+      const frontUrl = await optimizeImageForAI(rawFront);
+
+      console.log(`[reidentify] Re-identifying card (was: "${previousCardName}")`);
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        max_completion_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: `You are a Pokemon card identification expert. Your ONLY job is to identify the card name, set name, and set number from the card image. You have extensive knowledge of Pokemon TCG cards in all languages (English, Japanese, Korean, Chinese, etc.).
+
+${getCurrentSetReference()}
+
+${generateSymbolReferenceForPrompt()}
+
+Respond with ONLY a JSON object in this exact format:
+{
+  "cardName": "English name of the Pokemon card",
+  "setName": "English name of the set",
+  "setNumber": "card number as printed (e.g. 113/080)"
+}
+
+IMPORTANT RULES:
+- Always provide the ENGLISH card name, even for Japanese/Korean/Chinese cards
+- Read the set code and card number printed at the bottom of the card
+- Use the set reference above to match set codes to English set names
+- If the card is in a foreign language, translate the Pokemon name to English
+- Be extremely careful and thorough — a previous identification attempt was WRONG`,
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `IMPORTANT: A previous AI scan incorrectly identified this card as "${previousCardName || "Unknown"}" from "${previousSetName || "Unknown"}" (${previousSetNumber || "Unknown"}). That identification was WRONG.
+
+Please look at this card image very carefully and identify it correctly. Pay close attention to:
+1. The Pokemon name printed on the card (may be in Japanese, Korean, or Chinese — translate to English)
+2. The set code and card number at the bottom of the card
+3. The set symbol on the card
+4. Any other identifying features (artwork, card type, rarity symbol)
+
+Do NOT repeat the previous incorrect identification. Look at what is actually on the card.`,
+              },
+              {
+                type: "image_url",
+                image_url: { url: frontUrl, detail: "high" },
+              },
+            ],
+          },
+        ],
+      });
+
+      const content = response.choices[0]?.message?.content || "";
+
+      let result;
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          result = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error("No JSON found in response");
+        }
+      } catch (parseError) {
+        return res.status(500).json({ error: "Failed to parse identification results", raw: content });
+      }
+
+      if (result.setName) {
+        result.setName = resolveSetName(result.setName, result.setNumber);
+      }
+
+      console.log(`[reidentify] New identification: "${result.cardName}" from "${result.setName}" (${result.setNumber})`);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error re-identifying card:", error);
+      res.status(500).json({ error: error.message || "Failed to re-identify card" });
+    }
+  });
+
   // --- TCGPlayer pricing via TCGCSV (free, no auth, daily-updated TCGPlayer market data) ---
   const USD_TO_GBP = 0.79;
   const EXCHANGE_RATES: Record<string, { rate: number; symbol: string }> = {
