@@ -59,6 +59,18 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
   const focusScale = useRef(new RNAnimated.Value(1.4)).current;
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const ZOOM_LEVELS = [1, 1.5, 2, 3];
+  const [zoomIndex, setZoomIndex] = useState(0);
+  const currentZoom = ZOOM_LEVELS[zoomIndex];
+
+  const cycleZoom = () => {
+    const next = (zoomIndex + 1) % ZOOM_LEVELS.length;
+    setZoomIndex(next);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
   const CAPTURE_MESSAGES = [
     "Nice work!",
     "Got it!",
@@ -326,6 +338,7 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
+        zoom={(currentZoom - 1) / 3}
       />
 
       <Pressable
@@ -451,7 +464,18 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
             </Text>
           </View>
           <View style={styles.captureRow}>
-            <View style={{ width: 60 }} />
+            <Pressable
+              onPress={cycleZoom}
+              style={({ pressed }) => [
+                styles.zoomBtn,
+                currentZoom > 1 && styles.zoomBtnActive,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={[styles.zoomBtnText, currentZoom > 1 && styles.zoomBtnTextActive]}>
+                {currentZoom % 1 === 0 ? `${currentZoom}x` : `${currentZoom}x`}
+              </Text>
+            </Pressable>
             <Pressable
               onPress={handleCapture}
               disabled={capturing}
@@ -768,5 +792,24 @@ const styles = StyleSheet.create({
     borderColor: "#FFD60A",
     borderRadius: 2,
     zIndex: 150,
+  },
+  zoomBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  zoomBtnActive: {
+    backgroundColor: "rgba(255,210,10,0.85)",
+  },
+  zoomBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
+  },
+  zoomBtnTextActive: {
+    color: "#000",
   },
 });
