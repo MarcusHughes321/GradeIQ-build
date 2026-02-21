@@ -268,16 +268,22 @@ export default function ResultsScreen() {
     if (!grading || rescanning) return;
     setRescanning(true);
     try {
-      const frontBase64 = await getBase64FromUri(grading.frontImage);
+      const [frontBase64, backBase64] = await Promise.all([
+        getBase64FromUri(grading.frontImage),
+        getBase64FromUri(grading.backImage),
+      ]);
       const resp = await apiRequest("POST", "/api/reidentify-card", {
         frontImage: frontBase64,
+        backImage: backBase64,
         previousCardName: grading.result.cardName,
         previousSetName: grading.result.setName || grading.result.setInfo,
         previousSetNumber: grading.result.setNumber,
       });
       const newId = await resp.json();
       if (newId.cardName) setCorrectionName(newId.cardName);
-      if (newId.setName) setCorrectionSet(newId.setName);
+      if (newId.setName && !/^\d+\s*\/\s*\d+$/.test(newId.setName.trim())) {
+        setCorrectionSet(newId.setName);
+      }
       if (newId.setNumber) setCorrectionNumber(newId.setNumber);
     } catch (err) {
       console.error("Re-scan failed:", err);

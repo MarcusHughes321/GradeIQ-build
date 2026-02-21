@@ -3260,16 +3260,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/reidentify-card", async (req, res) => {
     try {
-      const { frontImage, previousCardName, previousSetName, previousSetNumber } = req.body;
+      const { frontImage, backImage, previousCardName, previousSetName, previousSetNumber } = req.body;
 
       if (!frontImage) {
         return res.status(400).json({ error: "Front card image is required" });
       }
 
       const rawFront = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
-      const frontUrl = await optimizeImageForAI(rawFront);
+      const imagePromises: Promise<string>[] = [optimizeImageForAI(rawFront)];
+      if (backImage) {
+        const rawBack = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
+        imagePromises.push(optimizeImageForAI(rawBack));
+      }
+      const [frontUrl, backUrl] = await Promise.all(imagePromises);
 
       console.log(`[reidentify] Re-identifying card (was: "${previousCardName}")`);
+
+      const imageMessages: any[] = [
+        {
+          type: "image_url",
+          image_url: { url: frontUrl, detail: "high" },
+        },
+      ];
+      if (backUrl) {
+        imageMessages.push({
+          type: "image_url",
+          image_url: { url: backUrl, detail: "high" },
+        });
+      }
 
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",
@@ -3277,45 +3295,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a Pokemon card identification expert. Your ONLY job is to identify the card name, set name, and set number from the card image. You have extensive knowledge of Pokemon TCG cards in all languages (English, Japanese, Korean, Chinese, etc.).
+            content: `You are a Pokemon card identification expert. Your ONLY job is to identify the card name, set name, and set number from the card image. You have extensive knowledge of Pokemon TCG cards in ALL languages (English, Japanese, Korean, Chinese, etc.).
 
 ${getCurrentSetReference()}
 
 ${generateSymbolReferenceForPrompt()}
 
-Respond with ONLY a JSON object in this exact format:
+Respond with ONLY a JSON object in this EXACT format — no other text:
 {
-  "cardName": "English name of the Pokemon card",
-  "setName": "English name of the set",
-  "setNumber": "card number as printed (e.g. 113/080)"
+  "cardName": "English name of the Pokemon card (e.g. Charizard ex)",
+  "setName": "English name of the TCG set (e.g. Obsidian Flames, Nihil Zero, Prismatic Evolutions)",
+  "setNumber": "card number as printed on the card (e.g. 113/080)"
 }
 
-IMPORTANT RULES:
-- Always provide the ENGLISH card name, even for Japanese/Korean/Chinese cards
-- Read the set code and card number printed at the bottom of the card
-- Use the set reference above to match set codes to English set names
-- If the card is in a foreign language, translate the Pokemon name to English
-- Be extremely careful and thorough — a previous identification attempt was WRONG`,
+CRITICAL RULES:
+- "cardName" = the ENGLISH name of the Pokemon. For Japanese/Korean/Chinese cards, TRANSLATE the Pokemon name to English. Read the actual characters on the card — do NOT guess based on the artwork alone.
+- "setName" = the ENGLISH name of the TCG expansion set (NOT the card number). This must be a real set name like "Nihil Zero", "Obsidian Flames", "Battle Partners", etc. NEVER put a card number (like "113/080") in the setName field.
+- "setNumber" = the card's collector number as printed at the bottom (e.g. "113/080", "006/197").
+- For Japanese cards: Read the katakana/hiragana/kanji name carefully. For example メガサーナイト = Mega Gardevoir, ミュウ = Mew, リザードン = Charizard, ルギア = Lugia, レックウザ = Rayquaza. Look at the actual text, not just the art.
+- Use the set code printed at the bottom of the card (e.g. "SV7a", "SV8", "sv2a") to match to the correct set name from the set reference above.
+- A previous AI identification was WRONG, so be extra careful. Do not guess — read what is printed on the card.`,
           },
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: `IMPORTANT: A previous AI scan incorrectly identified this card as "${previousCardName || "Unknown"}" from "${previousSetName || "Unknown"}" (${previousSetNumber || "Unknown"}). That identification was WRONG.
+                text: `IMPORTANT: A previous AI scan incorrectly identified this card as "${previousCardName || "Unknown"}" from set "${previousSetName || "Unknown"}" with number ${previousSetNumber || "Unknown"}. That was WRONG.
 
-Please look at this card image very carefully and identify it correctly. Pay close attention to:
-1. The Pokemon name printed on the card (may be in Japanese, Korean, or Chinese — translate to English)
-2. The set code and card number at the bottom of the card
-3. The set symbol on the card
-4. Any other identifying features (artwork, card type, rarity symbol)
+Please re-examine the card image${backUrl ? "s (front and back)" : ""} very carefully:
+1. READ the Pokemon name printed on the card. If it's in Japanese, translate the actual characters (katakana/hiragana/kanji) to English — do NOT guess from the artwork.
+2. READ the set code at the bottom of the card and match it to a set name.
+3. READ the card number at the bottom.
 
-Do NOT repeat the previous incorrect identification. Look at what is actually on the card.`,
+The name "${previousCardName}" was INCORRECT — find the real name by reading the card text.`,
               },
-              {
-                type: "image_url",
-                image_url: { url: frontUrl, detail: "high" },
-              },
+              ...imageMessages,
             ],
           },
         ],
@@ -3333,6 +3348,11 @@ Do NOT repeat the previous incorrect identification. Look at what is actually on
         }
       } catch (parseError) {
         return res.status(500).json({ error: "Failed to parse identification results", raw: content });
+      }
+
+      if (result.setName && /^\d+\s*\/\s*\d+$/.test(result.setName.trim())) {
+        console.log(`[reidentify] setName "${result.setName}" looks like a card number, clearing it`);
+        result.setName = previousSetName || "";
       }
 
       if (result.setName) {
