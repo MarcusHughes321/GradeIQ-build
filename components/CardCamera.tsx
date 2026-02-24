@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Animated as RNAnimated,
+  Linking,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
@@ -287,9 +288,20 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
             We need camera access to photograph your card for grading.
           </Text>
           {!permission.canAskAgain && permission.status === "denied" ? (
-            <Text style={styles.permissionDesc}>
-              Please enable camera access in your device settings.
-            </Text>
+            <>
+              <Text style={styles.permissionDesc}>
+                Camera access was previously denied. Please enable it in your device settings to use this feature.
+              </Text>
+              <Pressable
+                onPress={() => Linking.openSettings()}
+                style={({ pressed }) => [
+                  styles.permissionBtn,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={styles.permissionBtnText}>Open Settings</Text>
+              </Pressable>
+            </>
           ) : (
             <Pressable
               onPress={requestPermission}
@@ -298,12 +310,9 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
                 { opacity: pressed ? 0.8 : 1 },
               ]}
             >
-              <Text style={styles.permissionBtnText}>Allow Camera</Text>
+              <Text style={styles.permissionBtnText}>Continue</Text>
             </Pressable>
           )}
-          <Pressable onPress={onClose} style={styles.cancelBtn}>
-            <Text style={styles.cancelBtnText}>Cancel</Text>
-          </Pressable>
         </View>
       </View>
     );
@@ -760,15 +769,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: "#fff",
-  },
-  cancelBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-  },
-  cancelBtnText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.textMuted,
   },
   feedbackCheckCircle: {
     width: 56,
