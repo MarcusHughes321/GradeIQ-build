@@ -26,6 +26,7 @@ import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
+import { CURRENCIES, type CurrencyCode } from "@/lib/settings";
 import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
@@ -34,7 +35,7 @@ const BUBBLE_GAP = 12;
 const BUBBLE_PAD = 20;
 const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_PAD * 2 - BUBBLE_GAP) / 2;
 
-function HistoryItem({ item, onDelete, enabledCompanies, hideValues }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean }) {
+function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySymbol }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean; currencySymbol: string }) {
   const date = new Date(item.timestamp);
   const dateStr = date.toLocaleDateString("en-US", {
     month: "short",
@@ -46,11 +47,11 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues }: { item: S
     const cv = item.result.cardValue;
     if (!cv) return null;
     const vals: number[] = [];
-    if (enabledCompanies.includes("PSA")) { const v = parseGBP(cv.psaValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("Beckett")) { const v = parseGBP(cv.bgsValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("Ace")) { const v = parseGBP(cv.aceValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("TAG")) { const v = parseGBP(cv.tagValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("CGC")) { const v = parseGBP(cv.cgcValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("PSA")) { const v = parseValue(cv.psaValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Beckett")) { const v = parseValue(cv.bgsValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Ace")) { const v = parseValue(cv.aceValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("TAG")) { const v = parseValue(cv.tagValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("CGC")) { const v = parseValue(cv.cgcValue); if (v !== null) vals.push(v); }
     if (vals.length === 0) return null;
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
     return avg;
@@ -94,7 +95,7 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues }: { item: S
           </Text>
           <Text style={styles.histDate}>{dateStr}</Text>
           {avgValue !== null && !hideValues && (
-            <Text style={styles.histValue}>Est. £{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
+            <Text style={styles.histValue}>Est. {currencySymbol}{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
           )}
         </View>
       </View>
@@ -109,10 +110,14 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues }: { item: S
   );
 }
 
-function parseGBP(val: string): number | null {
-  const m = val.match(/[\u00a3]?\s*([\d,]+\.?\d*)/);
+function parseValue(val: string): number | null {
+  const m = val.match(/[£$€¥A-Z]*\$?\s*([\d,]+\.?\d*)/);
   if (!m) return null;
   return parseFloat(m[1].replace(/,/g, ""));
+}
+
+function getCurrencySymbol(code: CurrencyCode): string {
+  return CURRENCIES.find((c) => c.code === code)?.symbol || "£";
 }
 
 interface PortfolioStats {
@@ -145,11 +150,11 @@ function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
     if (g.result.cgc) { sumCGC += g.result.cgc.grade; countCGC++; }
     const cv = g.result.cardValue;
     if (cv) {
-      const p = parseGBP(cv.psaValue);
-      const b = parseGBP(cv.bgsValue);
-      const a = parseGBP(cv.aceValue);
-      const t = parseGBP(cv.tagValue);
-      const c = parseGBP(cv.cgcValue);
+      const p = parseValue(cv.psaValue);
+      const b = parseValue(cv.bgsValue);
+      const a = parseValue(cv.aceValue);
+      const t = parseValue(cv.tagValue);
+      const c = parseValue(cv.cgcValue);
       if (p !== null || b !== null || a !== null || t !== null || c !== null) cardsWithValues++;
       if (p !== null) totalPSA += p;
       if (b !== null) totalBGS += b;
@@ -194,6 +199,8 @@ export default function HomeScreen() {
   const [showProReminder, setShowProReminder] = useState(false);
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
+  const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
+  const prevCurrencyRef = useRef(settings.currency || "GBP");
   const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode } = useSubscription();
   const { activeJob, dismissJob } = useGrading();
   const proReminderShownRef = useRef(false);
@@ -207,11 +214,11 @@ export default function HomeScreen() {
     const cv = g.result.cardValue;
     if (!cv) return 0;
     const vals: number[] = [];
-    if (enabledCompanies.includes("PSA")) { const v = parseGBP(cv.psaValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("Beckett")) { const v = parseGBP(cv.bgsValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("Ace")) { const v = parseGBP(cv.aceValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("TAG")) { const v = parseGBP(cv.tagValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("CGC")) { const v = parseGBP(cv.cgcValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("PSA")) { const v = parseValue(cv.psaValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Beckett")) { const v = parseValue(cv.bgsValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("Ace")) { const v = parseValue(cv.aceValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("TAG")) { const v = parseValue(cv.tagValue); if (v !== null) vals.push(v); }
+    if (enabledCompanies.includes("CGC")) { const v = parseValue(cv.cgcValue); if (v !== null) vals.push(v); }
     if (vals.length === 0) return 0;
     return vals.reduce((a, b) => a + b, 0) / vals.length;
   }, [enabledCompanies]);
@@ -266,7 +273,7 @@ export default function HomeScreen() {
   const loadGradings = async () => {
     const data = await getGradings();
     setGradings(data);
-    fetchMissingValues(data);
+    fetchCardValues(data, true);
   };
 
   const onRefresh = useCallback(async () => {
@@ -274,17 +281,19 @@ export default function HomeScreen() {
     fetchingValuesRef.current = false;
     const data = await getGradings();
     setGradings(data);
-    await fetchMissingValues(data);
+    await fetchCardValues(data, true);
     setRefreshing(false);
   }, []);
 
-  const fetchMissingValues = async (data: SavedGrading[]) => {
+  const fetchCardValues = async (data: SavedGrading[], onlyMissing: boolean = true) => {
     if (fetchingValuesRef.current) return;
-    const missing = data.filter((g) => !g.result.cardValue && g.result.cardName);
-    if (missing.length === 0) return;
+    const toFetch = onlyMissing
+      ? data.filter((g) => !g.result.cardValue && g.result.cardName)
+      : data.filter((g) => g.result.cardName);
+    if (toFetch.length === 0) return;
     fetchingValuesRef.current = true;
     try {
-      for (const g of missing) {
+      for (const g of toFetch) {
         try {
           const resp = await apiRequest("POST", "/api/card-value", {
             cardName: g.result.cardName,
@@ -307,6 +316,15 @@ export default function HomeScreen() {
       fetchingValuesRef.current = false;
     }
   };
+
+  useEffect(() => {
+    const currentCurrency = settings.currency || "GBP";
+    if (prevCurrencyRef.current !== currentCurrency && gradings.length > 0) {
+      prevCurrencyRef.current = currentCurrency;
+      fetchingValuesRef.current = false;
+      fetchCardValues(gradings, false);
+    }
+  }, [settings.currency]);
 
   const handleDelete = async (id: string) => {
     await deleteGrading(id);
@@ -509,7 +527,7 @@ export default function HomeScreen() {
                   return (
                     <View style={styles.portfolioTotalSection}>
                       <Text style={styles.portfolioTotalAmount}>
-                        {avgTotal > 0 ? `\u00a3${avgTotal.toFixed(2)}` : "No data yet"}
+                        {avgTotal > 0 ? `${currencySymbol}${avgTotal.toFixed(2)}` : "No data yet"}
                       </Text>
                       {avgTotal > 0 ? (
                         <Text style={styles.portfolioTotalNote}>
@@ -529,35 +547,35 @@ export default function HomeScreen() {
                         <View style={styles.portfolioValueRow}>
                           <View style={[styles.companyDot, { backgroundColor: Colors.cardPSA }]} />
                           <View style={styles.portfolioLabelRow}><CompanyLabel company="PSA" fontSize={12} /></View>
-                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalPSA.toFixed(0)}</Text>
+                          <Text style={styles.portfolioValueAmount}>{currencySymbol}{stats.totalPSA.toFixed(0)}</Text>
                         </View>
                       )}
                       {enabledCompanies.includes("Beckett") && stats.totalBGS > 0 && (
                         <View style={styles.portfolioValueRow}>
                           <View style={[styles.companyDot, { backgroundColor: Colors.cardBeckett }]} />
                           <View style={styles.portfolioLabelRow}><CompanyLabel company="BGS" fontSize={12} /></View>
-                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalBGS.toFixed(0)}</Text>
+                          <Text style={styles.portfolioValueAmount}>{currencySymbol}{stats.totalBGS.toFixed(0)}</Text>
                         </View>
                       )}
                       {enabledCompanies.includes("Ace") && stats.totalACE > 0 && (
                         <View style={styles.portfolioValueRow}>
                           <View style={[styles.companyDot, { backgroundColor: Colors.cardAce }]} />
                           <View style={styles.portfolioLabelRow}><CompanyLabel company="ACE" fontSize={12} /></View>
-                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalACE.toFixed(0)}</Text>
+                          <Text style={styles.portfolioValueAmount}>{currencySymbol}{stats.totalACE.toFixed(0)}</Text>
                         </View>
                       )}
                       {enabledCompanies.includes("TAG") && stats.totalTAG > 0 && (
                         <View style={styles.portfolioValueRow}>
                           <View style={[styles.companyDot, { backgroundColor: Colors.cardTAG }]} />
                           <View style={styles.portfolioLabelRow}><CompanyLabel company="TAG" fontSize={12} /></View>
-                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalTAG.toFixed(0)}</Text>
+                          <Text style={styles.portfolioValueAmount}>{currencySymbol}{stats.totalTAG.toFixed(0)}</Text>
                         </View>
                       )}
                       {enabledCompanies.includes("CGC") && stats.totalCGC > 0 && (
                         <View style={styles.portfolioValueRow}>
                           <View style={[styles.companyDot, { backgroundColor: Colors.cardCGC }]} />
                           <View style={styles.portfolioLabelRow}><CompanyLabel company="CGC" fontSize={12} /></View>
-                          <Text style={styles.portfolioValueAmount}>{"\u00a3"}{stats.totalCGC.toFixed(0)}</Text>
+                          <Text style={styles.portfolioValueAmount}>{currencySymbol}{stats.totalCGC.toFixed(0)}</Text>
                         </View>
                       )}
                     </View>
@@ -688,7 +706,7 @@ export default function HomeScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.itemPad}>
-            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} hideValues={isGateEnabled && !isSubscribed} />
+            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} hideValues={isGateEnabled && !isSubscribed} currencySymbol={currencySymbol} />
           </View>
         )}
         ListHeaderComponent={renderHeader}

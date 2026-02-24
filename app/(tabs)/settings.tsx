@@ -132,7 +132,7 @@ export default function SettingsScreen() {
             </View>
 
             <Text style={styles.hint}>
-              New grades will use this currency. Existing results keep their original currency.
+              Changing currency will recalculate all card values when you return to the Home tab.
             </Text>
           </>
         )}
