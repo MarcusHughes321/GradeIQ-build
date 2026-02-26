@@ -1,7 +1,9 @@
-import React, { useRef, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Animated, PanResponder, GestureResponderEvent } from "react-native";
+import React, { useRef, useCallback, useState } from "react";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import { PinchGestureHandler, State } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 
 interface ImageCaptureProps {
@@ -12,80 +14,64 @@ interface ImageCaptureProps {
   loading?: boolean;
 }
 
-const MIN_SCALE = 0.4;
+const MIN_SCALE = 0.35;
 const MAX_SCALE = 1.0;
 
-function getDistance(touches: { pageX: number; pageY: number }[]) {
-  const dx = touches[0].pageX - touches[1].pageX;
-  const dy = touches[0].pageY - touches[1].pageY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
 function ZoomableImage({ uri }: { uri: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const [isZoomed, setIsZoomed] = useState(false);
 
-  const baseScale = useRef(1);
-  const pinchStartDist = useRef(0);
-  const currentScale = useRef(1);
-
-  useEffect(() => {
-    const id = scale.addListener(({ value }) => { currentScale.current = value; });
-    return () => { scale.removeListener(id); };
+  const updateZoomed = useCallback((zoomed: boolean) => {
+    setIsZoomed(zoomed);
   }, []);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
-      onPanResponderGrant: (evt: GestureResponderEvent) => {
-        const touches = evt.nativeEvent.touches;
-        if (touches.length >= 2) {
-          baseScale.current = currentScale.current;
-          pinchStartDist.current = getDistance(touches);
-        }
-      },
-      onPanResponderMove: (evt: GestureResponderEvent) => {
-        const touches = evt.nativeEvent.touches;
-        if (touches.length >= 2) {
-          const dist = getDistance(touches);
-          const ratio = dist / pinchStartDist.current;
-          const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, baseScale.current * ratio));
-          scale.setValue(newScale);
-        }
-      },
-      onPanResponderRelease: () => {},
-    })
-  ).current;
+  const onPinchEvent = useCallback((event: any) => {
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, savedScale.value * event.nativeEvent.scale));
+    scale.value = newScale;
+  }, []);
+
+  const onPinchStateChange = useCallback((event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      savedScale.value = scale.value;
+      runOnJS(updateZoomed)(scale.value < 0.95);
+    }
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   const handleReset = useCallback(() => {
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
-    baseScale.current = 1;
+    scale.value = withSpring(1, { damping: 15 });
+    savedScale.value = 1;
+    setIsZoomed(false);
   }, []);
 
   return (
-    <View style={styles.zoomContainer} {...panResponder.panHandlers}>
-      <Animated.View
-        style={[
-          styles.image,
-          { transform: [{ scale }] },
-        ]}
-      >
-        <Image source={{ uri }} style={styles.image} contentFit="cover" />
+    <PinchGestureHandler
+      onGestureEvent={onPinchEvent}
+      onHandlerStateChange={onPinchStateChange}
+    >
+      <Animated.View style={styles.zoomContainer}>
+        <Animated.View style={[styles.zoomImageBox, animatedStyle]}>
+          <Image source={{ uri }} style={styles.image} contentFit="cover" />
+        </Animated.View>
+        {isZoomed && (
+          <Pressable
+            style={({ pressed }) => [styles.resetBtn, { opacity: pressed ? 0.7 : 1 }]}
+            onPress={handleReset}
+            hitSlop={16}
+          >
+            <Ionicons name="refresh" size={14} color="#fff" />
+          </Pressable>
+        )}
+        <View style={styles.zoomHint} pointerEvents="none">
+          <Ionicons name="resize-outline" size={10} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.zoomHintText}>Pinch to resize</Text>
+        </View>
       </Animated.View>
-      <Pressable
-        style={({ pressed }) => [styles.resetBtn, { opacity: pressed ? 0.7 : 1 }]}
-        onPress={handleReset}
-        hitSlop={12}
-      >
-        <Ionicons name="refresh" size={14} color="#fff" />
-      </Pressable>
-      <View style={styles.zoomHint} pointerEvents="none">
-        <Ionicons name="resize-outline" size={10} color="rgba(255,255,255,0.7)" />
-        <Text style={styles.zoomHintText}>Pinch to resize</Text>
-      </View>
-    </View>
+    </PinchGestureHandler>
   );
 }
 
@@ -183,6 +169,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+  },
+  zoomImageBox: {
+    width: "100%",
+    height: "100%",
   },
   image: {
     width: "100%",
