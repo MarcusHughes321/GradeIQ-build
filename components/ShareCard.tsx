@@ -105,6 +105,11 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
             {result.setName || result.setInfo}{result.setNumber ? ` - ${result.setNumber}` : ""}
           </Text>
         ) : null}
+        {rawValue && !rawValue.includes("No value") ? (
+          <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#999", textAlign: "center", marginTop: 3 }}>
+            Raw: {rawValue}
+          </Text>
+        ) : null}
       </View>
 
       <View style={{ flexDirection: "row", justifyContent: "space-around", width: "100%", marginTop: 10, backgroundColor: "#111111", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 6 }}>
@@ -154,31 +159,6 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
               </View>
             </View>
           </View>
-        </View>
-      ) : null}
-
-      {hasValues ? (
-        <View style={{ width: "100%", marginTop: 6, gap: 4 }}>
-          {rawValue && !rawValue.includes("No value") ? (
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: "#111111", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}>
-              <Text style={{ fontFamily: "Inter_500Medium", fontSize: 10, color: "#888" }}>Raw Card Value</Text>
-              <Text style={{ fontFamily: "Inter_700Bold", fontSize: 11, color: "#FFFFFF" }}>{rawValue}</Text>
-            </View>
-          ) : null}
-          {companies.filter(c => c.value && !c.value.includes("No value")).length > 0 ? (
-            <View style={{ backgroundColor: "#111111", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, gap: 3 }}>
-              <Text style={{ fontFamily: "Inter_500Medium", fontSize: 8, color: "#555", marginBottom: 1 }}>Estimated Graded Values</Text>
-              {companies.filter(c => c.value && !c.value.includes("No value")).map(c => (
-                <View key={c.key} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <CompanyLabel company={c.key} fontSize={9} fontFamily="Inter_500Medium" />
-                    <Text style={{ fontFamily: "Inter_500Medium", fontSize: 9, color: "#666" }}>{formatGrade(c.grade)}</Text>
-                  </View>
-                  <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#CCCCCC" }}>{c.value}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
         </View>
       ) : null}
 
