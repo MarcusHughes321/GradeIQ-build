@@ -291,7 +291,7 @@ export default function HomeScreen() {
   const fetchCardValues = async (data: SavedGrading[], onlyMissing: boolean = true) => {
     if (fetchingValuesRef.current) return;
     const toFetch = onlyMissing
-      ? data.filter((g) => !g.result.cardValue && g.result.cardName)
+      ? data.filter((g) => g.result.cardName && (!g.result.cardValue || !g.result.cardValue.rawValue || g.result.cardValue.rawValue.includes("No value")))
       : data.filter((g) => g.result.cardName);
     if (toFetch.length === 0) return;
     fetchingValuesRef.current = true;
