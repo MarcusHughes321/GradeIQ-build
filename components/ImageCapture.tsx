@@ -1,8 +1,8 @@
-import React, { useRef, useCallback, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { PinchGestureHandler, State } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 
@@ -19,24 +19,26 @@ const MAX_SCALE = 1.0;
 
 function ZoomableImage({ uri }: { uri: string }) {
   const scale = useSharedValue(1);
-  const savedScale = useSharedValue(1);
+  const baseScale = useSharedValue(1);
   const [isZoomed, setIsZoomed] = useState(false);
 
   const updateZoomed = useCallback((zoomed: boolean) => {
     setIsZoomed(zoomed);
   }, []);
 
-  const onPinchEvent = useCallback((event: any) => {
-    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, savedScale.value * event.nativeEvent.scale));
-    scale.value = newScale;
-  }, []);
-
-  const onPinchStateChange = useCallback((event: any) => {
-    if (event.nativeEvent.oldState === State.ACTIVE) {
-      savedScale.value = scale.value;
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      "worklet";
+      baseScale.value = scale.value;
+    })
+    .onUpdate((e) => {
+      "worklet";
+      scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, baseScale.value * e.scale));
+    })
+    .onEnd(() => {
+      "worklet";
       runOnJS(updateZoomed)(scale.value < 0.95);
-    }
-  }, []);
+    });
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -44,15 +46,12 @@ function ZoomableImage({ uri }: { uri: string }) {
 
   const handleReset = useCallback(() => {
     scale.value = withSpring(1, { damping: 15 });
-    savedScale.value = 1;
+    baseScale.value = 1;
     setIsZoomed(false);
   }, []);
 
   return (
-    <PinchGestureHandler
-      onGestureEvent={onPinchEvent}
-      onHandlerStateChange={onPinchStateChange}
-    >
+    <GestureDetector gesture={pinch}>
       <Animated.View style={styles.zoomContainer}>
         <Animated.View style={[styles.zoomImageBox, animatedStyle]}>
           <Image source={{ uri }} style={styles.image} contentFit="cover" />
@@ -71,7 +70,7 @@ function ZoomableImage({ uri }: { uri: string }) {
           <Text style={styles.zoomHintText}>Pinch to resize</Text>
         </View>
       </Animated.View>
-    </PinchGestureHandler>
+    </GestureDetector>
   );
 }
 
