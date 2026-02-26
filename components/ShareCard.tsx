@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import CompanyLabel from "@/components/CompanyLabel";
-import type { SavedGrading, CardValueEstimate } from "@/lib/types";
+import type { SavedGrading, CardValueEstimate, CenteringMeasurement } from "@/lib/types";
 
 interface ShareCardProps {
   grading: SavedGrading;
@@ -43,6 +43,25 @@ function formatGrade(grade: number): string {
   return grade % 1 === 0 ? grade.toString() : grade.toFixed(1);
 }
 
+function normVal(v: number): number {
+  return Math.max(v, 100 - v);
+}
+
+function formatRatio(value: number): string {
+  const norm = normVal(value);
+  const other = 100 - norm;
+  return `${norm}/${other}`;
+}
+
+function getCenteringColor(value: number): string {
+  const norm = normVal(value);
+  if (norm <= 52) return "#10B981";
+  if (norm <= 55) return "#34D399";
+  if (norm <= 60) return "#F59E0B";
+  if (norm <= 65) return "#FB923C";
+  return "#EF4444";
+}
+
 function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData, onFrontLoad, onBackLoad }: ShareCardProps & { onFrontLoad?: () => void; onBackLoad?: () => void }) {
   const { result } = grading;
 
@@ -57,7 +76,7 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
   const hasValues = showMarketData && cardValue && companies.some(c => c.value && !c.value.includes("No value"));
 
   return (
-    <View style={{ width: 360, height: 640, backgroundColor: "#0A0A0A", padding: 24, alignItems: "center" }}>
+    <View style={{ width: 360, minHeight: 640, backgroundColor: "#0A0A0A", padding: 24, alignItems: "center" }}>
       <View style={{ alignItems: "center", marginTop: 12 }}>
         <View style={{ flexDirection: "row", alignItems: "baseline" }}>
           <Text style={{ fontFamily: "Inter_700Bold", fontSize: 30, color: "#FFFFFF" }}>Grade</Text>
@@ -99,6 +118,45 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
         ))}
       </View>
 
+      {result.centering ? (
+        <View style={{ width: "100%", marginTop: 8, backgroundColor: "#111111", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 }}>
+          <Text style={{ fontFamily: "Inter_500Medium", fontSize: 10, color: "#555", marginBottom: 6 }}>Centering</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#777" }}>Front</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: "#666" }}>L/R</Text>
+                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13, color: getCenteringColor(result.centering.frontLeftRight) }}>
+                  {formatRatio(result.centering.frontLeftRight)}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: "#666" }}>T/B</Text>
+                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13, color: getCenteringColor(result.centering.frontTopBottom) }}>
+                  {formatRatio(result.centering.frontTopBottom)}
+                </Text>
+              </View>
+            </View>
+            <View style={{ width: 1, backgroundColor: "#2A2A2A", marginHorizontal: 12 }} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#777" }}>Back</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: "#666" }}>L/R</Text>
+                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13, color: getCenteringColor(result.centering.backLeftRight) }}>
+                  {formatRatio(result.centering.backLeftRight)}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: "#666" }}>T/B</Text>
+                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 13, color: getCenteringColor(result.centering.backTopBottom) }}>
+                  {formatRatio(result.centering.backTopBottom)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       {hasValues ? (
         <View style={{ width: "100%", marginTop: 10, gap: 6 }}>
           {rawValue && !rawValue.includes("No value") ? (
@@ -124,9 +182,7 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
         </View>
       ) : null}
 
-      <View style={{ flex: 1 }} />
-
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, width: "100%" }}>
+      <View style={{ marginTop: 16, flexDirection: "row", alignItems: "center", gap: 10, width: "100%" }}>
         <View style={{ flex: 1, height: 1, backgroundColor: "#2A2A2A" }} />
         <Text style={{ fontFamily: "Inter_500Medium", fontSize: 10, color: "#555" }}>gradeiq.app</Text>
         <View style={{ flex: 1, height: 1, backgroundColor: "#2A2A2A" }} />
