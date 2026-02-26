@@ -381,7 +381,7 @@ function renderLine(
   isActive?: boolean, viewport?: ViewportInfo
 ) {
   const lineW = isActive ? 3 : (config.isOuter ? 2 : 2.5);
-  const opacity = isActive ? 1 : (config.isOuter ? 0.7 : 1);
+  const opacity = isActive ? 0.7 : (config.isOuter ? 0.45 : 0.6);
   const s = viewport?.scale ?? 1;
   const sizeScale = s > 1.05 ? 1 / s : 1;
   const activeScale = isActive ? 1.4 : 1;
