@@ -709,7 +709,7 @@ export default function HomeScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.itemPad}>
-            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} hideValues={isGateEnabled && !isSubscribed} currencySymbol={currencySymbol} />
+            <HistoryItem item={item} onDelete={handleDelete} enabledCompanies={enabledCompanies} hideValues={isGateEnabled && !isSubscribed && !isAdminMode} currencySymbol={currencySymbol} />
           </View>
         )}
         ListHeaderComponent={renderHeader}
