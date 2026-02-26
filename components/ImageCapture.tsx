@@ -16,39 +16,60 @@ interface ImageCaptureProps {
 
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 1.0;
+const SCALE_STEP = 0.1;
 
 function ZoomableImage({ uri }: { uri: string }) {
   const scale = useSharedValue(1);
   const baseScale = useSharedValue(1);
-  const [isZoomed, setIsZoomed] = useState(false);
+  const [displayScale, setDisplayScale] = useState(1);
 
-  const updateZoomed = useCallback((zoomed: boolean) => {
-    setIsZoomed(zoomed);
+  const syncScale = useCallback((val: number) => {
+    setDisplayScale(val);
   }, []);
 
   const pinch = Gesture.Pinch()
     .onStart(() => {
       "worklet";
       baseScale.value = scale.value;
+      runOnJS(console.log)("[ZoomableImage] pinch onStart, base=" + baseScale.value);
     })
     .onUpdate((e) => {
       "worklet";
-      scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, baseScale.value * e.scale));
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, baseScale.value * e.scale));
+      scale.value = newScale;
     })
     .onEnd(() => {
       "worklet";
-      runOnJS(updateZoomed)(scale.value < 0.95);
+      runOnJS(console.log)("[ZoomableImage] pinch onEnd, scale=" + scale.value);
+      runOnJS(syncScale)(scale.value);
     });
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
+  const handleZoomOut = useCallback(() => {
+    const newScale = Math.max(MIN_SCALE, (displayScale || 1) - SCALE_STEP);
+    scale.value = withSpring(newScale, { damping: 15, stiffness: 150 });
+    baseScale.value = newScale;
+    setDisplayScale(newScale);
+  }, [displayScale]);
+
+  const handleZoomIn = useCallback(() => {
+    const newScale = Math.min(MAX_SCALE, (displayScale || 1) + SCALE_STEP);
+    scale.value = withSpring(newScale, { damping: 15, stiffness: 150 });
+    baseScale.value = newScale;
+    setDisplayScale(newScale);
+  }, [displayScale]);
+
   const handleReset = useCallback(() => {
     scale.value = withSpring(1, { damping: 15 });
     baseScale.value = 1;
-    setIsZoomed(false);
+    setDisplayScale(1);
   }, []);
+
+  const isZoomed = displayScale < 0.95;
+  const scalePercent = Math.round(displayScale * 100);
 
   return (
     <GestureDetector gesture={pinch}>
@@ -56,18 +77,41 @@ function ZoomableImage({ uri }: { uri: string }) {
         <Animated.View style={[styles.zoomImageBox, animatedStyle]}>
           <Image source={{ uri }} style={styles.image} contentFit="cover" />
         </Animated.View>
-        {isZoomed && (
+
+        <View style={styles.zoomControls}>
           <Pressable
-            style={({ pressed }) => [styles.resetBtn, { opacity: pressed ? 0.7 : 1 }]}
-            onPress={handleReset}
-            hitSlop={16}
+            onPress={handleZoomOut}
+            style={({ pressed }) => [styles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}
+            hitSlop={8}
           >
-            <Ionicons name="refresh" size={14} color="#fff" />
+            <Ionicons name="remove" size={16} color="#fff" />
           </Pressable>
-        )}
+
+          <Text style={styles.zoomPercent}>{scalePercent}%</Text>
+
+          <Pressable
+            onPress={handleZoomIn}
+            disabled={displayScale >= MAX_SCALE}
+            style={({ pressed }) => [styles.zoomBtn, { opacity: displayScale >= MAX_SCALE ? 0.3 : pressed ? 0.6 : 1 }]}
+            hitSlop={8}
+          >
+            <Ionicons name="add" size={16} color="#fff" />
+          </Pressable>
+
+          {isZoomed && (
+            <Pressable
+              onPress={handleReset}
+              style={({ pressed }) => [styles.zoomBtn, { opacity: pressed ? 0.6 : 1, marginLeft: 4 }]}
+              hitSlop={8}
+            >
+              <Ionicons name="refresh" size={13} color="#fff" />
+            </Pressable>
+          )}
+        </View>
+
         <View style={styles.zoomHint} pointerEvents="none">
           <Ionicons name="resize-outline" size={10} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.zoomHintText}>Pinch to resize</Text>
+          <Text style={styles.zoomHintText}>Pinch or use buttons to resize</Text>
         </View>
       </Animated.View>
     </GestureDetector>
@@ -189,17 +233,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 10,
   },
-  resetBtn: {
+  zoomControls: {
     position: "absolute",
-    bottom: 8,
-    right: 8,
+    bottom: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 5,
+  },
+  zoomBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 5,
+  },
+  zoomPercent: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "#fff",
+    minWidth: 32,
+    textAlign: "center",
   },
   zoomHint: {
     position: "absolute",
