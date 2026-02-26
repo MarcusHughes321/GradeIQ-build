@@ -94,8 +94,11 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
             {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
           </Text>
           <Text style={styles.histDate}>{dateStr}</Text>
+          {!hideValues && item.result.cardValue?.rawValue && !item.result.cardValue.rawValue.includes("No value") && (
+            <Text style={styles.histRawValue}>Raw: {item.result.cardValue.rawValue}</Text>
+          )}
           {avgValue !== null && !hideValues && (
-            <Text style={styles.histValue}>Est. {currencySymbol}{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
+            <Text style={styles.histValue}>Graded: {currencySymbol}{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
           )}
         </View>
       </View>
@@ -281,7 +284,7 @@ export default function HomeScreen() {
     fetchingValuesRef.current = false;
     const data = await getGradings();
     setGradings(data);
-    await fetchCardValues(data, true);
+    await fetchCardValues(data, false);
     setRefreshing(false);
   }, []);
 
@@ -1371,6 +1374,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
     marginTop: 1,
+  },
+  histRawValue: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: "#999",
+    marginTop: 2,
   },
   histValue: {
     fontFamily: "Inter_600SemiBold",
