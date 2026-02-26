@@ -119,6 +119,11 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
             <Text style={{ fontFamily: "Inter_700Bold", fontSize: 18, color: getGradientColor(c.grade) }}>
               {formatGrade(c.grade)}
             </Text>
+            {c.value && !c.value.includes("No value") ? (
+              <Text style={{ fontFamily: "Inter_500Medium", fontSize: 7, color: "#888", marginTop: 1 }} numberOfLines={1}>
+                {c.value}
+              </Text>
+            ) : null}
           </View>
         ))}
       </View>
