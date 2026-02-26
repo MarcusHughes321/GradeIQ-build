@@ -24,6 +24,7 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult } from "@/lib/types";
 import CardCamera from "@/components/CardCamera";
+import ImageAdjustModal from "@/components/ImageAdjustModal";
 import { useSubscription } from "@/lib/subscription";
 
 const MAX_CARDS = 20;
@@ -51,6 +52,8 @@ export default function BulkScreen() {
   const [bulkCameraSide, setBulkCameraSide] = useState<"front" | "back">("front");
   const [bulkCameraCardIndex, setBulkCameraCardIndex] = useState(0);
   const bulkCameraFrontRef = useRef<string | null>(null);
+
+  const [adjustImage, setAdjustImage] = useState<{ uri: string; cardId: string; side: "front" | "back" } | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -123,19 +126,10 @@ export default function BulkScreen() {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        quality: 0.8,
-        allowsEditing: true,
-        aspect: [63, 88],
+        quality: 0.9,
       });
       if (!result.canceled && result.assets[0]) {
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === cardId ? { ...c, [side === "front" ? "frontImage" : "backImage"]: result.assets[0].uri } : c
-          )
-        );
-        if (Platform.OS !== "web") {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
+        setAdjustImage({ uri: result.assets[0].uri, cardId, side });
       }
     };
 
@@ -722,6 +716,26 @@ export default function BulkScreen() {
             </View>
           )}
         </>
+      )}
+
+      {adjustImage && (
+        <ImageAdjustModal
+          visible={true}
+          imageUri={adjustImage.uri}
+          onConfirm={(uri) => {
+            const { cardId, side } = adjustImage;
+            setAdjustImage(null);
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === cardId ? { ...c, [side === "front" ? "frontImage" : "backImage"]: uri } : c
+              )
+            );
+            if (Platform.OS !== "web") {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }
+          }}
+          onCancel={() => setAdjustImage(null)}
+        />
       )}
     </View>
   );
