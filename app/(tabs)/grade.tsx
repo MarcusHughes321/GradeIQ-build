@@ -7,10 +7,11 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  ScrollView,
+  ScrollView as RNScrollView,
   Animated,
   Modal,
 } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
