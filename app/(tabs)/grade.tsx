@@ -7,11 +7,10 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  ScrollView as RNScrollView,
+  ScrollView,
   Animated,
   Modal,
 } from "react-native";
-import { ScrollView } from "react-native-gesture-handler";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,6 +20,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Colors from "@/constants/colors";
 import ImageCapture from "@/components/ImageCapture";
+import ImageAdjustModal from "@/components/ImageAdjustModal";
 import CardCamera from "@/components/CardCamera";
 import { apiRequest } from "@/lib/query-client";
 import { useSubscription } from "@/lib/subscription";
@@ -149,6 +149,7 @@ export default function GradeScreen() {
   const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deepStep, setDeepStep] = useState<DeepStep>("front");
   const [showDeepIntro, setShowDeepIntro] = useState(false);
+  const [adjustImage, setAdjustImage] = useState<{ uri: string; side: DeepStep } | null>(null);
 
   const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode } = useSubscription();
   const { submitGrading, submitDeepGrading, activeJob } = useGrading();
@@ -380,19 +381,26 @@ export default function GradeScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.8,
-      base64: true,
-      allowsEditing: true,
-      aspect: [63, 88],
+      quality: 0.9,
     });
 
     if (!result.canceled && result.assets[0]) {
-      setImageWithCrop(side, result.assets[0].uri);
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
+      setAdjustImage({ uri: result.assets[0].uri, side });
     }
   };
+
+  const handleAdjustConfirm = useCallback((uri: string) => {
+    if (!adjustImage) return;
+    setAdjustImage(null);
+    setImageWithCrop(adjustImage.side, uri);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [adjustImage]);
+
+  const handleAdjustCancel = useCallback(() => {
+    setAdjustImage(null);
+  }, []);
 
   const getBase64FromUri = async (uri: string): Promise<string> => {
     const response = await fetch(uri);
@@ -926,6 +934,15 @@ export default function GradeScreen() {
           </View>
         </View>
       </Modal>
+
+      {adjustImage && (
+        <ImageAdjustModal
+          visible={true}
+          imageUri={adjustImage.uri}
+          onConfirm={handleAdjustConfirm}
+          onCancel={handleAdjustCancel}
+        />
+      )}
     </View>
   );
 }

@@ -1,9 +1,7 @@
-import React, { useCallback, useState } from "react";
+import React from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 
 interface ImageCaptureProps {
@@ -14,117 +12,13 @@ interface ImageCaptureProps {
   loading?: boolean;
 }
 
-const MIN_SCALE = 0.35;
-const MAX_SCALE = 1.0;
-const SCALE_STEP = 0.1;
-
-function ZoomableImage({ uri }: { uri: string }) {
-  const scale = useSharedValue(1);
-  const baseScale = useSharedValue(1);
-  const [displayScale, setDisplayScale] = useState(1);
-
-  const syncScale = useCallback((val: number) => {
-    setDisplayScale(val);
-  }, []);
-
-  const pinch = Gesture.Pinch()
-    .onStart(() => {
-      "worklet";
-      baseScale.value = scale.value;
-      runOnJS(console.log)("[ZoomableImage] pinch onStart, base=" + baseScale.value);
-    })
-    .onUpdate((e) => {
-      "worklet";
-      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, baseScale.value * e.scale));
-      scale.value = newScale;
-    })
-    .onEnd(() => {
-      "worklet";
-      runOnJS(console.log)("[ZoomableImage] pinch onEnd, scale=" + scale.value);
-      runOnJS(syncScale)(scale.value);
-    });
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handleZoomOut = useCallback(() => {
-    const newScale = Math.max(MIN_SCALE, (displayScale || 1) - SCALE_STEP);
-    scale.value = withSpring(newScale, { damping: 15, stiffness: 150 });
-    baseScale.value = newScale;
-    setDisplayScale(newScale);
-  }, [displayScale]);
-
-  const handleZoomIn = useCallback(() => {
-    const newScale = Math.min(MAX_SCALE, (displayScale || 1) + SCALE_STEP);
-    scale.value = withSpring(newScale, { damping: 15, stiffness: 150 });
-    baseScale.value = newScale;
-    setDisplayScale(newScale);
-  }, [displayScale]);
-
-  const handleReset = useCallback(() => {
-    scale.value = withSpring(1, { damping: 15 });
-    baseScale.value = 1;
-    setDisplayScale(1);
-  }, []);
-
-  const isZoomed = displayScale < 0.95;
-  const scalePercent = Math.round(displayScale * 100);
-
-  return (
-    <GestureDetector gesture={pinch}>
-      <Animated.View style={styles.zoomContainer}>
-        <Animated.View style={[styles.zoomImageBox, animatedStyle]}>
-          <Image source={{ uri }} style={styles.image} contentFit="cover" />
-        </Animated.View>
-
-        <View style={styles.zoomControls}>
-          <Pressable
-            onPress={handleZoomOut}
-            style={({ pressed }) => [styles.zoomBtn, { opacity: pressed ? 0.6 : 1 }]}
-            hitSlop={8}
-          >
-            <Ionicons name="remove" size={16} color="#fff" />
-          </Pressable>
-
-          <Text style={styles.zoomPercent}>{scalePercent}%</Text>
-
-          <Pressable
-            onPress={handleZoomIn}
-            disabled={displayScale >= MAX_SCALE}
-            style={({ pressed }) => [styles.zoomBtn, { opacity: displayScale >= MAX_SCALE ? 0.3 : pressed ? 0.6 : 1 }]}
-            hitSlop={8}
-          >
-            <Ionicons name="add" size={16} color="#fff" />
-          </Pressable>
-
-          {isZoomed && (
-            <Pressable
-              onPress={handleReset}
-              style={({ pressed }) => [styles.zoomBtn, { opacity: pressed ? 0.6 : 1, marginLeft: 4 }]}
-              hitSlop={8}
-            >
-              <Ionicons name="refresh" size={13} color="#fff" />
-            </Pressable>
-          )}
-        </View>
-
-        <View style={styles.zoomHint} pointerEvents="none">
-          <Ionicons name="resize-outline" size={10} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.zoomHintText}>Pinch or use buttons to resize</Text>
-        </View>
-      </Animated.View>
-    </GestureDetector>
-  );
-}
-
 export default function ImageCapture({ label, imageUri, onCapture, onRemove, loading }: ImageCaptureProps) {
   if (imageUri) {
     return (
       <View style={styles.container}>
         {!!label && <Text style={styles.label}>{label}</Text>}
         <View style={styles.imageWrapper}>
-          <ZoomableImage uri={imageUri} />
+          <Image source={{ uri: imageUri }} style={styles.image} contentFit="cover" />
           {loading && (
             <View style={styles.croppingOverlay}>
               <ActivityIndicator size="small" color={Colors.primary} />
@@ -206,17 +100,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: Colors.surface,
   },
-  zoomContainer: {
-    width: "100%",
-    height: "100%",
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  zoomImageBox: {
-    width: "100%",
-    height: "100%",
-  },
   image: {
     width: "100%",
     height: "100%",
@@ -232,48 +115,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,
-  },
-  zoomControls: {
-    position: "absolute",
-    bottom: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 16,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    zIndex: 5,
-  },
-  zoomBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  zoomPercent: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: "#fff",
-    minWidth: 32,
-    textAlign: "center",
-  },
-  zoomHint: {
-    position: "absolute",
-    bottom: 8,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  zoomHintText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 10,
-    color: "rgba(255,255,255,0.5)",
   },
   croppingOverlay: {
     position: "absolute",
