@@ -284,8 +284,8 @@ export default function HomeScreen() {
     fetchingValuesRef.current = false;
     const data = await getGradings();
     setGradings(data);
-    await fetchCardValues(data, false);
     setRefreshing(false);
+    fetchCardValues(data, false);
   }, []);
 
   const fetchCardValues = async (data: SavedGrading[], onlyMissing: boolean = true) => {
