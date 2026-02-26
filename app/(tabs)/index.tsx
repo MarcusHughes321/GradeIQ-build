@@ -97,9 +97,6 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           {!hideValues && item.result.cardValue?.rawValue && !item.result.cardValue.rawValue.includes("No value") && (
             <Text style={styles.histRawValue}>Raw: {item.result.cardValue.rawValue}</Text>
           )}
-          {avgValue !== null && !hideValues && (
-            <Text style={styles.histValue}>Graded: {currencySymbol}{avgValue < 1 ? avgValue.toFixed(2) : avgValue >= 1000 ? Math.round(avgValue).toLocaleString() : avgValue.toFixed(2)}</Text>
-          )}
         </View>
       </View>
       <View style={styles.historyGrades}>
