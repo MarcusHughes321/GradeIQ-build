@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
+import React, { useRef, useEffect, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Animated, PanResponder, GestureResponderEvent } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
@@ -12,13 +12,90 @@ interface ImageCaptureProps {
   loading?: boolean;
 }
 
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 1.0;
+
+function getDistance(touches: { pageX: number; pageY: number }[]) {
+  const dx = touches[0].pageX - touches[1].pageX;
+  const dy = touches[0].pageY - touches[1].pageY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function ZoomableImage({ uri }: { uri: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  const baseScale = useRef(1);
+  const pinchStartDist = useRef(0);
+  const currentScale = useRef(1);
+
+  useEffect(() => {
+    const id = scale.addListener(({ value }) => { currentScale.current = value; });
+    return () => { scale.removeListener(id); };
+  }, []);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
+      onMoveShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length >= 2,
+      onPanResponderGrant: (evt: GestureResponderEvent) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches.length >= 2) {
+          baseScale.current = currentScale.current;
+          pinchStartDist.current = getDistance(touches);
+        }
+      },
+      onPanResponderMove: (evt: GestureResponderEvent) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches.length >= 2) {
+          const dist = getDistance(touches);
+          const ratio = dist / pinchStartDist.current;
+          const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, baseScale.current * ratio));
+          scale.setValue(newScale);
+        }
+      },
+      onPanResponderRelease: () => {},
+    })
+  ).current;
+
+  const handleReset = useCallback(() => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+    baseScale.current = 1;
+  }, []);
+
+  return (
+    <View style={styles.zoomContainer} {...panResponder.panHandlers}>
+      <Animated.View
+        style={[
+          styles.image,
+          { transform: [{ scale }] },
+        ]}
+      >
+        <Image source={{ uri }} style={styles.image} contentFit="cover" />
+      </Animated.View>
+      <Pressable
+        style={({ pressed }) => [styles.resetBtn, { opacity: pressed ? 0.7 : 1 }]}
+        onPress={handleReset}
+        hitSlop={12}
+      >
+        <Ionicons name="refresh" size={14} color="#fff" />
+      </Pressable>
+      <View style={styles.zoomHint} pointerEvents="none">
+        <Ionicons name="resize-outline" size={10} color="rgba(255,255,255,0.7)" />
+        <Text style={styles.zoomHintText}>Pinch to resize</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function ImageCapture({ label, imageUri, onCapture, onRemove, loading }: ImageCaptureProps) {
   if (imageUri) {
     return (
       <View style={styles.container}>
         {!!label && <Text style={styles.label}>{label}</Text>}
         <View style={styles.imageWrapper}>
-          <Image source={{ uri: imageUri }} style={styles.image} contentFit="cover" />
+          <ZoomableImage uri={imageUri} />
           {loading && (
             <View style={styles.croppingOverlay}>
               <ActivityIndicator size="small" color={Colors.primary} />
@@ -100,6 +177,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: Colors.surface,
   },
+  zoomContainer: {
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   image: {
     width: "100%",
     height: "100%",
@@ -114,6 +198,34 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 10,
+  },
+  resetBtn: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 5,
+  },
+  zoomHint: {
+    position: "absolute",
+    bottom: 8,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  zoomHintText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: "rgba(255,255,255,0.5)",
   },
   croppingOverlay: {
     position: "absolute",
