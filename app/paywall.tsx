@@ -1,9 +1,10 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator, ScrollView } from "react-native";
+import React, { useState, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
 import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing, interpolate } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { useSubscription, TIERS, type SubscriptionTier } from "@/lib/subscription";
 
@@ -34,6 +35,34 @@ export default function PaywallScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
+  const scrollIndicatorOpacity = useSharedValue(1);
+  const bounceAnim = useSharedValue(0);
+
+  React.useEffect(() => {
+    bounceAnim.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 600, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      false
+    );
+  }, []);
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 80) {
+      scrollIndicatorOpacity.value = withTiming(0, { duration: 250 });
+    } else {
+      scrollIndicatorOpacity.value = withTiming(1, { duration: 250 });
+    }
+  }, []);
+
+  const scrollIndicatorStyle = useAnimatedStyle(() => ({
+    opacity: scrollIndicatorOpacity.value,
+    transform: [{ translateY: interpolate(bounceAnim.value, [0, 1], [0, 8]) }],
+  }));
+
   const handleSubscribe = async (tier: SubscriptionTier) => {
     if (!rcConfigured) {
       Alert.alert("Not Available", "Subscriptions are not yet configured. Please check back later.");
@@ -44,9 +73,20 @@ export default function PaywallScreen() {
       const success = await purchaseTier(tier);
       if (success) {
         router.back();
+      } else {
+        Alert.alert("Subscription", "Unable to complete the subscription. Please try again later.");
       }
-    } catch {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+    } catch (e: any) {
+      const message = e?.message || "";
+      if (message === "USER_CANCELLED") {
+        return;
+      } else if (message === "NO_PACKAGES_AVAILABLE") {
+        Alert.alert("Subscription Unavailable", "Unable to load subscription options. Please try again later.");
+      } else if (message === "SUBSCRIPTION_NOT_CONFIGURED") {
+        Alert.alert("Not Available", "Subscriptions are not yet configured. Please check back later.");
+      } else {
+        Alert.alert("Subscription Issue", "We couldn't process your subscription right now. Please try again later.");
+      }
     } finally {
       setPurchasing(false);
     }
@@ -67,7 +107,7 @@ export default function PaywallScreen() {
         Alert.alert("No Subscription Found", "We couldn't find an active subscription for your account.");
       }
     } catch {
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      Alert.alert("Restore Issue", "We couldn't restore your purchases right now. Please try again later.");
     } finally {
       setPurchasing(false);
     }
@@ -89,7 +129,7 @@ export default function PaywallScreen() {
         <Ionicons name="close" size={28} color={Colors.textSecondary} />
       </Pressable>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never" automaticallyAdjustContentInsets={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never" automaticallyAdjustContentInsets={false} onScroll={handleScroll} scrollEventThrottle={16}>
         <Text style={styles.title}>
           Upgrade Your{"\n"}
           <Text style={{ color: Colors.primary }}>Grading</Text>
@@ -191,6 +231,11 @@ export default function PaywallScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      <Animated.View pointerEvents="none" style={[styles.scrollIndicator, { bottom: insets.bottom + webBottomInset + 16 }, scrollIndicatorStyle]}>
+        <Ionicons name="chevron-down" size={20} color={Colors.textSecondary} />
+        <Ionicons name="chevron-down" size={20} color={Colors.textMuted} style={{ marginTop: -10 }} />
+      </Animated.View>
     </View>
   );
 }
@@ -392,5 +437,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  scrollIndicator: {
+    position: "absolute",
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

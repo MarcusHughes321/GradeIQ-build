@@ -234,14 +234,19 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   );
 
   const purchaseTier = useCallback(async (tier: SubscriptionTier): Promise<boolean> => {
-    if (!rcConfigured) return false;
+    if (!rcConfigured) {
+      console.log("purchaseTier: RevenueCat not configured");
+      throw new Error("SUBSCRIPTION_NOT_CONFIGURED");
+    }
     try {
       const offerings = await Purchases.getOfferings();
       const targetEntitlement = TIERS[tier].entitlementId;
+      console.log("purchaseTier: offerings loaded, current:", offerings.current ? "yes" : "no");
 
       let targetPackage = null;
       if (offerings.current) {
         const allPackages = offerings.current.availablePackages;
+        console.log("purchaseTier: available packages:", allPackages.map(p => p.product.identifier));
         for (const pkg of allPackages) {
           if (pkg.product.identifier.includes(tier)) {
             targetPackage = pkg;
@@ -249,18 +254,33 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           }
         }
         if (!targetPackage) {
-          targetPackage = offerings.current.monthly;
+          console.log("purchaseTier: no exact match, checking monthly package");
+          const monthly = offerings.current.monthly;
+          if (monthly && monthly.product.identifier.includes(tier)) {
+            targetPackage = monthly;
+          }
         }
       }
 
-      if (!targetPackage) return false;
+      if (!targetPackage) {
+        console.log("purchaseTier: no matching package found for tier:", tier);
+        throw new Error("NO_PACKAGES_AVAILABLE");
+      }
+
+      console.log("purchaseTier: purchasing package:", targetPackage.product.identifier);
       const { customerInfo } = await Purchases.purchasePackage(targetPackage);
       setCurrentTier(determineTier(customerInfo));
       return customerInfo.entitlements.active[targetEntitlement] !== undefined;
     } catch (e: any) {
-      if (e.userCancelled) return false;
+      if (e.userCancelled) {
+        console.log("purchaseTier: user cancelled");
+        throw new Error("USER_CANCELLED");
+      }
+      if (e.message === "NO_PACKAGES_AVAILABLE" || e.message === "SUBSCRIPTION_NOT_CONFIGURED") {
+        throw e;
+      }
       console.error("Purchase error:", e);
-      return false;
+      throw new Error("PURCHASE_FAILED");
     }
   }, [rcConfigured]);
 
