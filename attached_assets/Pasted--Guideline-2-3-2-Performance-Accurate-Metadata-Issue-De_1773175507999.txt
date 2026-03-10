@@ -1,0 +1,46 @@
+
+
+Guideline 2.3.2 - Performance - Accurate Metadata
+
+Issue Description
+
+We noticed that your promotional image to be displayed on the App Store does not sufficiently represent the associated promoted In-App Purchase and/or win back offer. Specifically, we found the following issue with your promotional image:
+
+ – You submitted duplicate or identical promotional images for different promoted In-App Purchase products and/or win back offers. 
+
+ – Your promotional image includes text that is small or otherwise hard to read. 
+
+Next Steps
+
+To resolve this issue, please revise your promotional image to ensure it is unique and accurately represents the associated promoted In-App Purchase and/or win back offer. 
+
+If you have no future plans on promoting this In-App Purchase product, you can delete the associated promotional image in App Store Connect. 
+
+Resources
+
+- Learn how to view and edit In-App Purchase information in App Store Connect.
+- Discover more best practices for promoting your In-App Purchases on the App Store.
+
+
+Guideline 2.1(b) - Performance - App Completeness
+
+Issue Description
+
+The In-App Purchase products in the app exhibited one or more bugs which create a poor user experience. Specifically, an error message displays when we attempt to buy your in-app purchase products. Review the details and resources below to troubleshoot this issue.
+
+Review device details: 
+
+- Device type: iPhone 17 Pro Max 
+- OS version: iOS 26.3.1
+
+Next Steps
+
+Apple reviews In-App Purchase products in the sandbox and the In-App Purchase products do not need prior approval to function in review. Review the product configurations, complete any missing information, and test them in the sandbox.
+
+To offer In-App Purchases in the app, the Account Holder must also accept the Paid Apps Agreement in the Business section of App Store Connect. Confirm you have a Paid Apps Agreement in effect.
+
+If you still need assistance after completing the steps and reviewing the resources, visit the Apple Developer Forums. If you can’t find an answer from an existing thread, start a new thread with your question to get guidance from Apple engineers and other developers.
+
+Resources
+
+Learn more about app completeness requirements in guideline 2.1(b).
