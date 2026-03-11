@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
+import { View, Text, StyleSheet, Pressable, Platform, Alert, ActivityIndicator, ScrollView, NativeSyntheticEvent, NativeScrollEvent, useWindowDimensions } from "react-native";
 import { router, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,11 +29,13 @@ const TIER_CARDS: { tier: SubscriptionTier; highlight?: boolean; icon: keyof typ
 
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { purchaseTier, restorePurchases, rcConfigured, remainingGrades, currentTier } = useSubscription();
   const [purchasing, setPurchasing] = useState(false);
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier>("enthusiast");
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+  const isCompact = screenHeight < 750;
 
   const scrollIndicatorOpacity = useSharedValue(1);
   const bounceAnim = useSharedValue(0);
@@ -129,106 +131,111 @@ export default function PaywallScreen() {
         <Ionicons name="close" size={28} color={Colors.textSecondary} />
       </Pressable>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="never" automaticallyAdjustContentInsets={false} onScroll={handleScroll} scrollEventThrottle={16}>
-        <Text style={styles.title}>
-          Upgrade Your{"\n"}
-          <Text style={{ color: Colors.primary }}>Grading</Text>
-        </Text>
-        <Text style={styles.subtitle}>
-          {(remainingGrades !== null && remainingGrades <= 0) ? limitMessage : "Choose a plan that fits your collection"}
-        </Text>
+      <ScrollView contentContainerStyle={[styles.scrollContent, isCompact && styles.scrollContentCompact]} showsVerticalScrollIndicator={true} contentInsetAdjustmentBehavior="never" automaticallyAdjustContentInsets={false} onScroll={handleScroll} scrollEventThrottle={16} bounces={true} alwaysBounceVertical={true}>
+        <View style={styles.contentWrapper}>
+          <Text style={[styles.title, isCompact && styles.titleCompact]}>
+            Upgrade Your{"\n"}
+            <Text style={{ color: Colors.primary }}>Grading</Text>
+          </Text>
+          <Text style={[styles.subtitle, isCompact && styles.subtitleCompact]}>
+            {(remainingGrades !== null && remainingGrades <= 0) ? limitMessage : "Choose a plan that fits your collection"}
+          </Text>
 
-        <View style={styles.tiersContainer}>
-          {TIER_CARDS.map((card) => {
-            const info = TIERS[card.tier];
-            const isSelected = selectedTier === card.tier;
+          <View style={[styles.tiersContainer, isCompact && styles.tiersContainerCompact]}>
+            {TIER_CARDS.map((card) => {
+              const info = TIERS[card.tier];
+              const isSelected = selectedTier === card.tier;
 
-            return (
-              <Pressable
-                key={card.tier}
-                style={[
-                  styles.tierCard,
-                  isSelected && styles.tierCardSelected,
-                  card.highlight && styles.tierCardPopular,
-                ]}
-                onPress={() => setSelectedTier(card.tier)}
-              >
-                {card.highlight && (
-                  <View style={styles.popularBadge}>
-                    <Text style={styles.popularBadgeText}>Most Popular</Text>
-                  </View>
-                )}
+              return (
+                <Pressable
+                  key={card.tier}
+                  style={[
+                    styles.tierCard,
+                    isCompact && styles.tierCardCompact,
+                    isSelected && styles.tierCardSelected,
+                    card.highlight && styles.tierCardPopular,
+                  ]}
+                  onPress={() => setSelectedTier(card.tier)}
+                >
+                  {card.highlight && (
+                    <View style={styles.popularBadge}>
+                      <Text style={styles.popularBadgeText}>Most Popular</Text>
+                    </View>
+                  )}
 
-                <View style={styles.tierHeader}>
-                  <View style={[styles.tierIconWrap, isSelected && { backgroundColor: Colors.primary + "25" }]}>
-                    <Ionicons name={card.icon} size={22} color={isSelected ? Colors.primary : Colors.textSecondary} />
-                  </View>
-                  <View style={styles.tierNameWrap}>
-                    <Text style={[styles.tierName, isSelected && { color: Colors.text }]}>{info.name}</Text>
-                    <View style={styles.tierPriceRow}>
-                      <Text style={[styles.tierPrice, isSelected && { color: Colors.primary }]}>{info.price}</Text>
-                      <Text style={styles.tierPricePeriod}>/month</Text>
+                  <View style={[styles.tierHeader, isCompact && styles.tierHeaderCompact]}>
+                    <View style={[styles.tierIconWrap, isCompact && styles.tierIconWrapCompact, isSelected && { backgroundColor: Colors.primary + "25" }]}>
+                      <Ionicons name={card.icon} size={isCompact ? 18 : 22} color={isSelected ? Colors.primary : Colors.textSecondary} />
+                    </View>
+                    <View style={styles.tierNameWrap}>
+                      <Text style={[styles.tierName, isSelected && { color: Colors.text }]}>{info.name}</Text>
+                      <View style={styles.tierPriceRow}>
+                        <Text style={[styles.tierPrice, isCompact && styles.tierPriceCompact, isSelected && { color: Colors.primary }]}>{info.price}</Text>
+                        <Text style={styles.tierPricePeriod}>/month</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+                      {isSelected && <View style={styles.radioInner} />}
                     </View>
                   </View>
-                  <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
-                    {isSelected && <View style={styles.radioInner} />}
-                  </View>
-                </View>
 
-                <View style={styles.tierFeatures}>
-                  {card.features.map((f, i) => (
-                    <View key={i} style={styles.tierFeatureRow}>
-                      <Ionicons name="checkmark" size={16} color={isSelected ? Colors.primary : Colors.textMuted} />
-                      <Text style={[styles.tierFeatureText, isSelected && { color: Colors.textSecondary }]}>{f}</Text>
+                  {(!isCompact || isSelected) && (
+                    <View style={[styles.tierFeatures, isCompact && styles.tierFeaturesCompact]}>
+                      {card.features.map((f, i) => (
+                        <View key={i} style={styles.tierFeatureRow}>
+                          <Ionicons name="checkmark" size={16} color={isSelected ? Colors.primary : Colors.textMuted} />
+                          <Text style={[styles.tierFeatureText, isSelected && { color: Colors.textSecondary }]}>{f}</Text>
+                        </View>
+                      ))}
                     </View>
-                  ))}
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.subscribeBtn, { transform: [{ scale: pressed ? 0.97 : 1 }], opacity: purchasing ? 0.7 : 1 }]}
-          onPress={() => handleSubscribe(selectedTier)}
-          disabled={purchasing}
-        >
-          <LinearGradient
-            colors={[Colors.gradientStart, Colors.gradientEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.subscribeBtnGradient}
+          <Pressable
+            style={({ pressed }) => [styles.subscribeBtn, { transform: [{ scale: pressed ? 0.97 : 1 }], opacity: purchasing ? 0.7 : 1 }]}
+            onPress={() => handleSubscribe(selectedTier)}
+            disabled={purchasing}
           >
-            {purchasing ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.subscribeBtnText}>
-                Subscribe to {TIERS[selectedTier].name}
-              </Text>
-            )}
-          </LinearGradient>
-        </Pressable>
-
-        <Pressable onPress={handleRestore} disabled={purchasing}>
-          <Text style={styles.restoreText}>Restore Purchases</Text>
-        </Pressable>
-
-        <Text style={styles.freeNote}>
-          {TIERS.free.monthlyLimit} free grades per month included with the free plan
-        </Text>
-
-        <Text style={styles.autoRenewNote}>
-          Subscriptions auto-renew monthly unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your App Store or Google Play settings.
-        </Text>
-
-        <View style={styles.legalLinks}>
-          <Pressable onPress={() => router.push("/terms")}>
-            <Text style={styles.legalLinkText}>Terms of Use</Text>
+            <LinearGradient
+              colors={[Colors.gradientStart, Colors.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.subscribeBtnGradient}
+            >
+              {purchasing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.subscribeBtnText}>
+                  Subscribe to {TIERS[selectedTier].name}
+                </Text>
+              )}
+            </LinearGradient>
           </Pressable>
-          <Text style={styles.legalDivider}>|</Text>
-          <Pressable onPress={() => router.push("/privacy")}>
-            <Text style={styles.legalLinkText}>Privacy Policy</Text>
+
+          <Pressable onPress={handleRestore} disabled={purchasing}>
+            <Text style={styles.restoreText}>Restore Purchases</Text>
           </Pressable>
+
+          <Text style={styles.freeNote}>
+            {TIERS.free.monthlyLimit} free grades per month included with the free plan
+          </Text>
+
+          <Text style={styles.autoRenewNote}>
+            Subscriptions auto-renew monthly unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your App Store or Google Play settings.
+          </Text>
+
+          <View style={styles.legalLinks}>
+            <Pressable onPress={() => router.push("/terms")}>
+              <Text style={styles.legalLinkText}>Terms of Use</Text>
+            </Pressable>
+            <Text style={styles.legalDivider}>|</Text>
+            <Pressable onPress={() => router.push("/privacy")}>
+              <Text style={styles.legalLinkText}>Privacy Policy</Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
 
@@ -259,6 +266,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 20,
     paddingBottom: 40,
+    flexGrow: 1,
+  },
+  scrollContentCompact: {
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  contentWrapper: {
+    width: "100%",
+    maxWidth: 500,
+    alignItems: "center",
   },
   title: {
     fontFamily: "Inter_700Bold",
@@ -268,6 +285,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     lineHeight: 38,
   },
+  titleCompact: {
+    fontSize: 24,
+    lineHeight: 30,
+    marginBottom: 4,
+  },
   subtitle: {
     fontFamily: "Inter_400Regular",
     fontSize: 15,
@@ -276,10 +298,18 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     lineHeight: 22,
   },
+  subtitleCompact: {
+    fontSize: 13,
+    marginBottom: 16,
+  },
   tiersContainer: {
     width: "100%",
     gap: 12,
     marginBottom: 28,
+  },
+  tiersContainerCompact: {
+    gap: 8,
+    marginBottom: 16,
   },
   tierCard: {
     backgroundColor: Colors.surface,
@@ -288,6 +318,10 @@ const styles = StyleSheet.create({
     borderColor: Colors.surface,
     padding: 16,
     overflow: "hidden",
+  },
+  tierCardCompact: {
+    padding: 12,
+    borderRadius: 12,
   },
   tierCardSelected: {
     borderColor: Colors.primary,
@@ -318,6 +352,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+  tierHeaderCompact: {
+    marginBottom: 8,
+  },
   tierIconWrap: {
     width: 40,
     height: 40,
@@ -326,6 +363,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
+  },
+  tierIconWrapCompact: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    marginRight: 10,
   },
   tierNameWrap: {
     flex: 1,
@@ -344,6 +387,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 20,
     color: Colors.textSecondary,
+  },
+  tierPriceCompact: {
+    fontSize: 17,
   },
   tierPricePeriod: {
     fontFamily: "Inter_400Regular",
@@ -372,6 +418,9 @@ const styles = StyleSheet.create({
   tierFeatures: {
     gap: 6,
     paddingLeft: 4,
+  },
+  tierFeaturesCompact: {
+    gap: 4,
   },
   tierFeatureRow: {
     flexDirection: "row",

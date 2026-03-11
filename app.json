@@ -14,7 +14,7 @@
       "backgroundColor": "#000000"
     },
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.myapp",
       "infoPlist": {
         "NSCameraUsageDescription": "Grade.IQ needs access to your camera so you can take photos of your Pokemon cards for AI-powered condition grading. For example, you will photograph the front and back of a card to receive estimated grades from PSA, Beckett, and other grading companies.",
