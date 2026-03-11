@@ -279,8 +279,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       if (e.message === "NO_PACKAGES_AVAILABLE" || e.message === "SUBSCRIPTION_NOT_CONFIGURED") {
         throw e;
       }
-      console.error("Purchase error:", e);
-      throw new Error("PURCHASE_FAILED");
+      const rcCode = e.code ?? e.errorCode ?? "UNKNOWN";
+      const rcMessage = e.underlyingErrorMessage ?? e.readableErrorCode ?? e.message ?? "";
+      console.error("Purchase error code:", rcCode, "message:", rcMessage, "full:", JSON.stringify(e));
+      throw new Error(`PURCHASE_FAILED|${rcCode}|${rcMessage}`);
     }
   }, [rcConfigured]);
 

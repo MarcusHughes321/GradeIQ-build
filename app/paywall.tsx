@@ -86,6 +86,22 @@ export default function PaywallScreen() {
         Alert.alert("Subscription Unavailable", "Unable to load subscription options. Please try again later.");
       } else if (message === "SUBSCRIPTION_NOT_CONFIGURED") {
         Alert.alert("Not Available", "Subscriptions are not yet configured. Please check back later.");
+      } else if (message.startsWith("PURCHASE_FAILED|")) {
+        const parts = message.split("|");
+        const errorCode = parts[1] || "UNKNOWN";
+        const errorDetail = parts[2] || "";
+        console.error("Purchase failed - code:", errorCode, "detail:", errorDetail);
+        if (errorCode === "1" || errorCode === "PURCHASE_CANCELLED_ERROR") {
+          return;
+        } else if (errorCode === "6" || errorCode === "PRODUCT_NOT_AVAILABLE_FOR_PURCHASE_ERROR") {
+          Alert.alert("Product Unavailable", "This subscription is not available for purchase yet. Please try again later.");
+        } else if (errorCode === "2" || errorCode === "PURCHASE_NOT_ALLOWED_ERROR") {
+          Alert.alert("Purchase Not Allowed", "In-app purchases are not allowed on this device. Please check your device settings.");
+        } else if (errorCode === "10" || errorCode === "PRODUCT_ALREADY_PURCHASED_ERROR") {
+          Alert.alert("Already Subscribed", "You already have an active subscription. Try restoring your purchases.");
+        } else {
+          Alert.alert("Subscription Issue", `We couldn't process your subscription right now. (Code: ${errorCode})`);
+        }
       } else {
         Alert.alert("Subscription Issue", "We couldn't process your subscription right now. Please try again later.");
       }
