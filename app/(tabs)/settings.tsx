@@ -41,7 +41,7 @@ export default function SettingsScreen() {
               {
                 text: "Unlock",
                 onPress: (code?: string) => {
-                  if (code === "Marceus2026!@dm1n") {
+                  if (code === "@dm!nM@rceus2026") {
                     toggleAdminMode();
                     Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
                   } else {
