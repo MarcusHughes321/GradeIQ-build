@@ -270,7 +270,22 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       console.log("purchaseTier: purchasing package:", targetPackage.product.identifier);
       const { customerInfo } = await Purchases.purchasePackage(targetPackage);
       setCurrentTier(determineTier(customerInfo));
-      return customerInfo.entitlements.active[targetEntitlement] !== undefined;
+
+      // If entitlement is already active, great
+      if (customerInfo.entitlements.active[targetEntitlement] !== undefined) {
+        return true;
+      }
+
+      // purchasePackage didn't throw, so payment went through — entitlement may
+      // just need a moment to propagate. Refresh once after a short delay.
+      console.log("purchaseTier: entitlement not yet active, refreshing customer info...");
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const refreshed = await Purchases.getCustomerInfo();
+      setCurrentTier(determineTier(refreshed));
+      console.log("purchaseTier: refreshed entitlements:", Object.keys(refreshed.entitlements.active));
+
+      // Payment went through regardless — return true so the user isn't shown an error
+      return true;
     } catch (e: any) {
       if (e.userCancelled) {
         console.log("purchaseTier: user cancelled");

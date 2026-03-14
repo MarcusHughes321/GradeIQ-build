@@ -76,7 +76,11 @@ export default function PaywallScreen() {
       if (success) {
         router.back();
       } else {
-        Alert.alert("Subscription", "Unable to complete the subscription. Please try again later.");
+        Alert.alert(
+          "Payment Received",
+          "Your payment was processed but your subscription hasn't activated yet. Tap 'Restore Purchases' below to apply it.",
+          [{ text: "OK" }]
+        );
       }
     } catch (e: any) {
       const message = e?.message || "";
