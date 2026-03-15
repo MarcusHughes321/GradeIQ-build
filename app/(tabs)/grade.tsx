@@ -191,7 +191,6 @@ export default function GradeScreen() {
           cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
         });
         setLoading(false);
-        setCropping(null);
         setCameraOpen(null);
         setDeepCameraActive(false);
         setAnalysisStage(0);
