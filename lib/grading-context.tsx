@@ -30,6 +30,7 @@ interface GradingContextValue {
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
+  cancelJob: () => void;
   hasCompletedJob: boolean;
   hasActiveJob: boolean;
 }
@@ -406,12 +407,19 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     setActiveJob(null);
   }, [stopPolling]);
 
+  const cancelJob = useCallback(() => {
+    stopPolling();
+    cancelScheduledNotification(scheduledNotifId.current);
+    scheduledNotifId.current = null;
+    setActiveJob(null);
+  }, [stopPolling]);
+
   const hasCompletedJob = activeJob?.status === "completed";
   const hasActiveJob = activeJob?.status === "processing";
 
   const value = useMemo(
-    () => ({ activeJob, submitGrading, submitDeepGrading, dismissJob, hasCompletedJob, hasActiveJob }),
-    [activeJob, submitGrading, submitDeepGrading, dismissJob, hasCompletedJob, hasActiveJob]
+    () => ({ activeJob, submitGrading, submitDeepGrading, dismissJob, cancelJob, hasCompletedJob, hasActiveJob }),
+    [activeJob, submitGrading, submitDeepGrading, dismissJob, cancelJob, hasCompletedJob, hasActiveJob]
   );
 
   return <GradingContext.Provider value={value}>{children}</GradingContext.Provider>;

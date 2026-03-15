@@ -214,7 +214,7 @@ export default function HomeScreen() {
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
   const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode } = useSubscription();
-  const { activeJob, dismissJob } = useGrading();
+  const { activeJob, dismissJob, cancelJob } = useGrading();
   const proReminderShownRef = useRef(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -385,17 +385,35 @@ export default function HomeScreen() {
       </View>
 
       {activeJob && activeJob.status === "processing" && (
-        <Pressable
-          style={({ pressed }) => [styles.bgJobBanner, { opacity: pressed ? 0.8 : 1 }]}
-          onPress={() => router.navigate("/(tabs)/grade")}
-        >
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <View style={styles.bgJobInfo}>
-            <Text style={styles.bgJobTitle}>Grading in progress</Text>
-            <Text style={styles.bgJobSubtitle}>Tap to view progress</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-        </Pressable>
+        <View style={styles.bgJobBanner}>
+          <Pressable
+            style={({ pressed }) => [styles.bgJobTapArea, { opacity: pressed ? 0.8 : 1 }]}
+            onPress={() => router.navigate("/(tabs)/grade")}
+          >
+            <ActivityIndicator size="small" color={Colors.primary} />
+            <View style={styles.bgJobInfo}>
+              <Text style={styles.bgJobTitle}>Grading in progress</Text>
+              <Text style={styles.bgJobSubtitle}>Tap to view progress</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              Alert.alert(
+                "Cancel Grading",
+                "Are you sure you want to cancel this grading?",
+                [
+                  { text: "Keep Going", style: "cancel" },
+                  { text: "Cancel", style: "destructive", onPress: cancelJob },
+                ]
+              );
+            }}
+            style={({ pressed }) => [styles.bgJobDismissBtn, { opacity: pressed ? 0.5 : 1 }]}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={18} color={Colors.textSecondary} />
+          </Pressable>
+        </View>
       )}
 
       {activeJob && activeJob.status === "completed" && activeJob.savedGrading && (
