@@ -666,6 +666,13 @@ export default function HomeScreen() {
       </View>
 
       {gradings.length > 0 && (
+        <View style={styles.swipeHint}>
+          <Ionicons name="arrow-back-outline" size={12} color={Colors.textMuted} />
+          <Text style={styles.swipeHintText}>Swipe left on a card to delete</Text>
+        </View>
+      )}
+
+      {gradings.length > 0 && (
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={16} color={Colors.textMuted} style={styles.searchIcon} />
           <TextInput
@@ -1345,6 +1352,17 @@ const styles = StyleSheet.create({
     gap: 10,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
+  },
+  swipeHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 8,
+  },
+  swipeHintText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontFamily: "Inter_400Regular",
   },
   swipeDeleteAction: {
     backgroundColor: Colors.primary,
