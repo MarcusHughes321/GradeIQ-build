@@ -307,7 +307,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const info = await Purchases.restorePurchases();
       const tier = determineTier(info);
       setCurrentTier(tier);
-      return tier !== "free";
+      if (tier !== "free") return true;
+
+      // Restore may return cached data — force a fresh fetch from RevenueCat servers
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const refreshed = await Purchases.getCustomerInfo();
+      const refreshedTier = determineTier(refreshed);
+      setCurrentTier(refreshedTier);
+      console.log("Restore refreshed entitlements:", Object.keys(refreshed.entitlements.active));
+      return refreshedTier !== "free";
     } catch (e) {
       console.error("Restore error:", e);
       return false;

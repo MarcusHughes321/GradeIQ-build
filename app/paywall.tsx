@@ -123,10 +123,9 @@ export default function PaywallScreen() {
     try {
       const success = await restorePurchases();
       if (success) {
-        Alert.alert("Restored", "Your subscription has been restored.");
-        router.back();
+        Alert.alert("Restored", "Your subscription has been restored.", [{ text: "OK", onPress: () => router.back() }]);
       } else {
-        Alert.alert("No Subscription Found", "We couldn't find an active subscription for your account.");
+        Alert.alert("No Subscription Found", "We couldn't find an active subscription linked to your Apple ID. Make sure you're signed in with the same Apple ID used to purchase, then try again.");
       }
     } catch {
       Alert.alert("Restore Issue", "We couldn't restore your purchases right now. Please try again later.");
@@ -235,7 +234,7 @@ export default function PaywallScreen() {
             </LinearGradient>
           </Pressable>
 
-          <Pressable onPress={handleRestore} disabled={purchasing}>
+          <Pressable onPress={handleRestore} disabled={purchasing} style={styles.restoreBtn}>
             <Text style={styles.restoreText}>Restore Purchases</Text>
           </Pressable>
 
@@ -468,11 +467,18 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: "#fff",
   },
+  restoreBtn: {
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
   restoreText: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: Colors.textSecondary,
-    marginBottom: 20,
   },
   freeNote: {
     fontFamily: "Inter_400Regular",
