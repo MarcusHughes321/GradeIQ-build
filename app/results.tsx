@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
-import { getGradings, updateGrading } from "@/lib/storage";
+import { getGradings, updateGrading, deleteGrading } from "@/lib/storage";
 import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate, DefectMarker } from "@/lib/types";
 import { apiRequest } from "@/lib/query-client";
 import GradeCircle from "@/components/GradeCircle";
@@ -400,6 +400,32 @@ export default function ResultsScreen() {
     setSelectedArea(null);
   };
 
+  const handleDelete = () => {
+    if (!grading) return;
+    if (Platform.OS === "web") {
+      if (confirm("Delete this grading? This cannot be undone.")) {
+        deleteGrading(grading.id).then(() => {
+          if (router.canGoBack()) router.back();
+          else router.replace("/");
+        });
+      }
+    } else {
+      Alert.alert("Delete Grading", "Are you sure you want to delete this grading? This cannot be undone.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            deleteGrading(grading.id).then(() => {
+              if (router.canGoBack()) router.back();
+              else router.replace("/");
+            });
+          },
+        },
+      ]);
+    }
+  };
+
   const handleReAnalyse = async () => {
     if (!grading || reAnalysing) return;
     setReAnalysing(true);
@@ -695,12 +721,20 @@ export default function ResultsScreen() {
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Results</Text>
-        <Pressable
-          onPress={() => router.replace("/")}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Ionicons name="home" size={22} color={Colors.textSecondary} />
-        </Pressable>
+        <View style={styles.headerRight}>
+          <Pressable
+            onPress={handleDelete}
+            style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Ionicons name="trash-outline" size={20} color={Colors.primary} />
+          </Pressable>
+          <Pressable
+            onPress={() => router.replace("/")}
+            style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Ionicons name="home" size={22} color={Colors.textSecondary} />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -1373,6 +1407,10 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   headerTitle: {
     fontFamily: "Inter_600SemiBold",

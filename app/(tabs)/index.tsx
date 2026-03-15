@@ -82,10 +82,19 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
       onLongPress={handleLongPress}
     >
       <View style={styles.histTopRow}>
-        <Text style={styles.histCardName} numberOfLines={1}>
+        <Text numberOfLines={1} style={styles.histCardName}>
           {item.result.cardName || "Unknown Card"}
         </Text>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        <View style={styles.histTopRowRight}>
+          <Pressable
+            onPress={handleLongPress}
+            hitSlop={8}
+            style={({ pressed }) => [styles.histDeleteBtn, { opacity: pressed ? 0.5 : 1 }]}
+          >
+            <Ionicons name="trash-outline" size={15} color={Colors.textMuted} />
+          </Pressable>
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        </View>
       </View>
       <View style={styles.histBottomRow}>
         <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
@@ -1339,6 +1348,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+  },
+  histTopRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  histDeleteBtn: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
   },
   histBottomRow: {
     flexDirection: "row",
