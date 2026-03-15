@@ -141,7 +141,6 @@ export default function GradeScreen() {
     cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
   });
   const [loading, setLoading] = useState(false);
-  const [cropping, setCropping] = useState<DeepStep | null>(null);
   const [cameraOpen, setCameraOpen] = useState<DeepStep | null>(null);
   const [deepCameraActive, setDeepCameraActive] = useState(false);
   const [analysisStage, setAnalysisStage] = useState(0);
@@ -170,18 +169,6 @@ export default function GradeScreen() {
     }
   }, [cameraOpen]);
 
-  const cropToCard = async (uri: string): Promise<string> => {
-    try {
-      const base64 = await getBase64FromUri(uri);
-      const resp = await apiRequest("POST", "/api/crop-to-card", { image: base64 });
-      const data = await resp.json();
-      if (data.croppedImage) return data.croppedImage;
-      return uri;
-    } catch {
-      return uri;
-    }
-  };
-
   const isCornerStep = (step: string): boolean => step.startsWith("corner");
 
   const setImageForStep = (step: DeepStep, uri: string) => {
@@ -190,20 +177,6 @@ export default function GradeScreen() {
     else if (step === "angledFront") setAngledFrontImage(uri);
     else if (step === "angledBack") setAngledBackImage(uri);
     else if (isCornerStep(step)) setCornerImages(prev => ({ ...prev, [step]: uri }));
-  };
-
-  const setImageWithCrop = async (side: DeepStep, uri: string) => {
-    setImageForStep(side, uri);
-    if (side === "front" || side === "back") {
-      setCropping(side);
-      try {
-        const cropped = await cropToCard(uri);
-        if (side === "front") setFrontImage(cropped);
-        else setBackImage(cropped);
-      } finally {
-        setCropping(null);
-      }
-    }
   };
 
   useFocusEffect(
@@ -311,7 +284,7 @@ export default function GradeScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setImageWithCrop(side, result.assets[0].uri);
+        setImageForStep(side, result.assets[0].uri);
       }
     }
   };
@@ -392,7 +365,7 @@ export default function GradeScreen() {
   const handleAdjustConfirm = useCallback((uri: string) => {
     if (!adjustImage) return;
     setAdjustImage(null);
-    setImageWithCrop(adjustImage.side, uri);
+    setImageForStep(adjustImage.side, uri);
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
@@ -661,7 +634,7 @@ export default function GradeScreen() {
           imageUri={getDeepStepImage(deepStep)}
           onCapture={() => pickImage(deepStep)}
           onRemove={getRemoveHandler(deepStep)}
-          loading={cropping === deepStep}
+          loading={false}
         />
       </View>
 
@@ -800,14 +773,14 @@ export default function GradeScreen() {
                     imageUri={frontImage}
                     onCapture={() => pickImage("front")}
                     onRemove={() => setFrontImage(null)}
-                    loading={cropping === "front"}
+                    loading={false}
                   />
                   <ImageCapture
                     label="Back"
                     imageUri={backImage}
                     onCapture={() => pickImage("back")}
                     onRemove={() => setBackImage(null)}
-                    loading={cropping === "back"}
+                    loading={false}
                   />
                 </View>
 

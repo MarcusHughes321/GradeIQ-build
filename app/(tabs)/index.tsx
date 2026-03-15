@@ -71,31 +71,23 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.historyItem, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
-      onPress={() =>
-        router.push({
-          pathname: "/results",
-          params: { gradingId: item.id },
-        })
-      }
-      onLongPress={handleLongPress}
-    >
-      <View style={styles.histTopRow}>
-        <Text numberOfLines={1} style={styles.histCardName}>
-          {item.result.cardName || "Unknown Card"}
-        </Text>
-        <View style={styles.histTopRowRight}>
-          <Pressable
-            onPress={handleLongPress}
-            hitSlop={8}
-            style={({ pressed }) => [styles.histDeleteBtn, { opacity: pressed ? 0.5 : 1 }]}
-          >
-            <Ionicons name="trash-outline" size={15} color={Colors.textMuted} />
-          </Pressable>
+    <View style={styles.historyItemRow}>
+      <Pressable
+        style={({ pressed }) => [styles.historyItem, { transform: [{ scale: pressed ? 0.97 : 1 }], flex: 1 }]}
+        onPress={() =>
+          router.push({
+            pathname: "/results",
+            params: { gradingId: item.id },
+          })
+        }
+        onLongPress={handleLongPress}
+      >
+        <View style={styles.histTopRow}>
+          <Text numberOfLines={1} style={styles.histCardName}>
+            {item.result.cardName || "Unknown Card"}
+          </Text>
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
         </View>
-      </View>
       <View style={styles.histBottomRow}>
         <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
         <View style={styles.historyInfo}>
@@ -108,14 +100,22 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           )}
         </View>
       </View>
-      <View style={styles.historyGrades}>
-        {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
-        {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
-        {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
-        {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
-        {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
-      </View>
-    </Pressable>
+        <View style={styles.historyGrades}>
+          {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
+          {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
+          {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
+          {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
+          {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
+        </View>
+      </Pressable>
+      <Pressable
+        onPress={handleLongPress}
+        hitSlop={8}
+        style={({ pressed }) => [styles.histDeleteBtnSide, { opacity: pressed ? 0.5 : 1 }]}
+      >
+        <Ionicons name="trash-outline" size={18} color={Colors.textMuted} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -1343,22 +1343,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
+  historyItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  histDeleteBtnSide: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   histTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-  },
-  histTopRowRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  histDeleteBtn: {
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
   },
   histBottomRow: {
     flexDirection: "row",

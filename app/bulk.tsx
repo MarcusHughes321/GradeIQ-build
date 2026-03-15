@@ -62,16 +62,6 @@ export default function BulkScreen() {
 
   const readyCards = cards.filter((c) => c.frontImage && c.backImage);
 
-  const cropImageBase64 = async (base64: string): Promise<string> => {
-    try {
-      const resp = await apiRequest("POST", "/api/crop-to-card", { image: base64 });
-      const data = await resp.json();
-      return data.croppedImage || base64;
-    } catch {
-      return base64;
-    }
-  };
-
   const selectMultipleImages = async () => {
     if (loading) return;
 
@@ -288,12 +278,8 @@ export default function BulkScreen() {
 
       const cardImages = await Promise.all(
         readyCards.map(async (card) => {
-          let frontBase64 = await getBase64FromUri(card.frontImage!);
-          let backBase64 = await getBase64FromUri(card.backImage!);
-          [frontBase64, backBase64] = await Promise.all([
-            cropImageBase64(frontBase64),
-            cropImageBase64(backBase64),
-          ]);
+          const frontBase64 = await getBase64FromUri(card.frontImage!);
+          const backBase64 = await getBase64FromUri(card.backImage!);
           return { frontImage: frontBase64, backImage: backBase64 };
         })
       );
