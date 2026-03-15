@@ -654,23 +654,22 @@ export default function HomeScreen() {
         <Text style={styles.sectionTitle}>Recent Grades</Text>
         <View style={styles.sectionHeaderRight}>
           {gradings.length > 0 && (
-            <Text style={styles.sectionCount}>{searchQuery ? `${filteredGradings.length} of ${gradings.length}` : `${gradings.length} cards`}</Text>
-          )}
-          {gradings.length > 0 && (
-            <Pressable onPress={handleClearAll} style={({ pressed }) => [styles.clearAllBtn, { opacity: pressed ? 0.6 : 1 }]}>
-              <Ionicons name="trash-outline" size={14} color={Colors.primary} />
-              <Text style={styles.clearAllText}>Clear All</Text>
-            </Pressable>
+            <View style={styles.sectionHeaderRightInner}>
+              <View style={styles.sectionHeaderRightRow}>
+                <Text style={styles.sectionCount}>{searchQuery ? `${filteredGradings.length} of ${gradings.length}` : `${gradings.length} cards`}</Text>
+                <Pressable onPress={handleClearAll} style={({ pressed }) => [styles.clearAllBtn, { opacity: pressed ? 0.6 : 1 }]}>
+                  <Ionicons name="trash-outline" size={14} color={Colors.primary} />
+                  <Text style={styles.clearAllText}>Clear All</Text>
+                </Pressable>
+              </View>
+              <View style={styles.swipeHint}>
+                <Ionicons name="arrow-back-outline" size={11} color={Colors.textMuted} />
+                <Text style={styles.swipeHintText}>Swipe left to delete</Text>
+              </View>
+            </View>
           )}
         </View>
       </View>
-
-      {gradings.length > 0 && (
-        <View style={styles.swipeHint}>
-          <Ionicons name="arrow-back-outline" size={12} color={Colors.textMuted} />
-          <Text style={styles.swipeHintText}>Swipe left on a card to delete</Text>
-        </View>
-      )}
 
       {gradings.length > 0 && (
         <View style={styles.searchContainer}>
@@ -1230,6 +1229,13 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   sectionHeaderRight: {
+    alignItems: "flex-end",
+  },
+  sectionHeaderRightInner: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  sectionHeaderRightRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -1357,7 +1363,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginBottom: 8,
   },
   swipeHintText: {
     fontSize: 12,
