@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Swipeable } from "react-native-gesture-handler";
 import {
   View,
   Text,
@@ -70,17 +71,26 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
     }
   };
 
+  const renderRightActions = () => (
+    <Pressable
+      onPress={() => onDelete(item.id)}
+      style={({ pressed }) => [styles.swipeDeleteAction, { opacity: pressed ? 0.8 : 1 }]}
+    >
+      <Ionicons name="trash-outline" size={22} color="#fff" />
+      <Text style={styles.swipeDeleteText}>Delete</Text>
+    </Pressable>
+  );
+
   return (
-    <View style={styles.historyItemRow}>
+    <Swipeable renderRightActions={renderRightActions} overshootRight={false} friction={2}>
       <Pressable
-        style={({ pressed }) => [styles.historyItem, { transform: [{ scale: pressed ? 0.97 : 1 }], flex: 1 }]}
+        style={({ pressed }) => [styles.historyItem, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
         onPress={() =>
           router.push({
             pathname: "/results",
             params: { gradingId: item.id },
           })
         }
-        onLongPress={handleLongPress}
       >
         <View style={styles.histTopRow}>
           <Text numberOfLines={1} style={styles.histCardName}>
@@ -88,18 +98,18 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           </Text>
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
         </View>
-      <View style={styles.histBottomRow}>
-        <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
-        <View style={styles.historyInfo}>
-          <Text style={styles.histSetInfo} numberOfLines={1}>
-            {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
-          </Text>
-          <Text style={styles.histDate}>{dateStr}</Text>
-          {!hideValues && item.result.cardValue?.rawValue && !item.result.cardValue.rawValue.includes("No value") && (
-            <Text style={styles.histRawValue}>Raw: {item.result.cardValue.rawValue}</Text>
-          )}
+        <View style={styles.histBottomRow}>
+          <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
+          <View style={styles.historyInfo}>
+            <Text style={styles.histSetInfo} numberOfLines={1}>
+              {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
+            </Text>
+            <Text style={styles.histDate}>{dateStr}</Text>
+            {!hideValues && item.result.cardValue?.rawValue && !item.result.cardValue.rawValue.includes("No value") && (
+              <Text style={styles.histRawValue}>Raw: {item.result.cardValue.rawValue}</Text>
+            )}
+          </View>
         </View>
-      </View>
         <View style={styles.historyGrades}>
           {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
           {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
@@ -108,14 +118,7 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
         </View>
       </Pressable>
-      <Pressable
-        onPress={handleLongPress}
-        hitSlop={8}
-        style={({ pressed }) => [styles.histDeleteBtnSide, { opacity: pressed ? 0.5 : 1 }]}
-      >
-        <Ionicons name="trash-outline" size={18} color={Colors.textMuted} />
-      </Pressable>
-    </View>
+    </Swipeable>
   );
 }
 
@@ -1343,17 +1346,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
-  historyItemRow: {
-    flexDirection: "row",
+  swipeDeleteAction: {
+    backgroundColor: Colors.primary,
+    justifyContent: "center",
     alignItems: "center",
+    width: 80,
+    borderRadius: 16,
+    marginBottom: 12,
     gap: 4,
   },
-  histDeleteBtnSide: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+  swipeDeleteText: {
+    color: "#fff",
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
   },
   histTopRow: {
     flexDirection: "row",
