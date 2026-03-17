@@ -202,7 +202,12 @@ export default function GradeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!activeJob || activeJob.status !== "processing") {
+      if (activeJob?.status === "processing") {
+        setLoading(true);
+        if (activeJob.isCrossover) setMode("crossover");
+        else if (activeJob.isDeepGrade) setMode("deep");
+        else setMode("quick");
+      } else {
         setFrontImage(null);
         setBackImage(null);
         setAngledFrontImage(null);
@@ -221,7 +226,7 @@ export default function GradeScreen() {
         setDeepStep("front");
         if (!modeParam) setMode("hub");
       }
-    }, [activeJob?.status, modeParam])
+    }, [activeJob?.status, activeJob?.isCrossover, activeJob?.isDeepGrade, modeParam])
   );
 
   useEffect(() => {
