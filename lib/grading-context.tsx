@@ -19,6 +19,7 @@ export interface GradingJob {
   frontCornerImages?: string[];
   backCornerImages?: string[];
   isDeepGrade?: boolean;
+  isCrossover?: boolean;
   status: GradingJobStatus;
   savedGrading?: SavedGrading;
   error?: string;
@@ -29,6 +30,7 @@ interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitCrossoverGrading: (slabImage: string, certNumber: string | undefined, currentCompany: string, currentGrade: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   cancelJob: () => void;
   hasCompletedJob: boolean;
@@ -377,6 +379,72 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     }
   }, [pollJobStatus, stopPolling]);
 
+  const submitCrossoverGrading = useCallback(async (
+    slabImage: string,
+    certNumber: string | undefined,
+    currentCompany: string,
+    currentGrade: string,
+    recordUsage: (n: number) => Promise<void>,
+  ) => {
+    const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    recordUsageRef.current = recordUsage;
+
+    setActiveJob({
+      id: localJobId,
+      serverJobId: "",
+      frontImage: slabImage,
+      backImage: slabImage,
+      isCrossover: true,
+      status: "processing",
+      startTime: Date.now(),
+    });
+
+    try {
+      const slabBase64 = await getBase64FromUri(slabImage);
+
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+
+      const resp = await apiRequest("POST", "/api/crossover-grade-job", {
+        slabImage: slabBase64,
+        certNumber: certNumber || undefined,
+        currentCompany,
+        currentGrade,
+      });
+
+      const { jobId: serverJobId } = await resp.json();
+
+      setActiveJob(prev =>
+        prev && prev.id === localJobId
+          ? { ...prev, serverJobId }
+          : prev
+      );
+
+      if (notificationsEnabled.current) {
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = await scheduleGradingNotification(ESTIMATED_GRADE_SECONDS);
+      }
+
+      stopPolling();
+      pollingRef.current = setInterval(() => {
+        pollJobStatus(serverJobId, localJobId, slabImage, slabImage);
+      }, POLL_INTERVAL);
+    } catch (error: any) {
+      console.error("Failed to submit crossover grading job:", error);
+
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+
+      setActiveJob(prev =>
+        prev && prev.id === localJobId
+          ? { ...prev, status: "failed", error: error.message || "Unknown error" }
+          : prev
+      );
+    }
+  }, [pollJobStatus, stopPolling]);
+
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && activeJob?.status === "processing" && activeJob.serverJobId) {
@@ -418,8 +486,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const hasActiveJob = activeJob?.status === "processing";
 
   const value = useMemo(
-    () => ({ activeJob, submitGrading, submitDeepGrading, dismissJob, cancelJob, hasCompletedJob, hasActiveJob }),
-    [activeJob, submitGrading, submitDeepGrading, dismissJob, cancelJob, hasCompletedJob, hasActiveJob]
+    () => ({ activeJob, submitGrading, submitDeepGrading, submitCrossoverGrading, dismissJob, cancelJob, hasCompletedJob, hasActiveJob }),
+    [activeJob, submitGrading, submitDeepGrading, submitCrossoverGrading, dismissJob, cancelJob, hasCompletedJob, hasActiveJob]
   );
 
   return <GradingContext.Provider value={value}>{children}</GradingContext.Provider>;

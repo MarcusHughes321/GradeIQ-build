@@ -10,6 +10,7 @@ import {
   ScrollView,
   Animated,
   Modal,
+  TextInput,
 } from "react-native";
 import { router, useFocusEffect, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,10 +27,24 @@ import { apiRequest } from "@/lib/query-client";
 import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
-type GradeMode = "quick" | "deep";
+type GradeMode = "quick" | "deep" | "crossover";
 type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR";
 
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
+
+const CROSSOVER_COMPANIES = ["PSA", "BGS", "CGC", "ACE", "TAG", "OTHER"] as const;
+type CrossoverCompany = typeof CROSSOVER_COMPANIES[number];
+
+const CROSSOVER_STAGES = [
+  { label: "Preparing slab image", icon: "image-outline" as const, duration: 2000 },
+  { label: "Identifying card", icon: "scan-outline" as const, duration: 5000 },
+  { label: "Assessing centering", icon: "resize-outline" as const, duration: 4000 },
+  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 4000 },
+  { label: "Evaluating surface", icon: "layers-outline" as const, duration: 4000 },
+  { label: "Crossover analysis", icon: "git-compare-outline" as const, duration: 4000 },
+  { label: "Calculating crossover grades", icon: "calculator-outline" as const, duration: 3000 },
+  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
+];
 
 const TAB_BAR_STYLE = {
   backgroundColor: Platform.OS === "web" ? Colors.surface : "transparent",
@@ -150,14 +165,19 @@ export default function GradeScreen() {
   const [showDeepIntro, setShowDeepIntro] = useState(false);
   const [adjustImage, setAdjustImage] = useState<{ uri: string; side: DeepStep } | null>(null);
 
+  const [slabImage, setSlabImage] = useState<string | null>(null);
+  const [crossoverCompany, setCrossoverCompany] = useState<CrossoverCompany>("PSA");
+  const [crossoverGrade, setCrossoverGrade] = useState<string>("");
+  const [crossoverCertNumber, setCrossoverCertNumber] = useState<string>("");
+
   const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode } = useSubscription();
-  const { submitGrading, submitDeepGrading, activeJob } = useGrading();
+  const { submitGrading, submitDeepGrading, submitCrossoverGrading, activeJob } = useGrading();
   const navigation = useNavigation();
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const ANALYSIS_STAGES = mode === "deep" ? DEEP_STAGES : QUICK_STAGES;
+  const ANALYSIS_STAGES = mode === "deep" ? DEEP_STAGES : mode === "crossover" ? CROSSOVER_STAGES : QUICK_STAGES;
 
   useEffect(() => {
     if (cameraOpen) {
@@ -190,6 +210,7 @@ export default function GradeScreen() {
           cornerFrontTL: null, cornerFrontTR: null, cornerFrontBL: null, cornerFrontBR: null,
           cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
         });
+        setSlabImage(null);
         setLoading(false);
         setCameraOpen(null);
         setDeepCameraActive(false);
@@ -419,7 +440,16 @@ export default function GradeScreen() {
   };
 
   const handleGrade = async () => {
-    if (mode === "quick") {
+    if (mode === "crossover") {
+      if (!slabImage) {
+        Alert.alert("Photo Required", "Please add a photo of the graded slab.");
+        return;
+      }
+      if (!crossoverGrade.trim()) {
+        Alert.alert("Grade Required", "Please enter the current grade on the slab.");
+        return;
+      }
+    } else if (mode === "quick") {
       if (!frontImage || !backImage) {
         Alert.alert("Photos Required", "Please add photos of both the front and back of your card.");
         return;
@@ -437,7 +467,7 @@ export default function GradeScreen() {
       return;
     }
 
-    if (mode === "quick" && isGateEnabled && !canGrade) {
+    if ((mode === "quick" || mode === "crossover") && isGateEnabled && !canGrade) {
       router.push("/paywall");
       return;
     }
@@ -453,19 +483,24 @@ export default function GradeScreen() {
 
     setLoading(true);
 
-    if (mode === "deep" && angledFrontImage && angledBackImage) {
+    const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
+    if (mode === "crossover") {
+      submitCrossoverGrading(slabImage!, crossoverCertNumber.trim() || undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
+    } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
       submitDeepGrading(frontImage!, backImage!, angledFrontImage, angledBackImage, frontCorners, backCorners, async (n: number) => {
         await recordDeepUsage();
       });
     } else {
-      submitGrading(frontImage!, backImage!, recordUsage);
+      submitGrading(frontImage!, backImage!, wrappedRecordUsage);
     }
   };
 
   const allCornersReady = Object.values(cornerImages).every(v => v !== null);
-  const canSubmit = mode === "quick"
+  const canSubmit = mode === "crossover"
+    ? !!slabImage && !!crossoverGrade.trim() && !loading
+    : mode === "quick"
     ? !!frontImage && !!backImage && !loading
     : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && allCornersReady && !loading;
 
@@ -488,17 +523,24 @@ export default function GradeScreen() {
           }}
         >
           <Ionicons name="flash-outline" size={16} color={mode === "quick" ? Colors.text : Colors.textMuted} />
-          <Text style={[styles.modeTabText, mode === "quick" && styles.modeTabTextActive]}>Quick Grade</Text>
+          <Text style={[styles.modeTabText, mode === "quick" && styles.modeTabTextActive]}>Quick</Text>
         </Pressable>
         <Pressable
           style={[styles.modeTab, mode === "deep" && styles.modeTabActive]}
           onPress={handleSelectDeepMode}
         >
           <Ionicons name="search-outline" size={16} color={mode === "deep" ? "#F59E0B" : Colors.textMuted} />
-          <Text style={[styles.modeTabText, mode === "deep" && styles.modeTabTextDeep]}>Deep Grade</Text>
+          <Text style={[styles.modeTabText, mode === "deep" && styles.modeTabTextDeep]}>Deep</Text>
           {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
             <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
           )}
+        </Pressable>
+        <Pressable
+          style={[styles.modeTab, mode === "crossover" && styles.modeTabActive]}
+          onPress={() => setMode("crossover")}
+        >
+          <Ionicons name="git-compare-outline" size={16} color={mode === "crossover" ? "#8B5CF6" : Colors.textMuted} />
+          <Text style={[styles.modeTabText, mode === "crossover" && styles.modeTabTextCrossover]}>Crossover</Text>
         </Pressable>
       </View>
       {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
@@ -678,11 +720,17 @@ export default function GradeScreen() {
                 <Text style={styles.deepAnalysisBadgeText}>Deep Grade</Text>
               </View>
             )}
-            <View style={styles.analysisIconWrap}>
-              <View style={[styles.analysisIconBg, mode === "deep" && { backgroundColor: "rgba(245, 158, 11, 0.12)" }]}>
-                <Ionicons name={currentStage.icon as any} size={32} color={mode === "deep" ? "#F59E0B" : Colors.primary} />
+            {mode === "crossover" && (
+              <View style={[styles.deepAnalysisBadge, { backgroundColor: "rgba(139, 92, 246, 0.15)" }]}>
+                <Ionicons name="git-compare-outline" size={12} color="#8B5CF6" />
+                <Text style={[styles.deepAnalysisBadgeText, { color: "#8B5CF6" }]}>Crossover Grade</Text>
               </View>
-              <ActivityIndicator color={mode === "deep" ? "#F59E0B" : Colors.primary} size="small" style={styles.analysisSpinner} />
+            )}
+            <View style={styles.analysisIconWrap}>
+              <View style={[styles.analysisIconBg, mode === "deep" && { backgroundColor: "rgba(245, 158, 11, 0.12)" }, mode === "crossover" && { backgroundColor: "rgba(139, 92, 246, 0.12)" }]}>
+                <Ionicons name={currentStage.icon as any} size={32} color={mode === "deep" ? "#F59E0B" : mode === "crossover" ? "#8B5CF6" : Colors.primary} />
+              </View>
+              <ActivityIndicator color={mode === "deep" ? "#F59E0B" : mode === "crossover" ? "#8B5CF6" : Colors.primary} size="small" style={styles.analysisSpinner} />
             </View>
 
             <Text style={styles.analysisTitle}>{currentStage.label}...</Text>
@@ -695,6 +743,7 @@ export default function GradeScreen() {
                 style={[
                   styles.progressBarInner,
                   mode === "deep" && { backgroundColor: "#F59E0B" },
+                  mode === "crossover" && { backgroundColor: "#8B5CF6" },
                   {
                     width: progressAnim.interpolate({
                       inputRange: [0, 1],
@@ -711,7 +760,7 @@ export default function GradeScreen() {
                   <Ionicons
                     name={i < analysisStage ? "checkmark-circle" : i === analysisStage ? "ellipse" : "ellipse-outline"}
                     size={14}
-                    color={i < analysisStage ? Colors.success : i === analysisStage ? (mode === "deep" ? "#F59E0B" : Colors.primary) : Colors.textMuted}
+                    color={i < analysisStage ? Colors.success : i === analysisStage ? (mode === "deep" ? "#F59E0B" : mode === "crossover" ? "#8B5CF6" : Colors.primary) : Colors.textMuted}
                   />
                   <Text
                     style={[
@@ -728,7 +777,7 @@ export default function GradeScreen() {
           </View>
 
           <Text style={styles.analysisWait}>
-            {mode === "deep" ? "Deep analysis takes 30-60 seconds" : "This usually takes 15-30 seconds"}
+            {mode === "deep" ? "Deep analysis takes 30-60 seconds" : mode === "crossover" ? "Crossover analysis takes 15-30 seconds" : "This usually takes 15-30 seconds"}
           </Text>
 
           <Pressable
@@ -760,7 +809,112 @@ export default function GradeScreen() {
           >
             {renderModeSelector()}
 
-            {mode === "quick" ? (
+            {mode === "crossover" ? (
+              <>
+                <View style={styles.crossoverInfoCard}>
+                  <Ionicons name="git-compare-outline" size={18} color="#8B5CF6" />
+                  <Text style={styles.crossoverInfoText}>
+                    Crossover Grading estimates what grade a card in an existing slab would receive from other companies. Upload a photo of the slab.
+                  </Text>
+                </View>
+
+                <View style={styles.crossoverSection}>
+                  <Text style={styles.crossoverLabel}>Slab Photo</Text>
+                  <ImageCapture
+                    label="Photo of Graded Slab"
+                    imageUri={slabImage}
+                    onCapture={async () => {
+                      if (Platform.OS === "web") {
+                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (status !== "granted") {
+                          Alert.alert("Permission Required", "Photo library access is needed.");
+                          return;
+                        }
+                        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                        if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
+                      } else {
+                        Alert.alert("Add Slab Photo", "Choose an option", [
+                          { text: "Take Photo", onPress: async () => {
+                            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                            if (status !== "granted") return;
+                            const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
+                            if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
+                          }},
+                          { text: "Choose from Library", onPress: async () => {
+                            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                            if (status !== "granted") return;
+                            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                            if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
+                          }},
+                          { text: "Cancel", style: "cancel" },
+                        ]);
+                      }
+                    }}
+                    onRemove={() => setSlabImage(null)}
+                    loading={false}
+                  />
+                </View>
+
+                <View style={styles.crossoverSection}>
+                  <Text style={styles.crossoverLabel}>Grading Company</Text>
+                  <View style={styles.companyRow}>
+                    {CROSSOVER_COMPANIES.map(company => (
+                      <Pressable
+                        key={company}
+                        style={[styles.companyBtn, crossoverCompany === company && styles.companyBtnActive]}
+                        onPress={() => setCrossoverCompany(company)}
+                      >
+                        <Text style={[styles.companyBtnText, crossoverCompany === company && styles.companyBtnTextActive]}>
+                          {company}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.crossoverSection}>
+                  <Text style={styles.crossoverLabel}>Current Grade</Text>
+                  <TextInput
+                    style={styles.crossoverInput}
+                    value={crossoverGrade}
+                    onChangeText={setCrossoverGrade}
+                    placeholder={crossoverCompany === "BGS" ? "e.g. 9.5" : "e.g. 9"}
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                  />
+                </View>
+
+                <View style={styles.crossoverSection}>
+                  <Text style={styles.crossoverLabel}>Cert Number <Text style={styles.crossoverOptional}>(optional)</Text></Text>
+                  <TextInput
+                    style={styles.crossoverInput}
+                    value={crossoverCertNumber}
+                    onChangeText={setCrossoverCertNumber}
+                    placeholder="e.g. 12345678"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                  />
+                </View>
+
+                <View style={styles.tipsCard}>
+                  <Text style={styles.tipsTitle}>Tips for crossover grading</Text>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="scan" size={16} color="#8B5CF6" />
+                    <Text style={styles.tipText}>Photograph both the front and back of the slab if possible</Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="sunny" size={16} color="#8B5CF6" />
+                    <Text style={styles.tipText}>Use good lighting to reduce glare on the plastic case</Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="information-circle" size={16} color="#8B5CF6" />
+                    <Text style={styles.tipText}>Results are estimates — actual crossover outcomes may vary</Text>
+                  </View>
+                </View>
+              </>
+            ) : mode === "quick" ? (
               <>
                 <Text style={styles.instructions}>
                   Add clear, well-lit photos of both sides of your card. Place the card on a plain, solid-coloured surface for the best centering accuracy. Avoid holding the card or using busy backgrounds.
@@ -818,13 +972,13 @@ export default function GradeScreen() {
               ]}
             >
               <LinearGradient
-                colors={mode === "deep" ? ["#F59E0B", "#D97706"] : [Colors.gradientStart, Colors.gradientEnd]}
+                colors={mode === "deep" ? ["#F59E0B", "#D97706"] : mode === "crossover" ? ["#8B5CF6", "#6D28D9"] : [Colors.gradientStart, Colors.gradientEnd]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.gradientInner}
               >
-                <Ionicons name={mode === "deep" ? "search" : "sparkles"} size={20} color="#fff" />
-                <Text style={styles.analyzeText}>{mode === "deep" ? "Deep Analyze" : "Analyze & Grade"}</Text>
+                <Ionicons name={mode === "deep" ? "search" : mode === "crossover" ? "git-compare-outline" : "sparkles"} size={20} color="#fff" />
+                <Text style={styles.analyzeText}>{mode === "deep" ? "Deep Analyze" : mode === "crossover" ? "Crossover Analyze" : "Analyze & Grade"}</Text>
               </LinearGradient>
             </Pressable>
           </View>
@@ -1426,5 +1580,74 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
     color: "#fff",
+  },
+  modeTabTextCrossover: {
+    color: "#8B5CF6",
+  },
+  crossoverInfoCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "rgba(139, 92, 246, 0.08)",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(139, 92, 246, 0.2)",
+  },
+  crossoverInfoText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+    flex: 1,
+  },
+  crossoverSection: {
+    gap: 8,
+  },
+  crossoverLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  crossoverOptional: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  crossoverInput: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  companyRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  companyBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  companyBtnActive: {
+    backgroundColor: "rgba(139, 92, 246, 0.15)",
+    borderColor: "#8B5CF6",
+  },
+  companyBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  companyBtnTextActive: {
+    color: "#8B5CF6",
   },
 });

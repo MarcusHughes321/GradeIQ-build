@@ -392,7 +392,7 @@ export default function HomeScreen() {
           >
             <ActivityIndicator size="small" color={Colors.primary} />
             <View style={styles.bgJobInfo}>
-              <Text style={styles.bgJobTitle}>Grading in progress</Text>
+              <Text style={styles.bgJobTitle}>{activeJob.isCrossover ? "Crossover in progress" : "Grading in progress"}</Text>
               <Text style={styles.bgJobSubtitle}>Tap to view progress</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
@@ -427,7 +427,7 @@ export default function HomeScreen() {
           >
             <Ionicons name="checkmark-circle" size={22} color="#10B981" />
             <View style={styles.bgJobInfo}>
-              <Text style={styles.bgJobTitle}>Grading complete</Text>
+              <Text style={styles.bgJobTitle}>{activeJob.isCrossover ? "Crossover complete" : "Grading complete"}</Text>
               <Text style={styles.bgJobSubtitle}>
                 {activeJob.savedGrading.result.cardName || "Tap to view results"}
               </Text>

@@ -794,6 +794,27 @@ export default function ResultsScreen() {
           </View>
         </View>
 
+        {result.currentGrade && (
+          <View style={styles.currentGradeBanner}>
+            <View style={styles.currentGradeBannerHeader}>
+              <Ionicons name="shield-checkmark-outline" size={16} color="#8B5CF6" />
+              <Text style={styles.currentGradeBannerTitle}>Currently Graded</Text>
+              {result.currentGrade.certNumber ? (
+                <Text style={styles.currentGradeBannerCert}>#{result.currentGrade.certNumber}</Text>
+              ) : null}
+            </View>
+            <View style={styles.currentGradeBannerBody}>
+              <View style={styles.currentGradePill}>
+                <Text style={styles.currentGradePillCompany}>{result.currentGrade.company}</Text>
+                <Text style={styles.currentGradePillGrade}>{result.currentGrade.grade}</Text>
+              </View>
+              <Text style={styles.currentGradeBannerNote}>
+                This card is encased in a {result.currentGrade.company} slab. The grades below show estimated crossover results.
+              </Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
             <Ionicons name="clipboard-outline" size={16} color={Colors.textSecondary} />
@@ -1498,6 +1519,61 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  currentGradeBanner: {
+    backgroundColor: "rgba(139, 92, 246, 0.08)",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(139, 92, 246, 0.25)",
+    gap: 12,
+  },
+  currentGradeBannerHeader: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+  },
+  currentGradeBannerTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#8B5CF6",
+    flex: 1,
+  },
+  currentGradeBannerCert: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  currentGradeBannerBody: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+  },
+  currentGradePill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+    backgroundColor: "rgba(139, 92, 246, 0.15)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  currentGradePillCompany: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    color: "#8B5CF6",
+  },
+  currentGradePillGrade: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: "#8B5CF6",
+  },
+  currentGradeBannerNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 16,
+    flex: 1,
   },
   summaryCard: {
     backgroundColor: Colors.surface,

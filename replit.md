@@ -30,7 +30,7 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
     - **Card Number Detection**: AI reads card numbers from the card bottom, utilizing multiple strategies for accuracy.
     - **Vintage Card Support**: AI can identify older cards (WOTC, e-Card, EX era) by their set symbols when printed set codes are not available.
 - **User Features**:
-    - **Two Grading Modes**: Quick Grade (2 photos: front + back, fast) and Deep Grade (12 photos: front + back + angled front + angled back + 4 front corner close-ups + 4 back corner close-ups, plus 4 auto-crops backup = up to 16 images to AI, premium accuracy). Mode selector on Grade tab with guided step-by-step capture for Deep Grade.
+    - **Three Grading Modes**: Quick Grade (2 photos: front + back, fast), Deep Grade (12 photos: front + back + angled front + angled back + 4 front corner close-ups + 4 back corner close-ups, plus 4 auto-crops backup = up to 16 images to AI, premium accuracy), and Crossover Grade (1 photo of a graded slab + company + grade + optional cert number, estimates crossover grades from other companies). Mode selector on Grade tab with guided step-by-step capture for Deep Grade.
     - **Deep Grade Features**: Server-side image enhancement (sharpening + contrast boost via Sharp), auto-corner cropping, modified AI prompt analyzing all 8 images for surface detail. First-use onboarding modal (AsyncStorage key: `gradeiq_deep_intro_seen`). Amber/gold (#F59E0B) color accent for Deep Grade UI.
     - **Deep Grade Corner Photos**: Users capture 8 corner close-ups (4 front + 4 back) by holding their phone close to each corner. These are the PRIMARY source for corner/edge grading. Auto-cropped corners serve as fallback when user corners aren't provided.
     - **Image Enhancement Pipeline**: All images sharpened via `sharp().sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })`, brightness adjusted `.modulate({ brightness: 1.02 })`, and contrast boosted `.linear(1.15, -(128 * 0.15))` before AI analysis.
@@ -41,7 +41,8 @@ The app features a modern, dark-themed interface with a primary color of #FF3C31
     - **First-use Company Selection**: Guides new users to select grading companies, with all companies off by default.
 
 ### Feature Specifications
-- **Core Grading**: Provides estimated grades for PSA, Beckett, and Ace Grading based on detailed condition analysis (centering, corners, edges, surface).
+- **Core Grading**: Provides estimated grades for PSA, Beckett, ACE, TAG, and CGC based on detailed condition analysis (centering, corners, edges, surface).
+- **Crossover Grading**: Upload a photo of a graded slab from any company (PSA, BGS, CGC, ACE, TAG, OTHER), enter the current grade and optional cert number, and get AI-estimated crossover grades showing how the card would likely grade at other companies. Results show a "Currently Graded" purple banner on the results screen with the current slab details. Uses `/api/crossover-grade-job` endpoint with `performCrossoverGrading` server function. Purple/indigo (#8B5CF6) color accent.
 - **Detailed Results**: Displays comprehensive grading results, including sub-grades, card name, set name, and set number.
 - **Market Value Estimation**: Multi-source price lookup: (1) pokemontcg.io API name-first search with TCGPlayer prices embedded, (2) TCGCSV API set-based fallback with comprehensive promo set aliases (SV, SWSH, SM, XY, BW, HGSS, DP, WOTC, ME promos all mapped to exact TCGPlayer set names). Server-side currency conversion from USD using configurable exchange rates. Supports GBP, USD, EUR, AUD, CAD, and JPY. Premium users can select their preferred currency in Settings; free users default to GBP.
 - **Grading History**: Local storage (AsyncStorage) maintains a history of graded cards.

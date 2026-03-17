@@ -106,6 +106,13 @@ export interface DefectMarker {
   description: string;
 }
 
+export interface CurrentGrade {
+  company: "PSA" | "BGS" | "CGC" | "ACE" | "TAG" | "OTHER";
+  grade: string;
+  certNumber?: string;
+  label?: string;
+}
+
 export interface GradingResult {
   cardName: string;
   setName?: string;
@@ -122,6 +129,8 @@ export interface GradingResult {
   tag: TAGGrade;
   cgc: CGCGrade;
   cardValue?: CardValueEstimate;
+  currentGrade?: CurrentGrade;
+  isCrossover?: boolean;
 }
 
 export interface SavedGrading {
@@ -133,6 +142,7 @@ export interface SavedGrading {
   frontCornerImages?: string[];
   backCornerImages?: string[];
   isDeepGrade?: boolean;
+  isCrossover?: boolean;
   result: GradingResult;
   timestamp: number;
 }

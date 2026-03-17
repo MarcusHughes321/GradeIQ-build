@@ -4135,6 +4135,177 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     }
   });
 
+  async function performCrossoverGrading(
+    slabImage: string,
+    certNumber: string | undefined,
+    currentCompany: string,
+    currentGrade: string,
+    logPrefix: string = "[crossover-grade]",
+  ): Promise<any> {
+    const gradeStartTime = Date.now();
+    const rawSlabUrl = slabImage.startsWith("data:") ? slabImage : `data:image/jpeg;base64,${slabImage}`;
+    const slabUrl = await optimizeImageForAI(rawSlabUrl, 2048);
+    console.log(`${logPrefix} Optimized slab image in ${Date.now() - gradeStartTime}ms`);
+
+    const setRef = getCurrentSetReference();
+
+    const prompt = `You are an expert Pokemon card crossover grader. You are looking at a Pokemon card that is currently graded and encased in a ${currentCompany} slab with a grade of ${currentGrade}${certNumber ? ` (cert: ${certNumber})` : ""}.
+
+Your task is to analyze the card inside the slab and estimate what grade it would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
+
+When assessing a graded slab, the card cannot be handled, so you must work from what is visible through the plastic case. Take note of:
+- Centering (visible from the front)
+- Corners (look for whitening, fraying, or damage)
+- Edges (look for nicks, chips, or wear)
+- Surface (look for scratches, print lines, stains, or loss of gloss)
+
+IMPORTANT: The current grade of ${currentGrade} from ${currentCompany} gives you a baseline. Consider population reports and typical crossover outcomes. A ${currentCompany} ${currentGrade} does NOT automatically guarantee the same grade elsewhere — each company has different standards.
+
+CROSSOVER CONTEXT:
+- PSA tends to grade more strictly on centering; BGS grades on a 10-point sub-grade scale; ACE is UK-based with similar standards to PSA; TAG is premium-tier; CGC is newer with stricter surface standards.
+- Cards in PSA 9 often crossover to BGS 8.5 or 9 due to stricter Beckett standards.
+- Cards in BGS 9.5 may crossover to PSA 10 if centering and surface are clean.
+
+${setRef}
+
+IDENTIFICATION: Identify the card from what is visible (name, set, number).
+
+RESPONSE FORMAT (JSON only, no markdown):
+{
+  "cardName": "Card name",
+  "setName": "Set name",
+  "setNumber": "Set number or null",
+  "overallCondition": "Brief condition summary referencing the slab",
+  "currentGrade": {
+    "company": "${currentCompany}",
+    "grade": "${currentGrade}",
+    "certNumber": ${certNumber ? `"${certNumber}"` : "null"}
+  },
+  "isCrossover": true,
+  "centering": {
+    "frontLeftRight": 50,
+    "frontTopBottom": 50,
+    "backLeftRight": 50,
+    "backTopBottom": 50
+  },
+  "psa": {
+    "grade": 9,
+    "centeringGrade": 9,
+    "centering": "Centering notes",
+    "corners": "Corner notes",
+    "edges": "Edge notes",
+    "surface": "Surface notes",
+    "notes": "Overall PSA assessment"
+  },
+  "beckett": {
+    "overallGrade": 9,
+    "centering": { "grade": 9, "notes": "notes" },
+    "corners": { "grade": 9, "notes": "notes" },
+    "edges": { "grade": 9, "notes": "notes" },
+    "surface": { "grade": 9, "notes": "notes" },
+    "notes": "Overall BGS assessment"
+  },
+  "ace": {
+    "overallGrade": 9,
+    "centering": { "grade": 9, "notes": "notes" },
+    "corners": { "grade": 9, "notes": "notes" },
+    "edges": { "grade": 9, "notes": "notes" },
+    "surface": { "grade": 9, "notes": "notes" },
+    "notes": "Overall ACE assessment"
+  },
+  "tag": {
+    "overallGrade": 9,
+    "centering": { "grade": 9, "notes": "notes" },
+    "corners": { "grade": 9, "notes": "notes" },
+    "edges": { "grade": 9, "notes": "notes" },
+    "surface": { "grade": 9, "notes": "notes" },
+    "notes": "Overall TAG assessment"
+  },
+  "cgc": {
+    "grade": 9,
+    "centering": "centering notes",
+    "corners": "corner notes",
+    "edges": "edge notes",
+    "surface": "surface notes",
+    "notes": "Overall CGC assessment"
+  }
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: slabUrl, detail: "high" } },
+          ],
+        },
+      ],
+      max_tokens: 2000,
+      temperature: 0.2,
+    });
+
+    const rawContent = response.choices[0]?.message?.content || "";
+    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON in crossover response");
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    if (!result.psa?.grade) throw new Error("Invalid crossover result structure");
+
+    const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
+    result.setName = resolvedSetName;
+
+    console.log(`${logPrefix} Crossover complete in ${Date.now() - gradeStartTime}ms`);
+    return result;
+  }
+
+  app.post("/api/crossover-grade-job", async (req, res) => {
+    try {
+      const { slabImage, certNumber, currentCompany, currentGrade, pushToken } = req.body;
+      if (!slabImage || !currentCompany || !currentGrade) {
+        return res.status(400).json({ error: "slabImage, currentCompany, and currentGrade are required" });
+      }
+
+      const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+      console.log(`[crossover-grade-job] Creating job ${jobId}`);
+      const job: GradingJob = {
+        id: jobId,
+        status: "processing",
+        type: "single",
+        pushToken,
+        createdAt: Date.now(),
+      };
+      gradingJobs.set(jobId, job);
+
+      res.json({ jobId });
+
+      (async () => {
+        try {
+          const result = await performCrossoverGrading(slabImage, certNumber, currentCompany, currentGrade, `[crossover-grade-job:${jobId}]`);
+          job.status = "completed";
+          job.result = result;
+
+          if (job.pushToken) {
+            const resultName = result.cardName || "your card";
+            sendPushNotification(job.pushToken, "Crossover Complete", `${resultName} crossover analysis done!`);
+          }
+        } catch (err: any) {
+          console.error(`[crossover-grade-job] Job ${jobId} failed:`, err.message);
+          job.status = "failed";
+          job.error = err.message || "Unknown error";
+
+          if (job.pushToken) {
+            sendPushNotification(job.pushToken, "Crossover Failed", "There was an error analyzing your slab. Please try again.");
+          }
+        }
+      })();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/grade-job", async (req, res) => {
     try {
       const { frontImage, backImage, pushToken } = req.body;
