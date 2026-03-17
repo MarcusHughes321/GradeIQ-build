@@ -92,26 +92,6 @@ export default function BulkInfoScreen() {
           </Text>
         </View>
 
-        <View style={styles.comparisonCard}>
-          <View style={styles.compRow}>
-            <View style={styles.compCol}>
-              <Ionicons name="flash" size={18} color={Colors.textSecondary} />
-              <Text style={styles.compColTitle}>Quick Grade</Text>
-              <Text style={styles.compDetail}>1 card at a time</Text>
-              <Text style={styles.compDetail}>2 photos</Text>
-              <Text style={styles.compDetail}>Standard analysis</Text>
-            </View>
-            <View style={styles.compDivider} />
-            <View style={styles.compCol}>
-              <Ionicons name="layers" size={18} color={ACCENT} />
-              <Text style={[styles.compColTitle, { color: ACCENT }]}>Bulk Grade</Text>
-              <Text style={styles.compDetail}>Up to 20 cards</Text>
-              <Text style={styles.compDetail}>Parallel analysis</Text>
-              <Text style={styles.compDetail}>Batch summary</Text>
-            </View>
-          </View>
-        </View>
-
         <Text style={styles.sectionTitle}>How It Works</Text>
         <View style={styles.stepsCard}>
           {STEPS.map((step, i) => (

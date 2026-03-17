@@ -92,26 +92,6 @@ export default function CrossoverInfoScreen() {
           </Text>
         </View>
 
-        <View style={styles.comparisonCard}>
-          <View style={styles.compRow}>
-            <View style={styles.compCol}>
-              <Ionicons name="flash" size={18} color={Colors.textSecondary} />
-              <Text style={styles.compColTitle}>Quick Grade</Text>
-              <Text style={styles.compDetail}>Raw cards only</Text>
-              <Text style={styles.compDetail}>2 photos</Text>
-              <Text style={styles.compDetail}>Standard analysis</Text>
-            </View>
-            <View style={styles.compDivider} />
-            <View style={styles.compCol}>
-              <Ionicons name="swap-horizontal" size={18} color={ACCENT} />
-              <Text style={[styles.compColTitle, { color: ACCENT }]}>Crossover</Text>
-              <Text style={styles.compDetail}>Graded slabs</Text>
-              <Text style={styles.compDetail}>1–2 photos</Text>
-              <Text style={styles.compDetail}>5-company grades</Text>
-            </View>
-          </View>
-        </View>
-
         <Text style={styles.sectionTitle}>How It Works</Text>
         <View style={styles.stepsCard}>
           {STEPS.map((step, i) => (
