@@ -57,6 +57,8 @@ interface SubscriptionContextValue {
   canDeepGrade: boolean;
   checkCanDeepGrade: () => boolean;
   recordDeepUsage: () => Promise<boolean>;
+  canCrossover: boolean;
+  canBulk: boolean;
   isAdminMode: boolean;
   toggleAdminMode: () => Promise<void>;
 }
@@ -324,6 +326,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const deepMonthlyLimit = deepGradeLimit;
 
+  const canCrossover = isAdminMode || !isGateEnabled || isSubscribed;
+  const canBulk = isAdminMode || !isGateEnabled || currentTier === "enthusiast" || currentTier === "obsessed";
+
   const value = useMemo(
     () => ({
       isGateEnabled,
@@ -346,10 +351,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       canDeepGrade,
       checkCanDeepGrade,
       recordDeepUsage,
+      canCrossover,
+      canBulk,
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, canCrossover, canBulk, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

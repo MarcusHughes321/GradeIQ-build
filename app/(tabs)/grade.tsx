@@ -171,7 +171,7 @@ export default function GradeScreen() {
   const [slabImage, setSlabImage] = useState<string | null>(null);
   const [slabBackImage, setSlabBackImage] = useState<string | null>(null);
 
-  const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed } = useSubscription();
+  const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed, canCrossover, canBulk } = useSubscription();
   const { submitGrading, submitDeepGrading, submitCrossoverGrading, activeJob } = useGrading();
   const navigation = useNavigation();
 
@@ -466,6 +466,11 @@ export default function GradeScreen() {
       return;
     }
 
+    if (mode === "crossover" && isGateEnabled && !canCrossover && !isAdminMode) {
+      router.push("/crossover-info");
+      return;
+    }
+
     if ((mode === "quick" || mode === "crossover") && isGateEnabled && !canGrade) {
       router.push("/paywall");
       return;
@@ -549,7 +554,13 @@ export default function GradeScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => router.push("/bulk")}
+        onPress={() => {
+          if (isGateEnabled && !canBulk && !isAdminMode) {
+            router.push("/bulk-info");
+            return;
+          }
+          router.push("/bulk");
+        }}
       >
         <View style={[styles.hubIconWrap, styles.hubIconGreen]}>
           <Ionicons name="layers-outline" size={22} color="#10B981" />
@@ -558,7 +569,14 @@ export default function GradeScreen() {
           <Text style={styles.hubCardTitle}>Bulk Grade</Text>
           <Text style={styles.hubCardSub}>Up to 20 cards at once</Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        {isGateEnabled && !canBulk && !isAdminMode ? (
+          <View style={[styles.hubLockPill, styles.hubLockPillGreen]}>
+            <Ionicons name="lock-closed" size={11} color="#10B981" />
+            <Text style={[styles.hubLockPillText, { color: "#10B981" }]}>Enthusiast</Text>
+          </View>
+        ) : (
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        )}
       </Pressable>
 
       <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Graded Slabs</Text>
@@ -566,8 +584,8 @@ export default function GradeScreen() {
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
         onPress={() => {
-          if (isGateEnabled && !isAdminMode && !canGrade) {
-            router.push("/paywall");
+          if (isGateEnabled && !canCrossover && !isAdminMode) {
+            router.push("/crossover-info");
             return;
           }
           setMode("crossover");
@@ -580,7 +598,7 @@ export default function GradeScreen() {
           <Text style={styles.hubCardTitle}>Crossover Grading</Text>
           <Text style={styles.hubCardSub}>Estimate grades at other companies</Text>
         </View>
-        {isGateEnabled && !isSubscribed && !isAdminMode ? (
+        {isGateEnabled && !canCrossover && !isAdminMode ? (
           <View style={[styles.hubLockPill, styles.hubLockPillPurple]}>
             <Ionicons name="lock-closed" size={11} color="#8B5CF6" />
             <Text style={[styles.hubLockPillText, { color: "#8B5CF6" }]}>Pro</Text>
@@ -1240,6 +1258,9 @@ const styles = StyleSheet.create({
   },
   hubLockPillPurple: {
     backgroundColor: "rgba(139,92,246,0.12)",
+  },
+  hubLockPillGreen: {
+    backgroundColor: "rgba(16,185,129,0.12)",
   },
   hubLockPillText: {
     fontFamily: "Inter_600SemiBold",
