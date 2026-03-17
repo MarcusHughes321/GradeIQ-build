@@ -461,13 +461,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           backCornerImages: activeJob.backCornerImages,
           isDeepGrade: true,
         } : undefined;
+        const resumeEndpoint = activeJob.isCrossover ? "/api/crossover-grade-job" : undefined;
         pollingRef.current = setInterval(() => {
-          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra);
+          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint);
         }, POLL_INTERVAL);
       }
     });
     return () => sub.remove();
-  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, pollJobStatus, stopPolling]);
+  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, activeJob?.isCrossover, pollJobStatus, stopPolling]);
 
   useEffect(() => {
     return () => stopPolling();
