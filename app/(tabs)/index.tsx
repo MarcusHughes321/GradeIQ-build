@@ -31,10 +31,7 @@ import { CURRENCIES, type CurrencyCode } from "@/lib/settings";
 import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const BUBBLE_GAP = 12;
 const BUBBLE_PAD = 20;
-const BUBBLE_WIDTH = (SCREEN_WIDTH - BUBBLE_PAD * 2 - BUBBLE_GAP) / 2;
 
 function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySymbol }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean; currencySymbol: string }) {
   const date = new Date(item.timestamp);
@@ -213,7 +210,7 @@ export default function HomeScreen() {
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, remainingDeepGrades } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
   const proReminderShownRef = useRef(false);
 
@@ -485,48 +482,147 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
-      <View style={styles.bubblesRow}>
+      <View style={styles.featureCards}>
+        {/* Quick Grade */}
         <Pressable
-          style={({ pressed }) => [styles.bubbleButton, styles.bubblePrimary, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}
+          style={({ pressed }) => [styles.featureCard, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
           onPress={() => router.push("/grade")}
         >
           <LinearGradient
-            colors={[Colors.gradientStart, Colors.gradientEnd]}
+            colors={["#FF3C31", "#FF6B63"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.bubbleGradient}
+            style={styles.featureCardGradient}
           >
-            <View style={styles.bubbleIconCircle}>
-              <Ionicons name="camera" size={28} color="#fff" />
+            <View style={styles.featureCardLeft}>
+              <View style={styles.featureIconCircle}>
+                <Ionicons name="camera" size={22} color="#fff" />
+              </View>
+              <View style={styles.featureCardText}>
+                <View style={styles.featureTitleRow}>
+                  <Text style={styles.featureTitle}>Quick Grade</Text>
+                  <View style={styles.featureTag}><Text style={styles.featureTagText}>Raw Cards</Text></View>
+                </View>
+                <Text style={styles.featureSubtitle}>2 photos — front & back</Text>
+                {isGateEnabled && remainingGrades !== null && (
+                  <Text style={styles.featureUsage}>
+                    {remainingGrades > 0 ? `${remainingGrades} of ${monthlyLimit} free grades left` : "No free grades left"}
+                  </Text>
+                )}
+                {isGateEnabled && remainingGrades === null && (
+                  <Text style={styles.featureUsageUnlimited}>Unlimited grades</Text>
+                )}
+              </View>
             </View>
-            <Text style={styles.bubblePrimaryText}>Grade a Card</Text>
-            <Text style={styles.bubbleSubtext}>Take photos to analyze</Text>
+            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" />
           </LinearGradient>
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.featureCardBulkLink, { opacity: pressed ? 0.6 : 1 }]}
+          onPress={() => router.push("/bulk")}
+        >
+          <Ionicons name="layers-outline" size={13} color={Colors.textMuted} />
+          <Text style={styles.featureCardBulkText}>Bulk grade up to 20 cards →</Text>
+        </Pressable>
 
-        <View style={styles.bubblesRightCol}>
+        {/* Deep Grade */}
+        {isGateEnabled && !isSubscribed && !isAdminMode ? (
           <Pressable
-            style={({ pressed }) => [styles.bubbleStats, styles.bubbleSmall, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
-            onPress={() => router.push("/bulk")}
+            style={({ pressed }) => [styles.featureCard, styles.featureCardLocked, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
+            onPress={() => router.push("/paywall")}
           >
-            <View style={styles.statsIconCircle}>
-              <Ionicons name="layers" size={20} color={Colors.primary} />
+            <View style={styles.featureCardLockedInner}>
+              <View style={styles.featureCardLeft}>
+                <View style={[styles.featureIconCircle, styles.featureIconAmber]}>
+                  <Ionicons name="search" size={22} color="#F59E0B" />
+                </View>
+                <View style={styles.featureCardText}>
+                  <View style={styles.featureTitleRow}>
+                    <Text style={styles.featureTitle}>Deep Grade</Text>
+                    <View style={[styles.featureTag, styles.featureTagAmber]}><Text style={[styles.featureTagText, styles.featureTagTextAmber]}>Raw Cards</Text></View>
+                  </View>
+                  <Text style={styles.featureSubtitle}>12 photos — premium accuracy</Text>
+                  <Text style={styles.featureLockLabel}>Pro feature — upgrade to unlock</Text>
+                </View>
+              </View>
+              <View style={styles.featureLockIcon}>
+                <Ionicons name="lock-closed" size={16} color="#F59E0B" />
+              </View>
             </View>
-            <Text style={styles.bubblePrimaryTextSmall}>Bulk Grade</Text>
-            <Text style={styles.bubbleSubtext}>Up to 20 cards</Text>
           </Pressable>
-
+        ) : (
           <Pressable
-            style={({ pressed }) => [styles.bubbleStats, styles.bubbleSmall, styles.bubbleCrossover, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+            style={({ pressed }) => [styles.featureCard, styles.featureCardAmber, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
+            onPress={() => router.push({ pathname: "/grade", params: { mode: "deep" } })}
+          >
+            <View style={styles.featureCardInner}>
+              <View style={styles.featureCardLeft}>
+                <View style={[styles.featureIconCircle, styles.featureIconAmber]}>
+                  <Ionicons name="search" size={22} color="#F59E0B" />
+                </View>
+                <View style={styles.featureCardText}>
+                  <View style={styles.featureTitleRow}>
+                    <Text style={styles.featureTitle}>Deep Grade</Text>
+                    <View style={[styles.featureTag, styles.featureTagAmber]}><Text style={[styles.featureTagText, styles.featureTagTextAmber]}>Raw Cards</Text></View>
+                  </View>
+                  <Text style={styles.featureSubtitle}>12 photos — premium accuracy</Text>
+                  {isGateEnabled && remainingDeepGrades !== undefined && (
+                    <Text style={styles.featureUsageAmber}>{remainingDeepGrades} deep grades left this month</Text>
+                  )}
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(245,158,11,0.6)" />
+            </View>
+          </Pressable>
+        )}
+
+        {/* Crossover Grade */}
+        {isGateEnabled && !isSubscribed && !isAdminMode ? (
+          <Pressable
+            style={({ pressed }) => [styles.featureCard, styles.featureCardLocked, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
+            onPress={() => router.push("/paywall")}
+          >
+            <View style={styles.featureCardLockedInner}>
+              <View style={styles.featureCardLeft}>
+                <View style={[styles.featureIconCircle, styles.featureIconPurple]}>
+                  <Ionicons name="swap-horizontal" size={22} color="#8B5CF6" />
+                </View>
+                <View style={styles.featureCardText}>
+                  <View style={styles.featureTitleRow}>
+                    <Text style={styles.featureTitle}>Crossover</Text>
+                    <View style={[styles.featureTag, styles.featureTagPurple]}><Text style={[styles.featureTagText, styles.featureTagTextPurple]}>Graded Slabs</Text></View>
+                  </View>
+                  <Text style={styles.featureSubtitle}>See crossover potential</Text>
+                  <Text style={styles.featureLockLabel}>Pro feature — upgrade to unlock</Text>
+                </View>
+              </View>
+              <View style={styles.featureLockIcon}>
+                <Ionicons name="lock-closed" size={16} color="#8B5CF6" />
+              </View>
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.featureCard, styles.featureCardPurple, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
             onPress={() => router.push({ pathname: "/grade", params: { mode: "crossover" } })}
           >
-            <View style={styles.crossoverIconCircle}>
-              <Ionicons name="swap-horizontal" size={20} color="#8B5CF6" />
+            <View style={styles.featureCardInner}>
+              <View style={styles.featureCardLeft}>
+                <View style={[styles.featureIconCircle, styles.featureIconPurple]}>
+                  <Ionicons name="swap-horizontal" size={22} color="#8B5CF6" />
+                </View>
+                <View style={styles.featureCardText}>
+                  <View style={styles.featureTitleRow}>
+                    <Text style={styles.featureTitle}>Crossover</Text>
+                    <View style={[styles.featureTag, styles.featureTagPurple]}><Text style={[styles.featureTagText, styles.featureTagTextPurple]}>Graded Slabs</Text></View>
+                  </View>
+                  <Text style={styles.featureSubtitle}>See crossover potential</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(139,92,246,0.6)" />
             </View>
-            <Text style={styles.bubblePrimaryTextSmall}>Crossover</Text>
-            <Text style={styles.bubbleSubtext}>Grade a slab</Text>
           </Pressable>
-        </View>
+        )}
       </View>
 
       {stats && (
@@ -1042,89 +1138,163 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "rgba(255,255,255,0.7)",
   },
-  bubblesRow: {
-    flexDirection: "row",
+  featureCards: {
     paddingHorizontal: BUBBLE_PAD,
-    gap: BUBBLE_GAP,
-    marginBottom: 28,
+    marginBottom: 24,
+    gap: 10,
   },
-  bubblesRightCol: {
-    width: BUBBLE_WIDTH,
-    gap: BUBBLE_GAP,
-  },
-  bubbleSmall: {
-    flex: 1,
-    width: "100%",
-  },
-  bubbleCrossover: {
-    borderColor: "rgba(139,92,246,0.25)",
-  },
-  crossoverIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(139,92,246,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  bubbleButton: {
-    width: BUBBLE_WIDTH,
-    borderRadius: 20,
+  featureCard: {
+    borderRadius: 18,
     overflow: "hidden",
-  },
-  bubblePrimary: {
-    minHeight: 140,
-  },
-  bubbleGradient: {
-    flex: 1,
-    padding: 18,
-    justifyContent: "space-between",
-  },
-  bubbleIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  bubblePrimaryText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    color: "#fff",
-  },
-  bubbleSubtext: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: "rgba(255,255,255,0.75)",
-    marginTop: 2,
-  },
-  bubbleStats: {
-    width: BUBBLE_WIDTH,
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    padding: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
-  statsIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,60,49,0.12)",
+  featureCardGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  featureCardInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  featureCardLockedInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 12,
+    opacity: 0.7,
+  },
+  featureCardAmber: {
+    backgroundColor: "rgba(245,158,11,0.08)",
+    borderColor: "rgba(245,158,11,0.2)",
+  },
+  featureCardPurple: {
+    backgroundColor: "rgba(139,92,246,0.08)",
+    borderColor: "rgba(139,92,246,0.2)",
+  },
+  featureCardLocked: {
+    backgroundColor: Colors.surface,
+    borderColor: Colors.surfaceBorder,
+  },
+  featureCardLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  featureIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 4,
+    flexShrink: 0,
   },
-  bubblePrimaryTextSmall: {
+  featureIconAmber: {
+    backgroundColor: "rgba(245,158,11,0.15)",
+  },
+  featureIconPurple: {
+    backgroundColor: "rgba(139,92,246,0.15)",
+  },
+  featureCardText: {
+    flex: 1,
+    gap: 3,
+  },
+  featureTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  featureTitle: {
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.text,
+  },
+  featureTag: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  featureTagAmber: {
+    backgroundColor: "rgba(245,158,11,0.2)",
+  },
+  featureTagPurple: {
+    backgroundColor: "rgba(139,92,246,0.2)",
+  },
+  featureTagText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    color: "rgba(255,255,255,0.85)",
+    letterSpacing: 0.3,
+  },
+  featureTagTextAmber: {
+    color: "#F59E0B",
+  },
+  featureTagTextPurple: {
+    color: "#A78BFA",
+  },
+  featureSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  featureUsage: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.6)",
+    marginTop: 1,
+  },
+  featureUsageUnlimited: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "rgba(16,185,129,0.9)",
+    marginTop: 1,
+  },
+  featureUsageAmber: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: "rgba(245,158,11,0.8)",
+    marginTop: 1,
+  },
+  featureLockLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  featureLockIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  featureCardBulkLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginTop: -4,
+    marginBottom: 2,
+    alignSelf: "flex-start",
+  },
+  featureCardBulkText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
   },
   statsRow: {
     flexDirection: "row",
