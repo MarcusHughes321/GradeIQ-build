@@ -4525,26 +4525,42 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     if (company === "PSA") {
       try {
-        const response = await fetch(`https://www.psacard.com/publicapi/cert/GetByCertNumber/${certNum.trim()}`, {
-          headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" },
+        const response = await fetch(`https://api.psacard.com/publicapi/cert/GetByCertNumber/${certNum.trim()}`, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; GradeIQ/1.0)", "Accept": "application/json" },
+          signal: AbortSignal.timeout(8000),
         });
+        const rawText = await response.text();
+        // Detect quota-exceeded error
+        if (rawText.includes("quota exceeded") || rawText.includes("maximum admitted")) {
+          return res.json({ found: false, reason: "PSA's free lookup quota has been reached for today. Enter your PSA grade below to continue." });
+        }
         if (response.ok) {
-          const data = await response.json();
+          let data: any;
+          try { data = JSON.parse(rawText); } catch { data = null; }
           const cert = data?.PSACert;
           if (cert) {
+            const gradeDesc = cert.GradeDescription || cert.CardGrade || null;
+            // Extract just the numeric/label part (e.g. "GEM MT 10" → "10", "NM-MT 8" → "8")
+            const gradeMatch = gradeDesc ? gradeDesc.match(/\b(\d+(?:\.\d+)?)\s*$/) : null;
+            const grade = gradeMatch ? gradeMatch[1] : gradeDesc;
             return res.json({
               found: true,
               cardName: cert.Subject || cert.CardName || null,
               year: cert.Year?.toString() || null,
               set: cert.Brand || null,
-              grade: cert.GradeDescription || cert.CardGrade || null,
+              grade,
+              gradeLabel: gradeDesc,
               certNumber: cert.CertNumber?.toString() || certNum,
             });
           }
         }
-        return res.json({ found: false });
-      } catch {
-        return res.json({ found: false });
+        return res.json({ found: false, reason: "Cert not found in PSA's database. Enter your grade below to continue." });
+      } catch (e: any) {
+        const msg = e?.message || "";
+        if (msg.includes("timeout") || msg.includes("abort")) {
+          return res.json({ found: false, reason: "PSA lookup timed out. Enter your PSA grade below." });
+        }
+        return res.json({ found: false, reason: "PSA lookup failed. Enter your PSA grade below to continue." });
       }
     }
 

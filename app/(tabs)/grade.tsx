@@ -159,7 +159,7 @@ export default function GradeScreen() {
   const [crossoverMethod, setCrossoverMethod] = useState<CrossoverMethod>("image");
   const [certNumber, setCertNumber] = useState("");
   const [certLookupLoading, setCertLookupLoading] = useState(false);
-  const [certLookupResult, setCertLookupResult] = useState<{ found: boolean; cardName?: string; grade?: string; set?: string; year?: string; reason?: string } | null>(null);
+  const [certLookupResult, setCertLookupResult] = useState<{ found: boolean; cardName?: string; grade?: string; gradeLabel?: string; set?: string; year?: string; reason?: string } | null>(null);
   const [certManualGrade, setCertManualGrade] = useState("");
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
@@ -1054,7 +1054,11 @@ export default function GradeScreen() {
                         <View style={{ flex: 1 }}>
                           {certLookupResult.cardName && <Text style={styles.certFoundName}>{certLookupResult.cardName}</Text>}
                           {certLookupResult.set && <Text style={styles.certFoundDetail}>{certLookupResult.set}{certLookupResult.year ? ` (${certLookupResult.year})` : ""}</Text>}
-                          {certLookupResult.grade && <Text style={styles.certFoundGrade}>{crossoverCompany} {certLookupResult.grade}</Text>}
+                          {certLookupResult.grade && (
+                            <Text style={styles.certFoundGrade}>
+                              {crossoverCompany} {certLookupResult.gradeLabel || certLookupResult.grade}
+                            </Text>
+                          )}
                         </View>
                       </View>
                     )}
@@ -1071,7 +1075,7 @@ export default function GradeScreen() {
                       </View>
                     )}
 
-                    {(crossoverCompany !== "PSA" || (certLookupResult && !certLookupResult.found) || (certLookupResult?.found && !certLookupResult.grade)) && (
+                    {!certLookupResult?.found && (
                       <View style={styles.crossoverSection}>
                         <Text style={styles.crossoverLabel}>Current Grade</Text>
                         <TextInput
