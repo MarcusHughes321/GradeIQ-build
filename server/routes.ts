@@ -4518,6 +4518,103 @@ RESPONSE FORMAT (JSON only, no markdown):
     respondWithJob(res, job);
   });
 
+  app.get("/api/cert-lookup", async (req, res) => {
+    const company = req.query.company as string;
+    const certNum = req.query.certNumber as string;
+    if (!company || !certNum) return res.status(400).json({ error: "company and certNumber required" });
+
+    if (company === "PSA") {
+      try {
+        const response = await fetch(`https://www.psacard.com/publicapi/cert/GetByCertNumber/${certNum.trim()}`, {
+          headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const cert = data?.PSACert;
+          if (cert) {
+            return res.json({
+              found: true,
+              cardName: cert.Subject || cert.CardName || null,
+              year: cert.Year?.toString() || null,
+              set: cert.Brand || null,
+              grade: cert.GradeDescription || cert.CardGrade || null,
+              certNumber: cert.CertNumber?.toString() || certNum,
+            });
+          }
+        }
+        return res.json({ found: false });
+      } catch {
+        return res.json({ found: false });
+      }
+    }
+
+    return res.json({ found: false, reason: `Automatic cert lookup not supported for ${company}. Enter grade manually.` });
+  });
+
+  app.post("/api/cert-crossover", async (req, res) => {
+    try {
+      const { company, grade, certNumber: certNum, cardName, cardSet } = req.body;
+      if (!company || !grade) return res.status(400).json({ error: "company and grade required" });
+
+      const setRef = getCurrentSetReference();
+      const cardInfo = cardName ? `Card: ${cardName}${cardSet ? ` (${cardSet})` : ""}. ` : "";
+
+      const prompt = `You are an expert Pokemon card crossover grader. A Pokemon card is currently graded by ${company} with a grade of ${grade}${certNum ? ` (cert: ${certNum})` : ""}. ${cardInfo}
+
+Based on ${company}'s grading standards and the known grade of ${grade}, estimate what grade this card would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
+
+Use your knowledge of:
+- Grading standard differences between companies
+- Typical crossover patterns (e.g. PSA 9 often → BGS 8.5-9; BGS 9.5 sometimes → PSA 10; CGC tends strict on surface)
+- Population reports and historical crossover outcomes for this grade tier
+
+Note: No images are provided. Base your analysis purely on:
+1. The ${company} grade of ${grade} as the primary indicator
+2. Statistical crossover likelihood based on grading company standards
+3. Any card-specific knowledge if the card name is recognizable
+
+${setRef}
+
+RESPONSE FORMAT (JSON only, no markdown):
+{
+  "cardName": "${cardName || "Unknown"}",
+  "setName": "${cardSet || "Unknown"}",
+  "setNumber": null,
+  "overallCondition": "Brief condition summary based on grade",
+  "currentGrade": { "company": "${company}", "grade": "${grade}", "certNumber": ${certNum ? `"${certNum}"` : "null"} },
+  "isCrossover": true,
+  "centering": { "frontLeftRight": 50, "frontTopBottom": 50, "backLeftRight": 50, "backTopBottom": 50 },
+  "psa": { "grade": 9, "centeringGrade": 9, "centering": "notes", "corners": "notes", "edges": "notes", "surface": "notes", "notes": "PSA assessment" },
+  "beckett": { "overallGrade": 9, "centering": { "grade": 9, "notes": "notes" }, "corners": { "grade": 9, "notes": "notes" }, "edges": { "grade": 9, "notes": "notes" }, "surface": { "grade": 9, "notes": "notes" }, "notes": "BGS assessment" },
+  "ace": { "overallGrade": 9, "centering": { "grade": 9, "notes": "notes" }, "corners": { "grade": 9, "notes": "notes" }, "edges": { "grade": 9, "notes": "notes" }, "surface": { "grade": 9, "notes": "notes" }, "notes": "ACE assessment" },
+  "tag": { "overallGrade": 9, "centering": { "grade": 9, "notes": "notes" }, "corners": { "grade": 9, "notes": "notes" }, "edges": { "grade": 9, "notes": "notes" }, "surface": { "grade": 9, "notes": "notes" }, "notes": "TAG assessment" },
+  "cgc": { "grade": 9, "centering": "notes", "corners": "notes", "edges": "notes", "surface": "notes", "notes": "CGC assessment" }
+}`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 1500,
+        temperature: 0.2,
+      });
+
+      const raw = response.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON in cert crossover response");
+
+      const result = JSON.parse(jsonMatch[0]);
+      if (!result.psa?.grade) throw new Error("Invalid cert crossover result");
+
+      const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
+      result.setName = resolvedSetName;
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[cert-crossover] Error:", err.message);
+      res.status(500).json({ error: err.message || "Cert crossover analysis failed" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
