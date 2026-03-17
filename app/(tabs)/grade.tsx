@@ -599,9 +599,9 @@ export default function GradeScreen() {
           <Text style={styles.hubCardSub}>Estimate grades at other companies</Text>
         </View>
         {isGateEnabled && !canCrossover && !isAdminMode ? (
-          <View style={[styles.hubLockPill, styles.hubLockPillPurple]}>
-            <Ionicons name="lock-closed" size={11} color="#8B5CF6" />
-            <Text style={[styles.hubLockPillText, { color: "#8B5CF6" }]}>Pro</Text>
+          <View style={styles.hubLockPill}>
+            <Ionicons name="lock-closed" size={11} color="#F59E0B" />
+            <Text style={styles.hubLockPillText}>Pro</Text>
           </View>
         ) : (
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
