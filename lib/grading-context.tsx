@@ -384,7 +384,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const submitCrossoverGrading = useCallback(async (
     slabFrontImage: string,
     slabBackImage: string | undefined,
-    certNumber: string | undefined,
+    _certNumber: string | undefined,
     currentCompany: string,
     currentGrade: string,
     recordUsage: (n: number) => Promise<void>,
@@ -413,7 +413,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const resp = await apiRequest("POST", "/api/crossover-grade-job", {
         slabImage: slabFrontBase64,
         slabBackImage: slabBackBase64,
-        certNumber: certNumber || undefined,
         currentCompany,
         currentGrade,
       });

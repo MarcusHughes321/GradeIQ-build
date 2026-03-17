@@ -29,8 +29,6 @@ import { useGrading } from "@/lib/grading-context";
 
 type GradeMode = "hub" | "quick" | "deep" | "crossover";
 type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR";
-type CrossoverMethod = "image" | "cert";
-
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
 const CROSSOVER_COMPANIES = ["PSA", "BGS", "CGC", "ACE", "TAG", "OTHER"] as const;
@@ -156,11 +154,6 @@ export default function GradeScreen() {
     if (modeParam === "crossover" || modeParam === "deep" || modeParam === "quick") setMode(modeParam);
   }, [modeParam]);
 
-  const [crossoverMethod, setCrossoverMethod] = useState<CrossoverMethod>("image");
-  const [certNumber, setCertNumber] = useState("");
-  const [certLookupLoading, setCertLookupLoading] = useState(false);
-  const [certLookupResult, setCertLookupResult] = useState<{ found: boolean; cardName?: string; grade?: string; gradeLabel?: string; set?: string; year?: string; reason?: string } | null>(null);
-  const [certManualGrade, setCertManualGrade] = useState("");
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [angledFrontImage, setAngledFrontImage] = useState<string | null>(null);
@@ -183,7 +176,6 @@ export default function GradeScreen() {
   const [slabBackImage, setSlabBackImage] = useState<string | null>(null);
   const [crossoverCompany, setCrossoverCompany] = useState<CrossoverCompany>("PSA");
   const [crossoverGrade, setCrossoverGrade] = useState<string>("");
-  const [crossoverCertNumber, setCrossoverCertNumber] = useState<string>("");
 
   const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed } = useSubscription();
   const { submitGrading, submitDeepGrading, submitCrossoverGrading, activeJob } = useGrading();
@@ -233,10 +225,6 @@ export default function GradeScreen() {
         setAnalysisStage(0);
         progressAnim.setValue(0);
         setDeepStep("front");
-        setCrossoverMethod("image");
-        setCertNumber("");
-        setCertLookupResult(null);
-        setCertManualGrade("");
         if (!modeParam) setMode("hub");
       }
     }, [activeJob?.status, modeParam])
@@ -506,7 +494,7 @@ export default function GradeScreen() {
 
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
     if (mode === "crossover") {
-      submitCrossoverGrading(slabImage!, slabBackImage || undefined, crossoverCertNumber.trim() || undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
+      submitCrossoverGrading(slabImage!, slabBackImage || undefined, undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
@@ -520,69 +508,12 @@ export default function GradeScreen() {
 
   const allCornersReady = Object.values(cornerImages).every(v => v !== null);
   const canSubmit = mode === "crossover"
-    ? crossoverMethod === "cert"
-      ? !loading && (!!certLookupResult?.grade || !!certManualGrade.trim())
-      : !!slabImage && !!crossoverGrade.trim() && !loading
+    ? !!slabImage && !!crossoverGrade.trim() && !loading
     : mode === "quick"
     ? !!frontImage && !!backImage && !loading
     : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && allCornersReady && !loading;
 
   const currentStage = ANALYSIS_STAGES[analysisStage];
-
-  const handleCertLookup = async () => {
-    if (!certNumber.trim() || !crossoverCompany) return;
-    setCertLookupLoading(true);
-    setCertLookupResult(null);
-    try {
-      const { getApiUrl } = await import("@/lib/query-client");
-      const url = new URL("/api/cert-lookup", getApiUrl());
-      url.searchParams.set("company", crossoverCompany);
-      url.searchParams.set("certNumber", certNumber.trim());
-      const resp = await fetch(url.toString());
-      const data = await resp.json();
-      setCertLookupResult(data);
-      if (data.found && data.grade) setCertManualGrade(data.grade);
-    } catch {
-      setCertLookupResult({ found: false });
-    } finally {
-      setCertLookupLoading(false);
-    }
-  };
-
-  const handleCertCrossoverSubmit = async () => {
-    if (!crossoverCompany || !certNumber.trim()) return;
-    const grade = certLookupResult?.grade || certManualGrade.trim();
-    if (!grade) {
-      Alert.alert("Grade Required", "Please enter the current grade to continue.");
-      return;
-    }
-    if (isGateEnabled && !canGrade && !isAdminMode) {
-      router.push("/paywall");
-      return;
-    }
-    if (isGateEnabled && canGrade && !isAdminMode) await recordUsage();
-
-    try {
-      setLoading(true);
-      const { apiRequest } = await import("@/lib/query-client");
-      const resp = await apiRequest("POST", "/api/cert-crossover", {
-        company: crossoverCompany,
-        grade,
-        certNumber: certNumber.trim(),
-        cardName: certLookupResult?.cardName || null,
-        cardSet: certLookupResult?.set || null,
-      });
-      if (!resp.ok) throw new Error("Server error");
-      const result = await resp.json();
-      const { saveGrading } = await import("@/lib/storage");
-      const saved = await saveGrading("", "", result);
-      setLoading(false);
-      router.push({ pathname: "/results", params: { gradingId: saved.id } });
-    } catch (err: any) {
-      setLoading(false);
-      Alert.alert("Error", err.message || "Failed to start crossover analysis.");
-    }
-  };
 
   const renderHub = () => (
     <ScrollView
@@ -987,118 +918,6 @@ export default function GradeScreen() {
           >
             {mode === "crossover" ? (
               <>
-                {/* Method toggle */}
-                <View style={styles.crossoverMethodRow}>
-                  <Pressable
-                    style={[styles.crossoverMethodBtn, crossoverMethod === "image" && styles.crossoverMethodBtnActive]}
-                    onPress={() => { setCrossoverMethod("image"); setCertLookupResult(null); }}
-                  >
-                    <Ionicons name="camera-outline" size={15} color={crossoverMethod === "image" ? Colors.text : Colors.textMuted} />
-                    <Text style={[styles.crossoverMethodText, crossoverMethod === "image" && styles.crossoverMethodTextActive]}>Upload Images</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.crossoverMethodBtn, crossoverMethod === "cert" && styles.crossoverMethodBtnActive]}
-                    onPress={() => setCrossoverMethod("cert")}
-                  >
-                    <Ionicons name="barcode-outline" size={15} color={crossoverMethod === "cert" ? Colors.text : Colors.textMuted} />
-                    <Text style={[styles.crossoverMethodText, crossoverMethod === "cert" && styles.crossoverMethodTextActive]}>By Cert Number</Text>
-                  </Pressable>
-                </View>
-
-                {crossoverMethod === "cert" ? (
-                  <>
-                    <View style={styles.crossoverSection}>
-                      <Text style={styles.crossoverLabel}>Grading Company</Text>
-                      <View style={styles.companyRow}>
-                        {CROSSOVER_COMPANIES.map(company => (
-                          <Pressable
-                            key={company}
-                            style={[styles.companyBtn, crossoverCompany === company && styles.companyBtnActive]}
-                            onPress={() => { setCrossoverCompany(company); setCertLookupResult(null); }}
-                          >
-                            <Text style={[styles.companyBtnText, crossoverCompany === company && styles.companyBtnTextActive]}>{company}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    </View>
-
-                    <View style={styles.crossoverSection}>
-                      <Text style={styles.crossoverLabel}>Cert Number</Text>
-                      <View style={styles.certInputRow}>
-                        <TextInput
-                          style={[styles.crossoverInput, { flex: 1, marginBottom: 0 }]}
-                          value={certNumber}
-                          onChangeText={t => { setCertNumber(t); setCertLookupResult(null); }}
-                          placeholder="e.g. 12345678"
-                          placeholderTextColor={Colors.textMuted}
-                          keyboardType="number-pad"
-                          returnKeyType="search"
-                          onSubmitEditing={handleCertLookup}
-                        />
-                        <Pressable
-                          style={({ pressed }) => [styles.certLookupBtn, { opacity: pressed ? 0.8 : 1 }]}
-                          onPress={handleCertLookup}
-                          disabled={certLookupLoading || !certNumber.trim()}
-                        >
-                          {certLookupLoading
-                            ? <ActivityIndicator size="small" color="#fff" />
-                            : <Ionicons name="search" size={18} color="#fff" />
-                          }
-                        </Pressable>
-                      </View>
-                    </View>
-
-                    {certLookupResult && certLookupResult.found && (
-                      <View style={styles.certFoundCard}>
-                        <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                        <View style={{ flex: 1 }}>
-                          {certLookupResult.cardName && <Text style={styles.certFoundName}>{certLookupResult.cardName}</Text>}
-                          {certLookupResult.set && <Text style={styles.certFoundDetail}>{certLookupResult.set}{certLookupResult.year ? ` (${certLookupResult.year})` : ""}</Text>}
-                          {certLookupResult.grade && (
-                            <Text style={styles.certFoundGrade}>
-                              {crossoverCompany} {certLookupResult.gradeLabel || certLookupResult.grade}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    )}
-
-                    {certLookupResult && !certLookupResult.found && (
-                      <View style={styles.certNotFoundCard}>
-                        <Ionicons name="alert-circle-outline" size={18} color={Colors.textMuted} style={{ marginTop: 1 }} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.certNotFoundText}>Cert not found automatically</Text>
-                          <Text style={styles.certNotFoundSub}>
-                            {certLookupResult.reason || "Enter the current grade manually to continue."}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {!certLookupResult?.found && (
-                      <View style={styles.crossoverSection}>
-                        <Text style={styles.crossoverLabel}>Current Grade</Text>
-                        <TextInput
-                          style={styles.crossoverInput}
-                          value={certManualGrade}
-                          onChangeText={setCertManualGrade}
-                          placeholder={crossoverCompany === "BGS" ? "e.g. 9.5" : "e.g. 9"}
-                          placeholderTextColor={Colors.textMuted}
-                          keyboardType="decimal-pad"
-                          returnKeyType="done"
-                        />
-                      </View>
-                    )}
-
-                    <View style={styles.tipsCard}>
-                      <View style={styles.tipRow}>
-                        <Ionicons name="information-circle" size={16} color="#8B5CF6" />
-                        <Text style={styles.tipText}>Results are estimates — actual crossover outcomes may vary</Text>
-                      </View>
-                    </View>
-                  </>
-                ) : (
-                  <>
                 <View style={styles.crossoverSection}>
                   <Text style={styles.crossoverLabel}>Slab Front Photo</Text>
                   <ImageCapture
@@ -1203,19 +1022,6 @@ export default function GradeScreen() {
                   />
                 </View>
 
-                <View style={styles.crossoverSection}>
-                  <Text style={styles.crossoverLabel}>Cert Number <Text style={styles.crossoverOptional}>(optional)</Text></Text>
-                  <TextInput
-                    style={styles.crossoverInput}
-                    value={crossoverCertNumber}
-                    onChangeText={setCrossoverCertNumber}
-                    placeholder="e.g. 12345678"
-                    placeholderTextColor={Colors.textMuted}
-                    keyboardType="number-pad"
-                    returnKeyType="done"
-                  />
-                </View>
-
                 <View style={styles.tipsCard}>
                   <Text style={styles.tipsTitle}>Tips for crossover grading</Text>
                   <View style={styles.tipRow}>
@@ -1231,8 +1037,6 @@ export default function GradeScreen() {
                     <Text style={styles.tipText}>Results are estimates — actual crossover outcomes may vary</Text>
                   </View>
                 </View>
-                  </>
-                )}
               </>
             ) : mode === "quick" ? (
               <>
@@ -1284,7 +1088,7 @@ export default function GradeScreen() {
 
           <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || webBottomInset) + 90 }]}>
             <Pressable
-              onPress={mode === "crossover" && crossoverMethod === "cert" ? handleCertCrossoverSubmit : handleGrade}
+              onPress={handleGrade}
               disabled={!canSubmit}
               style={({ pressed }) => [
                 styles.analyzeButton,
@@ -1298,7 +1102,7 @@ export default function GradeScreen() {
                 style={styles.gradientInner}
               >
                 <Ionicons name={mode === "deep" ? "search" : mode === "crossover" ? "git-compare-outline" : "sparkles"} size={20} color="#fff" />
-                <Text style={styles.analyzeText}>{mode === "deep" ? "Deep Analyze" : mode === "crossover" && crossoverMethod === "cert" ? "Analyse Crossover" : mode === "crossover" ? "Crossover Analyze" : "Analyze & Grade"}</Text>
+                <Text style={styles.analyzeText}>{mode === "deep" ? "Deep Analyze" : mode === "crossover" ? "Crossover Analyze" : "Analyze & Grade"}</Text>
               </LinearGradient>
             </Pressable>
           </View>
@@ -1481,103 +1285,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 11,
     color: "#F59E0B",
-  },
-  crossoverMethodRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  crossoverMethodBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  crossoverMethodBtnActive: {
-    borderColor: "#8B5CF6",
-    backgroundColor: "rgba(139,92,246,0.08)",
-  },
-  crossoverMethodText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  crossoverMethodTextActive: {
-    color: Colors.text,
-  },
-  certInputRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-  certLookupBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: "#8B5CF6",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  certFoundCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 12,
-    backgroundColor: "rgba(16,185,129,0.08)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.2)",
-  },
-  certFoundName: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.text,
-  },
-  certFoundDetail: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  certFoundGrade: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 13,
-    color: "#10B981",
-    marginTop: 4,
-  },
-  certNotFoundCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 12,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  certNotFoundText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.text,
-  },
-  certNotFoundSub: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 2,
   },
   deepBadge: {
     backgroundColor: "rgba(245, 158, 11, 0.15)",

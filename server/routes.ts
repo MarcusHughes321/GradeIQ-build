@@ -4137,7 +4137,6 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
   async function performCrossoverGrading(
     slabImage: string,
-    certNumber: string | undefined,
     currentCompany: string,
     currentGrade: string,
     logPrefix: string = "[crossover-grade]",
@@ -4153,37 +4152,48 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
     const setRef = getCurrentSetReference();
 
-    const prompt = `You are an expert Pokemon card crossover grader. You are looking at a Pokemon card that is currently graded and encased in a ${currentCompany} slab with a grade of ${currentGrade}${certNumber ? ` (cert: ${certNumber})` : ""}.
+    const prompt = `You are an expert Pokemon card crossover grader. You are looking at a Pokemon card currently graded and encased in a ${currentCompany} slab with a declared grade of ${currentGrade}.
 
-Your task is to analyze the card inside the slab and estimate what grade it would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
+FIRST: Look at the slab label in the image and verify the grading company and grade are as declared. Note any visible cert number from the label for reference.
 
-When assessing a graded slab, the card cannot be handled, so you must work from what is visible through the plastic case. Take note of:
-- Centering (visible from the front)
-- Corners (look for whitening, fraying, or damage)
-- Edges (look for nicks, chips, or wear)
-- Surface (look for scratches, print lines, stains, or loss of gloss)
+Your task is to visually analyse the card inside the slab and estimate what grade it would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
 
-IMPORTANT: The current grade of ${currentGrade} from ${currentCompany} gives you a baseline. Consider population reports and typical crossover outcomes. A ${currentCompany} ${currentGrade} does NOT automatically guarantee the same grade elsewhere — each company has different standards.
+VISUAL ANALYSIS — examine everything visible through the plastic case:
+- CENTERING: Measure the border ratios front and back. PSA is lenient on back centering (up to 75/25 still grades PSA 10 on back), but strict on front centering. Note exact percentages if measurable.
+- CORNERS: Look for whitening, fraying, or damage at all four corners. Corner whitening through the case is a key differentiator — ACE and TAG penalise even minor corner wear more than PSA.
+- EDGES: Look for nicks, chips, or wear along all four edges. Any chipping is a significant deduction at all companies.
+- SURFACE: Look for scratches, print lines, stains, haze, or loss of gloss on both front and back. CGC is the strictest on surface scratches — even faint scratches that PSA ignores can cost a grade at CGC. TAG also grades surface very strictly.
 
-CROSSOVER CONTEXT:
-- PSA tends to grade more strictly on centering; BGS grades on a 10-point sub-grade scale; ACE is UK-based with similar standards to PSA; TAG is premium-tier; CGC is newer with stricter surface standards.
-- Cards in PSA 9 often crossover to BGS 8.5 or 9 due to stricter Beckett standards.
-- Cards in BGS 9.5 may crossover to PSA 10 if centering and surface are clean.
+COMPANY-SPECIFIC STANDARDS (apply these precisely):
+- PSA (grades 1-10, whole numbers): Lenient on back centering, moderate on corners, strict on front centering. PSA 9 tolerates minor imperfections. PSA 10 requires near-perfect centering (60/40 or better front, 75/25 or better back), sharp corners, clean edges, and glossy surface.
+- BGS/Beckett (sub-grades in 0.5 increments, 1-10; overall = lowest sub-grade or slightly above): Each sub-grade (centering, corners, edges, surface) graded independently. BGS Pristine 10 requires all four sub-grades at 10. BGS Gem Mint 9.5 is achievable with one 9 sub-grade. A BGS 9 overall typically means one or two sub-grades at 8.5. BGS is stricter than PSA across all attributes.
+- ACE (grades 1-10, whole numbers): UK-based. Stricter than PSA on corner whitening — even minor corner wear that PSA overlooks can drop ACE from 10 to 9. Similar centering tolerance to PSA on front, but more strict on back centering than PSA.
+- TAG (grades 1-10, halves possible): Premium ultra-strict grader. Extremely strict on surface scratches and centering. TAG 10 requires essentially perfect cards. TAG 9 is common where PSA/ACE would give 10. Surface scratches visible under the case will cost at least half a grade.
+- CGC (grades 1-10, halves possible): Stricter on surface scratches than PSA. CGC uses a different label system but similar 1-10 scale. Surface micro-scratches that PSA ignores will typically cost CGC a grade. Centering standards similar to PSA.
+
+CROSSOVER PATTERNS TO CONSIDER:
+- PSA 10 → BGS: Often BGS 9-9.5 (Beckett is stricter). Only becomes BGS Pristine 10 if all four attributes are visually flawless.
+- PSA 9 → BGS: Often BGS 8.5-9, rarely BGS 9.5.
+- BGS 9.5 → PSA: Often PSA 10 if centering and surface are clean.
+- ACE 10 → PSA: Often PSA 9-10. ACE 10s with clean surfaces usually crossover PSA 10.
+- TAG 9 → PSA: Often PSA 10, as TAG grades more strictly.
+
+For each company, explicitly state WHICH specific attribute (centering, corners, edges, or surface) would differ from the current ${currentCompany} grade, and why. Do not just repeat the same notes for every company.
 
 ${setRef}
 
-IDENTIFICATION: Identify the card from what is visible (name, set, number).
+IDENTIFICATION: Read the card name, set, and number from the slab label or from the card visible through the case.
 
 RESPONSE FORMAT (JSON only, no markdown):
 {
   "cardName": "Card name",
   "setName": "Set name",
   "setNumber": "Set number or null",
-  "overallCondition": "Brief condition summary referencing the slab",
+  "overallCondition": "Brief visual condition summary of what is visible through the slab",
   "currentGrade": {
     "company": "${currentCompany}",
     "grade": "${currentGrade}",
-    "certNumber": ${certNumber ? `"${certNumber}"` : "null"}
+    "certNumber": null
   },
   "isCrossover": true,
   "centering": {
@@ -4195,43 +4205,43 @@ RESPONSE FORMAT (JSON only, no markdown):
   "psa": {
     "grade": 9,
     "centeringGrade": 9,
-    "centering": "Centering notes",
-    "corners": "Corner notes",
-    "edges": "Edge notes",
-    "surface": "Surface notes",
-    "notes": "Overall PSA assessment"
+    "centering": "Specific centering observation and how it compares to ${currentCompany} standard",
+    "corners": "Specific corner observation",
+    "edges": "Specific edge observation",
+    "surface": "Specific surface observation",
+    "notes": "Overall PSA crossover assessment — which attribute(s) drive any grade difference from ${currentCompany}"
   },
   "beckett": {
     "overallGrade": 9,
-    "centering": { "grade": 9, "notes": "notes" },
-    "corners": { "grade": 9, "notes": "notes" },
-    "edges": { "grade": 9, "notes": "notes" },
-    "surface": { "grade": 9, "notes": "notes" },
-    "notes": "Overall BGS assessment"
+    "centering": { "grade": 9, "notes": "Centering sub-grade reasoning" },
+    "corners": { "grade": 9, "notes": "Corner sub-grade reasoning" },
+    "edges": { "grade": 9, "notes": "Edge sub-grade reasoning" },
+    "surface": { "grade": 9, "notes": "Surface sub-grade reasoning" },
+    "notes": "Overall BGS assessment — note which sub-grade limits the overall"
   },
   "ace": {
     "overallGrade": 9,
-    "centering": { "grade": 9, "notes": "notes" },
-    "corners": { "grade": 9, "notes": "notes" },
-    "edges": { "grade": 9, "notes": "notes" },
-    "surface": { "grade": 9, "notes": "notes" },
-    "notes": "Overall ACE assessment"
+    "centering": { "grade": 9, "notes": "ACE centering assessment" },
+    "corners": { "grade": 9, "notes": "ACE corner assessment — note if stricter than ${currentCompany}" },
+    "edges": { "grade": 9, "notes": "ACE edge assessment" },
+    "surface": { "grade": 9, "notes": "ACE surface assessment" },
+    "notes": "Overall ACE crossover assessment"
   },
   "tag": {
     "overallGrade": 9,
-    "centering": { "grade": 9, "notes": "notes" },
-    "corners": { "grade": 9, "notes": "notes" },
-    "edges": { "grade": 9, "notes": "notes" },
-    "surface": { "grade": 9, "notes": "notes" },
-    "notes": "Overall TAG assessment"
+    "centering": { "grade": 9, "notes": "TAG centering — note if TAG's stricter standard changes the assessment" },
+    "corners": { "grade": 9, "notes": "TAG corner assessment" },
+    "edges": { "grade": 9, "notes": "TAG edge assessment" },
+    "surface": { "grade": 9, "notes": "TAG surface — note if surface scratches visible that TAG would penalise" },
+    "notes": "Overall TAG crossover assessment"
   },
   "cgc": {
     "grade": 9,
-    "centering": "centering notes",
-    "corners": "corner notes",
-    "edges": "edge notes",
-    "surface": "surface notes",
-    "notes": "Overall CGC assessment"
+    "centering": "CGC centering assessment",
+    "corners": "CGC corner assessment",
+    "edges": "CGC edge assessment",
+    "surface": "CGC surface assessment — note if surface scratches CGC would penalise more than ${currentCompany}",
+    "notes": "Overall CGC crossover assessment"
   }
 }`;
 
@@ -4272,7 +4282,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/crossover-grade-job", async (req, res) => {
     try {
-      const { slabImage, slabBackImage, certNumber, currentCompany, currentGrade, pushToken } = req.body;
+      const { slabImage, slabBackImage, currentCompany, currentGrade, pushToken } = req.body;
       if (!slabImage || !currentCompany || !currentGrade) {
         return res.status(400).json({ error: "slabImage, currentCompany, and currentGrade are required" });
       }
@@ -4292,7 +4302,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       (async () => {
         try {
-          const result = await performCrossoverGrading(slabImage, certNumber, currentCompany, currentGrade, `[crossover-grade-job:${jobId}]`, slabBackImage);
+          const result = await performCrossoverGrading(slabImage, currentCompany, currentGrade, `[crossover-grade-job:${jobId}]`, slabBackImage);
           job.status = "completed";
           job.result = result;
 
@@ -4516,126 +4526,6 @@ RESPONSE FORMAT (JSON only, no markdown):
       return res.status(404).json({ error: "Job not found" });
     }
     respondWithJob(res, job);
-  });
-
-  app.get("/api/cert-lookup", async (req, res) => {
-    const company = req.query.company as string;
-    const certNum = req.query.certNumber as string;
-    if (!company || !certNum) return res.status(400).json({ error: "company and certNumber required" });
-
-    if (company === "PSA") {
-      try {
-        const response = await fetch(`https://api.psacard.com/publicapi/cert/GetByCertNumber/${certNum.trim()}`, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; GradeIQ/1.0)", "Accept": "application/json" },
-          signal: AbortSignal.timeout(8000),
-        });
-        const rawText = await response.text();
-        // Detect quota-exceeded error
-        if (rawText.includes("quota exceeded") || rawText.includes("maximum admitted")) {
-          return res.json({ found: false, reason: "PSA's free lookup quota has been reached for today. Enter your PSA grade below to continue." });
-        }
-        if (response.ok) {
-          let data: any;
-          try { data = JSON.parse(rawText); } catch { data = null; }
-          const cert = data?.PSACert;
-          if (cert) {
-            const gradeDesc = cert.GradeDescription || cert.CardGrade || null;
-            // Extract just the numeric/label part (e.g. "GEM MT 10" → "10", "NM-MT 8" → "8")
-            const gradeMatch = gradeDesc ? gradeDesc.match(/\b(\d+(?:\.\d+)?)\s*$/) : null;
-            const grade = gradeMatch ? gradeMatch[1] : gradeDesc;
-            return res.json({
-              found: true,
-              cardName: cert.Subject || cert.CardName || null,
-              year: cert.Year?.toString() || null,
-              set: cert.Brand || null,
-              grade,
-              gradeLabel: gradeDesc,
-              certNumber: cert.CertNumber?.toString() || certNum,
-            });
-          }
-        }
-        return res.json({ found: false, reason: "Cert not found in PSA's database. Enter your grade below to continue." });
-      } catch (e: any) {
-        const msg = e?.message || "";
-        if (msg.includes("timeout") || msg.includes("abort")) {
-          return res.json({ found: false, reason: "PSA lookup timed out. Enter your PSA grade below." });
-        }
-        return res.json({ found: false, reason: "PSA lookup failed. Enter your PSA grade below to continue." });
-      }
-    }
-
-    const companyMessages: Record<string, string> = {
-      BGS: "Beckett doesn't offer a public cert API. Enter your Beckett grade below to continue.",
-      ACE: "ACE Grading's website is Cloudflare-protected and can't be queried automatically. Enter your ACE grade below.",
-      CGC: "CGC doesn't offer a public cert API. Enter your CGC grade below to continue.",
-      TAG: "TAG doesn't offer a public cert API. Enter your TAG grade below to continue.",
-      OTHER: "Enter your current grade below to continue.",
-    };
-    return res.json({ found: false, reason: companyMessages[company] || `Enter your ${company} grade below to continue.` });
-  });
-
-  app.post("/api/cert-crossover", async (req, res) => {
-    try {
-      const { company, grade, certNumber: certNum, cardName, cardSet } = req.body;
-      if (!company || !grade) return res.status(400).json({ error: "company and grade required" });
-
-      const setRef = getCurrentSetReference();
-      const cardInfo = cardName ? `Card: ${cardName}${cardSet ? ` (${cardSet})` : ""}. ` : "";
-
-      const prompt = `You are an expert Pokemon card crossover grader. A Pokemon card is currently graded by ${company} with a grade of ${grade}${certNum ? ` (cert: ${certNum})` : ""}. ${cardInfo}
-
-Based on ${company}'s grading standards and the known grade of ${grade}, estimate what grade this card would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
-
-Use your knowledge of:
-- Grading standard differences between companies
-- Typical crossover patterns (e.g. PSA 9 often → BGS 8.5-9; BGS 9.5 sometimes → PSA 10; CGC tends strict on surface)
-- Population reports and historical crossover outcomes for this grade tier
-
-Note: No images are provided. Base your analysis purely on:
-1. The ${company} grade of ${grade} as the primary indicator
-2. Statistical crossover likelihood based on grading company standards
-3. Any card-specific knowledge if the card name is recognizable
-
-${setRef}
-
-RESPONSE FORMAT (JSON only, no markdown):
-{
-  "cardName": "${cardName || "Unknown"}",
-  "setName": "${cardSet || "Unknown"}",
-  "setNumber": null,
-  "overallCondition": "Brief condition summary based on grade",
-  "currentGrade": { "company": "${company}", "grade": "${grade}", "certNumber": ${certNum ? `"${certNum}"` : "null"} },
-  "isCrossover": true,
-  "centering": { "frontLeftRight": 50, "frontTopBottom": 50, "backLeftRight": 50, "backTopBottom": 50 },
-  "psa": { "grade": 9, "centeringGrade": 9, "centering": "notes", "corners": "notes", "edges": "notes", "surface": "notes", "notes": "PSA assessment" },
-  "beckett": { "overallGrade": 9, "centering": { "grade": 9, "notes": "notes" }, "corners": { "grade": 9, "notes": "notes" }, "edges": { "grade": 9, "notes": "notes" }, "surface": { "grade": 9, "notes": "notes" }, "notes": "BGS assessment" },
-  "ace": { "overallGrade": 9, "centering": { "grade": 9, "notes": "notes" }, "corners": { "grade": 9, "notes": "notes" }, "edges": { "grade": 9, "notes": "notes" }, "surface": { "grade": 9, "notes": "notes" }, "notes": "ACE assessment" },
-  "tag": { "overallGrade": 9, "centering": { "grade": 9, "notes": "notes" }, "corners": { "grade": 9, "notes": "notes" }, "edges": { "grade": 9, "notes": "notes" }, "surface": { "grade": 9, "notes": "notes" }, "notes": "TAG assessment" },
-  "cgc": { "grade": 9, "centering": "notes", "corners": "notes", "edges": "notes", "surface": "notes", "notes": "CGC assessment" }
-}`;
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 1500,
-        temperature: 0.2,
-      });
-
-      const raw = response.choices[0]?.message?.content || "";
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("No JSON in cert crossover response");
-
-      const result = JSON.parse(jsonMatch[0]);
-      if (!result.psa?.grade) throw new Error("Invalid cert crossover result");
-
-      const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
-      result.setName = resolvedSetName;
-
-      res.json(result);
-    } catch (err: any) {
-      console.error("[cert-crossover] Error:", err.message);
-      res.status(500).json({ error: err.message || "Cert crossover analysis failed" });
-    }
   });
 
   const httpServer = createServer(app);
