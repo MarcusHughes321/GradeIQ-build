@@ -30,7 +30,7 @@ interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitCrossoverGrading: (slabImage: string, certNumber: string | undefined, currentCompany: string, currentGrade: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, certNumber: string | undefined, currentCompany: string, currentGrade: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   cancelJob: () => void;
   hasCompletedJob: boolean;
@@ -158,9 +158,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       backCornerImages?: string[];
       isDeepGrade?: boolean;
     },
+    pollEndpoint?: string,
   ) => {
     try {
-      const resp = await apiRequest("GET", `/api/grade-job/${serverJobId}`);
+      const endpoint = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
+      const resp = await apiRequest("GET", endpoint);
       const data = await resp.json();
 
       if (data.status === "completed" && data.result) {
@@ -380,7 +382,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   }, [pollJobStatus, stopPolling]);
 
   const submitCrossoverGrading = useCallback(async (
-    slabImage: string,
+    slabFrontImage: string,
+    slabBackImage: string | undefined,
     certNumber: string | undefined,
     currentCompany: string,
     currentGrade: string,
@@ -392,22 +395,24 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     setActiveJob({
       id: localJobId,
       serverJobId: "",
-      frontImage: slabImage,
-      backImage: slabImage,
+      frontImage: slabFrontImage,
+      backImage: slabBackImage || slabFrontImage,
       isCrossover: true,
       status: "processing",
       startTime: Date.now(),
     });
 
     try {
-      const slabBase64 = await getBase64FromUri(slabImage);
+      const slabFrontBase64 = await getBase64FromUri(slabFrontImage);
+      const slabBackBase64 = slabBackImage ? await getBase64FromUri(slabBackImage) : undefined;
 
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
       const resp = await apiRequest("POST", "/api/crossover-grade-job", {
-        slabImage: slabBase64,
+        slabImage: slabFrontBase64,
+        slabBackImage: slabBackBase64,
         certNumber: certNumber || undefined,
         currentCompany,
         currentGrade,
@@ -428,7 +433,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
       stopPolling();
       pollingRef.current = setInterval(() => {
-        pollJobStatus(serverJobId, localJobId, slabImage, slabImage);
+        pollJobStatus(serverJobId, localJobId, slabFrontImage, slabBackImage || slabFrontImage, undefined, "/api/crossover-grade-job");
       }, POLL_INTERVAL);
     } catch (error: any) {
       console.error("Failed to submit crossover grading job:", error);

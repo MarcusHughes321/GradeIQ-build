@@ -4141,11 +4141,15 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     currentCompany: string,
     currentGrade: string,
     logPrefix: string = "[crossover-grade]",
+    slabBackImage?: string,
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawSlabUrl = slabImage.startsWith("data:") ? slabImage : `data:image/jpeg;base64,${slabImage}`;
     const slabUrl = await optimizeImageForAI(rawSlabUrl, 2048);
-    console.log(`${logPrefix} Optimized slab image in ${Date.now() - gradeStartTime}ms`);
+    const slabBackUrl = slabBackImage
+      ? await optimizeImageForAI(slabBackImage.startsWith("data:") ? slabBackImage : `data:image/jpeg;base64,${slabBackImage}`, 2048)
+      : null;
+    console.log(`${logPrefix} Optimized slab image(s) in ${Date.now() - gradeStartTime}ms`);
 
     const setRef = getCurrentSetReference();
 
@@ -4231,15 +4235,20 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 }`;
 
+    const contentParts: any[] = [
+      { type: "text", text: prompt },
+      { type: "image_url", image_url: { url: slabUrl, detail: "high" } },
+    ];
+    if (slabBackUrl) {
+      contentParts.push({ type: "image_url", image_url: { url: slabBackUrl, detail: "high" } });
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: slabUrl, detail: "high" } },
-          ],
+          content: contentParts,
         },
       ],
       max_tokens: 2000,
@@ -4263,7 +4272,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/crossover-grade-job", async (req, res) => {
     try {
-      const { slabImage, certNumber, currentCompany, currentGrade, pushToken } = req.body;
+      const { slabImage, slabBackImage, certNumber, currentCompany, currentGrade, pushToken } = req.body;
       if (!slabImage || !currentCompany || !currentGrade) {
         return res.status(400).json({ error: "slabImage, currentCompany, and currentGrade are required" });
       }
@@ -4283,7 +4292,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       (async () => {
         try {
-          const result = await performCrossoverGrading(slabImage, certNumber, currentCompany, currentGrade, `[crossover-grade-job:${jobId}]`);
+          const result = await performCrossoverGrading(slabImage, certNumber, currentCompany, currentGrade, `[crossover-grade-job:${jobId}]`, slabBackImage);
           job.status = "completed";
           job.result = result;
 
@@ -4471,12 +4480,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.get("/api/grade-job/:id", (req, res) => {
-    const job = gradingJobs.get(req.params.id);
-    if (!job) {
-      return res.status(404).json({ error: "Job not found" });
-    }
-
+  function respondWithJob(res: any, job: GradingJob) {
     if (job.type === "single" || job.type === "deep") {
       res.json({
         id: job.id,
@@ -4496,6 +4500,22 @@ RESPONSE FORMAT (JSON only, no markdown):
         error: job.status === "failed" ? job.error : undefined,
       });
     }
+  }
+
+  app.get("/api/grade-job/:id", (req, res) => {
+    const job = gradingJobs.get(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    respondWithJob(res, job);
+  });
+
+  app.get("/api/crossover-grade-job/:id", (req, res) => {
+    const job = gradingJobs.get(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    respondWithJob(res, job);
   });
 
   const httpServer = createServer(app);

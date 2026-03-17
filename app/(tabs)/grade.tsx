@@ -166,6 +166,7 @@ export default function GradeScreen() {
   const [adjustImage, setAdjustImage] = useState<{ uri: string; side: DeepStep } | null>(null);
 
   const [slabImage, setSlabImage] = useState<string | null>(null);
+  const [slabBackImage, setSlabBackImage] = useState<string | null>(null);
   const [crossoverCompany, setCrossoverCompany] = useState<CrossoverCompany>("PSA");
   const [crossoverGrade, setCrossoverGrade] = useState<string>("");
   const [crossoverCertNumber, setCrossoverCertNumber] = useState<string>("");
@@ -211,6 +212,7 @@ export default function GradeScreen() {
           cornerBackTL: null, cornerBackTR: null, cornerBackBL: null, cornerBackBR: null,
         });
         setSlabImage(null);
+        setSlabBackImage(null);
         setLoading(false);
         setCameraOpen(null);
         setDeepCameraActive(false);
@@ -485,7 +487,7 @@ export default function GradeScreen() {
 
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
     if (mode === "crossover") {
-      submitCrossoverGrading(slabImage!, crossoverCertNumber.trim() || undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
+      submitCrossoverGrading(slabImage!, slabBackImage || undefined, crossoverCertNumber.trim() || undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
@@ -819,9 +821,9 @@ export default function GradeScreen() {
                 </View>
 
                 <View style={styles.crossoverSection}>
-                  <Text style={styles.crossoverLabel}>Slab Photo</Text>
+                  <Text style={styles.crossoverLabel}>Slab Front Photo</Text>
                   <ImageCapture
-                    label="Photo of Graded Slab"
+                    label="Front of Graded Slab"
                     imageUri={slabImage}
                     onCapture={async () => {
                       if (Platform.OS === "web") {
@@ -833,7 +835,7 @@ export default function GradeScreen() {
                         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
                         if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
                       } else {
-                        Alert.alert("Add Slab Photo", "Choose an option", [
+                        Alert.alert("Add Slab Front Photo", "Choose an option", [
                           { text: "Take Photo", onPress: async () => {
                             const { status } = await ImagePicker.requestCameraPermissionsAsync();
                             if (status !== "granted") return;
@@ -851,6 +853,43 @@ export default function GradeScreen() {
                       }
                     }}
                     onRemove={() => setSlabImage(null)}
+                    loading={false}
+                  />
+                </View>
+
+                <View style={styles.crossoverSection}>
+                  <Text style={styles.crossoverLabel}>Slab Back Photo <Text style={styles.crossoverOptional}>(optional)</Text></Text>
+                  <ImageCapture
+                    label="Back of Graded Slab"
+                    imageUri={slabBackImage}
+                    onCapture={async () => {
+                      if (Platform.OS === "web") {
+                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (status !== "granted") {
+                          Alert.alert("Permission Required", "Photo library access is needed.");
+                          return;
+                        }
+                        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                        if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
+                      } else {
+                        Alert.alert("Add Slab Back Photo", "Choose an option", [
+                          { text: "Take Photo", onPress: async () => {
+                            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                            if (status !== "granted") return;
+                            const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
+                            if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
+                          }},
+                          { text: "Choose from Library", onPress: async () => {
+                            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                            if (status !== "granted") return;
+                            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                            if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
+                          }},
+                          { text: "Cancel", style: "cancel" },
+                        ]);
+                      }
+                    }}
+                    onRemove={() => setSlabBackImage(null)}
                     loading={false}
                   />
                 </View>
