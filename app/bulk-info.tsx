@@ -49,7 +49,7 @@ const FEATURES = [
   {
     icon: "bar-chart-outline" as const,
     title: "Average Grade Summary",
-    desc: "Get an at-a-glance average PSA grade for the full batch to gauge collection quality.",
+    desc: "Get an at-a-glance average grade for the full batch to gauge overall collection quality.",
   },
   {
     icon: "list-outline" as const,
