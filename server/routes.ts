@@ -4137,8 +4137,6 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
   async function performCrossoverGrading(
     slabImage: string,
-    currentCompany: string,
-    currentGrade: string,
     logPrefix: string = "[crossover-grade]",
     slabBackImage?: string,
   ): Promise<any> {
@@ -4152,9 +4150,9 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
     const setRef = getCurrentSetReference();
 
-    const prompt = `You are an expert Pokemon card crossover grader. You are looking at a Pokemon card currently graded and encased in a ${currentCompany} slab with a declared grade of ${currentGrade}.
+    const prompt = `You are an expert Pokemon card crossover grader. You are looking at a Pokemon card currently in a graded slab.
 
-FIRST: Look at the slab label in the image and verify the grading company and grade are as declared.
+FIRST: Read the slab label in the image to identify the grading company and the grade assigned. This is essential — do not skip this step.
 
 Your task is to visually analyse the card inside the slab and estimate what grade it would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
 
@@ -4178,7 +4176,7 @@ CROSSOVER PATTERNS TO CONSIDER:
 - ACE 10 → PSA: Often PSA 9-10. ACE 10s with clean surfaces usually crossover PSA 10.
 - TAG 9 → PSA: Often PSA 10, as TAG grades more strictly.
 
-For each company, explicitly state WHICH specific attribute (centering, corners, edges, or surface) would differ from the current ${currentCompany} grade, and why. Do not just repeat the same notes for every company.
+For each company, explicitly state WHICH specific attribute (centering, corners, edges, or surface) would differ from the current slab's grade, and why. Do not just repeat the same notes for every company.
 
 ${setRef}
 
@@ -4191,8 +4189,8 @@ RESPONSE FORMAT (JSON only, no markdown):
   "setNumber": "Set number or null",
   "overallCondition": "Brief visual condition summary of what is visible through the slab",
   "currentGrade": {
-    "company": "${currentCompany}",
-    "grade": "${currentGrade}",
+    "company": "Company name read from slab label (PSA/BGS/CGC/ACE/TAG/OTHER)",
+    "grade": "Grade read from slab label (e.g. 10, 9.5, 9)",
     "certNumber": null
   },
   "isCrossover": true,
@@ -4205,11 +4203,11 @@ RESPONSE FORMAT (JSON only, no markdown):
   "psa": {
     "grade": 9,
     "centeringGrade": 9,
-    "centering": "Specific centering observation and how it compares to ${currentCompany} standard",
+    "centering": "Specific centering observation and how it compares to the current slab grade",
     "corners": "Specific corner observation",
     "edges": "Specific edge observation",
     "surface": "Specific surface observation",
-    "notes": "Overall PSA crossover assessment — which attribute(s) drive any grade difference from ${currentCompany}"
+    "notes": "Overall PSA crossover assessment — which attribute(s) drive any grade difference"
   },
   "beckett": {
     "overallGrade": 9,
@@ -4222,7 +4220,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   "ace": {
     "overallGrade": 9,
     "centering": { "grade": 9, "notes": "ACE centering assessment" },
-    "corners": { "grade": 9, "notes": "ACE corner assessment — note if stricter than ${currentCompany}" },
+    "corners": { "grade": 9, "notes": "ACE corner assessment — note if their stricter standard changes the grade" },
     "edges": { "grade": 9, "notes": "ACE edge assessment" },
     "surface": { "grade": 9, "notes": "ACE surface assessment" },
     "notes": "Overall ACE crossover assessment"
@@ -4240,7 +4238,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "centering": "CGC centering assessment",
     "corners": "CGC corner assessment",
     "edges": "CGC edge assessment",
-    "surface": "CGC surface assessment — note if surface scratches CGC would penalise more than ${currentCompany}",
+    "surface": "CGC surface assessment — note if surface scratches CGC would penalise more than the current slab grade",
     "notes": "Overall CGC crossover assessment"
   }
 }`;
@@ -4282,9 +4280,9 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/crossover-grade-job", async (req, res) => {
     try {
-      const { slabImage, slabBackImage, currentCompany, currentGrade, pushToken } = req.body;
-      if (!slabImage || !currentCompany || !currentGrade) {
-        return res.status(400).json({ error: "slabImage, currentCompany, and currentGrade are required" });
+      const { slabImage, slabBackImage, pushToken } = req.body;
+      if (!slabImage) {
+        return res.status(400).json({ error: "slabImage is required" });
       }
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
@@ -4302,7 +4300,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       (async () => {
         try {
-          const result = await performCrossoverGrading(slabImage, currentCompany, currentGrade, `[crossover-grade-job:${jobId}]`, slabBackImage);
+          const result = await performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage);
           job.status = "completed";
           job.result = result;
 

@@ -10,7 +10,6 @@ import {
   ScrollView,
   Animated,
   Modal,
-  TextInput,
 } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,9 +29,6 @@ import { useGrading } from "@/lib/grading-context";
 type GradeMode = "hub" | "quick" | "deep" | "crossover";
 type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR";
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
-
-const CROSSOVER_COMPANIES = ["PSA", "BGS", "CGC", "ACE", "TAG", "OTHER"] as const;
-type CrossoverCompany = typeof CROSSOVER_COMPANIES[number];
 
 const CROSSOVER_STAGES = [
   { label: "Preparing slab image", icon: "image-outline" as const, duration: 2000 },
@@ -174,8 +170,6 @@ export default function GradeScreen() {
 
   const [slabImage, setSlabImage] = useState<string | null>(null);
   const [slabBackImage, setSlabBackImage] = useState<string | null>(null);
-  const [crossoverCompany, setCrossoverCompany] = useState<CrossoverCompany>("PSA");
-  const [crossoverGrade, setCrossoverGrade] = useState<string>("");
 
   const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed } = useSubscription();
   const { submitGrading, submitDeepGrading, submitCrossoverGrading, activeJob } = useGrading();
@@ -454,10 +448,6 @@ export default function GradeScreen() {
         Alert.alert("Photo Required", "Please add a photo of the graded slab.");
         return;
       }
-      if (!crossoverGrade.trim()) {
-        Alert.alert("Grade Required", "Please enter the current grade on the slab.");
-        return;
-      }
     } else if (mode === "quick") {
       if (!frontImage || !backImage) {
         Alert.alert("Photos Required", "Please add photos of both the front and back of your card.");
@@ -494,7 +484,7 @@ export default function GradeScreen() {
 
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
     if (mode === "crossover") {
-      submitCrossoverGrading(slabImage!, slabBackImage || undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
+      submitCrossoverGrading(slabImage!, slabBackImage || undefined, wrappedRecordUsage);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
@@ -508,7 +498,7 @@ export default function GradeScreen() {
 
   const allCornersReady = Object.values(cornerImages).every(v => v !== null);
   const canSubmit = mode === "crossover"
-    ? !!slabImage && !!crossoverGrade.trim() && !loading
+    ? !!slabImage && !loading
     : mode === "quick"
     ? !!frontImage && !!backImage && !loading
     : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && allCornersReady && !loading;
@@ -989,36 +979,6 @@ export default function GradeScreen() {
                     }}
                     onRemove={() => setSlabBackImage(null)}
                     loading={false}
-                  />
-                </View>
-
-                <View style={styles.crossoverSection}>
-                  <Text style={styles.crossoverLabel}>Grading Company</Text>
-                  <View style={styles.companyRow}>
-                    {CROSSOVER_COMPANIES.map(company => (
-                      <Pressable
-                        key={company}
-                        style={[styles.companyBtn, crossoverCompany === company && styles.companyBtnActive]}
-                        onPress={() => setCrossoverCompany(company)}
-                      >
-                        <Text style={[styles.companyBtnText, crossoverCompany === company && styles.companyBtnTextActive]}>
-                          {company}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={styles.crossoverSection}>
-                  <Text style={styles.crossoverLabel}>Current Grade</Text>
-                  <TextInput
-                    style={styles.crossoverInput}
-                    value={crossoverGrade}
-                    onChangeText={setCrossoverGrade}
-                    placeholder={crossoverCompany === "BGS" ? "e.g. 9.5" : "e.g. 9"}
-                    placeholderTextColor={Colors.textMuted}
-                    keyboardType="decimal-pad"
-                    returnKeyType="done"
                   />
                 </View>
 
@@ -1809,41 +1769,5 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
-  },
-  crossoverInput: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: Colors.text,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  companyRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  companyBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  companyBtnActive: {
-    backgroundColor: "rgba(139, 92, 246, 0.15)",
-    borderColor: "#8B5CF6",
-  },
-  companyBtnText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  companyBtnTextActive: {
-    color: "#8B5CF6",
   },
 });

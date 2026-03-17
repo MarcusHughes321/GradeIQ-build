@@ -30,7 +30,7 @@ interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, currentCompany: string, currentGrade: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   cancelJob: () => void;
   hasCompletedJob: boolean;
@@ -384,8 +384,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const submitCrossoverGrading = useCallback(async (
     slabFrontImage: string,
     slabBackImage: string | undefined,
-    currentCompany: string,
-    currentGrade: string,
     recordUsage: (n: number) => Promise<void>,
   ) => {
     const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -412,8 +410,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const resp = await apiRequest("POST", "/api/crossover-grade-job", {
         slabImage: slabFrontBase64,
         slabBackImage: slabBackBase64,
-        currentCompany,
-        currentGrade,
       });
 
       const { jobId: serverJobId } = await resp.json();
