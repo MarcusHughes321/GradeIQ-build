@@ -159,7 +159,7 @@ export default function GradeScreen() {
   const [crossoverMethod, setCrossoverMethod] = useState<CrossoverMethod>("image");
   const [certNumber, setCertNumber] = useState("");
   const [certLookupLoading, setCertLookupLoading] = useState(false);
-  const [certLookupResult, setCertLookupResult] = useState<{ found: boolean; cardName?: string; grade?: string; set?: string; year?: string } | null>(null);
+  const [certLookupResult, setCertLookupResult] = useState<{ found: boolean; cardName?: string; grade?: string; set?: string; year?: string; reason?: string } | null>(null);
   const [certManualGrade, setCertManualGrade] = useState("");
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
@@ -521,7 +521,7 @@ export default function GradeScreen() {
   const allCornersReady = Object.values(cornerImages).every(v => v !== null);
   const canSubmit = mode === "crossover"
     ? crossoverMethod === "cert"
-      ? !!certNumber.trim() && !loading && (!!certLookupResult?.grade || !!certManualGrade.trim())
+      ? !loading && (!!certLookupResult?.grade || !!certManualGrade.trim())
       : !!slabImage && !!crossoverGrade.trim() && !loading
     : mode === "quick"
     ? !!frontImage && !!backImage && !loading
@@ -1061,15 +1061,17 @@ export default function GradeScreen() {
 
                     {certLookupResult && !certLookupResult.found && (
                       <View style={styles.certNotFoundCard}>
-                        <Ionicons name="alert-circle-outline" size={18} color={Colors.textMuted} />
+                        <Ionicons name="alert-circle-outline" size={18} color={Colors.textMuted} style={{ marginTop: 1 }} />
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.certNotFoundText}>Cert not found automatically.</Text>
-                          <Text style={styles.certNotFoundSub}>Enter the current grade manually to continue:</Text>
+                          <Text style={styles.certNotFoundText}>Cert not found automatically</Text>
+                          <Text style={styles.certNotFoundSub}>
+                            {certLookupResult.reason || "Enter the current grade manually to continue."}
+                          </Text>
                         </View>
                       </View>
                     )}
 
-                    {(certLookupResult && !certLookupResult.found) || (certLookupResult?.found && !certLookupResult.grade) ? (
+                    {(crossoverCompany !== "PSA" || (certLookupResult && !certLookupResult.found) || (certLookupResult?.found && !certLookupResult.grade)) && (
                       <View style={styles.crossoverSection}>
                         <Text style={styles.crossoverLabel}>Current Grade</Text>
                         <TextInput
@@ -1082,7 +1084,7 @@ export default function GradeScreen() {
                           returnKeyType="done"
                         />
                       </View>
-                    ) : null}
+                    )}
 
                     <View style={styles.tipsCard}>
                       <View style={styles.tipRow}>

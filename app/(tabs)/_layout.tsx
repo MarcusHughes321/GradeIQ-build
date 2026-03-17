@@ -66,9 +66,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="grade"
         options={{
-          title: "Grade",
+          title: "Features",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="camera" size={size} color={color} />
+            <Ionicons name="grid-outline" size={size} color={color} />
           ),
         }}
       />

@@ -4548,7 +4548,14 @@ RESPONSE FORMAT (JSON only, no markdown):
       }
     }
 
-    return res.json({ found: false, reason: `Automatic cert lookup not supported for ${company}. Enter grade manually.` });
+    const companyMessages: Record<string, string> = {
+      BGS: "Beckett doesn't offer a public cert API. Enter your Beckett grade below to continue.",
+      ACE: "ACE Grading's website is Cloudflare-protected and can't be queried automatically. Enter your ACE grade below.",
+      CGC: "CGC doesn't offer a public cert API. Enter your CGC grade below to continue.",
+      TAG: "TAG doesn't offer a public cert API. Enter your TAG grade below to continue.",
+      OTHER: "Enter your current grade below to continue.",
+    };
+    return res.json({ found: false, reason: companyMessages[company] || `Enter your ${company} grade below to continue.` });
   });
 
   app.post("/api/cert-crossover", async (req, res) => {
