@@ -638,7 +638,12 @@ IMPORTANT GRADING SCALE RULES - YOU MUST FOLLOW THESE EXACTLY:
 - SURFACE: Pristine requires no print spots, flawless color, perfect gloss, devoid of any surface flaws. Gem Mint 10 = Perfect gloss, free of print spots. 9-9.5 = Deep color, no registration/focus imperfections, no scratches. 8-8.5 = Slight print spots or focus imperfections allowed (subtle). Manufacturing defects (print lines, roller marks, ink smears) count against the grade. Holographic/chrome cards show defects easily under light.
 
 Analyze the card images carefully. Look for:
-1. Centering - Measure how well centered the image is on both front and back. Provide the centering as a percentage for the LARGER side (e.g., if left border is slightly wider, frontLeftRight = 53 means 53/47). Values should be between 50 (perfect) and 80+ (severely off-center). Measure left-right and top-bottom separately for both front and back.
+1. Centering - Measure how well centered the card image is on both front and back. You MUST report actual measured values — do not default to 50. Here is how to measure:
+   - Look at the LEFT and RIGHT borders on the front. If the left border is visibly wider than the right, frontLeftRight > 50. If perfectly equal, frontLeftRight = 50. If the right is wider, still report the larger side.
+   - Repeat for TOP and BOTTOM borders (frontTopBottom), and both axes on the back.
+   - Report the LARGER side's percentage (e.g., if left border is slightly wider: frontLeftRight = 53 means 53/47 left-to-right).
+   - IMPORTANT: Only report 50 if the borders appear TRULY IDENTICAL. Most cards have some off-centering. If one border is even marginally wider, report 51 or higher. A card that looks "pretty well centered" to the eye is typically 52-56, not 50. Perfect 50/50 is extremely rare.
+   - Scale: 50 = perfect, 52-55 = very slight off-center, 55-65 = noticeable off-center, 70+ = significant off-center, 80+ = severely off-center.
 2. Corners - check all four corners for whitening, dings, or damage. Minor imperfections only visible under magnification should not significantly lower grades.
 3. Edges - look for whitening, chipping, or rough cuts along all edges. Factory-level minor edge variation is acceptable for high grades.
 4. Surface - Examine the card surface for scratches, scuffs, print lines, staining, ink issues, or other surface defects:
@@ -2502,10 +2507,10 @@ function computeCenteringGrades(centering: any) {
   const backWorst = Math.max(centering.backLeftRight, centering.backTopBottom);
 
   let psaCentering: number;
-  if (frontWorst <= 60 && backWorst <= 75) psaCentering = 10;
-  else if (frontWorst <= 60 && backWorst <= 90) psaCentering = 9;
-  else if (frontWorst <= 65 && backWorst <= 90) psaCentering = 8;
-  else if (frontWorst <= 70 && backWorst <= 90) psaCentering = 7;
+  if (frontWorst <= 55 && backWorst <= 75) psaCentering = 10;
+  else if (frontWorst <= 62 && backWorst <= 85) psaCentering = 9;
+  else if (frontWorst <= 67 && backWorst <= 90) psaCentering = 8;
+  else if (frontWorst <= 72 && backWorst <= 90) psaCentering = 7;
   else if (frontWorst <= 80 && backWorst <= 90) psaCentering = 6;
   else if (frontWorst <= 85 && backWorst <= 90) psaCentering = 5;
   else psaCentering = 4;
@@ -4157,7 +4162,7 @@ FIRST: Read the slab label in the image to identify the grading company and the 
 Your task is to visually analyse the card inside the slab and estimate what grade it would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
 
 VISUAL ANALYSIS — examine everything visible through the plastic case:
-- CENTERING: Measure the border ratios front and back. PSA is lenient on back centering (up to 75/25 still grades PSA 10 on back), but strict on front centering. Note exact percentages if measurable.
+- CENTERING: You MUST measure the card's border ratios — do not guess or default to 50. Look at the card borders visible inside the slab. Compare the left border width to the right border width, and the top border to the bottom border, on both the front and back. Report the larger side as a percentage (e.g., if the left border appears slightly wider than the right, report frontLeftRight = 53 meaning 53/47). Only report 50 if the borders look TRULY IDENTICAL — a card that looks "well centered" is typically 52-56, not 50. PSA is lenient on back centering (up to 75/25 still grades PSA 10 on back), but strict on front (must be 55/45 or better for PSA 10 since 2025).
 - CORNERS: Look for whitening, fraying, or damage at all four corners. Corner whitening through the case is a key differentiator — ACE and TAG penalise even minor corner wear more than PSA.
 - EDGES: Look for nicks, chips, or wear along all four edges. Any chipping is a significant deduction at all companies.
 - SURFACE: Look for scratches, print lines, stains, haze, or loss of gloss on both front and back. CGC is the strictest on surface scratches — even faint scratches that PSA ignores can cost a grade at CGC. TAG also grades surface very strictly.
@@ -4195,10 +4200,10 @@ RESPONSE FORMAT (JSON only, no markdown):
   },
   "isCrossover": true,
   "centering": {
-    "frontLeftRight": 50,
-    "frontTopBottom": 50,
-    "backLeftRight": 50,
-    "backTopBottom": 50
+    "frontLeftRight": 53,
+    "frontTopBottom": 52,
+    "backLeftRight": 57,
+    "backTopBottom": 54
   },
   "psa": {
     "grade": 9,
