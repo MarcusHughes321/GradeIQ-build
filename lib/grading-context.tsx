@@ -30,7 +30,7 @@ interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, certNumber: string | undefined, currentCompany: string, currentGrade: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, currentCompany: string, currentGrade: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   dismissJob: () => void;
   cancelJob: () => void;
   hasCompletedJob: boolean;
@@ -384,7 +384,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const submitCrossoverGrading = useCallback(async (
     slabFrontImage: string,
     slabBackImage: string | undefined,
-    _certNumber: string | undefined,
     currentCompany: string,
     currentGrade: string,
     recordUsage: (n: number) => Promise<void>,

@@ -4154,7 +4154,7 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
 
     const prompt = `You are an expert Pokemon card crossover grader. You are looking at a Pokemon card currently graded and encased in a ${currentCompany} slab with a declared grade of ${currentGrade}.
 
-FIRST: Look at the slab label in the image and verify the grading company and grade are as declared. Note any visible cert number from the label for reference.
+FIRST: Look at the slab label in the image and verify the grading company and grade are as declared.
 
 Your task is to visually analyse the card inside the slab and estimate what grade it would receive from PSA, BGS (Beckett), ACE, TAG, and CGC.
 

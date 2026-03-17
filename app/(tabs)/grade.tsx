@@ -494,7 +494,7 @@ export default function GradeScreen() {
 
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
     if (mode === "crossover") {
-      submitCrossoverGrading(slabImage!, slabBackImage || undefined, undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
+      submitCrossoverGrading(slabImage!, slabBackImage || undefined, crossoverCompany, crossoverGrade.trim(), wrappedRecordUsage);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
