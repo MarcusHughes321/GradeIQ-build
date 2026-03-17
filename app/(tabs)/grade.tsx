@@ -570,9 +570,9 @@ export default function GradeScreen() {
           <Text style={styles.hubCardSub}>Up to 20 cards at once</Text>
         </View>
         {isGateEnabled && !canBulk && !isAdminMode ? (
-          <View style={[styles.hubLockPill, styles.hubLockPillGreen]}>
-            <Ionicons name="lock-closed" size={11} color="#10B981" />
-            <Text style={[styles.hubLockPillText, { color: "#10B981" }]}>Enthusiast</Text>
+          <View style={styles.hubLockPill}>
+            <Ionicons name="lock-closed" size={11} color="#F59E0B" />
+            <Text style={styles.hubLockPillText}>Pro</Text>
           </View>
         ) : (
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
