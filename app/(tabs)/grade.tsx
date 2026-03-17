@@ -931,10 +931,9 @@ export default function GradeScreen() {
           >
             {mode === "crossover" ? (
               <>
-                <View style={styles.crossoverSection}>
-                  <Text style={styles.crossoverLabel}>Slab Front Photo</Text>
+                <View style={styles.imageRow}>
                   <ImageCapture
-                    label="Front of Graded Slab"
+                    label="Front"
                     imageUri={slabImage}
                     onCapture={async () => {
                       if (Platform.OS === "web") {
@@ -966,12 +965,8 @@ export default function GradeScreen() {
                     onRemove={() => setSlabImage(null)}
                     loading={false}
                   />
-                </View>
-
-                <View style={styles.crossoverSection}>
-                  <Text style={styles.crossoverLabel}>Slab Back Photo <Text style={styles.crossoverOptional}>(optional)</Text></Text>
                   <ImageCapture
-                    label="Back of Graded Slab"
+                    label="Back (optional)"
                     imageUri={slabBackImage}
                     onCapture={async () => {
                       if (Platform.OS === "web") {
