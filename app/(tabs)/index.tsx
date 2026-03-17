@@ -539,8 +539,10 @@ export default function HomeScreen() {
                     <View style={[styles.featureTag, styles.featureTagAmber]}><Text style={[styles.featureTagText, styles.featureTagTextAmber]}>Raw Cards</Text></View>
                   </View>
                   <Text style={styles.featureSubtitle}>For raw ungraded cards — premium accuracy</Text>
+                  <Text style={styles.featureLockBenefit}>Unlock detailed defect analysis across 12 photos</Text>
                 </View>
               </View>
+              <Ionicons name="lock-closed" size={16} color="#F59E0B" />
             </View>
             <Pressable
               style={({ pressed }) => [styles.unlockBtn, styles.unlockBtnAmber, { opacity: pressed ? 0.85 : 1 }]}
@@ -586,12 +588,14 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.featureCardText}>
                   <View style={styles.featureTitleRow}>
-                    <Text style={styles.featureTitle}>Crossover</Text>
+                    <Text style={styles.featureTitle}>Crossover Grading</Text>
                     <View style={[styles.featureTag, styles.featureTagPurple]}><Text style={[styles.featureTagText, styles.featureTagTextPurple]}>Graded Slabs</Text></View>
                   </View>
                   <Text style={styles.featureSubtitle}>For graded slabs — see crossover potential</Text>
+                  <Text style={styles.featureLockBenefit}>Unlock crossover estimates for PSA, BGS, CGC & more</Text>
                 </View>
               </View>
+              <Ionicons name="lock-closed" size={16} color="#8B5CF6" />
             </View>
             <Pressable
               style={({ pressed }) => [styles.unlockBtn, styles.unlockBtnPurple, { opacity: pressed ? 0.85 : 1 }]}
@@ -613,7 +617,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.featureCardText}>
                   <View style={styles.featureTitleRow}>
-                    <Text style={styles.featureTitle}>Crossover</Text>
+                    <Text style={styles.featureTitle}>Crossover Grading</Text>
                     <View style={[styles.featureTag, styles.featureTagPurple]}><Text style={[styles.featureTagText, styles.featureTagTextPurple]}>Graded Slabs</Text></View>
                   </View>
                   <Text style={styles.featureSubtitle}>For graded slabs — see crossover potential</Text>
@@ -1295,6 +1299,12 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  featureLockBenefit: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 4,
   },
   unlockBtn: {
     flexDirection: "row",
