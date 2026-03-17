@@ -1363,6 +1363,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textSecondary,
+    flex: 1,
   },
   bottomBar: {
     position: "absolute",
