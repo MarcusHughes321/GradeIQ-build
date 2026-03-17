@@ -12,7 +12,7 @@ import {
   Modal,
   TextInput,
 } from "react-native";
-import { router, useFocusEffect, useNavigation } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -146,7 +146,15 @@ const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; ic
 
 export default function GradeScreen() {
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<GradeMode>("quick");
+  const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<GradeMode>(() => {
+    if (modeParam === "crossover" || modeParam === "deep") return modeParam;
+    return "quick";
+  });
+  useEffect(() => {
+    if (modeParam === "crossover" || modeParam === "deep") setMode(modeParam);
+    else if (modeParam === "quick") setMode("quick");
+  }, [modeParam]);
   const [frontImage, setFrontImage] = useState<string | null>(null);
   const [backImage, setBackImage] = useState<string | null>(null);
   const [angledFrontImage, setAngledFrontImage] = useState<string | null>(null);

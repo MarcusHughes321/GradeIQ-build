@@ -504,16 +504,29 @@ export default function HomeScreen() {
           </LinearGradient>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [styles.bubbleStats, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
-          onPress={() => router.push("/bulk")}
-        >
-          <View style={styles.statsIconCircle}>
-            <Ionicons name="layers" size={22} color={Colors.primary} />
-          </View>
-          <Text style={styles.bubblePrimaryTextSmall}>Bulk Grade</Text>
-          <Text style={styles.bubbleSubtext}>Up to 20 cards</Text>
-        </Pressable>
+        <View style={styles.bubblesRightCol}>
+          <Pressable
+            style={({ pressed }) => [styles.bubbleStats, styles.bubbleSmall, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+            onPress={() => router.push("/bulk")}
+          >
+            <View style={styles.statsIconCircle}>
+              <Ionicons name="layers" size={20} color={Colors.primary} />
+            </View>
+            <Text style={styles.bubblePrimaryTextSmall}>Bulk Grade</Text>
+            <Text style={styles.bubbleSubtext}>Up to 20 cards</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.bubbleStats, styles.bubbleSmall, styles.bubbleCrossover, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+            onPress={() => router.push({ pathname: "/grade", params: { mode: "crossover" } })}
+          >
+            <View style={styles.crossoverIconCircle}>
+              <Ionicons name="swap-horizontal" size={20} color="#8B5CF6" />
+            </View>
+            <Text style={styles.bubblePrimaryTextSmall}>Crossover</Text>
+            <Text style={styles.bubbleSubtext}>Grade a slab</Text>
+          </Pressable>
+        </View>
       </View>
 
       {stats && (
@@ -1034,6 +1047,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: BUBBLE_PAD,
     gap: BUBBLE_GAP,
     marginBottom: 28,
+  },
+  bubblesRightCol: {
+    width: BUBBLE_WIDTH,
+    gap: BUBBLE_GAP,
+  },
+  bubbleSmall: {
+    flex: 1,
+    width: "100%",
+  },
+  bubbleCrossover: {
+    borderColor: "rgba(139,92,246,0.25)",
+  },
+  crossoverIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(139,92,246,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
   },
   bubbleButton: {
     width: BUBBLE_WIDTH,
