@@ -503,7 +503,7 @@ export default function HomeScreen() {
                   <Text style={styles.featureTitle}>Quick Grade</Text>
                   <View style={styles.featureTag}><Text style={styles.featureTagText}>Raw Cards</Text></View>
                 </View>
-                <Text style={styles.featureSubtitle}>2 photos — front & back</Text>
+                <Text style={styles.featureSubtitle}>For raw ungraded cards</Text>
                 {isGateEnabled && remainingGrades !== null && (
                   <Text style={styles.featureUsage}>
                     {remainingGrades > 0 ? `${remainingGrades} of ${monthlyLimit} free grades left` : "No free grades left"}
@@ -527,10 +527,7 @@ export default function HomeScreen() {
 
         {/* Deep Grade */}
         {isGateEnabled && !isSubscribed && !isAdminMode ? (
-          <Pressable
-            style={({ pressed }) => [styles.featureCard, styles.featureCardLocked, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
-            onPress={() => router.push("/paywall")}
-          >
+          <View style={[styles.featureCard, styles.featureCardLocked]}>
             <View style={styles.featureCardLockedInner}>
               <View style={styles.featureCardLeft}>
                 <View style={[styles.featureIconCircle, styles.featureIconAmber]}>
@@ -541,15 +538,18 @@ export default function HomeScreen() {
                     <Text style={styles.featureTitle}>Deep Grade</Text>
                     <View style={[styles.featureTag, styles.featureTagAmber]}><Text style={[styles.featureTagText, styles.featureTagTextAmber]}>Raw Cards</Text></View>
                   </View>
-                  <Text style={styles.featureSubtitle}>12 photos — premium accuracy</Text>
-                  <Text style={styles.featureLockLabel}>Pro feature — upgrade to unlock</Text>
+                  <Text style={styles.featureSubtitle}>For raw ungraded cards — premium accuracy</Text>
                 </View>
               </View>
-              <View style={styles.featureLockIcon}>
-                <Ionicons name="lock-closed" size={16} color="#F59E0B" />
-              </View>
             </View>
-          </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.unlockBtn, styles.unlockBtnAmber, { opacity: pressed ? 0.85 : 1 }]}
+              onPress={() => router.push("/paywall")}
+            >
+              <Ionicons name="lock-open-outline" size={14} color="#000" />
+              <Text style={styles.unlockBtnText}>Unlock with Pro</Text>
+            </Pressable>
+          </View>
         ) : (
           <Pressable
             style={({ pressed }) => [styles.featureCard, styles.featureCardAmber, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
@@ -565,7 +565,7 @@ export default function HomeScreen() {
                     <Text style={styles.featureTitle}>Deep Grade</Text>
                     <View style={[styles.featureTag, styles.featureTagAmber]}><Text style={[styles.featureTagText, styles.featureTagTextAmber]}>Raw Cards</Text></View>
                   </View>
-                  <Text style={styles.featureSubtitle}>12 photos — premium accuracy</Text>
+                  <Text style={styles.featureSubtitle}>For raw ungraded cards — premium accuracy</Text>
                   {isGateEnabled && remainingDeepGrades !== undefined && (
                     <Text style={styles.featureUsageAmber}>{remainingDeepGrades} deep grades left this month</Text>
                   )}
@@ -578,10 +578,7 @@ export default function HomeScreen() {
 
         {/* Crossover Grade */}
         {isGateEnabled && !isSubscribed && !isAdminMode ? (
-          <Pressable
-            style={({ pressed }) => [styles.featureCard, styles.featureCardLocked, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
-            onPress={() => router.push("/paywall")}
-          >
+          <View style={[styles.featureCard, styles.featureCardLocked]}>
             <View style={styles.featureCardLockedInner}>
               <View style={styles.featureCardLeft}>
                 <View style={[styles.featureIconCircle, styles.featureIconPurple]}>
@@ -592,15 +589,18 @@ export default function HomeScreen() {
                     <Text style={styles.featureTitle}>Crossover</Text>
                     <View style={[styles.featureTag, styles.featureTagPurple]}><Text style={[styles.featureTagText, styles.featureTagTextPurple]}>Graded Slabs</Text></View>
                   </View>
-                  <Text style={styles.featureSubtitle}>See crossover potential</Text>
-                  <Text style={styles.featureLockLabel}>Pro feature — upgrade to unlock</Text>
+                  <Text style={styles.featureSubtitle}>For graded slabs — see crossover potential</Text>
                 </View>
               </View>
-              <View style={styles.featureLockIcon}>
-                <Ionicons name="lock-closed" size={16} color="#8B5CF6" />
-              </View>
             </View>
-          </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.unlockBtn, styles.unlockBtnPurple, { opacity: pressed ? 0.85 : 1 }]}
+              onPress={() => router.push("/paywall")}
+            >
+              <Ionicons name="lock-open-outline" size={14} color="#fff" />
+              <Text style={[styles.unlockBtnText, styles.unlockBtnTextPurple]}>Unlock with Pro</Text>
+            </Pressable>
+          </View>
         ) : (
           <Pressable
             style={({ pressed }) => [styles.featureCard, styles.featureCardPurple, { transform: [{ scale: pressed ? 0.98 : 1 }] }]}
@@ -616,7 +616,7 @@ export default function HomeScreen() {
                     <Text style={styles.featureTitle}>Crossover</Text>
                     <View style={[styles.featureTag, styles.featureTagPurple]}><Text style={[styles.featureTagText, styles.featureTagTextPurple]}>Graded Slabs</Text></View>
                   </View>
-                  <Text style={styles.featureSubtitle}>See crossover potential</Text>
+                  <Text style={styles.featureSubtitle}>For graded slabs — see crossover potential</Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={18} color="rgba(139,92,246,0.6)" />
@@ -1295,6 +1295,30 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  unlockBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginHorizontal: 14,
+    marginBottom: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  unlockBtnAmber: {
+    backgroundColor: "#F59E0B",
+  },
+  unlockBtnPurple: {
+    backgroundColor: "#7C3AED",
+  },
+  unlockBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    color: "#000",
+  },
+  unlockBtnTextPurple: {
+    color: "#fff",
   },
   statsRow: {
     flexDirection: "row",
