@@ -508,7 +508,7 @@ export default function GradeScreen() {
 
   const allCornersReady = Object.values(cornerImages).every(v => v !== null);
   const canSubmit = mode === "crossover"
-    ? !!slabImage && !loading
+    ? !!slabImage && !!slabBackImage && !loading
     : mode === "quick"
     ? !!frontImage && !!backImage && !loading
     : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && allCornersReady && !loading;
@@ -966,7 +966,7 @@ export default function GradeScreen() {
                     loading={false}
                   />
                   <ImageCapture
-                    label="Back (optional)"
+                    label="Back"
                     imageUri={slabBackImage}
                     onCapture={async () => {
                       if (Platform.OS === "web") {
