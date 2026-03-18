@@ -4147,34 +4147,47 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
   });
 
   async function detectSlabCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } | null> {
-    const CARD_RATIO = 2.5 / 3.5;
-    const RATIO_TOLERANCE = 0.15;
+    const CARD_RATIO = 2.5 / 3.5; // 0.714
+    const RATIO_TOLERANCE = 0.25; // relaxed — slabs with dark cards can appear slightly non-square
     try {
-      const aiPrompt = `You are analyzing an image of a graded Pokemon card slab. Your ONLY task is to find the exact outer boundary of the POKEMON CARD'S PRINTED SURFACE visible through the transparent plastic window.
+      const aiPrompt = `You are analyzing an image of a graded Pokemon card in a plastic slab case.
 
-CRITICAL RULES:
-- Find the card's PRINTED BORDER — the colored/white border that is part of the card's print, NOT the plastic slab case outer edges
-- A standard Pokemon card is 63mm × 88mm (width-to-height ratio = 0.714)
-- DO NOT mark the outer slab case boundary
-- DO NOT include the grading company label panel at the top of the slab — the label is above the card window
-- The card face typically occupies the lower 75-85% of the slab's visible area; the label panel occupies the upper portion
-- Look for the card's printed white or colored border — this is the inner rectangle inside the slab window
-- The card corners are typically rounded or squared within the slab window
+Think step by step:
 
-Return ONLY this JSON (no markdown, no explanation):
+STEP 1 — Find the label panel:
+The slab has a grading company label at the TOP (contains text, logo, barcode, cert number, grade). Estimate roughly what % of the total image height the label occupies (usually 10-22%).
+
+STEP 2 — Find the card window:
+Below the label is the transparent window showing the Pokemon card face. This window has a clear boundary on all four sides where plastic meets card.
+
+STEP 3 — Find the four card edges:
+- TOP edge: the line just below where the label panel ends and the card surface begins
+- BOTTOM edge: where the card face ends and the plastic bottom of the slab begins  
+- LEFT edge: where the left side of the card meets the transparent/plastic left wall of the slab
+- RIGHT edge: where the right side of the card meets the transparent/plastic right wall of the slab
+
+IMPORTANT — dark background cards (Art Rare, Full Art, Secret Rare):
+Many Pokemon cards have black or very dark backgrounds that extend nearly to the card edge. There may be NO visible white border. In this case, find where the dark card background ends and the slab plastic begins — look for the subtle material change at the card edge.
+
+IMPORTANT — do NOT use:
+- The outer plastic slab boundary (the very edge of the slab case)
+- Any inner artwork borders printed on the card
+- The holographic foil on the slab edges
+
+Expected result: (rightPercent - leftPercent) / (bottomPercent - topPercent) ≈ 0.714. If your answer gives a ratio far from this, re-examine your left/right values.
+
+Return ONLY this JSON, no explanation:
 {
-  "leftPercent": <0-100, position of card's left printed edge as % of full image width>,
-  "topPercent": <0-100, position of card's top printed edge as % of full image height>,
-  "rightPercent": <0-100, position of card's right printed edge as % of full image width>,
-  "bottomPercent": <0-100, position of card's bottom printed edge as % of full image height>,
-  "confidence": <0.0-1.0, your confidence in this measurement>
-}
-
-Verify: (rightPercent - leftPercent) / (bottomPercent - topPercent) should be close to 0.714. If not, re-examine — you may have marked the slab border instead of the card border.`;
+  "leftPercent": <card left edge as % of total image width, 0-100>,
+  "topPercent": <card top edge as % of total image height, 0-100>,
+  "rightPercent": <card right edge as % of total image width, 0-100>,
+  "bottomPercent": <card bottom edge as % of total image height, 0-100>,
+  "confidence": <0.0-1.0>
+}`;
 
       const aiResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 200,
+        max_tokens: 300,
         temperature: 0,
         messages: [{ role: "user", content: [
           { type: "text", text: aiPrompt },
@@ -4184,40 +4197,82 @@ Verify: (rightPercent - leftPercent) / (bottomPercent - topPercent) should be cl
 
       const raw = (aiResp.content[0] as Anthropic.TextBlock)?.text || "";
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
+      if (!jsonMatch) {
+        console.log("[slab-ai-bounds] No JSON in response");
+        return null;
+      }
 
       const parsed = JSON.parse(jsonMatch[0]);
       const { leftPercent, topPercent, rightPercent, bottomPercent, confidence } = parsed;
 
       if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
-          typeof rightPercent !== "number" || typeof bottomPercent !== "number") return null;
-
-      if (leftPercent < 0 || topPercent < 0 || rightPercent > 100 || bottomPercent > 100) {
-        console.log(`[slab-ai-bounds] Rejected — coords out of range: L=${leftPercent} T=${topPercent} R=${rightPercent} B=${bottomPercent}`);
-        return null;
-      }
-      if (leftPercent >= rightPercent || topPercent >= bottomPercent) {
-        console.log(`[slab-ai-bounds] Rejected — invalid ordering: L=${leftPercent} R=${rightPercent} T=${topPercent} B=${bottomPercent}`);
+          typeof rightPercent !== "number" || typeof bottomPercent !== "number") {
+        console.log("[slab-ai-bounds] Missing numeric fields");
         return null;
       }
 
-      const w = rightPercent - leftPercent;
-      const h = bottomPercent - topPercent;
-      if (w < 5 || h < 5) return null;
+      const clamped = {
+        leftPercent:   Math.max(0, Math.min(100, leftPercent)),
+        topPercent:    Math.max(0, Math.min(100, topPercent)),
+        rightPercent:  Math.max(0, Math.min(100, rightPercent)),
+        bottomPercent: Math.max(0, Math.min(100, bottomPercent)),
+      };
+
+      if (clamped.leftPercent >= clamped.rightPercent || clamped.topPercent >= clamped.bottomPercent) {
+        console.log(`[slab-ai-bounds] Rejected — invalid ordering: L=${clamped.leftPercent} R=${clamped.rightPercent} T=${clamped.topPercent} B=${clamped.bottomPercent}`);
+        return null;
+      }
+
+      const w = clamped.rightPercent - clamped.leftPercent;
+      const h = clamped.bottomPercent - clamped.topPercent;
+      if (w < 10 || h < 10) {
+        console.log(`[slab-ai-bounds] Rejected — region too small: ${w.toFixed(1)}×${h.toFixed(1)}`);
+        return null;
+      }
 
       const ratio = w / h;
       const ratioError = Math.abs(ratio - CARD_RATIO) / CARD_RATIO;
       if (ratioError > RATIO_TOLERANCE) {
-        console.log(`[slab-ai-bounds] Rejected AI result — ratio ${ratio.toFixed(3)} vs expected ${CARD_RATIO.toFixed(3)} (error ${(ratioError * 100).toFixed(1)}%)`);
+        console.log(`[slab-ai-bounds] Rejected — ratio ${ratio.toFixed(3)} vs expected ${CARD_RATIO.toFixed(3)} (error ${(ratioError * 100).toFixed(1)}% > ${(RATIO_TOLERANCE * 100).toFixed(0)}% limit)`);
         return null;
       }
 
-      console.log(`[slab-ai-bounds] AI bounds: L=${leftPercent.toFixed(1)} T=${topPercent.toFixed(1)} R=${rightPercent.toFixed(1)} B=${bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
-      return { leftPercent, topPercent, rightPercent, bottomPercent, confidence: confidence ?? 0.8 };
+      console.log(`[slab-ai-bounds] AI bounds: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
+      return { ...clamped, confidence: confidence ?? 0.8 };
     } catch (err) {
       console.warn("[slab-ai-bounds] AI detection failed:", (err as any)?.message);
       return null;
     }
+  }
+
+  /**
+   * Fallback heuristic for slab card bounds when both AI and Sobel fail.
+   * Uses known slab geometry: label ~15% top, card inset ~12% each side.
+   */
+  function slabGeometryFallback(sobelBounds: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number } | null): { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } {
+    if (sobelBounds) {
+      // Check if Sobel gave reasonable outer bounds — if the width/height ratio is close
+      // to the slab (0.76) rather than the card (0.71), the card is probably inset inside
+      const sw = sobelBounds.rightPercent - sobelBounds.leftPercent;
+      const sh = sobelBounds.bottomPercent - sobelBounds.topPercent;
+      const ratio = sw / sh;
+      // If Sobel found something card-shaped, use inner-border insets
+      if (Math.abs(ratio - 0.714) < 0.20) {
+        // Sobel found a card-shaped rectangle; use it but trust it only moderately
+        return { ...sobelBounds, confidence: 0.5 };
+      }
+      // Sobel found the slab case — derive card bounds from it with known offsets:
+      // Label panel ≈ top 18% of slab, card inset ≈ 8% each side
+      const labelFraction = 0.18;
+      const sideInset = 0.08;
+      const cardLeft   = sobelBounds.leftPercent  + sw * sideInset;
+      const cardRight  = sobelBounds.rightPercent - sw * sideInset;
+      const cardTop    = sobelBounds.topPercent   + sh * labelFraction;
+      const cardBottom = sobelBounds.bottomPercent - sh * 0.04;
+      return { leftPercent: cardLeft, topPercent: cardTop, rightPercent: cardRight, bottomPercent: cardBottom, confidence: 0.4 };
+    }
+    // Absolute fallback: card fills roughly 70% of image width, centred, skipping top 20%
+    return { leftPercent: 15, topPercent: 18, rightPercent: 85, bottomPercent: 94, confidence: 0.3 };
   }
 
   async function performCrossoverGrading(
@@ -4366,14 +4421,24 @@ RESPONSE FORMAT (JSON only, no markdown):
     const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
     result.setName = resolvedSetName;
 
-    const frontBoundsToUse = aiFront ?? detectedFront;
-    console.log(`${logPrefix} Front bounds source: ${aiFront ? "AI" : "Sobel"}`);
-    result.frontCardBounds = enforceCardBounds(frontBoundsToUse);
+    // Prefer AI bounds (Claude-detected), fall back to Sobel, then geometry heuristic
+    const frontSource = aiFront ? "AI" : detectedFront ? "Sobel" : "heuristic";
+    // If Sobel ran but not AI, apply geometry heuristic to check if Sobel found the card or outer slab
+    const frontBoundsResolved = aiFront
+      ? aiFront
+      : detectedFront
+        ? slabGeometryFallback(detectedFront)
+        : slabGeometryFallback(null);
+    console.log(`${logPrefix} Front bounds source: ${frontSource} (conf=${frontBoundsResolved.confidence?.toFixed(2) ?? "?"})`);
+    result.frontCardBounds = enforceCardBounds(frontBoundsResolved);
 
+    const backSource = aiBack ? "AI" : detectedBack ? "Sobel" : "none";
     if (detectedBack || aiBack) {
-      const backBoundsToUse = aiBack ?? detectedBack;
-      console.log(`${logPrefix} Back bounds source: ${aiBack ? "AI" : "Sobel"}`);
-      result.backCardBounds = enforceCardBounds(backBoundsToUse);
+      const backBoundsResolved = aiBack
+        ? aiBack
+        : slabGeometryFallback(detectedBack!);
+      console.log(`${logPrefix} Back bounds source: ${backSource} (conf=${backBoundsResolved.confidence?.toFixed(2) ?? "?"})`);
+      result.backCardBounds = enforceCardBounds(backBoundsResolved);
     }
 
     // If cert data was provided (from cert lookup), override the AI-read slab label with known values
