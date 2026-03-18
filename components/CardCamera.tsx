@@ -441,11 +441,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
             <View style={[styles.corner, styles.cornerBL, { borderBottomColor: frameColor, borderLeftColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
             {isSlabMode && (
-              <>
-                <View style={[styles.slabLabelSeparator, { top: guideH * 0.22, borderColor: "rgba(139,92,246,0.55)" }]} />
-                <Text style={[styles.slabLabelTag, { top: guideH * 0.22 - 18 }]}>Label</Text>
-                <Text style={[styles.slabCardTag, { top: guideH * 0.22 + 6 }]}>Card</Text>
-              </>
+              <View style={[styles.slabLabelSeparator, { top: guideH * 0.22, borderColor: "rgba(139,92,246,0.45)" }]} />
             )}
           </View>
         </View>
@@ -619,22 +615,6 @@ const styles = StyleSheet.create({
     height: 0,
     borderTopWidth: 1,
     borderStyle: "dashed",
-  },
-  slabLabelTag: {
-    position: "absolute",
-    right: 10,
-    fontFamily: "Inter_500Medium",
-    fontSize: 9,
-    color: "rgba(139,92,246,0.7)",
-    letterSpacing: 0.5,
-  },
-  slabCardTag: {
-    position: "absolute",
-    right: 10,
-    fontFamily: "Inter_500Medium",
-    fontSize: 9,
-    color: "rgba(139,92,246,0.7)",
-    letterSpacing: 0.5,
   },
   corner: {
     position: "absolute",
