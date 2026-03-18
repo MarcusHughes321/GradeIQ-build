@@ -46,14 +46,14 @@ type CertLookupResult = {
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
 const CROSSOVER_STAGES = [
-  { label: "Preparing slab image", icon: "image-outline" as const, duration: 2000 },
-  { label: "Identifying card", icon: "scan-outline" as const, duration: 5000 },
-  { label: "Assessing centering", icon: "resize-outline" as const, duration: 4000 },
-  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 4000 },
-  { label: "Evaluating surface", icon: "layers-outline" as const, duration: 4000 },
-  { label: "Crossover analysis", icon: "git-compare-outline" as const, duration: 4000 },
-  { label: "Calculating crossover grades", icon: "calculator-outline" as const, duration: 3000 },
-  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
+  { label: "Preparing slab image", icon: "image-outline" as const, duration: 3000 },
+  { label: "Identifying card", icon: "scan-outline" as const, duration: 7000 },
+  { label: "Assessing centering", icon: "resize-outline" as const, duration: 5000 },
+  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 5000 },
+  { label: "Evaluating surface", icon: "layers-outline" as const, duration: 5000 },
+  { label: "Crossover analysis", icon: "git-compare-outline" as const, duration: 5000 },
+  { label: "Calculating crossover grades", icon: "calculator-outline" as const, duration: 5000 },
+  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 3000 },
 ];
 
 const TAB_BAR_STYLE = {

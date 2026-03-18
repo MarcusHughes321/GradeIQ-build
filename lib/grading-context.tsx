@@ -173,7 +173,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     certData?: CertData,
   ) => {
     try {
-      const endpoint = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
+      const base = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
+      const endpoint = `${base}?t=${Date.now()}`;
       const resp = await apiRequest("GET", endpoint);
       const data = await resp.json();
 
