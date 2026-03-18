@@ -761,13 +761,13 @@ Step 5: FINAL DETERMINATION
 - Report the verified cardName, setName, and setNumber in the JSON response.
 
 Step 6: CARD BOUNDS MEASUREMENT
-- Estimate where the card's outer edges appear in each image as a percentage of the full image dimensions (0=left/top edge of image, 100=right/bottom edge of image).
-- For the FRONT image: report frontCardBounds with the card's left, top, right, and bottom edges.
-- For the BACK image: report backCardBounds with the card's left, top, right, and bottom edges.
-- These should be the OUTER card edge (white/colored card border), not the artwork inner border.
-- If the card fills most of the image (e.g., leftPercent ≈ 3-8%, rightPercent ≈ 92-97%), report accurate values.
-- Do NOT report values close to 0/100 unless the card literally touches the image edge.
+Estimate the card boundary in BOTH the outer edges (physical card edge) AND the inner artwork boundary (where the printed border ends and the artwork begins). Report these for both front and back images.
+- OUTER bounds (leftPercent/topPercent/rightPercent/bottomPercent): the physical card edge (white/colored card border). If the card fills most of the image, leftPercent ≈ 3-8% and rightPercent ≈ 92-97%.
+- INNER bounds (innerLeftPercent/innerTopPercent/innerRightPercent/innerBottomPercent): where the card's printed border/frame ends and the main artwork area begins. These must be strictly INSIDE the outer bounds.
+  - Art Rare / Full Art / Secret Rare cards: very thin border (~1-4% of card width per side)
+  - Standard Pokemon cards: border ~5-10% of card width per side; top/bottom borders slightly larger
 - The card width-to-height ratio should be approximately 0.714 (2.5 inches wide × 3.5 inches tall).
+- Do NOT report outer values close to 0/100 unless the card literally touches the image edge.
 
 Respond ONLY with valid JSON in this exact format:
 {
@@ -776,8 +776,8 @@ Respond ONLY with valid JSON in this exact format:
   "setName": "ENGLISH name of the set derived from the set code (e.g. PFLen = 'Phantasmal Flames', s8b = 'VMAX Climax')",
   "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
-  "frontCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97 },
-  "backCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97 },
+  "frontCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97, "innerLeftPercent": 9, "innerTopPercent": 9, "innerRightPercent": 91, "innerBottomPercent": 91 },
+  "backCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97, "innerLeftPercent": 9, "innerTopPercent": 9, "innerRightPercent": 91, "innerBottomPercent": 91 },
   "defects": [
     {"side": "front", "x": 95, "y": 5, "type": "corner", "severity": "minor", "description": "Slight whitening on top-right corner"},
     {"side": "back", "x": 50, "y": 50, "type": "surface", "severity": "minor", "description": "Faint surface scratch across center"}
@@ -4215,41 +4215,46 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     }
   });
 
-  async function detectRawCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } | null> {
+  async function detectRawCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } | null> {
     const CARD_RATIO = 2.5 / 3.5;
     const RATIO_TOLERANCE = 0.25;
     try {
-      const aiPrompt = `You are analyzing an image of a raw (ungraded) Pokemon card.
+      const aiPrompt = `You are analyzing an image of a raw (ungraded) Pokemon card. Your goal is to find TWO sets of boundaries:
+1. The physical OUTER edges of the card (the cut cardboard boundary)
+2. The INNER artwork boundary (where the card's printed border/frame ends and the artwork begins)
 
-Find the four outer edges of the Pokemon card in the image and report their positions as percentages of the image dimensions.
+STEP 1 — Find the card OUTER edges:
+The card is a physical rectangular card. Find where the card material meets the background (table, mat, hand, etc.).
+- LEFT edge: leftmost edge of the card's physical material
+- RIGHT edge: rightmost edge of the card's physical material
+- TOP edge: top edge of the card's physical material
+- BOTTOM edge: bottom edge of the card's physical material
+- For cards with dark/black backgrounds (Art Rare, Full Art, Secret Rare): look for the subtle material boundary where the card ends and the background begins
+- Report the OUTER physical edge, not the holographic foil or inner printed border
 
-STEP 1 — Identify the card boundary:
-The card is a physical rectangular card with a white or colored border. Find where the card edge meets the background. Look for the clear rectangular boundary of the card itself.
-
-STEP 2 — Find the four edges:
-- LEFT edge: the leftmost side of the card (where the card border begins)
-- RIGHT edge: the rightmost side of the card
-- TOP edge: the topmost side of the card
-- BOTTOM edge: the bottommost side of the card
-
-IMPORTANT:
-- Report the OUTER card edge, not the inner artwork border or the holographic foil border.
-- For cards with dark/black backgrounds that extend to the card edge: find the subtle boundary where the card material ends and the background begins.
-- If the card fills most of the image, leftPercent might be around 3-8% and rightPercent around 92-97%.
-- The width/height ratio of a Pokemon card is approximately 0.714 (2.5" wide × 3.5" tall).
+STEP 2 — Find the INNER artwork boundary:
+Inside the card face there is a printed border/frame. The artwork area starts INSIDE this border. Find the inner boundary.
+- Art Rare / Full Art / Secret Rare cards: the artwork fills almost the entire card face with a very thin border (about 1-4% of card width per side)
+- Standard Pokemon cards (white or colored borders): the border is about 5-10% of card width per side; TOP border is similar to or slightly larger than the side borders; BOTTOM border is similar to the top
+- Express inner bounds as % of the TOTAL IMAGE (same coordinate system as outer bounds)
+- The inner boundary should always be INSIDE (between) the outer boundaries
 
 Return ONLY this JSON, no explanation:
 {
-  "leftPercent": <card left edge as % of image width, 0-100>,
-  "topPercent": <card top edge as % of image height, 0-100>,
-  "rightPercent": <card right edge as % of image width, 0-100>,
-  "bottomPercent": <card bottom edge as % of image height, 0-100>,
+  "leftPercent": <outer card left edge as % of image width, 0-100>,
+  "topPercent": <outer card top edge as % of image height, 0-100>,
+  "rightPercent": <outer card right edge as % of image width, 0-100>,
+  "bottomPercent": <outer card bottom edge as % of image height, 0-100>,
+  "innerLeftPercent": <where artwork begins on left, as % of image width>,
+  "innerTopPercent": <where artwork begins at top, as % of image height>,
+  "innerRightPercent": <where artwork ends on right, as % of image width>,
+  "innerBottomPercent": <where artwork ends at bottom, as % of image height>,
   "confidence": <0.0-1.0>
 }`;
 
       const aiResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0,
         messages: [{ role: "user", content: [
           { type: "text", text: aiPrompt },
@@ -4265,7 +4270,8 @@ Return ONLY this JSON, no explanation:
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence } = parsed;
+      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence,
+              innerLeftPercent, innerTopPercent, innerRightPercent, innerBottomPercent } = parsed;
 
       if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
           typeof rightPercent !== "number" || typeof bottomPercent !== "number") {
@@ -4299,8 +4305,28 @@ Return ONLY this JSON, no explanation:
         return null;
       }
 
+      const result: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } = { ...clamped, confidence: confidence ?? 0.8 };
+
+      // Attach inner bounds if returned and valid (must be inside outer bounds)
+      if (typeof innerLeftPercent === "number" && typeof innerTopPercent === "number" &&
+          typeof innerRightPercent === "number" && typeof innerBottomPercent === "number") {
+        const iL = Math.max(0, Math.min(100, innerLeftPercent));
+        const iT = Math.max(0, Math.min(100, innerTopPercent));
+        const iR = Math.max(0, Math.min(100, innerRightPercent));
+        const iB = Math.max(0, Math.min(100, innerBottomPercent));
+        if (iL > clamped.leftPercent && iR < clamped.rightPercent &&
+            iT > clamped.topPercent && iB < clamped.bottomPercent &&
+            iL < iR && iT < iB) {
+          result.innerLeftPercent = iL;
+          result.innerTopPercent = iT;
+          result.innerRightPercent = iR;
+          result.innerBottomPercent = iB;
+          console.log(`[raw-ai-bounds] Inner bounds: iL=${iL.toFixed(1)} iT=${iT.toFixed(1)} iR=${iR.toFixed(1)} iB=${iB.toFixed(1)}`);
+        }
+      }
+
       console.log(`[raw-ai-bounds] AI bounds: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
-      return { ...clamped, confidence: confidence ?? 0.8 };
+      return result;
     } catch (err) {
       console.warn("[raw-ai-bounds] AI detection failed:", (err as any)?.message);
       return null;
@@ -4350,48 +4376,52 @@ Return ONLY this JSON, no explanation:
     }
   });
 
-  async function detectSlabCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } | null> {
+  async function detectSlabCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } | null> {
     const CARD_RATIO = 2.5 / 3.5; // 0.714
     const RATIO_TOLERANCE = 0.25; // relaxed — slabs with dark cards can appear slightly non-square
     try {
-      const aiPrompt = `You are analyzing an image of a graded Pokemon card in a plastic slab case.
+      const aiPrompt = `You are analyzing an image of a graded Pokemon card in a plastic slab case. Your goal is to find TWO sets of boundaries:
+1. The physical OUTER edges of the card (the actual card boundary inside the slab plastic)
+2. The INNER artwork boundary (where the card's printed border ends and artwork begins) — needed for centering measurement
 
 Think step by step:
 
-STEP 1 — Find the label panel:
-The slab has a grading company label at the TOP (contains text, logo, barcode, cert number, grade). Estimate roughly what % of the total image height the label occupies (usually 10-22%).
+STEP 1 — Find the visible card edges (LEFT, RIGHT, BOTTOM):
+The card is inside a clear plastic slab. Find where the card material meets the slab plastic:
+- LEFT card edge: where the left side of the card material meets the transparent slab wall
+- RIGHT card edge: where the right side of the card material meets the transparent slab wall
+- BOTTOM card edge: where the card bottom meets the slab bottom plastic
+- For dark cards (Art Rare, Full Art, Secret Rare): look for the material/colour change at the card edge, not the inner holographic border
 
-STEP 2 — Find the card window:
-Below the label is the transparent window showing the Pokemon card face. This window has a clear boundary on all four sides where plastic meets card.
+STEP 2 — Estimate the card TOP edge using aspect ratio:
+The grading label (ACE, PSA, BGS, CGC, TAG etc.) sits at the very top of the slab and covers the top portion of the card. The physical top of the card is ABOVE the label — it is at approximately the top interior edge of the slab.
+IMPORTANT: Do NOT place the top edge at the bottom of the label. Instead calculate:
+  estimated_topPercent = bottomPercent - (rightPercent - leftPercent) / 0.714
+This uses the known card aspect ratio (width:height = 2.5:3.5 = 0.714) to correctly locate the physical top of the card. Report this calculated value.
 
-STEP 3 — Find the four card edges:
-- TOP edge: the line just below where the label panel ends and the card surface begins
-- BOTTOM edge: where the card face ends and the plastic bottom of the slab begins  
-- LEFT edge: where the left side of the card meets the transparent/plastic left wall of the slab
-- RIGHT edge: where the right side of the card meets the transparent/plastic right wall of the slab
-
-IMPORTANT — dark background cards (Art Rare, Full Art, Secret Rare):
-Many Pokemon cards have black or very dark backgrounds that extend nearly to the card edge. There may be NO visible white border. In this case, find where the dark card background ends and the slab plastic begins — look for the subtle material change at the card edge.
-
-IMPORTANT — do NOT use:
-- The outer plastic slab boundary (the very edge of the slab case)
-- Any inner artwork borders printed on the card
-- The holographic foil on the slab edges
-
-Expected result: (rightPercent - leftPercent) / (bottomPercent - topPercent) ≈ 0.714. If your answer gives a ratio far from this, re-examine your left/right values.
+STEP 3 — Find the INNER artwork boundary (centering measurement lines):
+Inside the card face there is a printed border/frame around the artwork area. Find where this frame ends and the main artwork begins:
+- Art Rare / Full Art / Secret Rare cards: the border is very thin (~1-4% of card width per side)
+- Standard Pokemon cards: the border is ~5-10% of card width per side
+- The INNER bounds must be INSIDE the outer bounds
+- Express inner bounds as % of the TOTAL IMAGE (same coordinate system as outer bounds)
 
 Return ONLY this JSON, no explanation:
 {
-  "leftPercent": <card left edge as % of total image width, 0-100>,
-  "topPercent": <card top edge as % of total image height, 0-100>,
-  "rightPercent": <card right edge as % of total image width, 0-100>,
-  "bottomPercent": <card bottom edge as % of total image height, 0-100>,
+  "leftPercent": <card left edge as % of image width>,
+  "topPercent": <CALCULATED card top using aspect ratio — NOT below the label>,
+  "rightPercent": <card right edge as % of image width>,
+  "bottomPercent": <card bottom edge as % of image height>,
+  "innerLeftPercent": <where artwork begins on left, as % of image width>,
+  "innerTopPercent": <where artwork begins at top, as % of image height>,
+  "innerRightPercent": <where artwork ends on right, as % of image width>,
+  "innerBottomPercent": <where artwork ends at bottom, as % of image height>,
   "confidence": <0.0-1.0>
 }`;
 
       const aiResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0,
         messages: [{ role: "user", content: [
           { type: "text", text: aiPrompt },
@@ -4407,7 +4437,8 @@ Return ONLY this JSON, no explanation:
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence } = parsed;
+      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence,
+              innerLeftPercent, innerTopPercent, innerRightPercent, innerBottomPercent } = parsed;
 
       if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
           typeof rightPercent !== "number" || typeof bottomPercent !== "number") {
@@ -4441,8 +4472,28 @@ Return ONLY this JSON, no explanation:
         return null;
       }
 
+      const result: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } = { ...clamped, confidence: confidence ?? 0.8 };
+
+      // Attach inner bounds if returned and valid (must be inside outer bounds)
+      if (typeof innerLeftPercent === "number" && typeof innerTopPercent === "number" &&
+          typeof innerRightPercent === "number" && typeof innerBottomPercent === "number") {
+        const iL = Math.max(0, Math.min(100, innerLeftPercent));
+        const iT = Math.max(0, Math.min(100, innerTopPercent));
+        const iR = Math.max(0, Math.min(100, innerRightPercent));
+        const iB = Math.max(0, Math.min(100, innerBottomPercent));
+        if (iL > clamped.leftPercent && iR < clamped.rightPercent &&
+            iT > clamped.topPercent && iB < clamped.bottomPercent &&
+            iL < iR && iT < iB) {
+          result.innerLeftPercent = iL;
+          result.innerTopPercent = iT;
+          result.innerRightPercent = iR;
+          result.innerBottomPercent = iB;
+          console.log(`[slab-ai-bounds] Inner bounds: iL=${iL.toFixed(1)} iT=${iT.toFixed(1)} iR=${iR.toFixed(1)} iB=${iB.toFixed(1)}`);
+        }
+      }
+
       console.log(`[slab-ai-bounds] AI bounds: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
-      return { ...clamped, confidence: confidence ?? 0.8 };
+      return result;
     } catch (err) {
       console.warn("[slab-ai-bounds] AI detection failed:", (err as any)?.message);
       return null;
@@ -4454,29 +4505,37 @@ Return ONLY this JSON, no explanation:
    * Uses known slab geometry: label ~15% top, card inset ~12% each side.
    */
   function slabGeometryFallback(sobelBounds: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number } | null): { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } {
+    const CARD_RATIO = 0.714; // 2.5 / 3.5
     if (sobelBounds) {
-      // Check if Sobel gave reasonable outer bounds — if the width/height ratio is close
-      // to the slab (0.76) rather than the card (0.71), the card is probably inset inside
       const sw = sobelBounds.rightPercent - sobelBounds.leftPercent;
       const sh = sobelBounds.bottomPercent - sobelBounds.topPercent;
       const ratio = sw / sh;
-      // If Sobel found something card-shaped, use inner-border insets
-      if (Math.abs(ratio - 0.714) < 0.20) {
-        // Sobel found a card-shaped rectangle; use it but trust it only moderately
-        return { ...sobelBounds, confidence: 0.5 };
+      if (Math.abs(ratio - CARD_RATIO) < 0.20) {
+        // Sobel found a card-shaped rectangle — fix the top edge using aspect ratio
+        // (Sobel may have found the label-card boundary as "top", so recalculate from bottom+width)
+        const cardBottom = sobelBounds.bottomPercent;
+        const cardLeft   = sobelBounds.leftPercent;
+        const cardRight  = sobelBounds.rightPercent;
+        const cardTop    = cardBottom - sw / CARD_RATIO;
+        return { leftPercent: cardLeft, topPercent: cardTop, rightPercent: cardRight, bottomPercent: cardBottom, confidence: 0.5 };
       }
-      // Sobel found the slab case — derive card bounds from it with known offsets:
-      // Label panel ≈ top 18% of slab, card inset ≈ 8% each side
-      const labelFraction = 0.18;
-      const sideInset = 0.08;
+      // Sobel found the slab case — derive card bounds from it:
+      // Card inset ≈ 6% each side horizontally; card bottom inset ≈ 3% from slab bottom
+      // Card top is computed from card bottom and card width (aspect ratio), not from label position
+      const sideInset = 0.06;
+      const bottomInset = 0.03;
       const cardLeft   = sobelBounds.leftPercent  + sw * sideInset;
       const cardRight  = sobelBounds.rightPercent - sw * sideInset;
-      const cardTop    = sobelBounds.topPercent   + sh * labelFraction;
-      const cardBottom = sobelBounds.bottomPercent - sh * 0.04;
+      const cardBottom = sobelBounds.bottomPercent - sh * bottomInset;
+      const cardWidth  = cardRight - cardLeft;
+      const cardTop    = cardBottom - cardWidth / CARD_RATIO;
       return { leftPercent: cardLeft, topPercent: cardTop, rightPercent: cardRight, bottomPercent: cardBottom, confidence: 0.4 };
     }
-    // Absolute fallback: card fills roughly 70% of image width, centred, skipping top 20%
-    return { leftPercent: 15, topPercent: 18, rightPercent: 85, bottomPercent: 94, confidence: 0.3 };
+    // Absolute fallback: card fills roughly 70% of image width, centred
+    // Compute top from bottom using aspect ratio
+    const cardLeft = 15, cardRight = 85, cardBottom = 94;
+    const cardTop = cardBottom - (cardRight - cardLeft) / CARD_RATIO;
+    return { leftPercent: cardLeft, topPercent: cardTop, rightPercent: cardRight, bottomPercent: cardBottom, confidence: 0.3 };
   }
 
   async function performCrossoverGrading(
