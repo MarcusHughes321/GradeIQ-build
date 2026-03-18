@@ -206,6 +206,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       // across app reinstalls and new builds. Without this, each install gets a
       // new anonymous ID and can no longer see purchases from previous sessions.
       let rcUserId = await AsyncStorage.getItem(RC_USER_ID_KEY);
+      const isFirstLaunchWithPersistentId = !rcUserId;
       if (!rcUserId) {
         rcUserId = `gradeiq_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 9)}`;
         await AsyncStorage.setItem(RC_USER_ID_KEY, rcUserId);
@@ -224,6 +225,24 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         console.warn("[subscription] WARN: Found entitlements but NOT 'Grade.IQ Pro'. Check RevenueCat entitlement name. Keys found:", activeKeys);
       }
       setCurrentTier(tier);
+
+      // First launch with the persistent ID system: silently auto-restore so that
+      // existing subscribers who update from an older build have their subscription
+      // reinstated without needing to tap "Restore Purchases" manually.
+      if (isFirstLaunchWithPersistentId && tier === "free") {
+        console.log("[subscription] First launch — silently auto-restoring to catch existing purchases...");
+        Purchases.restorePurchases()
+          .then((restored) => {
+            const restoredTier = determineTier(restored);
+            if (restoredTier !== "free") {
+              console.log("[subscription] Silent restore found subscription: tier=", restoredTier);
+              setCurrentTier(restoredTier);
+            } else {
+              console.log("[subscription] Silent restore: no active subscription found (genuine new user)");
+            }
+          })
+          .catch((e) => console.log("[subscription] Silent restore failed:", e));
+      }
 
       Purchases.addCustomerInfoUpdateListener((info) => {
         const tier = determineTier(info);
