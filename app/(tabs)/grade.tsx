@@ -168,11 +168,11 @@ export default function GradeScreen() {
   const insets = useSafeAreaInsets();
   const { mode: modeParam } = useLocalSearchParams<{ mode?: string }>();
   const [mode, setMode] = useState<GradeMode>(() => {
-    if (modeParam === "crossover" || modeParam === "deep" || modeParam === "quick") return modeParam;
+    if (modeParam === "deep" || modeParam === "quick") return modeParam;
     return "hub";
   });
   useEffect(() => {
-    if (modeParam === "crossover" || modeParam === "deep" || modeParam === "quick") setMode(modeParam);
+    if (modeParam === "deep" || modeParam === "quick") setMode(modeParam);
   }, [modeParam]);
 
   const [frontImage, setFrontImage] = useState<string | null>(null);
@@ -670,32 +670,19 @@ export default function GradeScreen() {
 
       <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Graded Slabs</Text>
 
-      <Pressable
-        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => {
-          if (isGateEnabled && !canCrossover && !isAdminMode) {
-            router.push("/crossover-info");
-            return;
-          }
-          setMode("crossover");
-        }}
-      >
-        <View style={[styles.hubIconWrap, styles.hubIconPurple]}>
+      <View style={[styles.hubCard, styles.hubCardLocked]}>
+        <View style={[styles.hubIconWrap, styles.hubIconPurple, { opacity: 0.45 }]}>
           <Ionicons name="swap-horizontal-outline" size={22} color="#8B5CF6" />
         </View>
         <View style={styles.hubCardText}>
-          <Text style={styles.hubCardTitle}>Crossover Grading</Text>
-          <Text style={styles.hubCardSub}>Estimate grades at other companies</Text>
+          <Text style={[styles.hubCardTitle, { opacity: 0.45 }]}>Crossover Grading</Text>
+          <Text style={[styles.hubCardSub, { opacity: 0.45 }]}>Estimate grades at other companies</Text>
         </View>
-        {isGateEnabled && !canCrossover && !isAdminMode ? (
-          <View style={styles.hubLockPill}>
-            <Ionicons name="lock-closed" size={11} color="#F59E0B" />
-            <Text style={styles.hubLockPillText}>Pro</Text>
-          </View>
-        ) : (
-          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-        )}
-      </Pressable>
+        <View style={styles.hubComingSoonPill}>
+          <Ionicons name="construct-outline" size={10} color="#8B5CF6" />
+          <Text style={styles.hubComingSoonPillText}>Coming Soon</Text>
+        </View>
+      </View>
     </ScrollView>
   );
 
@@ -728,13 +715,13 @@ export default function GradeScreen() {
             <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
           )}
         </Pressable>
-        <Pressable
-          style={[styles.modeTab, mode === "crossover" && styles.modeTabActive]}
-          onPress={() => setMode("crossover")}
-        >
-          <Ionicons name="git-compare-outline" size={16} color={mode === "crossover" ? "#8B5CF6" : Colors.textMuted} />
-          <Text style={[styles.modeTabText, mode === "crossover" && styles.modeTabTextCrossover]}>Crossover</Text>
-        </Pressable>
+        <View style={[styles.modeTab, styles.modeTabDisabled]}>
+          <Ionicons name="git-compare-outline" size={16} color={Colors.textMuted} style={{ opacity: 0.4 }} />
+          <Text style={[styles.modeTabText, { opacity: 0.4 }]}>Crossover</Text>
+          <View style={styles.modeTabSoonBadge}>
+            <Text style={styles.modeTabSoonBadgeText}>Soon</Text>
+          </View>
+        </View>
       </View>
       {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
         <Pressable onPress={handleSelectDeepMode} style={({ pressed }) => [styles.deepTeaserBtn, { opacity: pressed ? 0.7 : 1 }]}>
@@ -1474,6 +1461,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#F59E0B",
   },
+  hubCardLocked: {
+    opacity: 0.85,
+  },
+  hubComingSoonPill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 3,
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  hubComingSoonPillText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: "#8B5CF6",
+  },
   deepBadge: {
     backgroundColor: "rgba(245, 158, 11, 0.15)",
     paddingHorizontal: 10,
@@ -1506,6 +1510,21 @@ const styles = StyleSheet.create({
   },
   modeTabActive: {
     backgroundColor: Colors.surfaceLight,
+  },
+  modeTabDisabled: {
+    opacity: 1,
+  },
+  modeTabSoonBadge: {
+    backgroundColor: "rgba(139,92,246,0.18)",
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  modeTabSoonBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 9,
+    color: "#8B5CF6",
+    letterSpacing: 0.3,
   },
   modeTabText: {
     fontFamily: "Inter_500Medium",
