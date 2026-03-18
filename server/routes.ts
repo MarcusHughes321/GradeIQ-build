@@ -760,6 +760,15 @@ Step 5: FINAL DETERMINATION
 - Combine: Pokemon name (from text + artwork) + card number (as read) + set code (as read)
 - Report the verified cardName, setName, and setNumber in the JSON response.
 
+Step 6: CARD BOUNDS MEASUREMENT
+- Estimate where the card's outer edges appear in each image as a percentage of the full image dimensions (0=left/top edge of image, 100=right/bottom edge of image).
+- For the FRONT image: report frontCardBounds with the card's left, top, right, and bottom edges.
+- For the BACK image: report backCardBounds with the card's left, top, right, and bottom edges.
+- These should be the OUTER card edge (white/colored card border), not the artwork inner border.
+- If the card fills most of the image (e.g., leftPercent ≈ 3-8%, rightPercent ≈ 92-97%), report accurate values.
+- Do NOT report values close to 0/100 unless the card literally touches the image edge.
+- The card width-to-height ratio should be approximately 0.714 (2.5 inches wide × 3.5 inches tall).
+
 Respond ONLY with valid JSON in this exact format:
 {
   "cardName": "ENGLISH name of the Pokemon card (e.g. 'Charizard ex') - translate if card is in another language",
@@ -767,6 +776,8 @@ Respond ONLY with valid JSON in this exact format:
   "setName": "ENGLISH name of the set derived from the set code (e.g. PFLen = 'Phantasmal Flames', s8b = 'VMAX Climax')",
   "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
+  "frontCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97 },
+  "backCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97 },
   "defects": [
     {"side": "front", "x": 95, "y": 5, "type": "corner", "severity": "minor", "description": "Slight whitening on top-right corner"},
     {"side": "back", "x": 50, "y": 50, "type": "surface", "severity": "minor", "description": "Faint surface scratch across center"}
@@ -2538,6 +2549,20 @@ function enforceCardBounds(bounds: any): any {
   return result;
 }
 
+function isValidCardBounds(bounds: any): boolean {
+  if (!bounds) return false;
+  const { leftPercent, topPercent, rightPercent, bottomPercent } = bounds;
+  if (typeof leftPercent !== "number" || typeof rightPercent !== "number" ||
+      typeof topPercent !== "number" || typeof bottomPercent !== "number") return false;
+  const w = rightPercent - leftPercent;
+  const h = bottomPercent - topPercent;
+  if (w < 30 || h < 30) return false;
+  if (w > 94 || h > 94) return false;
+  if (leftPercent < 1 || topPercent < 1) return false;
+  if (rightPercent > 99 || bottomPercent > 99) return false;
+  return true;
+}
+
 function computeCenteringGrades(centering: any) {
   const frontWorst = Math.max(centering.frontLeftRight, centering.frontTopBottom);
   const backWorst = Math.max(centering.backLeftRight, centering.backTopBottom);
@@ -2876,6 +2901,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const hasNonLatinName = /[^\u0000-\u007F]/.test(cardName);
     const isAsianCard = isAsianCode && hasNonLatinName;
 
+    const aiBoundsValid = isValidCardBounds(gradingResult.frontCardBounds) && isValidCardBounds(gradingResult.backCardBounds);
+    console.log(`${logPrefix} AI card bounds: front=${JSON.stringify(gradingResult.frontCardBounds)} back=${JSON.stringify(gradingResult.backCardBounds)} valid=${aiBoundsValid}`);
+
     if (isAsianCard) {
       console.log(`${logPrefix} Asian set code "${setCode}" — trying Bulbapedia database lookup`);
 
@@ -2883,57 +2911,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const numbersToTry = new Set<number>();
       if (cardNum > 0) numbersToTry.add(cardNum);
 
-      const boundsPromise = Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]);
       const lookupPromises = [...numbersToTry].map(num =>
         lookupJapaneseCard(setCode, num, setName).then(name => ({ num, name }))
       );
 
-      const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
-      const [detectedFront, detectedBack] = boundsResults;
-      gradingResult.frontCardBounds = detectedFront;
-      gradingResult.backCardBounds = detectedBack;
+      if (aiBoundsValid) {
+        const bulbapediaResults = await Promise.all(lookupPromises);
+        const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+        console.log(`${logPrefix} Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
 
-      const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
-      console.log(`${logPrefix} Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
+        if (foundResults.length > 0) {
+          const bestBulbapedia = foundResults[0];
+          gradingResult.cardName = bestBulbapedia.name;
+          const setTotal = (cardNumber || "").split("/")[1] || "";
+          gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
 
-      if (foundResults.length > 0) {
-        const bestBulbapedia = foundResults[0];
-        gradingResult.cardName = bestBulbapedia.name;
-        const setTotal = (cardNumber || "").split("/")[1] || "";
-        gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
+          const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
+          if (cachedSetPage) {
+            gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+          }
+        }
+      } else {
+        const boundsPromise = Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]);
+        const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
+        const [detectedFront, detectedBack] = boundsResults;
+        gradingResult.frontCardBounds = detectedFront;
+        gradingResult.backCardBounds = detectedBack;
 
-        const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
-        if (cachedSetPage) {
-          gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+        const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+        console.log(`${logPrefix} Bulbapedia results: ${foundResults.map(r => `#${r.num}="${r.name}"`).join(", ") || "none"}`);
+
+        if (foundResults.length > 0) {
+          const bestBulbapedia = foundResults[0];
+          gradingResult.cardName = bestBulbapedia.name;
+          const setTotal = (cardNumber || "").split("/")[1] || "";
+          gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
+
+          const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
+          if (cachedSetPage) {
+            gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+          }
         }
       }
     } else {
       console.log(`${logPrefix} Looking up card online: name="${cardName}" number="${cardNumber}" set="${setName}" code="${setCode}"`);
 
-      const [boundsResults, lookupResult] = await Promise.all([
-        Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]),
-        lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
-      ]);
-
-      const [detectedFront, detectedBack] = boundsResults;
-
-      if (lookupResult) {
-        let displayName = lookupResult.cardName;
-        if (displayName && cardName) {
-          const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
-          const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
-          const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
-          const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
-          if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
-            displayName = cardName;
+      if (aiBoundsValid) {
+        const lookupResult = await lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null);
+        if (lookupResult) {
+          let displayName = lookupResult.cardName;
+          if (displayName && cardName) {
+            const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
+            const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
+            const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
+            const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
+            if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
+              displayName = cardName;
+            }
           }
+          gradingResult.cardName = displayName;
+          gradingResult.setName = lookupResult.setName;
+          gradingResult.setNumber = lookupResult.setNumber;
         }
-        gradingResult.cardName = displayName;
-        gradingResult.setName = lookupResult.setName;
-        gradingResult.setNumber = lookupResult.setNumber;
+      } else {
+        const [boundsResults, lookupResult] = await Promise.all([
+          Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]),
+          lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
+        ]);
+
+        const [detectedFront, detectedBack] = boundsResults;
+
+        if (lookupResult) {
+          let displayName = lookupResult.cardName;
+          if (displayName && cardName) {
+            const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
+            const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
+            const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
+            const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
+            if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
+              displayName = cardName;
+            }
+          }
+          gradingResult.cardName = displayName;
+          gradingResult.setName = lookupResult.setName;
+          gradingResult.setNumber = lookupResult.setNumber;
+        }
+        gradingResult.frontCardBounds = detectedFront;
+        gradingResult.backCardBounds = detectedBack;
       }
-      gradingResult.frontCardBounds = detectedFront;
-      gradingResult.backCardBounds = detectedBack;
     }
 
     if (setCode) {
@@ -3093,58 +3158,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const hasNonLatinName = /[^\u0000-\u007F]/.test(cardName);
     const isAsianCard = isAsianCode && hasNonLatinName;
 
+    const deepAiBoundsValid = isValidCardBounds(gradingResult.frontCardBounds) && isValidCardBounds(gradingResult.backCardBounds);
+    console.log(`${logPrefix} AI card bounds: front=${JSON.stringify(gradingResult.frontCardBounds)} back=${JSON.stringify(gradingResult.backCardBounds)} valid=${deepAiBoundsValid}`);
+
     if (isAsianCard) {
       console.log(`${logPrefix} Asian set code "${setCode}" — trying Bulbapedia database lookup`);
       const cardNum = parseInt((cardNumber || "").split("/")[0]?.replace(/^0+/, "") || "0");
       const numbersToTry = new Set<number>();
       if (cardNum > 0) numbersToTry.add(cardNum);
 
-      const boundsPromise = Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]);
       const lookupPromises = [...numbersToTry].map(num =>
         lookupJapaneseCard(setCode, num, setName).then(name => ({ num, name }))
       );
 
-      const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
-      const [detectedFront, detectedBack] = boundsResults;
-      gradingResult.frontCardBounds = detectedFront;
-      gradingResult.backCardBounds = detectedBack;
+      if (deepAiBoundsValid) {
+        const bulbapediaResults = await Promise.all(lookupPromises);
+        const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+        if (foundResults.length > 0) {
+          const bestBulbapedia = foundResults[0];
+          gradingResult.cardName = bestBulbapedia.name;
+          const setTotal = (cardNumber || "").split("/")[1] || "";
+          gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
+          const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
+          if (cachedSetPage) {
+            gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+          }
+        }
+      } else {
+        const boundsPromise = Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]);
+        const [boundsResults, ...bulbapediaResults] = await Promise.all([boundsPromise, ...lookupPromises]);
+        const [detectedFront, detectedBack] = boundsResults;
+        gradingResult.frontCardBounds = detectedFront;
+        gradingResult.backCardBounds = detectedBack;
 
-      const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
-      if (foundResults.length > 0) {
-        const bestBulbapedia = foundResults[0];
-        gradingResult.cardName = bestBulbapedia.name;
-        const setTotal = (cardNumber || "").split("/")[1] || "";
-        gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
-        const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
-        if (cachedSetPage) {
-          gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+        const foundResults = bulbapediaResults.filter(r => r.name !== null) as Array<{ num: number; name: string }>;
+        if (foundResults.length > 0) {
+          const bestBulbapedia = foundResults[0];
+          gradingResult.cardName = bestBulbapedia.name;
+          const setTotal = (cardNumber || "").split("/")[1] || "";
+          gradingResult.setNumber = setTotal ? formatSetNumber(bestBulbapedia.num, setTotal) : String(bestBulbapedia.num);
+          const cachedSetPage = japaneseSetCards.get(setCode.toLowerCase());
+          if (cachedSetPage) {
+            gradingResult.setName = cachedSetPage.setName.replace(/_/g, " ").replace(/\s*\(TCG\)\s*/g, "");
+          }
         }
       }
     } else {
-      const [boundsResults, lookupResult] = await Promise.all([
-        Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]),
-        lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
-      ]);
-
-      const [detectedFront, detectedBack] = boundsResults;
-
-      if (lookupResult) {
-        let displayName = lookupResult.cardName;
-        if (displayName && cardName) {
-          const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
-          const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
-          const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
-          const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
-          if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
-            displayName = cardName;
+      if (deepAiBoundsValid) {
+        const lookupResult = await lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null);
+        if (lookupResult) {
+          let displayName = lookupResult.cardName;
+          if (displayName && cardName) {
+            const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
+            const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
+            const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
+            const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
+            if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
+              displayName = cardName;
+            }
           }
+          gradingResult.cardName = displayName;
+          gradingResult.setName = lookupResult.setName;
+          gradingResult.setNumber = lookupResult.setNumber;
         }
-        gradingResult.cardName = displayName;
-        gradingResult.setName = lookupResult.setName;
-        gradingResult.setNumber = lookupResult.setNumber;
+      } else {
+        const [boundsResults, lookupResult] = await Promise.all([
+          Promise.all([detectCardBounds(frontUrl), detectCardBounds(backUrl)]),
+          lookupCardOnline(cardName, cardNumber, setName, setCode).catch(() => null),
+        ]);
+
+        const [detectedFront, detectedBack] = boundsResults;
+
+        if (lookupResult) {
+          let displayName = lookupResult.cardName;
+          if (displayName && cardName) {
+            const dbLower = displayName.toLowerCase().replace(/[-\s]/g, "");
+            const aiLower = cardName.toLowerCase().replace(/[-\s]/g, "");
+            const isAbbreviated = /^m\s/i.test(displayName) && /^mega\s/i.test(cardName);
+            const aiIsMoreDescriptive = aiLower.length > dbLower.length && aiLower.includes(dbLower.replace(/ex$/i, "").replace(/gx$/i, "").replace(/vmax$/i, "").replace(/vstar$/i, "").slice(0, Math.max(4, dbLower.length / 2)));
+            if (isAbbreviated || (aiIsMoreDescriptive && cardName.length <= displayName.length * 2.5)) {
+              displayName = cardName;
+            }
+          }
+          gradingResult.cardName = displayName;
+          gradingResult.setName = lookupResult.setName;
+          gradingResult.setNumber = lookupResult.setNumber;
+        }
+        gradingResult.frontCardBounds = detectedFront;
+        gradingResult.backCardBounds = detectedBack;
       }
-      gradingResult.frontCardBounds = detectedFront;
-      gradingResult.backCardBounds = detectedBack;
     }
 
     if (setCode) {
@@ -3262,8 +3364,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       gradingResult.cardName = cardName || gradingResult.cardName;
       gradingResult.setName = setName || gradingResult.setName;
       gradingResult.setNumber = setNumber || gradingResult.setNumber;
-      gradingResult.frontCardBounds = detectedFront;
-      gradingResult.backCardBounds = detectedBack;
+      if (!isValidCardBounds(gradingResult.frontCardBounds)) gradingResult.frontCardBounds = detectedFront;
+      if (!isValidCardBounds(gradingResult.backCardBounds)) gradingResult.backCardBounds = detectedBack;
       gradingResult = syncCenteringToGrades(gradingResult);
 
       console.log(`[regrade] Complete for "${cardName}"`);
@@ -4113,6 +4215,98 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     }
   });
 
+  async function detectRawCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } | null> {
+    const CARD_RATIO = 2.5 / 3.5;
+    const RATIO_TOLERANCE = 0.25;
+    try {
+      const aiPrompt = `You are analyzing an image of a raw (ungraded) Pokemon card.
+
+Find the four outer edges of the Pokemon card in the image and report their positions as percentages of the image dimensions.
+
+STEP 1 — Identify the card boundary:
+The card is a physical rectangular card with a white or colored border. Find where the card edge meets the background. Look for the clear rectangular boundary of the card itself.
+
+STEP 2 — Find the four edges:
+- LEFT edge: the leftmost side of the card (where the card border begins)
+- RIGHT edge: the rightmost side of the card
+- TOP edge: the topmost side of the card
+- BOTTOM edge: the bottommost side of the card
+
+IMPORTANT:
+- Report the OUTER card edge, not the inner artwork border or the holographic foil border.
+- For cards with dark/black backgrounds that extend to the card edge: find the subtle boundary where the card material ends and the background begins.
+- If the card fills most of the image, leftPercent might be around 3-8% and rightPercent around 92-97%.
+- The width/height ratio of a Pokemon card is approximately 0.714 (2.5" wide × 3.5" tall).
+
+Return ONLY this JSON, no explanation:
+{
+  "leftPercent": <card left edge as % of image width, 0-100>,
+  "topPercent": <card top edge as % of image height, 0-100>,
+  "rightPercent": <card right edge as % of image width, 0-100>,
+  "bottomPercent": <card bottom edge as % of image height, 0-100>,
+  "confidence": <0.0-1.0>
+}`;
+
+      const aiResp = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 300,
+        temperature: 0,
+        messages: [{ role: "user", content: [
+          { type: "text", text: aiPrompt },
+          toClaudeImage(imageUrl),
+        ]}],
+      });
+
+      const raw = (aiResp.content[0] as Anthropic.TextBlock)?.text || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.log("[raw-ai-bounds] No JSON in response");
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence } = parsed;
+
+      if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
+          typeof rightPercent !== "number" || typeof bottomPercent !== "number") {
+        console.log("[raw-ai-bounds] Missing numeric fields");
+        return null;
+      }
+
+      const clamped = {
+        leftPercent:   Math.max(0, Math.min(100, leftPercent)),
+        topPercent:    Math.max(0, Math.min(100, topPercent)),
+        rightPercent:  Math.max(0, Math.min(100, rightPercent)),
+        bottomPercent: Math.max(0, Math.min(100, bottomPercent)),
+      };
+
+      if (clamped.leftPercent >= clamped.rightPercent || clamped.topPercent >= clamped.bottomPercent) {
+        console.log(`[raw-ai-bounds] Rejected — invalid ordering`);
+        return null;
+      }
+
+      const w = clamped.rightPercent - clamped.leftPercent;
+      const h = clamped.bottomPercent - clamped.topPercent;
+      if (w < 10 || h < 10) {
+        console.log(`[raw-ai-bounds] Rejected — region too small: ${w.toFixed(1)}×${h.toFixed(1)}`);
+        return null;
+      }
+
+      const ratio = w / h;
+      const ratioError = Math.abs(ratio - CARD_RATIO) / CARD_RATIO;
+      if (ratioError > RATIO_TOLERANCE) {
+        console.log(`[raw-ai-bounds] Rejected — ratio ${ratio.toFixed(3)} vs expected ${CARD_RATIO.toFixed(3)} (error ${(ratioError * 100).toFixed(1)}%)`);
+        return null;
+      }
+
+      console.log(`[raw-ai-bounds] AI bounds: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
+      return { ...clamped, confidence: confidence ?? 0.8 };
+    } catch (err) {
+      console.warn("[raw-ai-bounds] AI detection failed:", (err as any)?.message);
+      return null;
+    }
+  }
+
   app.post("/api/detect-bounds", async (req, res) => {
     try {
       const { image } = req.body;
@@ -4120,9 +4314,19 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
         return res.status(400).json({ error: "Image is required" });
       }
       const uri = image.startsWith("data:") ? image : `data:image/jpeg;base64,${image}`;
+
+      const aiBounds = await detectRawCardBoundsWithAI(uri);
+
+      if (aiBounds) {
+        console.log(`[detect-bounds] Claude result: L=${aiBounds.leftPercent.toFixed(1)} T=${aiBounds.topPercent.toFixed(1)} R=${aiBounds.rightPercent.toFixed(1)} B=${aiBounds.bottomPercent.toFixed(1)} conf=${aiBounds.confidence.toFixed(2)}`);
+        res.json(aiBounds);
+        return;
+      }
+
+      console.log(`[detect-bounds] Claude failed or rejected, falling back to Sobel`);
       const bounds = await detectCardBounds(uri);
 
-      console.log(`[detect-bounds] Result: L=${bounds.leftPercent.toFixed(1)} T=${bounds.topPercent.toFixed(1)} R=${bounds.rightPercent.toFixed(1)} B=${bounds.bottomPercent.toFixed(1)} angle=${bounds.angleDeg ?? 0} confidence=${bounds.confidence ?? 0}`);
+      console.log(`[detect-bounds] Sobel result: L=${bounds.leftPercent.toFixed(1)} T=${bounds.topPercent.toFixed(1)} R=${bounds.rightPercent.toFixed(1)} B=${bounds.bottomPercent.toFixed(1)} angle=${bounds.angleDeg ?? 0} confidence=${bounds.confidence ?? 0}`);
       res.json(bounds);
     } catch (error: any) {
       console.error("Error detecting bounds:", error);
