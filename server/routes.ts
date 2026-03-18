@@ -1655,11 +1655,14 @@ function detectBoundsAtResolution(
   pixels: Buffer, sw: number, sh: number,
   _scanRange: number, _minVoteRatio: number,
   xConstraint?: { minPct: number; maxPct: number },
-  yConstraint?: { minPct: number; maxPct: number }
+  yConstraint?: { minPct: number; maxPct: number },
+  slabMode?: boolean
 ): { leftPct: number; rightPct: number; topPct: number; bottomPct: number; angleDeg: number; confidence: number } {
   const CARD_WH_RATIO = 2.5 / 3.5;
   const CARD_WH_RATIO_ROTATED = 3.5 / 2.5;
-  const RATIO_TOLERANCE = 0.12;
+  const SLAB_WH_RATIO = 0.76;
+  const SLAB_WH_RATIO_ROTATED = 1 / 0.76;
+  const RATIO_TOLERANCE = slabMode ? 0.30 : 0.12;
 
   const getPixel = (x: number, y: number) => {
     if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
@@ -1811,7 +1814,9 @@ function detectBoundsAtResolution(
       const cardW = rp.pos - lp.pos;
       if (cardW < sw * 0.2) continue;
 
-      const ratiosToTry = [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED];
+      const ratiosToTry = slabMode
+        ? [CARD_WH_RATIO, SLAB_WH_RATIO, CARD_WH_RATIO_ROTATED, SLAB_WH_RATIO_ROTATED]
+        : [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED];
 
       for (const targetRatio of ratiosToTry) {
         const expectedH = cardW / targetRatio;
@@ -1932,7 +1937,8 @@ function detectBoundsAtResolution(
           const exteriorUniformity = 1 / (1 + avgExtVar / 15);
 
           const rotatedPenalty = targetRatio === CARD_WH_RATIO ? 1.0 : 0.85;
-          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * 4.0) * edgeProximityPenalty * rotatedPenalty;
+          const extUniformityWeight = slabMode ? 2.0 : 4.0;
+          const totalScore = (ratioScore * 4.0 + sizeScore * 3.0 + edgeNorm * 1.0 + normalizedContrast * 2.5 + minContrastScore * 1.5 + exteriorUniformity * extUniformityWeight) * edgeProximityPenalty * rotatedPenalty;
 
           if (totalScore > best.score) {
             best = {
@@ -2384,8 +2390,8 @@ function detectInnerBorders(
   };
 }
 
-async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; angleDeg?: number; confidence?: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number }> {
-  const cacheKey = dataUri.slice(dataUri.length - 64);
+async function detectCardBounds(dataUri: string, slabMode?: boolean): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; angleDeg?: number; confidence?: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number }> {
+  const cacheKey = (slabMode ? "slab:" : "") + dataUri.slice(dataUri.length - 64);
   const cached = boundsCache.get(cacheKey);
   if (cached) return cached;
   try {
@@ -2406,7 +2412,7 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       .toBuffer({ resolveWithObject: true });
 
     const varianceHint = detectCardRegionByVariance(coarsePixels as any, csw, csh);
-    const coarse = detectBoundsAtResolution(coarsePixels as any, csw, csh, 0.4, 0.12);
+    const coarse = detectBoundsAtResolution(coarsePixels as any, csw, csh, 0.4, 0.12, undefined, undefined, slabMode);
 
     let unionLeft = coarse.leftPct;
     let unionRight = coarse.rightPct;
@@ -2431,11 +2437,12 @@ async function detectCardBounds(dataUri: string): Promise<{ leftPercent: number;
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    const REFINE_BAND = 15;
+    const REFINE_BAND = slabMode ? 25 : 15;
     const fine = detectBoundsAtResolution(
       finePixels as any, fsw, fsh, 0.4, 0.15,
       { minPct: Math.max(0, unionLeft - REFINE_BAND), maxPct: Math.min(100, unionRight + REFINE_BAND) },
-      { minPct: Math.max(0, unionTop - REFINE_BAND), maxPct: Math.min(100, unionBottom + REFINE_BAND) }
+      { minPct: Math.max(0, unionTop - REFINE_BAND), maxPct: Math.min(100, unionBottom + REFINE_BAND) },
+      slabMode
     );
 
     let leftPercent = fine.leftPct;
@@ -4256,17 +4263,21 @@ RESPONSE FORMAT (JSON only, no markdown):
       contentParts.push({ type: "image_url", image_url: { url: slabBackUrl, detail: "high" } });
     }
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: contentParts,
-        },
-      ],
-      max_tokens: 2000,
-      temperature: 0.2,
-    });
+    const [response, detectedFront, detectedBack] = await Promise.all([
+      openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: contentParts,
+          },
+        ],
+        max_tokens: 2000,
+        temperature: 0.2,
+      }),
+      detectCardBounds(slabUrl, true),
+      slabBackUrl ? detectCardBounds(slabBackUrl, true) : Promise.resolve(null),
+    ]);
 
     const rawContent = response.choices[0]?.message?.content || "";
     const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
@@ -4278,6 +4289,9 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
     result.setName = resolvedSetName;
+
+    result.frontCardBounds = enforceCardBounds(detectedFront);
+    if (detectedBack) result.backCardBounds = enforceCardBounds(detectedBack);
 
     console.log(`${logPrefix} Crossover complete in ${Date.now() - gradeStartTime}ms`);
     return result;
