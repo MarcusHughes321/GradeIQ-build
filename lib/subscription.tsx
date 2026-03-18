@@ -392,7 +392,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const deepMonthlyLimit = deepGradeLimit;
 
   const canCrossover = isAdminMode || !isGateEnabled || isSubscribed;
-  const canBulk = isAdminMode || !isGateEnabled || currentTier === "enthusiast" || currentTier === "obsessed";
+  const canBulk = isAdminMode || !isGateEnabled || currentTier === "curious" || currentTier === "enthusiast" || currentTier === "obsessed";
 
   const value = useMemo(
     () => ({
