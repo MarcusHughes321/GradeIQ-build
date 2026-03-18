@@ -141,23 +141,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const rcConfiguredRef = useRef(false);
 
-  useEffect(() => {
-    Promise.all([getMonthlyUsage(), getDeepMonthlyUsage()]).then(([usage, deepUsage]) => {
-      setMonthlyUsageCount(usage.count);
-      setDeepMonthlyUsageCount(deepUsage.count);
-      setLoading(false);
-    });
-
-    AsyncStorage.getItem(ADMIN_KEY).then((val) => {
-      if (val === "enabled") setIsAdminMode(true);
-    });
-
-    initRevenueCat();
-
-    const sub = AppState.addEventListener("change", handleAppStateChange);
-    return () => sub.remove();
-  }, []);
-
+  // Defined before useEffect so the closure captures it correctly
   const handleAppStateChange = useCallback(async (nextState: AppStateStatus) => {
     const prev = appStateRef.current;
     appStateRef.current = nextState;
@@ -172,6 +156,30 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       }
     }
   }, []);
+
+  useEffect(() => {
+    Promise.all([getMonthlyUsage(), getDeepMonthlyUsage()]).then(([usage, deepUsage]) => {
+      setMonthlyUsageCount(usage.count);
+      setDeepMonthlyUsageCount(deepUsage.count);
+      setLoading(false);
+    });
+
+    AsyncStorage.getItem(ADMIN_KEY).then((val) => {
+      if (val === "enabled") setIsAdminMode(true);
+    });
+
+    // Safety net: if RevenueCat never resolves (e.g. network offline at launch),
+    // clear the loading spinner after 10 seconds so the UI isn't stuck.
+    const rcTimeout = setTimeout(() => setRcLoading(false), 10000);
+
+    initRevenueCat().finally(() => clearTimeout(rcTimeout));
+
+    const sub = AppState.addEventListener("change", handleAppStateChange);
+    return () => {
+      sub.remove();
+      clearTimeout(rcTimeout);
+    };
+  }, [handleAppStateChange]);
 
   const toggleAdminMode = useCallback(async () => {
     const next = !isAdminMode;
@@ -194,7 +202,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
-      console.log("[subscription] Init: tier=", tier, "entitlements=", Object.keys(info.entitlements.active), "productId=", info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none");
+      // Log all active entitlement keys so we can diagnose naming mismatches in RevenueCat
+      const activeKeys = Object.keys(info.entitlements.active);
+      const productId = info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none";
+      console.log("[subscription] Init: tier=", tier, "| active entitlements=", activeKeys, "| productId=", productId);
+      if (activeKeys.length > 0 && !info.entitlements.active["Grade.IQ Pro"]) {
+        console.warn("[subscription] WARN: Found entitlements but NOT 'Grade.IQ Pro'. Check RevenueCat entitlement name. Keys found:", activeKeys);
+      }
       setCurrentTier(tier);
 
       Purchases.addCustomerInfoUpdateListener((info) => {
