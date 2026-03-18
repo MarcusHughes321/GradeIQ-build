@@ -6,7 +6,6 @@ import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases"
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
-const RC_USER_ID_KEY = "gradeiq_rc_user_id";
 const FREE_MONTHLY_LIMIT = 3;
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
@@ -198,56 +197,29 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       }
 
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+      // Do NOT call logIn() — RevenueCat's own anonymous ID is stored persistently
+      // by the SDK and survives app updates. Calling logIn() with a custom ID would
+      // switch to a NEW customer record that has no purchases, breaking subscription
+      // detection for all existing users.
       await Purchases.configure({ apiKey });
       setRcConfigured(true);
       rcConfiguredRef.current = true;
-
-      // Use a persistent user ID so the same RevenueCat customer record is used
-      // across app reinstalls and new builds. Without this, each install gets a
-      // new anonymous ID and can no longer see purchases from previous sessions.
-      let rcUserId = await AsyncStorage.getItem(RC_USER_ID_KEY);
-      const isFirstLaunchWithPersistentId = !rcUserId;
-      if (!rcUserId) {
-        rcUserId = `gradeiq_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 9)}`;
-        await AsyncStorage.setItem(RC_USER_ID_KEY, rcUserId);
-        console.log("[subscription] Generated new persistent RC user ID");
-      } else {
-        console.log("[subscription] Using existing persistent RC user ID");
-      }
-      await Purchases.logIn(rcUserId);
 
       const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
       const activeKeys = Object.keys(info.entitlements.active);
       const productId = info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none";
-      console.log("[subscription] Init: tier=", tier, "| active entitlements=", activeKeys, "| productId=", productId);
+      const rcAppUserId = info.originalAppUserId ?? "unknown";
+      console.log("[subscription] Init: tier=", tier, "| entitlements=", activeKeys, "| productId=", productId, "| RC userId=", rcAppUserId);
       if (activeKeys.length > 0 && !info.entitlements.active["Grade.IQ Pro"]) {
-        console.warn("[subscription] WARN: Found entitlements but NOT 'Grade.IQ Pro'. Check RevenueCat entitlement name. Keys found:", activeKeys);
+        console.warn("[subscription] WARN: Active entitlements found but NOT 'Grade.IQ Pro'. Keys:", activeKeys);
       }
       setCurrentTier(tier);
 
-      // First launch with the persistent ID system: silently auto-restore so that
-      // existing subscribers who update from an older build have their subscription
-      // reinstated without needing to tap "Restore Purchases" manually.
-      if (isFirstLaunchWithPersistentId && tier === "free") {
-        console.log("[subscription] First launch — silently auto-restoring to catch existing purchases...");
-        Purchases.restorePurchases()
-          .then((restored) => {
-            const restoredTier = determineTier(restored);
-            if (restoredTier !== "free") {
-              console.log("[subscription] Silent restore found subscription: tier=", restoredTier);
-              setCurrentTier(restoredTier);
-            } else {
-              console.log("[subscription] Silent restore: no active subscription found (genuine new user)");
-            }
-          })
-          .catch((e) => console.log("[subscription] Silent restore failed:", e));
-      }
-
-      Purchases.addCustomerInfoUpdateListener((info) => {
-        const tier = determineTier(info);
-        console.log("[subscription] CustomerInfo update: tier=", tier);
-        setCurrentTier(tier);
+      Purchases.addCustomerInfoUpdateListener((updated) => {
+        const updatedTier = determineTier(updated);
+        console.log("[subscription] CustomerInfo update: tier=", updatedTier, "| entitlements=", Object.keys(updated.entitlements.active));
+        setCurrentTier(updatedTier);
       });
     } catch (e) {
       console.log("RevenueCat init skipped:", e);
@@ -402,38 +374,43 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (!rcConfigured) return false;
     try {
       await Purchases.invalidateCustomerInfoCache();
+      console.log("[restore] Calling restorePurchases...");
       const info = await Purchases.restorePurchases();
       const tier = determineTier(info);
+      const activeKeys = Object.keys(info.entitlements.active);
+      console.log("[restore] Result: tier=", tier, "| entitlements=", activeKeys, "| originalAppUserId=", info.originalAppUserId);
       setCurrentTier(tier);
-      console.log("Restore: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
       if (tier !== "free") return true;
 
       // Restore may still be propagating — wait and force a fresh server fetch
+      console.log("[restore] Still free after restore, waiting 2s and re-checking...");
       await new Promise(resolve => setTimeout(resolve, 2000));
       await Purchases.invalidateCustomerInfoCache();
       const refreshed = await Purchases.getCustomerInfo();
       const refreshedTier = determineTier(refreshed);
+      console.log("[restore] Re-check: tier=", refreshedTier, "| entitlements=", Object.keys(refreshed.entitlements.active));
       setCurrentTier(refreshedTier);
-      console.log("Restore re-check: tier=", refreshedTier, "entitlements=", Object.keys(refreshed.entitlements.active));
       if (refreshedTier !== "free") return true;
 
-      // Final fallback: force a sync with Apple's servers
-      console.log("Restore: trying syncPurchasesForResult as final fallback...");
+      // Final fallback: force a sync with Apple's servers using local receipt
+      console.log("[restore] Trying syncPurchasesForResult as final fallback...");
       try {
         const syncResult = await Purchases.syncPurchasesForResult();
         if (syncResult?.customerInfo) {
           const syncTier = determineTier(syncResult.customerInfo);
+          console.log("[restore] Sync result: tier=", syncTier, "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
           setCurrentTier(syncTier);
-          console.log("Restore sync result: tier=", syncTier, "entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
           if (syncTier !== "free") return true;
         }
-      } catch (syncErr) {
-        console.log("Restore sync fallback failed:", syncErr);
+      } catch (syncErr: any) {
+        console.log("[restore] syncPurchasesForResult failed:", syncErr?.message ?? syncErr);
       }
       return false;
-    } catch (e) {
-      console.error("Restore error:", e);
-      return false;
+    } catch (e: any) {
+      const msg = e?.message ?? e?.underlyingErrorMessage ?? e?.readableErrorCode ?? String(e);
+      console.error("[restore] Error from RevenueCat:", msg, "| full:", JSON.stringify(e));
+      // Re-throw so callers can show the actual error to the user
+      throw new Error(msg);
     }
   }, [rcConfigured]);
 

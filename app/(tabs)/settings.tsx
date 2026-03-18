@@ -71,10 +71,11 @@ export default function SettingsScreen() {
       if (success) {
         Alert.alert("Purchases Restored", "Your subscription has been successfully restored.");
       } else {
-        Alert.alert("Nothing to Restore", "No active subscription was found for this Apple ID. If you believe this is an error, please contact support.");
+        Alert.alert("Nothing to Restore", "No active subscription was found. If you believe this is an error, try again or contact support.");
       }
-    } catch {
-      Alert.alert("Restore Failed", "Something went wrong. Please try again.");
+    } catch (e: any) {
+      const detail = e?.message ? `\n\n(${e.message})` : "";
+      Alert.alert("Restore Failed", `Something went wrong while restoring.${detail}`);
     } finally {
       setRestoring(false);
     }

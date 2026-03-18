@@ -104,15 +104,20 @@ export default function PaywallScreen() {
         } else if (errorCode === "10" || errorCode === "PRODUCT_ALREADY_PURCHASED_ERROR") {
           // Subscription already exists — automatically restore instead of making user do it manually
           console.log("PRODUCT_ALREADY_PURCHASED — auto-restoring...");
-          const restored = await restorePurchases();
-          if (restored) {
-            router.back();
-          } else {
-            Alert.alert(
-              "Subscription Found",
-              "Your subscription is active but couldn't be applied automatically. Please tap 'Restore Purchases' below.",
-              [{ text: "OK" }]
-            );
+          try {
+            const restored = await restorePurchases();
+            if (restored) {
+              router.back();
+            } else {
+              Alert.alert(
+                "Subscription Found",
+                "Your subscription is active but couldn't be applied automatically. Please tap 'Restore Purchases' below.",
+                [{ text: "OK" }]
+              );
+            }
+          } catch (restoreErr: any) {
+            const detail = restoreErr?.message ? `\n\n(${restoreErr.message})` : "";
+            Alert.alert("Restore Error", `Couldn't restore automatically.${detail} Please tap 'Restore Purchases' below.`);
           }
         } else {
           Alert.alert("Subscription Issue", `We couldn't process your subscription right now. (Code: ${errorCode})`);
@@ -138,8 +143,9 @@ export default function PaywallScreen() {
       } else {
         Alert.alert("No Subscription Found", "We couldn't find an active subscription linked to your Apple ID. Make sure you're signed in with the same Apple ID used to purchase, then try again.");
       }
-    } catch {
-      Alert.alert("Restore Issue", "We couldn't restore your purchases right now. Please try again later.");
+    } catch (e: any) {
+      const detail = e?.message ? `\n\n(${e.message})` : "";
+      Alert.alert("Restore Issue", `We couldn't restore your purchases right now.${detail}`);
     } finally {
       setPurchasing(false);
     }
