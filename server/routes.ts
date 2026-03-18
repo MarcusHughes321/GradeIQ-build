@@ -4325,7 +4325,20 @@ Return ONLY this JSON, no explanation:
         }
       }
 
-      console.log(`[raw-ai-bounds] AI bounds: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
+      console.log(`[raw-ai-bounds] Initial: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
+
+      // ── Verification pass: draw lines on image, ask Claude to check ──────────
+      try {
+        const composite = await drawBoundsOnImage(imageUrl, result);
+        const verified = await verifyAndCorrectBoundsWithAI(composite, result, "raw");
+        if (verified) {
+          console.log(`[raw-ai-bounds] Verified: L=${verified.leftPercent.toFixed(1)} T=${verified.topPercent.toFixed(1)} R=${verified.rightPercent.toFixed(1)} B=${verified.bottomPercent.toFixed(1)} conf=${verified.confidence.toFixed(2)}`);
+          return verified;
+        }
+      } catch (verifyErr) {
+        console.warn("[raw-ai-bounds] Verification step failed, using initial bounds:", (verifyErr as any)?.message);
+      }
+
       return result;
     } catch (err) {
       console.warn("[raw-ai-bounds] AI detection failed:", (err as any)?.message);
@@ -4376,46 +4389,179 @@ Return ONLY this JSON, no explanation:
     }
   });
 
+  /**
+   * Draw centering bounds as colored lines on an image (for AI verification).
+   * Outer bounds = white lines; inner bounds = yellow lines.
+   * Returns a base64 JPEG of the composite image.
+   */
+  async function drawBoundsOnImage(
+    imageUrl: string,
+    bounds: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number },
+  ): Promise<string> {
+    const buf = Buffer.from(imageUrl.split(",")[1] ?? imageUrl, "base64");
+    const metadata = await sharp(buf).metadata();
+    const imgW = metadata.width || 800;
+    const imgH = metadata.height || 1100;
+
+    const px = (pct: number) => Math.round((pct / 100) * imgW);
+    const py = (pct: number) => Math.round((pct / 100) * imgH);
+
+    const oL = px(bounds.leftPercent);
+    const oR = px(bounds.rightPercent);
+    const oT = py(bounds.topPercent);
+    const oB = py(bounds.bottomPercent);
+
+    let svgLines = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">`;
+    // Outer card boundary — bright white lines
+    svgLines += `<line x1="${oL}" y1="0" x2="${oL}" y2="${imgH}" stroke="white" stroke-width="4" opacity="0.9"/>`;
+    svgLines += `<line x1="${oR}" y1="0" x2="${oR}" y2="${imgH}" stroke="white" stroke-width="4" opacity="0.9"/>`;
+    svgLines += `<line x1="0" y1="${oT}" x2="${imgW}" y2="${oT}" stroke="white" stroke-width="4" opacity="0.9"/>`;
+    svgLines += `<line x1="0" y1="${oB}" x2="${imgW}" y2="${oB}" stroke="white" stroke-width="4" opacity="0.9"/>`;
+
+    // Inner artwork boundary — yellow lines (only between outer lines)
+    if (bounds.innerLeftPercent != null && bounds.innerRightPercent != null &&
+        bounds.innerTopPercent != null && bounds.innerBottomPercent != null) {
+      const iL = px(bounds.innerLeftPercent);
+      const iR = px(bounds.innerRightPercent);
+      const iT = py(bounds.innerTopPercent);
+      const iB = py(bounds.innerBottomPercent);
+      svgLines += `<line x1="${iL}" y1="${oT}" x2="${iL}" y2="${oB}" stroke="yellow" stroke-width="3" opacity="0.9"/>`;
+      svgLines += `<line x1="${iR}" y1="${oT}" x2="${iR}" y2="${oB}" stroke="yellow" stroke-width="3" opacity="0.9"/>`;
+      svgLines += `<line x1="${oL}" y1="${iT}" x2="${oR}" y2="${iT}" stroke="yellow" stroke-width="3" opacity="0.9"/>`;
+      svgLines += `<line x1="${oL}" y1="${iB}" x2="${oR}" y2="${iB}" stroke="yellow" stroke-width="3" opacity="0.9"/>`;
+    }
+    svgLines += `</svg>`;
+
+    const composite = await sharp(buf)
+      .composite([{ input: Buffer.from(svgLines), blend: "over" }])
+      .jpeg({ quality: 80 })
+      .toBuffer();
+
+    return `data:image/jpeg;base64,${composite.toString("base64")}`;
+  }
+
+  /**
+   * Verify and correct centering bounds by showing Claude the image WITH lines drawn on it.
+   * This replicates the "human looking at a screenshot and seeing the lines are off" behaviour.
+   * WHITE lines = outer card boundary; YELLOW lines = inner artwork boundary.
+   */
+  async function verifyAndCorrectBoundsWithAI(
+    compositeImageUrl: string,
+    initial: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number },
+    mode: "slab" | "raw",
+  ): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } | null> {
+    try {
+      const slabNote = mode === "slab"
+        ? `This is a graded slab. The WHITE top line is placed at the estimated physical top of the card (the card extends behind the grading label at the top — the label does NOT mark the card's physical top edge).`
+        : `This is a raw card. The WHITE lines mark the physical card edges.`;
+
+      const prompt = `I have drawn centering measurement lines on this Pokemon card image:
+- WHITE lines mark the OUTER card boundary (physical edge of the card)
+- YELLOW lines mark the INNER artwork boundary (where the card's printed border ends and artwork begins)
+
+${slabNote}
+
+Please examine the image carefully and answer:
+1. Are the WHITE lines correctly touching the actual card edges on all four sides?
+2. Are the YELLOW lines at the correct positions where the card's printed border meets the artwork?
+
+If any line is misplaced, provide corrected percentage coordinates. If a line looks correct, keep the same value.
+
+Return ONLY this JSON:
+{
+  "leftPercent": <corrected outer left, or keep ${initial.leftPercent.toFixed(1)}>,
+  "topPercent": <corrected outer top, or keep ${initial.topPercent.toFixed(1)}>,
+  "rightPercent": <corrected outer right, or keep ${initial.rightPercent.toFixed(1)}>,
+  "bottomPercent": <corrected outer bottom, or keep ${initial.bottomPercent.toFixed(1)}>,
+  "innerLeftPercent": <corrected inner left, or keep ${(initial.innerLeftPercent ?? 0).toFixed(1)}>,
+  "innerTopPercent": <corrected inner top, or keep ${(initial.innerTopPercent ?? 0).toFixed(1)}>,
+  "innerRightPercent": <corrected inner right, or keep ${(initial.innerRightPercent ?? 100).toFixed(1)}>,
+  "innerBottomPercent": <corrected inner bottom, or keep ${(initial.innerBottomPercent ?? 100).toFixed(1)}>,
+  "confidence": <0.0-1.0>,
+  "anyCorrections": <true if you changed any value, false if all looked correct>
+}`;
+
+      const aiResp = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 400,
+        temperature: 0,
+        messages: [{ role: "user", content: [
+          { type: "text", text: prompt },
+          toClaudeImage(compositeImageUrl),
+        ]}],
+      });
+
+      const raw = (aiResp.content[0] as Anthropic.TextBlock)?.text || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return null;
+
+      const p = JSON.parse(jsonMatch[0]);
+      console.log(`[bounds-verify] anyCorrections=${p.anyCorrections} conf=${p.confidence?.toFixed(2)}`);
+
+      const result: typeof initial & { confidence: number } = {
+        leftPercent:   Math.max(0, Math.min(100, p.leftPercent ?? initial.leftPercent)),
+        topPercent:    Math.max(0, Math.min(100, p.topPercent  ?? initial.topPercent)),
+        rightPercent:  Math.max(0, Math.min(100, p.rightPercent  ?? initial.rightPercent)),
+        bottomPercent: Math.max(0, Math.min(100, p.bottomPercent ?? initial.bottomPercent)),
+        confidence:    p.confidence ?? 0.85,
+      };
+
+      // Validate ordering
+      if (result.leftPercent >= result.rightPercent || result.topPercent >= result.bottomPercent) return null;
+
+      // Attach corrected inner bounds if valid
+      const iL = Math.max(0, Math.min(100, p.innerLeftPercent ?? initial.innerLeftPercent ?? 0));
+      const iT = Math.max(0, Math.min(100, p.innerTopPercent  ?? initial.innerTopPercent  ?? 0));
+      const iR = Math.max(0, Math.min(100, p.innerRightPercent  ?? initial.innerRightPercent  ?? 100));
+      const iB = Math.max(0, Math.min(100, p.innerBottomPercent ?? initial.innerBottomPercent ?? 100));
+      if (iL > result.leftPercent && iR < result.rightPercent &&
+          iT > result.topPercent  && iB < result.bottomPercent && iL < iR && iT < iB) {
+        result.innerLeftPercent   = iL;
+        result.innerTopPercent    = iT;
+        result.innerRightPercent  = iR;
+        result.innerBottomPercent = iB;
+      }
+
+      return result;
+    } catch (err) {
+      console.warn("[bounds-verify] Verification failed:", (err as any)?.message);
+      return null;
+    }
+  }
+
   async function detectSlabCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } | null> {
     const CARD_RATIO = 2.5 / 3.5; // 0.714
     const RATIO_TOLERANCE = 0.25; // relaxed — slabs with dark cards can appear slightly non-square
     try {
-      const aiPrompt = `You are analyzing an image of a graded Pokemon card in a plastic slab case. Your goal is to find TWO sets of boundaries:
-1. The physical OUTER edges of the card (the actual card boundary inside the slab plastic)
-2. The INNER artwork boundary (where the card's printed border ends and artwork begins) — needed for centering measurement
+      // Ask Claude ONLY for the three visible edges + inner bounds.
+      // We calculate topPercent server-side from aspect ratio (Claude's arithmetic is unreliable).
+      const aiPrompt = `You are analyzing an image of a Pokemon card in a graded plastic slab case.
 
-Think step by step:
+Find these VISIBLE boundaries and report them as percentages of the full image dimensions:
 
-STEP 1 — Find the visible card edges (LEFT, RIGHT, BOTTOM):
-The card is inside a clear plastic slab. Find where the card material meets the slab plastic:
-- LEFT card edge: where the left side of the card material meets the transparent slab wall
-- RIGHT card edge: where the right side of the card material meets the transparent slab wall
-- BOTTOM card edge: where the card bottom meets the slab bottom plastic
-- For dark cards (Art Rare, Full Art, Secret Rare): look for the material/colour change at the card edge, not the inner holographic border
+OUTER card edges (the card material boundary inside the slab plastic):
+- leftPercent: the LEFT edge of the card material (where it meets the transparent slab wall)
+- rightPercent: the RIGHT edge of the card material
+- bottomPercent: the BOTTOM edge of the card material (where it meets the slab bottom)
+NOTE: Do NOT report topPercent — the grading label covers the card top; we calculate it mathematically.
 
-STEP 2 — Estimate the card TOP edge using aspect ratio:
-The grading label (ACE, PSA, BGS, CGC, TAG etc.) sits at the very top of the slab and covers the top portion of the card. The physical top of the card is ABOVE the label — it is at approximately the top interior edge of the slab.
-IMPORTANT: Do NOT place the top edge at the bottom of the label. Instead calculate:
-  estimated_topPercent = bottomPercent - (rightPercent - leftPercent) / 0.714
-This uses the known card aspect ratio (width:height = 2.5:3.5 = 0.714) to correctly locate the physical top of the card. Report this calculated value.
-
-STEP 3 — Find the INNER artwork boundary (centering measurement lines):
-Inside the card face there is a printed border/frame around the artwork area. Find where this frame ends and the main artwork begins:
-- Art Rare / Full Art / Secret Rare cards: the border is very thin (~1-4% of card width per side)
-- Standard Pokemon cards: the border is ~5-10% of card width per side
-- The INNER bounds must be INSIDE the outer bounds
-- Express inner bounds as % of the TOTAL IMAGE (same coordinate system as outer bounds)
+INNER artwork boundary (inside the printed card border, where artwork begins):
+- innerLeftPercent: where the artwork area begins on the LEFT (inside the card's printed frame)
+- innerTopPercent: the TOP of the visible artwork area (just below the label panel, inside the printed frame)
+- innerRightPercent: where the artwork area ends on the RIGHT
+- innerBottomPercent: where the artwork area ends at the BOTTOM
+- Art Rare / Full Art cards: border is very thin (~1-4% of card width per side)
+- Standard cards: border is ~5-10% of card width per side
 
 Return ONLY this JSON, no explanation:
 {
-  "leftPercent": <card left edge as % of image width>,
-  "topPercent": <CALCULATED card top using aspect ratio — NOT below the label>,
-  "rightPercent": <card right edge as % of image width>,
-  "bottomPercent": <card bottom edge as % of image height>,
-  "innerLeftPercent": <where artwork begins on left, as % of image width>,
-  "innerTopPercent": <where artwork begins at top, as % of image height>,
-  "innerRightPercent": <where artwork ends on right, as % of image width>,
-  "innerBottomPercent": <where artwork ends at bottom, as % of image height>,
+  "leftPercent": <card LEFT edge as % of image width>,
+  "rightPercent": <card RIGHT edge as % of image width>,
+  "bottomPercent": <card BOTTOM edge as % of image height>,
+  "innerLeftPercent": <artwork start on left, as % of image width>,
+  "innerTopPercent": <artwork start below label, as % of image height>,
+  "innerRightPercent": <artwork end on right, as % of image width>,
+  "innerBottomPercent": <artwork end at bottom, as % of image height>,
   "confidence": <0.0-1.0>
 }`;
 
@@ -4437,62 +4583,75 @@ Return ONLY this JSON, no explanation:
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence,
+      const { leftPercent, rightPercent, bottomPercent, confidence,
               innerLeftPercent, innerTopPercent, innerRightPercent, innerBottomPercent } = parsed;
 
-      if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
-          typeof rightPercent !== "number" || typeof bottomPercent !== "number") {
+      // Claude is not asked for topPercent — validate left/right/bottom only
+      if (typeof leftPercent !== "number" || typeof rightPercent !== "number" ||
+          typeof bottomPercent !== "number") {
         console.log("[slab-ai-bounds] Missing numeric fields");
         return null;
       }
 
-      const clamped = {
-        leftPercent:   Math.max(0, Math.min(100, leftPercent)),
-        topPercent:    Math.max(0, Math.min(100, topPercent)),
-        rightPercent:  Math.max(0, Math.min(100, rightPercent)),
-        bottomPercent: Math.max(0, Math.min(100, bottomPercent)),
+      const cL = Math.max(0, Math.min(100, leftPercent));
+      const cR = Math.max(0, Math.min(100, rightPercent));
+      const cB = Math.max(0, Math.min(100, bottomPercent));
+
+      if (cL >= cR) {
+        console.log(`[slab-ai-bounds] Rejected — invalid L/R: L=${cL} R=${cR}`);
+        return null;
+      }
+
+      const cardWidth = cR - cL;
+      if (cardWidth < 10) {
+        console.log(`[slab-ai-bounds] Rejected — card too narrow: ${cardWidth.toFixed(1)}%`);
+        return null;
+      }
+
+      // Calculate card top server-side using known aspect ratio (reliable arithmetic)
+      const cardHeight = cardWidth / CARD_RATIO;
+      const cT = Math.max(0, cB - cardHeight);
+
+      if (cT >= cB) {
+        console.log(`[slab-ai-bounds] Rejected — computed top >= bottom`);
+        return null;
+      }
+
+      const result: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } = {
+        leftPercent: cL, topPercent: cT, rightPercent: cR, bottomPercent: cB,
+        confidence: confidence ?? 0.8,
       };
 
-      if (clamped.leftPercent >= clamped.rightPercent || clamped.topPercent >= clamped.bottomPercent) {
-        console.log(`[slab-ai-bounds] Rejected — invalid ordering: L=${clamped.leftPercent} R=${clamped.rightPercent} T=${clamped.topPercent} B=${clamped.bottomPercent}`);
-        return null;
-      }
-
-      const w = clamped.rightPercent - clamped.leftPercent;
-      const h = clamped.bottomPercent - clamped.topPercent;
-      if (w < 10 || h < 10) {
-        console.log(`[slab-ai-bounds] Rejected — region too small: ${w.toFixed(1)}×${h.toFixed(1)}`);
-        return null;
-      }
-
-      const ratio = w / h;
-      const ratioError = Math.abs(ratio - CARD_RATIO) / CARD_RATIO;
-      if (ratioError > RATIO_TOLERANCE) {
-        console.log(`[slab-ai-bounds] Rejected — ratio ${ratio.toFixed(3)} vs expected ${CARD_RATIO.toFixed(3)} (error ${(ratioError * 100).toFixed(1)}% > ${(RATIO_TOLERANCE * 100).toFixed(0)}% limit)`);
-        return null;
-      }
-
-      const result: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } = { ...clamped, confidence: confidence ?? 0.8 };
-
-      // Attach inner bounds if returned and valid (must be inside outer bounds)
+      // Attach inner bounds if returned and valid
       if (typeof innerLeftPercent === "number" && typeof innerTopPercent === "number" &&
           typeof innerRightPercent === "number" && typeof innerBottomPercent === "number") {
         const iL = Math.max(0, Math.min(100, innerLeftPercent));
         const iT = Math.max(0, Math.min(100, innerTopPercent));
         const iR = Math.max(0, Math.min(100, innerRightPercent));
         const iB = Math.max(0, Math.min(100, innerBottomPercent));
-        if (iL > clamped.leftPercent && iR < clamped.rightPercent &&
-            iT > clamped.topPercent && iB < clamped.bottomPercent &&
-            iL < iR && iT < iB) {
-          result.innerLeftPercent = iL;
-          result.innerTopPercent = iT;
-          result.innerRightPercent = iR;
+        if (iL > cL && iR < cR && iT > cT && iB < cB && iL < iR && iT < iB) {
+          result.innerLeftPercent   = iL;
+          result.innerTopPercent    = iT;
+          result.innerRightPercent  = iR;
           result.innerBottomPercent = iB;
-          console.log(`[slab-ai-bounds] Inner bounds: iL=${iL.toFixed(1)} iT=${iT.toFixed(1)} iR=${iR.toFixed(1)} iB=${iB.toFixed(1)}`);
         }
       }
 
-      console.log(`[slab-ai-bounds] AI bounds: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
+      console.log(`[slab-ai-bounds] Initial: L=${cL.toFixed(1)} T=${cT.toFixed(1)} R=${cR.toFixed(1)} B=${cB.toFixed(1)} conf=${confidence?.toFixed(2)} (top calculated from aspect ratio)`);
+
+      // ── Verification pass: draw lines on image, ask Claude to check ──────────
+      // This mirrors how a human can look at a screenshot and see if lines are right.
+      try {
+        const composite = await drawBoundsOnImage(imageUrl, result);
+        const verified = await verifyAndCorrectBoundsWithAI(composite, result, "slab");
+        if (verified) {
+          console.log(`[slab-ai-bounds] Verified: L=${verified.leftPercent.toFixed(1)} T=${verified.topPercent.toFixed(1)} R=${verified.rightPercent.toFixed(1)} B=${verified.bottomPercent.toFixed(1)} conf=${verified.confidence.toFixed(2)}`);
+          return verified;
+        }
+      } catch (verifyErr) {
+        console.warn("[slab-ai-bounds] Verification step failed, using initial bounds:", (verifyErr as any)?.message);
+      }
+
       return result;
     } catch (err) {
       console.warn("[slab-ai-bounds] AI detection failed:", (err as any)?.message);
