@@ -235,8 +235,12 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
     try {
       const { width: screenW, height: screenH } = Dimensions.get("window");
 
-      const paddedW = GUIDE_FRAME_W + CROP_PADDING * 2;
-      const paddedH = GUIDE_FRAME_H + CROP_PADDING * 2;
+      const activeIsCorner = deepGradeFlow?.isCornerStep ?? false;
+      const activeGuideW = activeIsCorner ? 180 : GUIDE_FRAME_W;
+      const activeGuideH = activeIsCorner ? 180 : isSlabMode ? 430 : GUIDE_FRAME_H;
+
+      const paddedW = activeGuideW + CROP_PADDING * 2;
+      const paddedH = activeGuideH + CROP_PADDING * 2;
       const frameX = (screenW - paddedW) / 2;
       const frameY = (screenH - paddedH) / 2;
 
