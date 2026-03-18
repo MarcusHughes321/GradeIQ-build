@@ -216,14 +216,19 @@ export default function GradeScreen() {
         certNumber: certNumber.trim(),
         company: selectedCertCompany,
       });
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({ error: "Lookup failed" }));
-        throw new Error(errData.error || "Lookup failed");
-      }
       const data = await resp.json() as CertLookupResult;
       setCertLookupResult(data);
     } catch (err: any) {
-      setCertLookupError(err.message || "Could not find this cert. Please try again or add photos manually.");
+      // apiRequest throws "STATUS: {json}" — extract just the error field from the JSON
+      let msg: string = err.message || "Lookup failed";
+      const jsonMatch = msg.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.error) msg = parsed.error;
+        } catch { /* keep original */ }
+      }
+      setCertLookupError(msg);
     } finally {
       setCertLookupLoading(false);
     }

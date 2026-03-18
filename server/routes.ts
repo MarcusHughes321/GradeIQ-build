@@ -4340,7 +4340,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     const [response, detectedFront, detectedBack, aiFront, aiBack] = await Promise.all([
       anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 2000,
+        max_tokens: 6000,
         temperature: 0.2,
         messages: [
           {
@@ -4408,7 +4408,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
-  async function fetchPSACert(certNumber: string) {
+  async function fetchPSACertFromAPI(certNumber: string) {
     const apiUrl = `https://api.psacard.com/publicapi/cert/GetByCertNumber/${certNumber}`;
     const resp = await fetch(apiUrl, {
       headers: {
@@ -4419,26 +4419,96 @@ RESPONSE FORMAT (JSON only, no markdown):
       },
       signal: AbortSignal.timeout(20000),
     });
-    if (resp.status === 429) throw new Error("PSA lookup is temporarily rate-limited. Please wait a moment and try again, or add photos manually.");
-    if (resp.status === 401 || resp.status === 403) throw new Error("PSA cert lookup requires an API key. Please add photos of your slab manually instead.");
+    if (resp.status === 429) throw new Error("RATE_LIMITED");
+    if (resp.status === 401 || resp.status === 403) throw new Error("AUTH_REQUIRED");
     if (resp.status === 404) throw new Error(`PSA cert #${certNumber} not found. Please check the number and try again.`);
-    if (!resp.ok) throw new Error(`PSA cert lookup failed (${resp.status}). Please try again or add photos manually.`);
+    if (!resp.ok) throw new Error(`PSA cert lookup failed (${resp.status}).`);
     const data = await resp.json() as any;
     const cert = data?.PSACert;
-    if (!cert) throw new Error("PSA cert not found. Please check the cert number and try again.");
+    if (!cert) throw new Error("PSA cert not found.");
+    return cert;
+  }
+
+  async function fetchPSACertFromHTML(certNumber: string) {
+    // Try HTML page which may have SSR/embedded JSON data (__NEXT_DATA__ or similar)
+    const pageUrl = `https://www.psacard.com/cert/${certNumber}`;
+    const resp = await fetch(pageUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    // Try Next.js __NEXT_DATA__ embedded JSON
+    const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (nextDataMatch) {
+      try {
+        const nextData = JSON.parse(nextDataMatch[1]);
+        // Navigate into Next.js page props to find cert data
+        const props = nextData?.props?.pageProps;
+        const cert = props?.cert || props?.certData || props?.data?.PSACert;
+        if (cert) return cert;
+      } catch { /* continue */ }
+    }
+
+    // Try looking for JSON-LD structured data
+    const jsonLdMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    if (jsonLdMatch) {
+      try {
+        const ld = JSON.parse(jsonLdMatch[1]);
+        // May have image and name
+        if (ld.image || ld.name) {
+          return { Subject: ld.name, Front: Array.isArray(ld.image) ? ld.image[0] : ld.image, PSAGrade: null, Year: null };
+        }
+      } catch { /* continue */ }
+    }
+
+    return null;
+  }
+
+  async function fetchPSACert(certNumber: string) {
+    let cert: any = null;
+    let usedFallback = false;
+
+    try {
+      cert = await fetchPSACertFromAPI(certNumber);
+    } catch (apiErr: any) {
+      if (apiErr.message === "RATE_LIMITED" || apiErr.message === "AUTH_REQUIRED") {
+        console.log(`[cert-lookup] PSA API ${apiErr.message === "RATE_LIMITED" ? "rate-limited" : "requires auth"}, trying HTML fallback`);
+        usedFallback = true;
+        cert = await fetchPSACertFromHTML(certNumber);
+        if (!cert) {
+          throw new Error(
+            apiErr.message === "RATE_LIMITED"
+              ? "PSA lookup is temporarily unavailable (rate limited). Please try again in a moment, or add photos manually."
+              : "PSA cert lookup is currently unavailable. Please add photos of your slab manually."
+          );
+        }
+      } else {
+        throw apiErr;
+      }
+    }
 
     const [frontImageBase64, backImageBase64] = await Promise.all([
       cert.Front ? downloadImageAsBase64(cert.Front) : null,
       cert.Back  ? downloadImageAsBase64(cert.Back)  : null,
     ]);
 
-    if (!frontImageBase64) throw new Error("Could not download card image from PSA");
+    if (!frontImageBase64) {
+      if (usedFallback) {
+        throw new Error("PSA lookup is temporarily unavailable. Please add photos of your slab manually.");
+      }
+      throw new Error("Could not download card image from PSA. Please try again or add photos manually.");
+    }
 
     const cardName = [cert.Subject, cert.CardNumber ? `#${cert.CardNumber}` : ""].filter(Boolean).join(" ").trim();
     return {
       cardName: cardName || "Unknown Card",
       setName:  cert.Year  || "",
-      grade:    cert.PSAGrade || "",
+      grade:    String(cert.PSAGrade || ""),
       company:  "PSA",
       certNumber,
       frontImageBase64,
