@@ -4327,10 +4327,11 @@ Return ONLY this JSON, no explanation:
 
       console.log(`[raw-ai-bounds] Initial: L=${clamped.leftPercent.toFixed(1)} T=${clamped.topPercent.toFixed(1)} R=${clamped.rightPercent.toFixed(1)} B=${clamped.bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
 
-      // ── Verification pass: draw lines on image, ask Claude to check ──────────
+      // ── Verification pass: show Claude the original image + text coordinates ──
+      // Claude looks at the image and checks whether the estimated positions are right.
       try {
-        const composite = await drawBoundsOnImage(imageUrl, result);
-        const verified = await verifyAndCorrectBoundsWithAI(composite, result, "raw");
+        const imageForVerify = await drawBoundsOnImage(imageUrl, result).catch(() => imageUrl);
+        const verified = await verifyAndCorrectBoundsWithAI(imageForVerify, result, "raw");
         if (verified) {
           console.log(`[raw-ai-bounds] Verified: L=${verified.leftPercent.toFixed(1)} T=${verified.topPercent.toFixed(1)} R=${verified.rightPercent.toFixed(1)} B=${verified.bottomPercent.toFixed(1)} conf=${verified.confidence.toFixed(2)}`);
           return verified;
@@ -4441,85 +4442,117 @@ Return ONLY this JSON, no explanation:
   }
 
   /**
-   * Verify and correct centering bounds by showing Claude the image WITH lines drawn on it.
-   * This replicates the "human looking at a screenshot and seeing the lines are off" behaviour.
-   * WHITE lines = outer card boundary; YELLOW lines = inner artwork boundary.
+   * Verify and correct centering bounds using the ORIGINAL image + text description of current estimates.
+   * Claude reads the current estimates, looks at the image, and corrects any that are wrong.
+   * This replicates how a human can look at a card photo and judge whether "20% from left = card edge" is correct.
    */
   async function verifyAndCorrectBoundsWithAI(
-    compositeImageUrl: string,
+    originalImageUrl: string,
     initial: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number },
     mode: "slab" | "raw",
   ): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } | null> {
     try {
-      const slabNote = mode === "slab"
-        ? `This is a graded slab. The WHITE top line is placed at the estimated physical top of the card (the card extends behind the grading label at the top — the label does NOT mark the card's physical top edge).`
-        : `This is a raw card. The WHITE lines mark the physical card edges.`;
+      const iL0 = initial.innerLeftPercent;
+      const iT0 = initial.innerTopPercent;
+      const iR0 = initial.innerRightPercent;
+      const iB0 = initial.innerBottomPercent;
+      const hasInner = iL0 != null && iT0 != null && iR0 != null && iB0 != null;
 
-      const prompt = `I have drawn centering measurement lines on this Pokemon card image:
-- WHITE lines mark the OUTER card boundary (physical edge of the card)
-- YELLOW lines mark the INNER artwork boundary (where the card's printed border ends and artwork begins)
+      const slabContext = mode === "slab" ? `
+SLAB-SPECIFIC NOTES:
+- The card is inside a plastic slab case with thin transparent plastic walls (~3-5mm each side)
+- LEFT/RIGHT card edges: where the card material meets the clear plastic wall. For dark Art Rare cards this is where the dark card material ends and clear plastic begins — look for the subtle material change at the very edge of the card inside the slab
+- BOTTOM card edge: where the card material meets the slab bottom plastic  
+- TOP card edge: the physical card top is BEHIND the grading label — it was estimated using card aspect ratio (width ÷ 0.714)
+- Do NOT confuse the inner holographic border or artwork edge with the card's physical edge — the card material extends to the slab wall` : `
+RAW CARD NOTES:
+- The card edges are where the physical card material meets the background
+- For dark Art Rare cards: the card edge is where the dark material ends (even if subtle against a dark background)`;
 
-${slabNote}
+      const prompt = `I estimated these Pokemon card centering boundaries, and I need you to check them by looking at the image.
 
-Please examine the image carefully and answer:
-1. Are the WHITE lines correctly touching the actual card edges on all four sides?
-2. Are the YELLOW lines at the correct positions where the card's printed border meets the artwork?
+Current estimates (as % of image dimensions):
+- Outer LEFT card edge:   ${initial.leftPercent.toFixed(1)}% from left
+- Outer RIGHT card edge:  ${initial.rightPercent.toFixed(1)}% from left  
+- Outer BOTTOM card edge: ${initial.bottomPercent.toFixed(1)}% from top
+- Outer TOP card edge:    ${initial.topPercent.toFixed(1)}% from top${hasInner ? `
+- Inner LEFT (artwork start):  ${iL0!.toFixed(1)}% from left
+- Inner RIGHT (artwork end):   ${iR0!.toFixed(1)}% from left
+- Inner TOP (artwork start):   ${iT0!.toFixed(1)}% from top
+- Inner BOTTOM (artwork end):  ${iB0!.toFixed(1)}% from top` : ""}
+${slabContext}
 
-If any line is misplaced, provide corrected percentage coordinates. If a line looks correct, keep the same value.
+For each edge: imagine a line at that percentage position. Does it land on the actual card edge?
+- If a value looks WRONG, provide the corrected value
+- If a value looks CORRECT, keep the same number
+- Be especially careful about LEFT and RIGHT — these are the physical card edge, not the artwork boundary
 
-Return ONLY this JSON:
+Return ONLY this JSON (all numbers required):
 {
-  "leftPercent": <corrected outer left, or keep ${initial.leftPercent.toFixed(1)}>,
-  "topPercent": <corrected outer top, or keep ${initial.topPercent.toFixed(1)}>,
-  "rightPercent": <corrected outer right, or keep ${initial.rightPercent.toFixed(1)}>,
-  "bottomPercent": <corrected outer bottom, or keep ${initial.bottomPercent.toFixed(1)}>,
-  "innerLeftPercent": <corrected inner left, or keep ${(initial.innerLeftPercent ?? 0).toFixed(1)}>,
-  "innerTopPercent": <corrected inner top, or keep ${(initial.innerTopPercent ?? 0).toFixed(1)}>,
-  "innerRightPercent": <corrected inner right, or keep ${(initial.innerRightPercent ?? 100).toFixed(1)}>,
-  "innerBottomPercent": <corrected inner bottom, or keep ${(initial.innerBottomPercent ?? 100).toFixed(1)}>,
-  "confidence": <0.0-1.0>,
-  "anyCorrections": <true if you changed any value, false if all looked correct>
+  "leftPercent": ${initial.leftPercent.toFixed(1)},
+  "topPercent": ${initial.topPercent.toFixed(1)},
+  "rightPercent": ${initial.rightPercent.toFixed(1)},
+  "bottomPercent": ${initial.bottomPercent.toFixed(1)},
+  "innerLeftPercent": ${(iL0 ?? (initial.leftPercent + 2)).toFixed(1)},
+  "innerTopPercent": ${(iT0 ?? (initial.topPercent + 5)).toFixed(1)},
+  "innerRightPercent": ${(iR0 ?? (initial.rightPercent - 2)).toFixed(1)},
+  "innerBottomPercent": ${(iB0 ?? (initial.bottomPercent - 5)).toFixed(1)},
+  "confidence": 0.9
 }`;
 
       const aiResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 400,
+        max_tokens: 500,
         temperature: 0,
         messages: [{ role: "user", content: [
           { type: "text", text: prompt },
-          toClaudeImage(compositeImageUrl),
+          toClaudeImage(originalImageUrl),
         ]}],
       });
 
       const raw = (aiResp.content[0] as Anthropic.TextBlock)?.text || "";
+      console.log(`[bounds-verify] Raw response: ${raw.substring(0, 200)}`);
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
+      if (!jsonMatch) {
+        console.log("[bounds-verify] No JSON in response");
+        return null;
+      }
 
       const p = JSON.parse(jsonMatch[0]);
-      console.log(`[bounds-verify] anyCorrections=${p.anyCorrections} conf=${p.confidence?.toFixed(2)}`);
+      console.log(`[bounds-verify] Parsed: L=${p.leftPercent} T=${p.topPercent} R=${p.rightPercent} B=${p.bottomPercent} conf=${p.confidence}`);
+
+      const vL = Math.max(0, Math.min(100, typeof p.leftPercent   === "number" ? p.leftPercent   : initial.leftPercent));
+      const vT = Math.max(0, Math.min(100, typeof p.topPercent    === "number" ? p.topPercent    : initial.topPercent));
+      const vR = Math.max(0, Math.min(100, typeof p.rightPercent  === "number" ? p.rightPercent  : initial.rightPercent));
+      const vB = Math.max(0, Math.min(100, typeof p.bottomPercent === "number" ? p.bottomPercent : initial.bottomPercent));
+
+      if (vL >= vR || vT >= vB) {
+        console.log(`[bounds-verify] Rejected — invalid ordering: L=${vL} T=${vT} R=${vR} B=${vB}`);
+        return null;
+      }
 
       const result: typeof initial & { confidence: number } = {
-        leftPercent:   Math.max(0, Math.min(100, p.leftPercent ?? initial.leftPercent)),
-        topPercent:    Math.max(0, Math.min(100, p.topPercent  ?? initial.topPercent)),
-        rightPercent:  Math.max(0, Math.min(100, p.rightPercent  ?? initial.rightPercent)),
-        bottomPercent: Math.max(0, Math.min(100, p.bottomPercent ?? initial.bottomPercent)),
-        confidence:    p.confidence ?? 0.85,
+        leftPercent: vL, topPercent: vT, rightPercent: vR, bottomPercent: vB,
+        confidence: typeof p.confidence === "number" ? p.confidence : 0.85,
       };
 
-      // Validate ordering
-      if (result.leftPercent >= result.rightPercent || result.topPercent >= result.bottomPercent) return null;
+      console.log(`[bounds-verify] Accepted: L=${vL.toFixed(1)} T=${vT.toFixed(1)} R=${vR.toFixed(1)} B=${vB.toFixed(1)} conf=${result.confidence.toFixed(2)}`);
 
-      // Attach corrected inner bounds if valid
-      const iL = Math.max(0, Math.min(100, p.innerLeftPercent ?? initial.innerLeftPercent ?? 0));
-      const iT = Math.max(0, Math.min(100, p.innerTopPercent  ?? initial.innerTopPercent  ?? 0));
-      const iR = Math.max(0, Math.min(100, p.innerRightPercent  ?? initial.innerRightPercent  ?? 100));
-      const iB = Math.max(0, Math.min(100, p.innerBottomPercent ?? initial.innerBottomPercent ?? 100));
-      if (iL > result.leftPercent && iR < result.rightPercent &&
-          iT > result.topPercent  && iB < result.bottomPercent && iL < iR && iT < iB) {
-        result.innerLeftPercent   = iL;
-        result.innerTopPercent    = iT;
-        result.innerRightPercent  = iR;
-        result.innerBottomPercent = iB;
+      // Attach inner bounds if returned and valid
+      const iLv = typeof p.innerLeftPercent   === "number" ? Math.max(0, Math.min(100, p.innerLeftPercent))   : null;
+      const iTv = typeof p.innerTopPercent    === "number" ? Math.max(0, Math.min(100, p.innerTopPercent))    : null;
+      const iRv = typeof p.innerRightPercent  === "number" ? Math.max(0, Math.min(100, p.innerRightPercent))  : null;
+      const iBv = typeof p.innerBottomPercent === "number" ? Math.max(0, Math.min(100, p.innerBottomPercent)) : null;
+
+      if (iLv != null && iTv != null && iRv != null && iBv != null &&
+          iLv > vL && iRv < vR && iTv > vT && iBv < vB && iLv < iRv && iTv < iBv) {
+        result.innerLeftPercent   = iLv;
+        result.innerTopPercent    = iTv;
+        result.innerRightPercent  = iRv;
+        result.innerBottomPercent = iBv;
+        console.log(`[bounds-verify] Inner accepted: iL=${iLv.toFixed(1)} iT=${iTv.toFixed(1)} iR=${iRv.toFixed(1)} iB=${iBv.toFixed(1)}`);
+      } else {
+        console.log(`[bounds-verify] Inner rejected or not present (iL=${iLv} iT=${iTv} iR=${iRv} iB=${iBv})`);
       }
 
       return result;
@@ -4535,31 +4568,33 @@ Return ONLY this JSON:
     try {
       // Ask Claude ONLY for the three visible edges + inner bounds.
       // We calculate topPercent server-side from aspect ratio (Claude's arithmetic is unreliable).
-      const aiPrompt = `You are analyzing an image of a Pokemon card in a graded plastic slab case.
+      const aiPrompt = `You are analyzing an image of a Pokemon card in a graded plastic slab case. Find card boundaries for centering measurement.
 
-Find these VISIBLE boundaries and report them as percentages of the full image dimensions:
+WHAT TO FIND — THREE VISIBLE OUTER EDGES:
+The slab has thin transparent plastic walls (about 3-5mm thick). The card material sits INSIDE the slab plastic.
+- leftPercent: the card's LEFT physical edge — where card material meets clear slab plastic. Look for the boundary between the colored/dark card material and the transparent slab wall. The card extends right up to the inner slab wall, so this will be very close to where the slab interior starts.
+- rightPercent: same on the RIGHT side
+- bottomPercent: where the card's bottom edge meets the slab bottom plastic
 
-OUTER card edges (the card material boundary inside the slab plastic):
-- leftPercent: the LEFT edge of the card material (where it meets the transparent slab wall)
-- rightPercent: the RIGHT edge of the card material
-- bottomPercent: the BOTTOM edge of the card material (where it meets the slab bottom)
-NOTE: Do NOT report topPercent — the grading label covers the card top; we calculate it mathematically.
+CRITICAL: For dark/black Art Rare cards: the card edge is at the very inner edge of the slab plastic, not where the holographic artwork/border pattern ends. The physical card edge is typically at roughly where the slab's rigid case interior begins. Do NOT stop at an inner holographic pattern or frame — the card material extends fully to the slab wall.
 
-INNER artwork boundary (inside the printed card border, where artwork begins):
-- innerLeftPercent: where the artwork area begins on the LEFT (inside the card's printed frame)
-- innerTopPercent: the TOP of the visible artwork area (just below the label panel, inside the printed frame)
-- innerRightPercent: where the artwork area ends on the RIGHT
-- innerBottomPercent: where the artwork area ends at the BOTTOM
-- Art Rare / Full Art cards: border is very thin (~1-4% of card width per side)
-- Standard cards: border is ~5-10% of card width per side
+NOTE: Do NOT report topPercent — the grading label covers the card top; we calculate it from aspect ratio.
+
+INNER artwork boundary (where the card's printed frame ends and artwork begins):
+- innerLeftPercent: where artwork begins on LEFT (inside the printed card frame/border)
+- innerTopPercent: visible artwork start below the label panel
+- innerRightPercent: where artwork ends on RIGHT
+- innerBottomPercent: where artwork ends at BOTTOM
+- Art Rare / Full Art / Secret Rare: artwork nearly fills the card (~1-3% border per side)
+- Standard cards: white border ~5-10% per side
 
 Return ONLY this JSON, no explanation:
 {
-  "leftPercent": <card LEFT edge as % of image width>,
-  "rightPercent": <card RIGHT edge as % of image width>,
+  "leftPercent": <card LEFT physical edge as % of image width>,
+  "rightPercent": <card RIGHT physical edge as % of image width>,
   "bottomPercent": <card BOTTOM edge as % of image height>,
   "innerLeftPercent": <artwork start on left, as % of image width>,
-  "innerTopPercent": <artwork start below label, as % of image height>,
+  "innerTopPercent": <visible artwork start below label, as % of image height>,
   "innerRightPercent": <artwork end on right, as % of image width>,
   "innerBottomPercent": <artwork end at bottom, as % of image height>,
   "confidence": <0.0-1.0>
@@ -4639,11 +4674,12 @@ Return ONLY this JSON, no explanation:
 
       console.log(`[slab-ai-bounds] Initial: L=${cL.toFixed(1)} T=${cT.toFixed(1)} R=${cR.toFixed(1)} B=${cB.toFixed(1)} conf=${confidence?.toFixed(2)} (top calculated from aspect ratio)`);
 
-      // ── Verification pass: draw lines on image, ask Claude to check ──────────
-      // This mirrors how a human can look at a screenshot and see if lines are right.
+      // ── Verification pass: show Claude the image + text coordinates to check ──
+      // Tries to draw lines on the image first; falls back to original image.
+      // Claude looks at the image and corrects any edges that are off.
       try {
-        const composite = await drawBoundsOnImage(imageUrl, result);
-        const verified = await verifyAndCorrectBoundsWithAI(composite, result, "slab");
+        const imageForVerify = await drawBoundsOnImage(imageUrl, result).catch(() => imageUrl);
+        const verified = await verifyAndCorrectBoundsWithAI(imageForVerify, result, "slab");
         if (verified) {
           console.log(`[slab-ai-bounds] Verified: L=${verified.leftPercent.toFixed(1)} T=${verified.topPercent.toFixed(1)} R=${verified.rightPercent.toFixed(1)} B=${verified.bottomPercent.toFixed(1)} conf=${verified.confidence.toFixed(2)}`);
           return verified;
