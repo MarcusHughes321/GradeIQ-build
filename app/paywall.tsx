@@ -102,7 +102,18 @@ export default function PaywallScreen() {
         } else if (errorCode === "2" || errorCode === "PURCHASE_NOT_ALLOWED_ERROR") {
           Alert.alert("Purchase Not Allowed", "In-app purchases are not allowed on this device. Please check your device settings.");
         } else if (errorCode === "10" || errorCode === "PRODUCT_ALREADY_PURCHASED_ERROR") {
-          Alert.alert("Already Subscribed", "You already have an active subscription. Try restoring your purchases.");
+          // Subscription already exists — automatically restore instead of making user do it manually
+          console.log("PRODUCT_ALREADY_PURCHASED — auto-restoring...");
+          const restored = await restorePurchases();
+          if (restored) {
+            router.back();
+          } else {
+            Alert.alert(
+              "Subscription Found",
+              "Your subscription is active but couldn't be applied automatically. Please tap 'Restore Purchases' below.",
+              [{ text: "OK" }]
+            );
+          }
         } else {
           Alert.alert("Subscription Issue", `We couldn't process your subscription right now. (Code: ${errorCode})`);
         }

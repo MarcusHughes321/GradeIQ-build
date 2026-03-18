@@ -6,6 +6,7 @@ import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases"
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
+const RC_USER_ID_KEY = "gradeiq_rc_user_id";
 const FREE_MONTHLY_LIMIT = 3;
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
@@ -201,9 +202,21 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setRcConfigured(true);
       rcConfiguredRef.current = true;
 
+      // Use a persistent user ID so the same RevenueCat customer record is used
+      // across app reinstalls and new builds. Without this, each install gets a
+      // new anonymous ID and can no longer see purchases from previous sessions.
+      let rcUserId = await AsyncStorage.getItem(RC_USER_ID_KEY);
+      if (!rcUserId) {
+        rcUserId = `gradeiq_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 9)}`;
+        await AsyncStorage.setItem(RC_USER_ID_KEY, rcUserId);
+        console.log("[subscription] Generated new persistent RC user ID");
+      } else {
+        console.log("[subscription] Using existing persistent RC user ID");
+      }
+      await Purchases.logIn(rcUserId);
+
       const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
-      // Log all active entitlement keys so we can diagnose naming mismatches in RevenueCat
       const activeKeys = Object.keys(info.entitlements.active);
       const productId = info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none";
       console.log("[subscription] Init: tier=", tier, "| active entitlements=", activeKeys, "| productId=", productId);
@@ -383,7 +396,22 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const refreshedTier = determineTier(refreshed);
       setCurrentTier(refreshedTier);
       console.log("Restore re-check: tier=", refreshedTier, "entitlements=", Object.keys(refreshed.entitlements.active));
-      return refreshedTier !== "free";
+      if (refreshedTier !== "free") return true;
+
+      // Final fallback: force a sync with Apple's servers
+      console.log("Restore: trying syncPurchasesForResult as final fallback...");
+      try {
+        const syncResult = await Purchases.syncPurchasesForResult();
+        if (syncResult?.customerInfo) {
+          const syncTier = determineTier(syncResult.customerInfo);
+          setCurrentTier(syncTier);
+          console.log("Restore sync result: tier=", syncTier, "entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
+          if (syncTier !== "free") return true;
+        }
+      } catch (syncErr) {
+        console.log("Restore sync fallback failed:", syncErr);
+      }
+      return false;
     } catch (e) {
       console.error("Restore error:", e);
       return false;
