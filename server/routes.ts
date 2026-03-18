@@ -4947,6 +4947,290 @@ RESPONSE FORMAT (JSON only, no markdown):
     respondWithJob(res, job);
   });
 
+  // ======================================================================
+  // Cert Lookup endpoint
+  // ======================================================================
+
+  interface CertLookupResult {
+    cardName: string;
+    setName: string;
+    grade: string;
+    company: string;
+    certNumber: string;
+    frontImageBase64: string;
+    backImageBase64?: string;
+  }
+
+  async function downloadImageAsBase64(url: string, referer?: string): Promise<string> {
+    const headers: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+    };
+    if (referer) headers["Referer"] = referer;
+    const resp = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`Image download failed: ${resp.status}`);
+    const arrayBuffer = await resp.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = resp.headers.get("content-type") || "image/jpeg";
+    const mimeType = contentType.split(";")[0].trim() || "image/jpeg";
+    return `data:${mimeType};base64,${buffer.toString("base64")}`;
+  }
+
+  async function lookupPSA(certNumber: string): Promise<CertLookupResult> {
+    const apiUrl = `https://api.psacard.com/publicapi/cert/GetByCertNumber/${certNumber}`;
+    console.log(`[cert-lookup] PSA API: ${apiUrl}`);
+    const resp = await fetch(apiUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; GradeIQ/1.0)",
+        "Accept": "application/json",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json() as any;
+      const certData = data?.PSACert || data?.cert || data;
+      if (certData && (certData.CardName || certData.SubjectName)) {
+        const cardName = certData.CardName || certData.SubjectName || "";
+        const setName = certData.SetName || certData.Category || "";
+        const grade = certData.PSAGrade || certData.GradeDescription || certData.Grade || "";
+        let frontImageBase64 = "";
+        if (certData.FrontImageURL || certData.CertImageURL) {
+          try {
+            frontImageBase64 = await downloadImageAsBase64(certData.FrontImageURL || certData.CertImageURL, "https://www.psacard.com/");
+          } catch (e) {
+            console.log(`[cert-lookup] PSA image download failed: ${e}`);
+          }
+        }
+        if (!frontImageBase64) {
+          const certImageUrl = `https://www.psacard.com/certlookupapi/GetCertImage/${certNumber}`;
+          try {
+            frontImageBase64 = await downloadImageAsBase64(certImageUrl, "https://www.psacard.com/");
+          } catch (e) {
+            console.log(`[cert-lookup] PSA cert image fallback failed: ${e}`);
+          }
+        }
+        if (!frontImageBase64) throw new Error("PSA cert found but image could not be downloaded — please add photos manually");
+        return { cardName, setName, grade: String(grade), company: "PSA", certNumber, frontImageBase64 };
+      }
+    }
+
+    console.log(`[cert-lookup] PSA API returned ${resp.status}, trying HTML parse`);
+    const htmlResp = await fetch(`https://www.psacard.com/cert/${certNumber}`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!htmlResp.ok) throw new Error(`PSA cert lookup unavailable — please add photos manually`);
+    const html = await htmlResp.text();
+    const root = parseHtml(html);
+
+    const cardName = root.querySelector(".cert-name")?.text?.trim()
+      || root.querySelector("h1")?.text?.trim()
+      || root.querySelector(".card-name")?.text?.trim()
+      || "";
+    const grade = root.querySelector(".cert-grade")?.text?.trim()
+      || root.querySelector(".grade-value")?.text?.trim()
+      || "";
+    const imgEl = root.querySelector(".cert-image img") || root.querySelector(".card-image img") || root.querySelector("img[src*='psacard']");
+    const imgSrc = imgEl?.getAttribute("src") || "";
+
+    if (!cardName && !grade) throw new Error("PSA: cert not found or page format changed — please add photos manually");
+
+    let frontImageBase64 = "";
+    if (imgSrc) {
+      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.psacard.com${imgSrc}`;
+      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.psacard.com/"); } catch {}
+    }
+    if (!frontImageBase64) throw new Error("PSA cert found but image could not be downloaded — please add photos manually");
+    return { cardName, setName: "", grade, company: "PSA", certNumber, frontImageBase64 };
+  }
+
+  async function lookupBGS(certNumber: string): Promise<CertLookupResult> {
+    const url = `https://www.beckett.com/grading/card/${certNumber}`;
+    console.log(`[cert-lookup] BGS: ${url}`);
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`BGS cert lookup unavailable for this company — please add photos manually`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const cardName = root.querySelector(".card-title")?.text?.trim()
+      || root.querySelector("h1")?.text?.trim()
+      || root.querySelector(".item-title")?.text?.trim()
+      || "";
+    const grade = root.querySelector(".grade-value")?.text?.trim()
+      || root.querySelector(".bgs-grade")?.text?.trim()
+      || root.querySelector("[class*='grade']")?.text?.trim()
+      || "";
+    const imgEl = root.querySelector(".card-image img") || root.querySelector(".item-image img") || root.querySelector("img[src*='beckett']");
+    const imgSrc = imgEl?.getAttribute("src") || "";
+
+    if (!cardName && !grade) throw new Error("BGS cert lookup unavailable for this company — please add photos manually");
+
+    let frontImageBase64 = "";
+    if (imgSrc) {
+      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.beckett.com${imgSrc}`;
+      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.beckett.com/"); } catch {}
+    }
+    if (!frontImageBase64) throw new Error("BGS cert found but image could not be downloaded — please add photos manually");
+    return { cardName, setName: "", grade, company: "BGS", certNumber, frontImageBase64 };
+  }
+
+  async function lookupCGC(certNumber: string): Promise<CertLookupResult> {
+    const url = `https://www.cgccards.com/certlookup/${certNumber}`;
+    console.log(`[cert-lookup] CGC: ${url}`);
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`CGC cert lookup unavailable for this company — please add photos manually`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const cardName = root.querySelector(".cert-name")?.text?.trim()
+      || root.querySelector("h1")?.text?.trim()
+      || root.querySelector(".item-name")?.text?.trim()
+      || "";
+    const grade = root.querySelector(".cert-grade")?.text?.trim()
+      || root.querySelector(".grade")?.text?.trim()
+      || "";
+    const imgEl = root.querySelector(".cert-image img") || root.querySelector("img[src*='cgc']");
+    const imgSrc = imgEl?.getAttribute("src") || "";
+
+    if (!cardName && !grade) throw new Error("CGC cert lookup unavailable for this company — please add photos manually");
+
+    let frontImageBase64 = "";
+    if (imgSrc) {
+      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.cgccards.com${imgSrc}`;
+      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.cgccards.com/"); } catch {}
+    }
+    if (!frontImageBase64) throw new Error("CGC cert found but image could not be downloaded — please add photos manually");
+    return { cardName, setName: "", grade, company: "CGC", certNumber, frontImageBase64 };
+  }
+
+  async function lookupACE(certNumber: string): Promise<CertLookupResult> {
+    const url = `https://www.acegradingcards.com/verify/?cert=${certNumber}`;
+    console.log(`[cert-lookup] ACE: ${url}`);
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`ACE cert lookup unavailable for this company — please add photos manually`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const cardName = root.querySelector(".card-name")?.text?.trim()
+      || root.querySelector(".cert-title")?.text?.trim()
+      || root.querySelector("h1")?.text?.trim()
+      || "";
+    const grade = root.querySelector(".grade-value")?.text?.trim()
+      || root.querySelector(".cert-grade")?.text?.trim()
+      || "";
+    const imgEl = root.querySelector(".card-image img") || root.querySelector(".cert-image img");
+    const imgSrc = imgEl?.getAttribute("src") || "";
+
+    if (!cardName && !grade) throw new Error("ACE cert lookup unavailable for this company — please add photos manually");
+
+    let frontImageBase64 = "";
+    if (imgSrc) {
+      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.acegradingcards.com${imgSrc}`;
+      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.acegradingcards.com/"); } catch {}
+    }
+    if (!frontImageBase64) throw new Error("ACE cert found but image could not be downloaded — please add photos manually");
+    return { cardName, setName: "", grade, company: "ACE", certNumber, frontImageBase64 };
+  }
+
+  async function lookupTAG(certNumber: string): Promise<CertLookupResult> {
+    const url = `https://www.theacademygrading.com/verify/${certNumber}`;
+    console.log(`[cert-lookup] TAG: ${url}`);
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`TAG cert lookup unavailable for this company — please add photos manually`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const cardName = root.querySelector(".card-name")?.text?.trim()
+      || root.querySelector(".cert-title")?.text?.trim()
+      || root.querySelector("h1")?.text?.trim()
+      || "";
+    const grade = root.querySelector(".grade-value")?.text?.trim()
+      || root.querySelector(".cert-grade")?.text?.trim()
+      || "";
+    const imgEl = root.querySelector(".card-image img") || root.querySelector(".cert-image img");
+    const imgSrc = imgEl?.getAttribute("src") || "";
+
+    if (!cardName && !grade) throw new Error("TAG cert lookup unavailable for this company — please add photos manually");
+
+    let frontImageBase64 = "";
+    if (imgSrc) {
+      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.theacademygrading.com${imgSrc}`;
+      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.theacademygrading.com/"); } catch {}
+    }
+    if (!frontImageBase64) throw new Error("TAG cert found but image could not be downloaded — please add photos manually");
+    return { cardName, setName: "", grade, company: "TAG", certNumber, frontImageBase64 };
+  }
+
+  app.post("/api/cert-lookup", async (req, res) => {
+    try {
+      const { certNumber, company } = req.body;
+      if (!certNumber || !company) {
+        return res.status(400).json({ error: "certNumber and company are required" });
+      }
+
+      const cert = String(certNumber).trim();
+      const comp = String(company).toUpperCase();
+
+      console.log(`[cert-lookup] Looking up cert ${cert} for company ${comp}`);
+
+      let result: CertLookupResult;
+      try {
+        if (comp === "PSA") {
+          result = await lookupPSA(cert);
+        } else if (comp === "BGS" || comp === "BECKETT") {
+          result = await lookupBGS(cert);
+        } else if (comp === "CGC") {
+          result = await lookupCGC(cert);
+        } else if (comp === "ACE") {
+          result = await lookupACE(cert);
+        } else if (comp === "TAG") {
+          result = await lookupTAG(cert);
+        } else {
+          return res.status(400).json({ error: `Unknown company: ${company}` });
+        }
+      } catch (err: any) {
+        console.log(`[cert-lookup] Lookup failed for ${comp} ${cert}: ${err.message}`);
+        return res.status(422).json({ error: err.message || "Cert lookup failed — please add photos manually" });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[cert-lookup] Unexpected error:", error.message);
+      res.status(500).json({ error: "Server error during cert lookup" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

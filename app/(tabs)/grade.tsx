@@ -10,9 +10,9 @@ import {
   ScrollView,
   Animated,
   Modal,
-  Image,
   TextInput,
 } from "react-native";
+import { Image } from "expo-image";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +27,7 @@ import CardCamera from "@/components/CardCamera";
 import { apiRequest } from "@/lib/query-client";
 import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
+import type { CertData } from "@/lib/grading-context";
 
 type GradeMode = "hub" | "quick" | "deep" | "crossover";
 type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR" | "slabFront" | "slabBack";
@@ -195,44 +196,12 @@ export default function GradeScreen() {
   const [slabImage, setSlabImage] = useState<string | null>(null);
   const [slabBackImage, setSlabBackImage] = useState<string | null>(null);
 
-  // Cert lookup state
   const [certNumber, setCertNumber] = useState("");
   const [selectedCertCompany, setSelectedCertCompany] = useState<CertCompany>("PSA");
   const [certLookupResult, setCertLookupResult] = useState<CertLookupResult | null>(null);
   const [certLookupLoading, setCertLookupLoading] = useState(false);
   const [certLookupError, setCertLookupError] = useState<string | null>(null);
   const [showManualUpload, setShowManualUpload] = useState(false);
-
-  const lookupCert = useCallback(async () => {
-    if (!certNumber.trim()) {
-      Alert.alert("Cert Number Required", "Please enter a cert number.");
-      return;
-    }
-    setCertLookupLoading(true);
-    setCertLookupError(null);
-    setCertLookupResult(null);
-    try {
-      const resp = await apiRequest("POST", "/api/cert-lookup", {
-        certNumber: certNumber.trim(),
-        company: selectedCertCompany,
-      });
-      const data = await resp.json() as CertLookupResult;
-      setCertLookupResult(data);
-    } catch (err: any) {
-      // apiRequest throws "STATUS: {json}" — extract just the error field from the JSON
-      let msg: string = err.message || "Lookup failed";
-      const jsonMatch = msg.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.error) msg = parsed.error;
-        } catch { /* keep original */ }
-      }
-      setCertLookupError(msg);
-    } finally {
-      setCertLookupLoading(false);
-    }
-  }, [certNumber, selectedCertCompany]);
 
   const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed, canCrossover, canBulk } = useSubscription();
   const { submitGrading, submitDeepGrading, submitCrossoverGrading, activeJob } = useGrading();
@@ -283,6 +252,11 @@ export default function GradeScreen() {
         });
         setSlabImage(null);
         setSlabBackImage(null);
+        setCertNumber("");
+        setCertLookupResult(null);
+        setCertLookupError(null);
+        setCertLookupLoading(false);
+        setShowManualUpload(false);
         setLoading(false);
         setCameraOpen(null);
         setDeepCameraActive(false);
@@ -512,10 +486,38 @@ export default function GradeScreen() {
     setMode("deep");
   };
 
+  const handleCertLookup = async () => {
+    if (!certNumber.trim()) {
+      Alert.alert("Enter Cert Number", "Please enter a cert number to look up.");
+      return;
+    }
+    setCertLookupLoading(true);
+    setCertLookupError(null);
+    setCertLookupResult(null);
+    try {
+      const resp = await apiRequest("POST", "/api/cert-lookup", { certNumber: certNumber.trim(), company: selectedCertCompany });
+      const data = await resp.json() as CertLookupResult;
+      setCertLookupResult(data);
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e: any) {
+      let msg: string = e.message || "Cert lookup failed — please add photos manually";
+      const jsonMatch = msg.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.error) msg = parsed.error;
+        } catch { /* keep original */ }
+      }
+      setCertLookupError(msg);
+    } finally {
+      setCertLookupLoading(false);
+    }
+  };
+
   const handleGrade = async () => {
     if (mode === "crossover") {
-      if (!slabImage) {
-        Alert.alert("Photo Required", "Please add a photo of the graded slab.");
+      if (!certLookupResult && !slabImage) {
+        Alert.alert("Card Required", "Please look up a cert number or add a photo of the graded slab.");
         return;
       }
     } else if (mode === "quick") {
@@ -559,16 +561,24 @@ export default function GradeScreen() {
 
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
     if (mode === "crossover") {
+      let frontSrc: string;
+      let backSrc: string | undefined;
+      let certDataToPass: CertData | undefined;
       if (certLookupResult) {
-        submitCrossoverGrading(
-          certLookupResult.frontImageBase64,
-          certLookupResult.backImageBase64,
-          wrappedRecordUsage,
-          { company: certLookupResult.company, grade: certLookupResult.grade, certNumber: certLookupResult.certNumber },
-        );
+        frontSrc = certLookupResult.frontImageBase64;
+        backSrc = certLookupResult.backImageBase64;
+        certDataToPass = {
+          company: certLookupResult.company,
+          grade: certLookupResult.grade,
+          certNumber: certLookupResult.certNumber,
+          cardName: certLookupResult.cardName,
+          setName: certLookupResult.setName,
+        };
       } else {
-        submitCrossoverGrading(slabImage!, slabBackImage || undefined, wrappedRecordUsage);
+        frontSrc = slabImage!;
+        backSrc = slabBackImage || undefined;
       }
+      submitCrossoverGrading(frontSrc, backSrc, wrappedRecordUsage, certDataToPass);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
@@ -1005,104 +1015,123 @@ export default function GradeScreen() {
           >
             {mode === "crossover" ? (
               <>
-                {/* ── Cert Lookup Section ── */}
                 <View style={styles.certSection}>
-                  <View style={styles.certHeader}>
-                    <Ionicons name="ribbon-outline" size={20} color="#8B5CF6" />
-                    <Text style={styles.certHeaderText}>Look up by cert number</Text>
+                  <View style={styles.certSectionHeader}>
+                    <Ionicons name="ribbon-outline" size={18} color="#8B5CF6" />
+                    <Text style={styles.certSectionTitle}>Look up by cert number</Text>
                   </View>
 
-                  {/* Company pills */}
-                  <View style={styles.certPills}>
-                    {CERT_COMPANIES.map(c => (
+                  <View style={styles.certCompanyRow}>
+                    {CERT_COMPANIES.map((company) => (
                       <Pressable
-                        key={c}
-                        onPress={() => { setSelectedCertCompany(c); setCertLookupResult(null); setCertLookupError(null); }}
-                        style={[styles.certPill, selectedCertCompany === c && styles.certPillActive]}
+                        key={company}
+                        style={[styles.certCompanyPill, selectedCertCompany === company && styles.certCompanyPillActive]}
+                        onPress={() => {
+                          setSelectedCertCompany(company as CertCompany);
+                          setCertLookupResult(null);
+                          setCertLookupError(null);
+                        }}
                       >
-                        <Text style={[styles.certPillText, selectedCertCompany === c && styles.certPillTextActive]}>{c}</Text>
+                        <Text style={[styles.certCompanyPillText, selectedCertCompany === company && styles.certCompanyPillTextActive]}>
+                          {company}
+                        </Text>
                       </Pressable>
                     ))}
                   </View>
 
-                  {/* Cert input + lookup button */}
                   <View style={styles.certInputRow}>
                     <TextInput
                       style={styles.certInput}
-                      placeholder="Cert number"
+                      placeholder="Enter cert number"
                       placeholderTextColor={Colors.textMuted}
                       value={certNumber}
-                      onChangeText={t => { setCertNumber(t.replace(/\D/g, "")); setCertLookupResult(null); setCertLookupError(null); }}
-                      keyboardType="numeric"
+                      onChangeText={(t) => {
+                        setCertNumber(t);
+                        if (certLookupResult) setCertLookupResult(null);
+                        if (certLookupError) setCertLookupError(null);
+                      }}
+                      keyboardType="default"
+                      autoCapitalize="none"
+                      autoCorrect={false}
                       returnKeyType="search"
-                      onSubmitEditing={lookupCert}
+                      onSubmitEditing={handleCertLookup}
                     />
                     <Pressable
-                      onPress={lookupCert}
+                      style={({ pressed }) => [styles.certLookupBtn, { opacity: pressed ? 0.8 : 1 }]}
+                      onPress={handleCertLookup}
                       disabled={certLookupLoading}
-                      style={({ pressed }) => [styles.certLookupBtn, { opacity: certLookupLoading || !certNumber.trim() ? 0.5 : pressed ? 0.8 : 1 }]}
                     >
-                      {certLookupLoading
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={styles.certLookupBtnText}>Look Up</Text>}
+                      <LinearGradient
+                        colors={["#8B5CF6", "#6D28D9"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.certLookupBtnGradient}
+                      >
+                        {certLookupLoading ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={styles.certLookupBtnText}>Look Up</Text>
+                        )}
+                      </LinearGradient>
                     </Pressable>
                   </View>
 
-                  {/* Loading label */}
                   {certLookupLoading && (
-                    <Text style={styles.certLoadingText}>Fetching from {selectedCertCompany}...</Text>
+                    <View style={styles.certLoadingRow}>
+                      <ActivityIndicator color="#8B5CF6" size="small" />
+                      <Text style={styles.certLoadingText}>Fetching from {selectedCertCompany}...</Text>
+                    </View>
                   )}
 
-                  {/* Error state */}
                   {certLookupError && (
-                    <View style={styles.certErrorBox}>
+                    <View style={styles.certErrorCard}>
                       <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
                       <Text style={styles.certErrorText}>{certLookupError}</Text>
                     </View>
                   )}
 
-                  {/* Result preview card */}
                   {certLookupResult && (
-                    <View style={styles.certResultCard}>
-                      <Image
-                        source={{ uri: certLookupResult.frontImageBase64 }}
-                        style={styles.certResultImage}
-                        resizeMode="contain"
-                      />
-                      <View style={styles.certResultInfo}>
-                        <View style={styles.certResultBadgeRow}>
-                          <View style={styles.certResultBadge}>
-                            <Text style={styles.certResultBadgeCompany}>{certLookupResult.company}</Text>
-                            <Text style={styles.certResultBadgeGrade}>{certLookupResult.grade}</Text>
+                    <View style={styles.certPreviewCard}>
+                      <View style={styles.certPreviewHeader}>
+                        <View style={styles.certPreviewBadge}>
+                          <Text style={styles.certPreviewBadgeText}>{certLookupResult.company}</Text>
+                        </View>
+                        <View style={styles.certPreviewGradeBadge}>
+                          <Text style={styles.certPreviewGradeLabel}>Current Grade</Text>
+                          <Text style={styles.certPreviewGradeValue}>{certLookupResult.grade}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.certPreviewBody}>
+                        {certLookupResult.frontImageBase64 ? (
+                          <Image
+                            source={{ uri: certLookupResult.frontImageBase64 }}
+                            style={styles.certPreviewImage}
+                            contentFit="contain"
+                          />
+                        ) : null}
+                        <View style={styles.certPreviewInfo}>
+                          <Text style={styles.certPreviewCardName} numberOfLines={2}>{certLookupResult.cardName || "Unknown Card"}</Text>
+                          {certLookupResult.setName ? (
+                            <Text style={styles.certPreviewSetName} numberOfLines={1}>{certLookupResult.setName}</Text>
+                          ) : null}
+                          <Text style={styles.certPreviewCertNum}>Cert #{certLookupResult.certNumber}</Text>
+                          <View style={styles.certPreviewCheck}>
+                            <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+                            <Text style={styles.certPreviewCheckText}>Ready to analyze</Text>
                           </View>
                         </View>
-                        <Text style={styles.certResultName} numberOfLines={2}>{certLookupResult.cardName}</Text>
-                        {!!certLookupResult.setName && (
-                          <Text style={styles.certResultSet} numberOfLines={1}>{certLookupResult.setName}</Text>
-                        )}
-                        <Text style={styles.certResultCert}>#{certLookupResult.certNumber}</Text>
-                        <Pressable
-                          onPress={() => { setCertLookupResult(null); setCertNumber(""); }}
-                          style={styles.certResultClear}
-                        >
-                          <Ionicons name="close-circle-outline" size={14} color={Colors.textMuted} />
-                          <Text style={styles.certResultClearText}>Clear</Text>
-                        </Pressable>
                       </View>
                     </View>
                   )}
                 </View>
 
-                {/* ── Manual Photo Toggle ── */}
                 <Pressable
+                  style={styles.manualUploadToggle}
                   onPress={() => setShowManualUpload(v => !v)}
-                  style={styles.manualToggle}
                 >
-                  <View style={styles.manualToggleLine} />
-                  <Text style={styles.manualToggleText}>
-                    {showManualUpload ? "hide manual upload" : "or add photos manually"}
-                  </Text>
-                  <View style={styles.manualToggleLine} />
+                  <View style={styles.manualUploadDividerLine} />
+                  <Text style={styles.manualUploadDividerText}>— or add photos manually —</Text>
+                  <View style={styles.manualUploadDividerLine} />
                 </Pressable>
 
                 {showManualUpload && (
@@ -1114,12 +1143,18 @@ export default function GradeScreen() {
                         onCapture={async () => {
                           if (Platform.OS === "web") {
                             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                            if (status !== "granted") { Alert.alert("Permission Required", "Photo library access is needed."); return; }
+                            if (status !== "granted") {
+                              Alert.alert("Permission Required", "Photo library access is needed.");
+                              return;
+                            }
                             const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                            if (!result.canceled && result.assets[0]) { setSlabImage(result.assets[0].uri); setCertLookupResult(null); }
+                            if (!result.canceled && result.assets[0]) {
+                              setSlabImage(result.assets[0].uri);
+                              setCertLookupResult(null);
+                            }
                           } else {
                             Alert.alert("Add Slab Front Photo", "Choose an option", [
-                              { text: "Take Photo", onPress: () => setCameraOpen("slabFront") },
+                              { text: "Take Photo", onPress: () => { setCameraOpen("slabFront"); setCertLookupResult(null); } },
                               { text: "Choose from Library", onPress: async () => {
                                 const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                                 if (status !== "granted") return;
@@ -1139,12 +1174,18 @@ export default function GradeScreen() {
                         onCapture={async () => {
                           if (Platform.OS === "web") {
                             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                            if (status !== "granted") { Alert.alert("Permission Required", "Photo library access is needed."); return; }
+                            if (status !== "granted") {
+                              Alert.alert("Permission Required", "Photo library access is needed.");
+                              return;
+                            }
                             const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                            if (!result.canceled && result.assets[0]) { setSlabBackImage(result.assets[0].uri); setCertLookupResult(null); }
+                            if (!result.canceled && result.assets[0]) {
+                              setSlabBackImage(result.assets[0].uri);
+                              setCertLookupResult(null);
+                            }
                           } else {
                             Alert.alert("Add Slab Back Photo", "Choose an option", [
-                              { text: "Take Photo", onPress: () => setCameraOpen("slabBack") },
+                              { text: "Take Photo", onPress: () => { setCameraOpen("slabBack"); setCertLookupResult(null); } },
                               { text: "Choose from Library", onPress: async () => {
                                 const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                                 if (status !== "granted") return;
@@ -1161,7 +1202,7 @@ export default function GradeScreen() {
                     </View>
 
                     <View style={styles.tipsCard}>
-                      <Text style={styles.tipsTitle}>Tips for crossover grading</Text>
+                      <Text style={styles.tipsTitle}>Tips for slab photos</Text>
                       <View style={styles.tipRow}>
                         <Ionicons name="scan" size={16} color="#8B5CF6" />
                         <Text style={styles.tipText}>Photograph both the front and back of the slab if possible</Text>
@@ -1170,13 +1211,16 @@ export default function GradeScreen() {
                         <Ionicons name="sunny" size={16} color="#8B5CF6" />
                         <Text style={styles.tipText}>Use good lighting to reduce glare on the plastic case</Text>
                       </View>
-                      <View style={styles.tipRow}>
-                        <Ionicons name="information-circle" size={16} color="#8B5CF6" />
-                        <Text style={styles.tipText}>Results are estimates — actual crossover outcomes may vary</Text>
-                      </View>
                     </View>
                   </>
                 )}
+
+                <View style={styles.tipsCard}>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="information-circle" size={16} color="#8B5CF6" />
+                    <Text style={styles.tipText}>Results are estimates — actual crossover outcomes may vary</Text>
+                  </View>
+                </View>
               </>
             ) : mode === "quick" ? (
               <>
@@ -1935,6 +1979,208 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(139, 92, 246, 0.2)",
   },
+  certSection: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  certSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  certSectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  certCompanyRow: {
+    flexDirection: "row",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  certCompanyPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: Colors.surfaceLight,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  certCompanyPillActive: {
+    backgroundColor: "rgba(139, 92, 246, 0.15)",
+    borderColor: "#8B5CF6",
+  },
+  certCompanyPillText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  certCompanyPillTextActive: {
+    color: "#8B5CF6",
+  },
+  certInputRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  certInput: {
+    flex: 1,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  certLookupBtn: {
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  certLookupBtnGradient: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 84,
+  },
+  certLookupBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  certLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 4,
+  },
+  certLoadingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  certErrorCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "rgba(239, 68, 68, 0.08)",
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.2)",
+  },
+  certErrorText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: "#EF4444",
+    flex: 1,
+    lineHeight: 18,
+  },
+  certPreviewCard: {
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 12,
+    padding: 14,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(139, 92, 246, 0.25)",
+  },
+  certPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  certPreviewBadge: {
+    backgroundColor: "rgba(139, 92, 246, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  certPreviewBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: "#8B5CF6",
+    letterSpacing: 0.5,
+  },
+  certPreviewGradeBadge: {
+    alignItems: "flex-end",
+  },
+  certPreviewGradeLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  certPreviewGradeValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+  },
+  certPreviewBody: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  certPreviewImage: {
+    width: 72,
+    height: 100,
+    borderRadius: 6,
+    backgroundColor: Colors.surface,
+  },
+  certPreviewInfo: {
+    flex: 1,
+    gap: 4,
+    justifyContent: "center",
+  },
+  certPreviewCardName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+    lineHeight: 18,
+  },
+  certPreviewSetName: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  certPreviewCertNum: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  certPreviewCheck: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  certPreviewCheckText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#10B981",
+  },
+  manualUploadToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 4,
+  },
+  manualUploadDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  manualUploadDividerText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
   crossoverInfoText: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
@@ -1956,187 +2202,4 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
 
-  // ── Cert Lookup ──
-  certSection: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    marginBottom: 4,
-  },
-  certHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  certHeaderText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: Colors.text,
-  },
-  certPills: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  certPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: "#1A1A1A",
-    borderWidth: 1,
-    borderColor: "#333",
-  },
-  certPillActive: {
-    backgroundColor: "rgba(139, 92, 246, 0.15)",
-    borderColor: "#8B5CF6",
-  },
-  certPillText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  certPillTextActive: {
-    color: "#8B5CF6",
-  },
-  certInputRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-  certInput: {
-    flex: 1,
-    backgroundColor: "#1A1A1A",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#333",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: Colors.text,
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-  },
-  certLookupBtn: {
-    backgroundColor: "#8B5CF6",
-    borderRadius: 12,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 90,
-  },
-  certLookupBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#fff",
-  },
-  certLoadingText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.textMuted,
-    textAlign: "center",
-  },
-  certErrorBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "rgba(239, 68, 68, 0.08)",
-    borderRadius: 10,
-    padding: 12,
-  },
-  certErrorText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: "#EF4444",
-    flex: 1,
-    lineHeight: 18,
-  },
-  certResultCard: {
-    flexDirection: "row",
-    gap: 14,
-    backgroundColor: "rgba(139, 92, 246, 0.06)",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(139, 92, 246, 0.2)",
-    alignItems: "flex-start",
-  },
-  certResultImage: {
-    width: 80,
-    height: 112,
-    borderRadius: 6,
-    backgroundColor: "#222",
-  },
-  certResultInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  certResultBadgeRow: {
-    flexDirection: "row",
-  },
-  certResultBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(139, 92, 246, 0.2)",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 6,
-    alignSelf: "flex-start",
-  },
-  certResultBadgeCompany: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-    color: "#8B5CF6",
-  },
-  certResultBadgeGrade: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-    color: "#fff",
-  },
-  certResultName: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.text,
-    lineHeight: 19,
-    marginTop: 2,
-  },
-  certResultSet: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  certResultCert: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  certResultClear: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 6,
-    alignSelf: "flex-start",
-  },
-  certResultClearText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  manualToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginVertical: 4,
-  },
-  manualToggleLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#2A2A2A",
-  },
-  manualToggleText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
 });

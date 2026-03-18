@@ -20,17 +20,26 @@ export interface GradingJob {
   backCornerImages?: string[];
   isDeepGrade?: boolean;
   isCrossover?: boolean;
+  certData?: CertData;
   status: GradingJobStatus;
   savedGrading?: SavedGrading;
   error?: string;
   startTime: number;
 }
 
+export interface CertData {
+  company: string;
+  grade: string;
+  certNumber: string;
+  cardName?: string;
+  setName?: string;
+}
+
 interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, recordUsage: (n: number) => Promise<void>, certData?: { company: string; grade: string; certNumber: string }) => Promise<void>;
+  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, recordUsage: (n: number) => Promise<void>, certData?: CertData) => Promise<void>;
   dismissJob: () => void;
   cancelJob: () => void;
   hasCompletedJob: boolean;
@@ -161,6 +170,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       isDeepGrade?: boolean;
     },
     pollEndpoint?: string,
+    certData?: CertData,
   ) => {
     try {
       const endpoint = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
@@ -173,7 +183,27 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         await cancelScheduledNotification(scheduledNotifId.current);
         scheduledNotifId.current = null;
 
-        const result: GradingResult = data.result;
+        let result: GradingResult = data.result;
+
+        if (certData) {
+          type SupportedCompany = "PSA" | "BGS" | "CGC" | "ACE" | "TAG";
+          const validCompanies: SupportedCompany[] = ["PSA", "BGS", "CGC", "ACE", "TAG"];
+          const isSupportedCompany = (c: string): c is SupportedCompany => validCompanies.includes(c as SupportedCompany);
+          const company = isSupportedCompany(certData.company)
+            ? certData.company
+            : "OTHER" as const;
+          result = {
+            ...result,
+            currentGrade: {
+              company,
+              grade: certData.grade,
+              certNumber: certData.certNumber,
+            },
+            cardName: certData.cardName || result.cardName,
+            setName: certData.setName || result.setName || result.setInfo,
+          };
+        }
+
         if (recordUsageRef.current) {
           try { await recordUsageRef.current(1); } catch {}
         }
@@ -387,7 +417,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     slabFrontImage: string,
     slabBackImage: string | undefined,
     recordUsage: (n: number) => Promise<void>,
-    certData?: { company: string; grade: string; certNumber: string },
+    certData?: CertData,
   ) => {
     const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     recordUsageRef.current = recordUsage;
@@ -398,6 +428,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       frontImage: slabFrontImage,
       backImage: slabBackImage || slabFrontImage,
       isCrossover: true,
+      certData,
       status: "processing",
       startTime: Date.now(),
     });
@@ -431,7 +462,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
       stopPolling();
       pollingRef.current = setInterval(() => {
-        pollJobStatus(serverJobId, localJobId, slabFrontImage, slabBackImage || slabFrontImage, undefined, "/api/crossover-grade-job");
+        pollJobStatus(serverJobId, localJobId, slabFrontImage, slabBackImage || slabFrontImage, undefined, "/api/crossover-grade-job", certData);
       }, POLL_INTERVAL);
     } catch (error: any) {
       console.error("Failed to submit crossover grading job:", error);
@@ -460,13 +491,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           isDeepGrade: true,
         } : undefined;
         const resumeEndpoint = activeJob.isCrossover ? "/api/crossover-grade-job" : undefined;
+        const resumeCertData = activeJob.isCrossover ? activeJob.certData : undefined;
         pollingRef.current = setInterval(() => {
-          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint);
+          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint, resumeCertData);
         }, POLL_INTERVAL);
       }
     });
     return () => sub.remove();
-  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, activeJob?.isCrossover, pollJobStatus, stopPolling]);
+  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, activeJob?.isCrossover, activeJob?.certData, pollJobStatus, stopPolling]);
 
   useEffect(() => {
     return () => stopPolling();
