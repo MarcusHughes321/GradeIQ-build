@@ -80,3 +80,7 @@ ensurePreviewReachable = "/status"
 [userenv.shared]
 EXPO_PUBLIC_SUBSCRIPTION_GATE = "on"
 EXPO_PUBLIC_RC_IOS_KEY = "appl_LEqJaUDWqGpXjrsgyQHtYaHyXRb"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 120000

@@ -30,7 +30,7 @@ interface GradingContextValue {
   activeJob: GradingJob | null;
   submitGrading: (frontImage: string, backImage: string, recordUsage: (n: number) => Promise<void>) => Promise<void>;
   submitDeepGrading: (frontImage: string, backImage: string, angledFrontImage: string, angledBackImage: string, frontCorners: string[], backCorners: string[], recordUsage: (n: number) => Promise<void>) => Promise<void>;
-  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, recordUsage: (n: number) => Promise<void>) => Promise<void>;
+  submitCrossoverGrading: (slabFrontImage: string, slabBackImage: string | undefined, recordUsage: (n: number) => Promise<void>, certData?: { company: string; grade: string; certNumber: string }) => Promise<void>;
   dismissJob: () => void;
   cancelJob: () => void;
   hasCompletedJob: boolean;
@@ -43,6 +43,8 @@ const POLL_INTERVAL = 3000;
 const ESTIMATED_GRADE_SECONDS = 90;
 
 async function getBase64FromUri(uri: string): Promise<string> {
+  // Already a data URI — use directly without re-fetching
+  if (uri.startsWith("data:")) return uri;
   const response = await fetch(uri);
   const blob = await response.blob();
   return new Promise((resolve, reject) => {
@@ -385,6 +387,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     slabFrontImage: string,
     slabBackImage: string | undefined,
     recordUsage: (n: number) => Promise<void>,
+    certData?: { company: string; grade: string; certNumber: string },
   ) => {
     const localJobId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
     recordUsageRef.current = recordUsage;
@@ -410,6 +413,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const resp = await apiRequest("POST", "/api/crossover-grade-job", {
         slabImage: slabFrontBase64,
         slabBackImage: slabBackBase64,
+        ...(certData ? { certData } : {}),
       });
 
       const { jobId: serverJobId } = await resp.json();

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "node:http";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
+import { parse as parseHtml } from "node-html-parser";
 import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
 
 const anthropic = new Anthropic({
@@ -4223,6 +4224,7 @@ Verify: (rightPercent - leftPercent) / (bottomPercent - topPercent) should be cl
     slabImage: string,
     logPrefix: string = "[crossover-grade]",
     slabBackImage?: string,
+    certData?: { company: string; grade: string; certNumber: string },
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawSlabUrl = slabImage.startsWith("data:") ? slabImage : `data:image/jpeg;base64,${slabImage}`;
@@ -4374,19 +4376,268 @@ RESPONSE FORMAT (JSON only, no markdown):
       result.backCardBounds = enforceCardBounds(backBoundsToUse);
     }
 
+    // If cert data was provided (from cert lookup), override the AI-read slab label with known values
+    if (certData) {
+      result.currentGrade = {
+        company:    certData.company,
+        grade:      certData.grade,
+        certNumber: certData.certNumber,
+      };
+    }
+
     console.log(`${logPrefix} Crossover complete in ${Date.now() - gradeStartTime}ms`);
     return result;
   }
 
+  // ─── Cert Lookup Helpers ──────────────────────────────────────────────────
+
+  async function downloadImageAsBase64(url: string): Promise<string | null> {
+    try {
+      const resp = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!resp.ok) return null;
+      const arrayBuf = await resp.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+      const contentType = resp.headers.get("content-type") || "image/jpeg";
+      const mime = contentType.split(";")[0].trim();
+      return `data:${mime};base64,${buffer.toString("base64")}`;
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchPSACert(certNumber: string) {
+    const apiUrl = `https://api.psacard.com/publicapi/cert/GetByCertNumber/${certNumber}`;
+    const resp = await fetch(apiUrl, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Origin": "https://www.psacard.com",
+        "Referer": "https://www.psacard.com/",
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (resp.status === 429) throw new Error("PSA lookup is temporarily rate-limited. Please wait a moment and try again, or add photos manually.");
+    if (resp.status === 401 || resp.status === 403) throw new Error("PSA cert lookup requires an API key. Please add photos of your slab manually instead.");
+    if (resp.status === 404) throw new Error(`PSA cert #${certNumber} not found. Please check the number and try again.`);
+    if (!resp.ok) throw new Error(`PSA cert lookup failed (${resp.status}). Please try again or add photos manually.`);
+    const data = await resp.json() as any;
+    const cert = data?.PSACert;
+    if (!cert) throw new Error("PSA cert not found. Please check the cert number and try again.");
+
+    const [frontImageBase64, backImageBase64] = await Promise.all([
+      cert.Front ? downloadImageAsBase64(cert.Front) : null,
+      cert.Back  ? downloadImageAsBase64(cert.Back)  : null,
+    ]);
+
+    if (!frontImageBase64) throw new Error("Could not download card image from PSA");
+
+    const cardName = [cert.Subject, cert.CardNumber ? `#${cert.CardNumber}` : ""].filter(Boolean).join(" ").trim();
+    return {
+      cardName: cardName || "Unknown Card",
+      setName:  cert.Year  || "",
+      grade:    cert.PSAGrade || "",
+      company:  "PSA",
+      certNumber,
+      frontImageBase64,
+      backImageBase64: backImageBase64 ?? undefined,
+    };
+  }
+
+  async function fetchACECert(certNumber: string) {
+    const url = `https://www.acegradingcards.com/verify/?cert_number=${certNumber}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`ACE cert lookup failed (${resp.status})`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const cardImg = root.querySelector(".cert-image img, .card-image img, .cert-front img");
+    const gradeEl = root.querySelector(".cert-grade, .grade-value, [class*='grade']");
+    const nameEl  = root.querySelector(".cert-name, .card-name, h1, h2");
+
+    if (!cardImg && !gradeEl) throw new Error("ACE cert not found — this cert number may not exist or ACE lookup requires JavaScript. Please add a photo manually.");
+
+    const imgSrc = cardImg?.getAttribute("src") || cardImg?.getAttribute("data-src");
+    const frontImageBase64 = imgSrc ? await downloadImageAsBase64(imgSrc.startsWith("http") ? imgSrc : `https://www.acegradingcards.com${imgSrc}`) : null;
+    if (!frontImageBase64) throw new Error("ACE cert image unavailable. Please add a photo manually.");
+
+    return {
+      cardName:        nameEl?.text?.trim()  || "Unknown Card",
+      setName:         "",
+      grade:           gradeEl?.text?.trim() || "",
+      company:         "ACE",
+      certNumber,
+      frontImageBase64,
+      backImageBase64: undefined,
+    };
+  }
+
+  async function fetchBGSCert(certNumber: string) {
+    const url = `https://www.beckett.com/grading/submit-certification/?certNum=${certNumber}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`BGS lookup failed (${resp.status}). Beckett requires photos — please add photos manually.`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const imgEl = root.querySelector(".cert-img img, .certification-image img, .card-front img");
+    const gradeEl = root.querySelector(".cert-grade, .overall-grade, [class*='grade-value']");
+    const nameEl  = root.querySelector(".cert-subject, .card-title, h1");
+
+    if (!imgEl && !gradeEl) throw new Error("BGS (Beckett) cert lookup requires a browser session. Please add photos manually instead.");
+
+    const imgSrc = imgEl?.getAttribute("src");
+    const frontImageBase64 = imgSrc ? await downloadImageAsBase64(imgSrc.startsWith("http") ? imgSrc : `https://www.beckett.com${imgSrc}`) : null;
+    if (!frontImageBase64) throw new Error("BGS cert image unavailable. Please add photos manually.");
+
+    return {
+      cardName:        nameEl?.text?.trim()  || "Unknown Card",
+      setName:         "",
+      grade:           gradeEl?.text?.trim() || "",
+      company:         "BGS",
+      certNumber,
+      frontImageBase64,
+      backImageBase64: undefined,
+    };
+  }
+
+  async function fetchCGCCert(certNumber: string) {
+    const url = `https://app.cgccards.com/certlookup/${certNumber}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Accept": "text/html,application/json",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`CGC lookup failed (${resp.status}). Please add photos manually.`);
+    const text = await resp.text();
+
+    // CGC may return JSON
+    try {
+      const json = JSON.parse(text) as any;
+      const item = json?.item || json?.data || json;
+      if (item?.imageFrontUrl || item?.front_image_url) {
+        const imgUrl = item.imageFrontUrl || item.front_image_url;
+        const frontImageBase64 = await downloadImageAsBase64(imgUrl);
+        if (!frontImageBase64) throw new Error("CGC cert image unavailable. Please add photos manually.");
+        return {
+          cardName:        item.name || item.subjectName || "Unknown Card",
+          setName:         item.set  || item.setName     || "",
+          grade:           String(item.grade || item.gradeCode || ""),
+          company:         "CGC",
+          certNumber,
+          frontImageBase64,
+          backImageBase64: item.imageBackUrl ? (await downloadImageAsBase64(item.imageBackUrl)) ?? undefined : undefined,
+        };
+      }
+    } catch { /* not JSON, parse HTML */ }
+
+    const root = parseHtml(text);
+    const imgEl   = root.querySelector(".cert-image img, .card-front img, img[class*='cert']");
+    const gradeEl = root.querySelector(".grade, .cert-grade, [class*='grade-value']");
+    if (!imgEl && !gradeEl) throw new Error("CGC cert lookup requires JavaScript. Please add photos manually instead.");
+
+    const imgSrc = imgEl?.getAttribute("src");
+    const frontImageBase64 = imgSrc ? await downloadImageAsBase64(imgSrc.startsWith("http") ? imgSrc : `https://app.cgccards.com${imgSrc}`) : null;
+    if (!frontImageBase64) throw new Error("CGC cert image unavailable. Please add photos manually.");
+
+    return {
+      cardName:        root.querySelector("h1, .cert-name")?.text?.trim() || "Unknown Card",
+      setName:         "",
+      grade:           gradeEl?.text?.trim() || "",
+      company:         "CGC",
+      certNumber,
+      frontImageBase64,
+      backImageBase64: undefined,
+    };
+  }
+
+  async function fetchTAGCert(certNumber: string) {
+    const url = `https://www.theacademygrading.com/verify/${certNumber}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`TAG lookup failed (${resp.status}). Please add photos manually.`);
+    const html = await resp.text();
+    const root = parseHtml(html);
+
+    const imgEl   = root.querySelector("img[class*='cert'], img[class*='card'], .card-image img");
+    const gradeEl = root.querySelector("[class*='grade'], .cert-grade");
+    const nameEl  = root.querySelector("h1, h2, .cert-name, .card-name");
+
+    if (!imgEl && !gradeEl) throw new Error("TAG cert lookup requires JavaScript. Please add photos manually instead.");
+
+    const imgSrc = imgEl?.getAttribute("src");
+    const frontImageBase64 = imgSrc ? await downloadImageAsBase64(imgSrc.startsWith("http") ? imgSrc : `https://www.theacademygrading.com${imgSrc}`) : null;
+    if (!frontImageBase64) throw new Error("TAG cert image unavailable. Please add photos manually.");
+
+    return {
+      cardName:        nameEl?.text?.trim()  || "Unknown Card",
+      setName:         "",
+      grade:           gradeEl?.text?.trim() || "",
+      company:         "TAG",
+      certNumber,
+      frontImageBase64,
+      backImageBase64: undefined,
+    };
+  }
+
+  app.post("/api/cert-lookup", async (req, res) => {
+    try {
+      const { certNumber, company } = req.body;
+      if (!certNumber || !company) {
+        return res.status(400).json({ error: "certNumber and company are required" });
+      }
+
+      const certStr = certNumber.toString().replace(/\D/g, "");
+      if (!certStr) return res.status(400).json({ error: "Invalid cert number" });
+
+      console.log(`[cert-lookup] ${company} cert ${certStr}`);
+      const upper = (company as string).toUpperCase();
+
+      let result: any;
+      if (upper === "PSA") result = await fetchPSACert(certStr);
+      else if (upper === "ACE") result = await fetchACECert(certStr);
+      else if (upper === "BGS" || upper === "BECKETT") result = await fetchBGSCert(certStr);
+      else if (upper === "CGC") result = await fetchCGCCert(certStr);
+      else if (upper === "TAG") result = await fetchTAGCert(certStr);
+      else throw new Error(`Unsupported company: ${company}`);
+
+      console.log(`[cert-lookup] Found: ${result.cardName} — ${result.company} ${result.grade}`);
+      res.json(result);
+    } catch (err: any) {
+      console.error(`[cert-lookup] Error:`, err.message);
+      res.status(422).json({ error: err.message || "Cert lookup failed" });
+    }
+  });
+
   app.post("/api/crossover-grade-job", async (req, res) => {
     try {
-      const { slabImage, slabBackImage, pushToken } = req.body;
+      const { slabImage, slabBackImage, pushToken, certData } = req.body;
       if (!slabImage) {
         return res.status(400).json({ error: "slabImage is required" });
       }
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
-      console.log(`[crossover-grade-job] Creating job ${jobId}`);
+      console.log(`[crossover-grade-job] Creating job ${jobId}${certData ? ` (cert: ${certData.company} #${certData.certNumber})` : ""}`);
       const job: GradingJob = {
         id: jobId,
         status: "processing",
@@ -4400,7 +4651,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       (async () => {
         try {
-          const result = await performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage);
+          const result = await performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData);
           job.status = "completed";
           job.result = result;
 
