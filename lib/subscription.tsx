@@ -7,6 +7,7 @@ const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
 const FREE_MONTHLY_LIMIT = 3;
+const RC_ALIAS_KEY = "gradeiq_rc_alias";
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
 
@@ -214,28 +215,35 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         "| entitlements=", Object.keys(info.entitlements.active),
         "| RC userId=", info.originalAppUserId);
 
-      // ── Layer 2: Build-22 migration ─────────────────────────────────────────
-      // Build 22 stored a custom "gradeiq_xxx" ID in AsyncStorage and called
-      // logIn() with it. RC's configure() may now be running as that custom user
-      // or as a fresh anonymous ID. If we're free, check if the old build-22
-      // custom ID exists in storage and try switching to it.
+      // ── Layer 2: Reconnect to known RC alias ────────────────────────────────
+      // We maintain a permanent alias key (gradeiq_rc_alias) that stores the
+      // custom RC user ID tied to the subscriber's purchases. On every launch
+      // where the current RC session shows "free", we try logIn() with the saved
+      // alias to reconnect. This handles cases where configure() starts a fresh
+      // anonymous session (e.g. after RC internal state clears).
+      // Also handles the one-time build-22 migration (gradeiq_rc_user_id key).
       if (tier === "free") {
-        const oldCustomId = await AsyncStorage.getItem("gradeiq_rc_user_id");
-        if (oldCustomId) {
-          console.log("[subscription] Migration: found build-22 ID, trying logIn:", oldCustomId);
+        const oldBuild22Id = await AsyncStorage.getItem("gradeiq_rc_user_id");
+        const savedAlias = await AsyncStorage.getItem(RC_ALIAS_KEY);
+        const aliasToTry = oldBuild22Id || savedAlias;
+        if (aliasToTry) {
+          console.log("[subscription] Alias reconnect: trying logIn with alias:", aliasToTry);
           try {
-            const loginResult = await Purchases.logIn(oldCustomId);
+            const loginResult = await Purchases.logIn(aliasToTry);
             const migratedTier = determineTier(loginResult.customerInfo);
-            console.log("[subscription] Migration logIn result: tier=", migratedTier,
+            console.log("[subscription] Alias reconnect result: tier=", migratedTier,
               "| entitlements=", Object.keys(loginResult.customerInfo.entitlements.active));
             if (migratedTier !== "free") {
               info = loginResult.customerInfo;
               tier = migratedTier;
             }
-            // Whether it worked or not, clear the old key so we don't repeat this next launch
-            await AsyncStorage.removeItem("gradeiq_rc_user_id");
+            // Save the alias permanently for all future launches
+            await AsyncStorage.setItem(RC_ALIAS_KEY, aliasToTry);
+            // Clear the old build-22 key (one-time migration)
+            if (oldBuild22Id) await AsyncStorage.removeItem("gradeiq_rc_user_id");
           } catch (migrateErr: any) {
-            console.log("[subscription] Migration logIn failed:", migrateErr?.message ?? migrateErr);
+            console.log("[subscription] Alias reconnect failed:", migrateErr?.message ?? migrateErr);
+            if (oldBuild22Id) await AsyncStorage.removeItem("gradeiq_rc_user_id");
           }
         }
       }
