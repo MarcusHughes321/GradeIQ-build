@@ -147,6 +147,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     appStateRef.current = nextState;
     if (prev.match(/inactive|background/) && nextState === "active" && rcConfiguredRef.current) {
       try {
+        await Purchases.invalidateCustomerInfoCache();
         const info = await Purchases.getCustomerInfo();
         const tier = determineTier(info);
         console.log("[subscription] Foreground refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
@@ -321,22 +322,34 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       console.log("purchaseTier: purchasing package:", targetPackage.product.identifier);
       const { customerInfo } = await Purchases.purchasePackage(targetPackage);
-      setCurrentTier(determineTier(customerInfo));
 
-      // If entitlement is already active, great
+      // If entitlement is immediately active, great
       if (customerInfo.entitlements.active[targetEntitlement] !== undefined) {
+        console.log("purchaseTier: entitlement active immediately, tier=", determineTier(customerInfo));
+        setCurrentTier(determineTier(customerInfo));
         return true;
       }
 
-      // purchasePackage didn't throw, so payment went through — entitlement may
-      // just need a moment to propagate. Refresh once after a short delay.
-      console.log("purchaseTier: entitlement not yet active, refreshing customer info...");
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const refreshed = await Purchases.getCustomerInfo();
-      setCurrentTier(determineTier(refreshed));
-      console.log("purchaseTier: refreshed entitlements:", Object.keys(refreshed.entitlements.active));
+      // Payment went through but entitlement not yet reflected — sandbox/server propagation delay.
+      // Retry up to 3 times with cache invalidation to force a fresh fetch from RevenueCat servers.
+      console.log("purchaseTier: entitlement not yet active, retrying with cache invalidation...");
+      const retryDelays = [2000, 4000, 6000];
+      for (let i = 0; i < retryDelays.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, retryDelays[i]));
+        try {
+          await Purchases.invalidateCustomerInfoCache();
+        } catch (_) {}
+        const retried = await Purchases.getCustomerInfo();
+        const retriedTier = determineTier(retried);
+        console.log(`purchaseTier: retry ${i + 1} — entitlements:`, Object.keys(retried.entitlements.active), "tier=", retriedTier);
+        setCurrentTier(retriedTier);
+        if (retried.entitlements.active[targetEntitlement] !== undefined) {
+          return true;
+        }
+      }
 
-      // Payment went through regardless — return true so the user isn't shown an error
+      // Still not reflecting — payment went through, return true.
+      // The addCustomerInfoUpdateListener will update the tier when RC catches up.
       return true;
     } catch (e: any) {
       if (e.userCancelled) {
@@ -356,17 +369,20 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const restorePurchases = useCallback(async (): Promise<boolean> => {
     if (!rcConfigured) return false;
     try {
+      await Purchases.invalidateCustomerInfoCache();
       const info = await Purchases.restorePurchases();
       const tier = determineTier(info);
       setCurrentTier(tier);
+      console.log("Restore: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
       if (tier !== "free") return true;
 
-      // Restore may return cached data — force a fresh fetch from RevenueCat servers
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Restore may still be propagating — wait and force a fresh server fetch
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await Purchases.invalidateCustomerInfoCache();
       const refreshed = await Purchases.getCustomerInfo();
       const refreshedTier = determineTier(refreshed);
       setCurrentTier(refreshedTier);
-      console.log("Restore refreshed entitlements:", Object.keys(refreshed.entitlements.active));
+      console.log("Restore re-check: tier=", refreshedTier, "entitlements=", Object.keys(refreshed.entitlements.active));
       return refreshedTier !== "free";
     } catch (e) {
       console.error("Restore error:", e);
