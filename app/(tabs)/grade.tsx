@@ -27,7 +27,7 @@ import { useSubscription } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 type GradeMode = "hub" | "quick" | "deep" | "crossover";
-type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR";
+type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR" | "slabFront" | "slabBack";
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
 const CROSSOVER_STAGES = [
@@ -137,6 +137,16 @@ const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; ic
     subtitle: "Get close to the bottom-right corner of the BACK. Fill the frame with just the corner area.",
     icon: "crop-outline",
   },
+  slabFront: {
+    title: "Front of Slab",
+    subtitle: "Align the whole slab to the guide frame. Ensure the card is visible through the case.",
+    icon: "scan-outline",
+  },
+  slabBack: {
+    title: "Back of Slab",
+    subtitle: "Flip the slab over. Keep it flat and centred in the frame.",
+    icon: "swap-horizontal-outline",
+  },
 };
 
 export default function GradeScreen() {
@@ -197,6 +207,8 @@ export default function GradeScreen() {
     else if (step === "back") setBackImage(uri);
     else if (step === "angledFront") setAngledFrontImage(uri);
     else if (step === "angledBack") setAngledBackImage(uri);
+    else if (step === "slabFront") setSlabImage(uri);
+    else if (step === "slabBack") setSlabBackImage(uri);
     else if (isCornerStep(step)) setCornerImages(prev => ({ ...prev, [step]: uri }));
   };
 
@@ -946,12 +958,7 @@ export default function GradeScreen() {
                         if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
                       } else {
                         Alert.alert("Add Slab Front Photo", "Choose an option", [
-                          { text: "Take Photo", onPress: async () => {
-                            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-                            if (status !== "granted") return;
-                            const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
-                            if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
-                          }},
+                          { text: "Take Photo", onPress: () => setCameraOpen("slabFront") },
                           { text: "Choose from Library", onPress: async () => {
                             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                             if (status !== "granted") return;
@@ -979,12 +986,7 @@ export default function GradeScreen() {
                         if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
                       } else {
                         Alert.alert("Add Slab Back Photo", "Choose an option", [
-                          { text: "Take Photo", onPress: async () => {
-                            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-                            if (status !== "granted") return;
-                            const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
-                            if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
-                          }},
+                          { text: "Take Photo", onPress: () => setCameraOpen("slabBack") },
                           { text: "Choose from Library", onPress: async () => {
                             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                             if (status !== "granted") return;
@@ -1089,8 +1091,9 @@ export default function GradeScreen() {
 
       {cameraOpen && (
         <CardCamera
-          side={cameraOpen === "angledFront" || cameraOpen.startsWith("cornerFront") ? "front" : cameraOpen === "angledBack" || cameraOpen.startsWith("cornerBack") ? "back" : cameraOpen === "front" ? "front" : "back"}
+          side={cameraOpen === "angledFront" || cameraOpen.startsWith("cornerFront") || cameraOpen === "slabFront" ? "front" : cameraOpen === "angledBack" || cameraOpen.startsWith("cornerBack") || cameraOpen === "slabBack" ? "back" : cameraOpen === "front" ? "front" : "back"}
           isAngled={cameraOpen === "angledFront" || cameraOpen === "angledBack"}
+          isSlabMode={cameraOpen === "slabFront" || cameraOpen === "slabBack"}
           stepLabel={DEEP_STEP_GUIDANCE[cameraOpen]?.title}
           onCapture={handleCameraCapture}
           onClose={() => { setCameraOpen(null); setDeepCameraActive(false); }}

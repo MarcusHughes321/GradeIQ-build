@@ -26,6 +26,7 @@ const FOCUS_SQUARE_SIZE = 70;
 interface CardCameraProps {
   side: "front" | "back";
   isAngled?: boolean;
+  isSlabMode?: boolean;
   stepLabel?: string;
   onCapture: (uri: string) => void;
   onClose: () => void;
@@ -44,7 +45,7 @@ const ANGLED_TARGET = 25;
 const ANGLED_THRESHOLD = 5;
 const BUBBLE_RANGE = 22;
 
-export default function CardCamera({ side, isAngled = false, stepLabel, onCapture, onClose, deepGradeFlow }: CardCameraProps) {
+export default function CardCamera({ side, isAngled = false, isSlabMode = false, stepLabel, onCapture, onClose, deepGradeFlow }: CardCameraProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
@@ -329,7 +330,7 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
 
   const isCorner = deepGradeFlow?.isCornerStep ?? false;
   const guideW = isCorner ? 180 : GUIDE_FRAME_W;
-  const guideH = isCorner ? 180 : GUIDE_FRAME_H;
+  const guideH = isCorner ? 180 : isSlabMode ? 430 : GUIDE_FRAME_H;
 
   const hintText = deepGradeFlow
     ? deepGradeFlow.stepSubtitle
@@ -337,9 +338,13 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
       ? isLevel
         ? "Perfect angle! Take the photo"
         : "Tilt bottom of phone down ~25\u00B0 to catch the light"
-      : isLevel
-        ? "Phone is level. Take the photo!"
-        : "Hold phone flat and parallel to card";
+      : isSlabMode
+        ? isLevel
+          ? "Slab is level. Take the photo!"
+          : "Hold phone flat over the slab"
+        : isLevel
+          ? "Phone is level. Take the photo!"
+          : "Hold phone flat and parallel to card";
 
   return (
     <View style={styles.container}>
@@ -409,7 +414,9 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
                 ? stepLabel
                 : isAngled
                   ? side === "front" ? "Front \u2014 Angled" : "Back \u2014 Angled"
-                  : side === "front" ? "Front of Card" : "Back of Card"}
+                  : isSlabMode
+                    ? side === "front" ? "Front of Slab" : "Back of Slab"
+                    : side === "front" ? "Front of Card" : "Back of Card"}
             </Text>
           )}
           <View style={{ width: 44 }} />
@@ -429,8 +436,14 @@ export default function CardCamera({ side, isAngled = false, stepLabel, onCaptur
             <View style={[styles.corner, styles.cornerTR, { borderTopColor: frameColor, borderRightColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerBL, { borderBottomColor: frameColor, borderLeftColor: frameColor }]} />
             <View style={[styles.corner, styles.cornerBR, { borderBottomColor: frameColor, borderRightColor: frameColor }]} />
+            {isSlabMode && (
+              <>
+                <View style={[styles.slabLabelSeparator, { top: guideH * 0.22, borderColor: "rgba(139,92,246,0.55)" }]} />
+                <Text style={[styles.slabLabelTag, { top: guideH * 0.22 - 18 }]}>Label</Text>
+                <Text style={[styles.slabCardTag, { top: guideH * 0.22 + 6 }]}>Card</Text>
+              </>
+            )}
           </View>
-
         </View>
 
         {Platform.OS !== "web" && !isCorner && (
@@ -594,6 +607,30 @@ const styles = StyleSheet.create({
     height: GUIDE_FRAME_H,
     borderWidth: 1,
     borderRadius: 10,
+  },
+  slabLabelSeparator: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    height: 0,
+    borderTopWidth: 1,
+    borderStyle: "dashed",
+  },
+  slabLabelTag: {
+    position: "absolute",
+    right: 10,
+    fontFamily: "Inter_500Medium",
+    fontSize: 9,
+    color: "rgba(139,92,246,0.7)",
+    letterSpacing: 0.5,
+  },
+  slabCardTag: {
+    position: "absolute",
+    right: 10,
+    fontFamily: "Inter_500Medium",
+    fontSize: 9,
+    color: "rgba(139,92,246,0.7)",
+    letterSpacing: 0.5,
   },
   corner: {
     position: "absolute",
