@@ -4150,6 +4150,71 @@ ${tcgContext || "No external price data available. Estimate using your expert kn
     }
   });
 
+  async function detectSlabCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number } | null> {
+    const CARD_RATIO = 2.5 / 3.5;
+    const RATIO_TOLERANCE = 0.15;
+    try {
+      const aiPrompt = `You are analyzing an image of a graded Pokemon card slab. Your ONLY task is to find the exact outer boundary of the POKEMON CARD'S PRINTED SURFACE visible through the transparent plastic window.
+
+CRITICAL RULES:
+- Find the card's PRINTED BORDER — the colored/white border that is part of the card's print, NOT the plastic slab case outer edges
+- A standard Pokemon card is 63mm × 88mm (width-to-height ratio = 0.714)
+- DO NOT mark the outer slab case boundary
+- DO NOT include the grading company label panel at the top of the slab — the label is above the card window
+- The card face typically occupies the lower 75-85% of the slab's visible area; the label panel occupies the upper portion
+- Look for the card's printed white or colored border — this is the inner rectangle inside the slab window
+- The card corners are typically rounded or squared within the slab window
+
+Return ONLY this JSON (no markdown, no explanation):
+{
+  "leftPercent": <0-100, position of card's left printed edge as % of full image width>,
+  "topPercent": <0-100, position of card's top printed edge as % of full image height>,
+  "rightPercent": <0-100, position of card's right printed edge as % of full image width>,
+  "bottomPercent": <0-100, position of card's bottom printed edge as % of full image height>,
+  "confidence": <0.0-1.0, your confidence in this measurement>
+}
+
+Verify: (rightPercent - leftPercent) / (bottomPercent - topPercent) should be close to 0.714. If not, re-examine — you may have marked the slab border instead of the card border.`;
+
+      const aiResp = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: [
+          { type: "text", text: aiPrompt },
+          { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+        ]}],
+        max_tokens: 200,
+        temperature: 0,
+      });
+
+      const raw = aiResp.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return null;
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const { leftPercent, topPercent, rightPercent, bottomPercent, confidence } = parsed;
+
+      if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
+          typeof rightPercent !== "number" || typeof bottomPercent !== "number") return null;
+
+      const w = rightPercent - leftPercent;
+      const h = bottomPercent - topPercent;
+      if (w < 5 || h < 5) return null;
+
+      const ratio = w / h;
+      const ratioError = Math.abs(ratio - CARD_RATIO) / CARD_RATIO;
+      if (ratioError > RATIO_TOLERANCE) {
+        console.log(`[slab-ai-bounds] Rejected AI result — ratio ${ratio.toFixed(3)} vs expected ${CARD_RATIO.toFixed(3)} (error ${(ratioError * 100).toFixed(1)}%)`);
+        return null;
+      }
+
+      console.log(`[slab-ai-bounds] AI bounds: L=${leftPercent.toFixed(1)} T=${topPercent.toFixed(1)} R=${rightPercent.toFixed(1)} B=${bottomPercent.toFixed(1)} conf=${confidence?.toFixed(2)} ratio=${ratio.toFixed(3)}`);
+      return { leftPercent, topPercent, rightPercent, bottomPercent, confidence: confidence ?? 0.8 };
+    } catch (err) {
+      console.warn("[slab-ai-bounds] AI detection failed:", (err as any)?.message);
+      return null;
+    }
+  }
+
   async function performCrossoverGrading(
     slabImage: string,
     logPrefix: string = "[crossover-grade]",
@@ -4266,7 +4331,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       contentParts.push({ type: "image_url", image_url: { url: slabBackUrl, detail: "high" } });
     }
 
-    const [response, detectedFront, detectedBack] = await Promise.all([
+    const [response, detectedFront, detectedBack, aiFront, aiBack] = await Promise.all([
       openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -4280,6 +4345,8 @@ RESPONSE FORMAT (JSON only, no markdown):
       }),
       detectCardBounds(slabUrl, true),
       slabBackUrl ? detectCardBounds(slabBackUrl, true) : Promise.resolve(null),
+      detectSlabCardBoundsWithAI(slabUrl),
+      slabBackUrl ? detectSlabCardBoundsWithAI(slabBackUrl) : Promise.resolve(null),
     ]);
 
     const rawContent = response.choices[0]?.message?.content || "";
@@ -4293,8 +4360,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
     result.setName = resolvedSetName;
 
-    result.frontCardBounds = enforceCardBounds(detectedFront);
-    if (detectedBack) result.backCardBounds = enforceCardBounds(detectedBack);
+    const frontBoundsToUse = aiFront ?? detectedFront;
+    console.log(`${logPrefix} Front bounds source: ${aiFront ? "AI" : "Sobel"}`);
+    result.frontCardBounds = enforceCardBounds(frontBoundsToUse);
+
+    if (detectedBack || aiBack) {
+      const backBoundsToUse = aiBack ?? detectedBack;
+      console.log(`${logPrefix} Back bounds source: ${aiBack ? "AI" : "Sobel"}`);
+      result.backCardBounds = enforceCardBounds(backBoundsToUse);
+    }
 
     console.log(`${logPrefix} Crossover complete in ${Date.now() - gradeStartTime}ms`);
     return result;
