@@ -1988,7 +1988,10 @@ function detectBoundsAtResolution(
   }
 
   if (vPeaks.length === 0 && hPeaks.length >= 2) {
-    for (const fallbackRatio of [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED]) {
+    const fallbackRatios = slabMode
+      ? [CARD_WH_RATIO, SLAB_WH_RATIO, CARD_WH_RATIO_ROTATED, SLAB_WH_RATIO_ROTATED]
+      : [CARD_WH_RATIO, CARD_WH_RATIO_ROTATED];
+    for (const fallbackRatio of fallbackRatios) {
       for (let ti = 0; ti < hPeaks.length; ti++) {
         for (let bi = ti + 1; bi < hPeaks.length; bi++) {
           const tp = hPeaks[ti];
