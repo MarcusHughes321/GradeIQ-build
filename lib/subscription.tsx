@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
+import { Platform, AppState, type AppStateStatus } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 
 const USAGE_KEY = "gradeiq_monthly_usage";
@@ -22,6 +22,11 @@ export interface TierInfo {
   monthlyLimit: number | null;
   deepGradeLimit: number;
   entitlementId: string;
+}
+
+export interface SubscriptionRefreshResult {
+  tier: SubscriptionTier;
+  wasUpgrade: boolean;
 }
 
 export const TIERS: Record<SubscriptionTier, TierInfo> = {
@@ -48,8 +53,10 @@ interface SubscriptionContextValue {
   recordUsage: (count?: number) => Promise<boolean>;
   checkCanGrade: (count?: number) => boolean;
   loading: boolean;
+  rcLoading: boolean;
   purchaseTier: (tier: SubscriptionTier) => Promise<boolean>;
   restorePurchases: () => Promise<boolean>;
+  refreshSubscription: () => Promise<SubscriptionRefreshResult>;
   rcConfigured: boolean;
   deepMonthlyUsageCount: number;
   deepMonthlyLimit: number;
@@ -127,9 +134,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [monthlyUsageCount, setMonthlyUsageCount] = useState(0);
   const [deepMonthlyUsageCount, setDeepMonthlyUsageCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [rcLoading, setRcLoading] = useState(true);
   const [currentTier, setCurrentTier] = useState<SubscriptionTier>("free");
   const [rcConfigured, setRcConfigured] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const rcConfiguredRef = useRef(false);
 
   useEffect(() => {
     Promise.all([getMonthlyUsage(), getDeepMonthlyUsage()]).then(([usage, deepUsage]) => {
@@ -143,6 +153,24 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     });
 
     initRevenueCat();
+
+    const sub = AppState.addEventListener("change", handleAppStateChange);
+    return () => sub.remove();
+  }, []);
+
+  const handleAppStateChange = useCallback(async (nextState: AppStateStatus) => {
+    const prev = appStateRef.current;
+    appStateRef.current = nextState;
+    if (prev.match(/inactive|background/) && nextState === "active" && rcConfiguredRef.current) {
+      try {
+        const info = await Purchases.getCustomerInfo();
+        const tier = determineTier(info);
+        console.log("[subscription] Foreground refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
+        setCurrentTier(tier);
+      } catch (e) {
+        console.log("[subscription] Foreground refresh failed:", e);
+      }
+    }
   }, []);
 
   const toggleAdminMode = useCallback(async () => {
@@ -155,21 +183,29 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
       if (!apiKey) {
+        setRcLoading(false);
         return;
       }
 
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
       await Purchases.configure({ apiKey });
       setRcConfigured(true);
+      rcConfiguredRef.current = true;
 
       const info = await Purchases.getCustomerInfo();
-      setCurrentTier(determineTier(info));
+      const tier = determineTier(info);
+      console.log("[subscription] Init: tier=", tier, "entitlements=", Object.keys(info.entitlements.active), "productId=", info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none");
+      setCurrentTier(tier);
 
       Purchases.addCustomerInfoUpdateListener((info) => {
-        setCurrentTier(determineTier(info));
+        const tier = determineTier(info);
+        console.log("[subscription] CustomerInfo update: tier=", tier);
+        setCurrentTier(tier);
       });
     } catch (e) {
       console.log("RevenueCat init skipped:", e);
+    } finally {
+      setRcLoading(false);
     }
   };
 
@@ -324,6 +360,21 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   }, [rcConfigured]);
 
+  const refreshSubscription = useCallback(async (): Promise<SubscriptionRefreshResult> => {
+    const prevTier = currentTier;
+    if (!rcConfigured) return { tier: prevTier, wasUpgrade: false };
+    try {
+      const info = await Purchases.getCustomerInfo();
+      const tier = determineTier(info);
+      console.log("[subscription] Manual refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
+      setCurrentTier(tier);
+      return { tier, wasUpgrade: tier !== "free" && tier !== prevTier };
+    } catch (e) {
+      console.error("[subscription] Manual refresh error:", e);
+      return { tier: prevTier, wasUpgrade: false };
+    }
+  }, [rcConfigured, currentTier]);
+
   const deepMonthlyLimit = deepGradeLimit;
 
   const canCrossover = isAdminMode || !isGateEnabled || isSubscribed;
@@ -342,8 +393,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       recordUsage,
       checkCanGrade,
       loading,
+      rcLoading,
       purchaseTier,
       restorePurchases,
+      refreshSubscription,
       rcConfigured,
       deepMonthlyUsageCount,
       deepMonthlyLimit,
@@ -356,7 +409,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, purchaseTier, restorePurchases, rcConfigured, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, canCrossover, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, rcConfigured, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, canCrossover, canBulk, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

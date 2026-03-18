@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +12,8 @@ import CompanyLabel from "@/components/CompanyLabel";
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { settings, toggleCompany, setCurrency } = useSettings();
-  const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo, isAdminMode, toggleAdminMode } = useSubscription();
+  const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo, isAdminMode, toggleAdminMode, restorePurchases, rcLoading, rcConfigured } = useSubscription();
+  const [restoring, setRestoring] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const lastTapRef = useRef(0);
 
@@ -59,6 +60,26 @@ export default function SettingsScreen() {
     }
     lastTapRef.current = now;
   }, [tapCount, isAdminMode, toggleAdminMode]);
+  const handleRestore = useCallback(async () => {
+    if (!rcConfigured) {
+      Alert.alert("Not Available", "Subscription management is only available on physical devices.");
+      return;
+    }
+    setRestoring(true);
+    try {
+      const success = await restorePurchases();
+      if (success) {
+        Alert.alert("Purchases Restored", "Your subscription has been successfully restored.");
+      } else {
+        Alert.alert("Nothing to Restore", "No active subscription was found for this Apple ID. If you believe this is an error, please contact support.");
+      }
+    } catch {
+      Alert.alert("Restore Failed", "Something went wrong. Please try again.");
+    } finally {
+      setRestoring(false);
+    }
+  }, [rcConfigured, restorePurchases]);
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -207,14 +228,18 @@ export default function SettingsScreen() {
             <View style={styles.proCard}>
               <View style={styles.proCardHeader}>
                 <View style={styles.proBadge}>
-                  <Ionicons name={isSubscribed ? "diamond" : "time-outline"} size={16} color={isSubscribed ? "#F59E0B" : Colors.textSecondary} />
+                  {rcLoading ? (
+                    <ActivityIndicator size="small" color={Colors.textSecondary} />
+                  ) : (
+                    <Ionicons name={isSubscribed ? "diamond" : "time-outline"} size={16} color={isSubscribed ? "#F59E0B" : Colors.textSecondary} />
+                  )}
                   <Text style={[styles.proBadgeText, isSubscribed && { color: "#F59E0B" }]}>
-                    {tierInfo.name}
+                    {rcLoading ? "Checking..." : tierInfo.name}
                   </Text>
                 </View>
               </View>
 
-              {currentTier !== "obsessed" && (
+              {!rcLoading && currentTier !== "obsessed" && (
                 <>
                   <View style={styles.usageBar}>
                     <View style={styles.usageBarTrack}>
@@ -245,11 +270,24 @@ export default function SettingsScreen() {
                 </>
               )}
 
-              {currentTier === "obsessed" && (
+              {!rcLoading && currentTier === "obsessed" && (
                 <Text style={styles.proActiveText}>
                   You have unlimited access to all grading features.
                 </Text>
               )}
+
+              <Pressable
+                onPress={handleRestore}
+                disabled={restoring || rcLoading}
+                style={({ pressed }) => [styles.restoreBtn, { opacity: (pressed || restoring || rcLoading) ? 0.5 : 1 }]}
+              >
+                {restoring ? (
+                  <ActivityIndicator size="small" color={Colors.textMuted} />
+                ) : null}
+                <Text style={styles.restoreBtnText}>
+                  {restoring ? "Restoring..." : "Restore Purchases"}
+                </Text>
+              </Pressable>
             </View>
           </>
         )}
@@ -442,6 +480,20 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: "#10B981",
+  },
+  restoreBtn: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 10,
+  },
+  restoreBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textMuted,
+    textDecorationLine: "underline" as const,
   },
   menuRow: {
     flexDirection: "row" as const,
