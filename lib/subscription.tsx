@@ -57,7 +57,9 @@ interface SubscriptionContextValue {
   purchaseTier: (tier: SubscriptionTier) => Promise<boolean>;
   restorePurchases: () => Promise<boolean>;
   refreshSubscription: () => Promise<SubscriptionRefreshResult>;
+  forceSyncSubscription: () => Promise<boolean>;
   rcConfigured: boolean;
+  rcAppUserId: string;
   deepMonthlyUsageCount: number;
   deepMonthlyLimit: number;
   remainingDeepGrades: number;
@@ -137,6 +139,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [rcLoading, setRcLoading] = useState(true);
   const [currentTier, setCurrentTier] = useState<SubscriptionTier>("free");
   const [rcConfigured, setRcConfigured] = useState(false);
+  const [rcAppUserId, setRcAppUserId] = useState<string>("");
   const [isAdminMode, setIsAdminMode] = useState(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const rcConfiguredRef = useRef(false);
@@ -150,8 +153,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         await Purchases.invalidateCustomerInfoCache();
         const info = await Purchases.getCustomerInfo();
         const tier = determineTier(info);
-        console.log("[subscription] Foreground refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
+        console.log("[subscription] Foreground refresh: tier=", tier,
+          "| entitlements=", Object.keys(info.entitlements.active),
+          "| userId=", info.originalAppUserId);
         setCurrentTier(tier);
+        setRcAppUserId(info.originalAppUserId ?? "");
       } catch (e) {
         console.log("[subscription] Foreground refresh failed:", e);
       }
@@ -197,32 +203,89 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       }
 
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-      // Do NOT call logIn() — RevenueCat's own anonymous ID is stored persistently
-      // by the SDK and survives app updates. Calling logIn() with a custom ID would
-      // switch to a NEW customer record that has no purchases, breaking subscription
-      // detection for all existing users.
       await Purchases.configure({ apiKey });
       setRcConfigured(true);
       rcConfiguredRef.current = true;
 
-      const info = await Purchases.getCustomerInfo();
-      const tier = determineTier(info);
-      const activeKeys = Object.keys(info.entitlements.active);
-      const productId = info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none";
-      const rcAppUserId = info.originalAppUserId ?? "unknown";
-      console.log("[subscription] Init: tier=", tier, "| entitlements=", activeKeys, "| productId=", productId, "| RC userId=", rcAppUserId);
-      if (activeKeys.length > 0 && !info.entitlements.active["Grade.IQ Pro"]) {
-        console.warn("[subscription] WARN: Active entitlements found but NOT 'Grade.IQ Pro'. Keys:", activeKeys);
+      // ── Layer 1: Get initial customer info ──────────────────────────────────
+      let info = await Purchases.getCustomerInfo();
+      let tier = determineTier(info);
+      console.log("[subscription] Init: tier=", tier,
+        "| entitlements=", Object.keys(info.entitlements.active),
+        "| RC userId=", info.originalAppUserId);
+
+      // ── Layer 2: Build-22 migration ─────────────────────────────────────────
+      // Build 22 stored a custom "gradeiq_xxx" ID in AsyncStorage and called
+      // logIn() with it. RC's configure() may now be running as that custom user
+      // or as a fresh anonymous ID. If we're free, check if the old build-22
+      // custom ID exists in storage and try switching to it.
+      if (tier === "free") {
+        const oldCustomId = await AsyncStorage.getItem("gradeiq_rc_user_id");
+        if (oldCustomId) {
+          console.log("[subscription] Migration: found build-22 ID, trying logIn:", oldCustomId);
+          try {
+            const loginResult = await Purchases.logIn(oldCustomId);
+            const migratedTier = determineTier(loginResult.customerInfo);
+            console.log("[subscription] Migration logIn result: tier=", migratedTier,
+              "| entitlements=", Object.keys(loginResult.customerInfo.entitlements.active));
+            if (migratedTier !== "free") {
+              info = loginResult.customerInfo;
+              tier = migratedTier;
+            }
+            // Whether it worked or not, clear the old key so we don't repeat this next launch
+            await AsyncStorage.removeItem("gradeiq_rc_user_id");
+          } catch (migrateErr: any) {
+            console.log("[subscription] Migration logIn failed:", migrateErr?.message ?? migrateErr);
+          }
+        }
+      }
+
+      // ── Layer 3: Silent startup sync ────────────────────────────────────────
+      // syncPurchasesForResult() reads the local StoreKit 2 transaction history
+      // and syncs it to RevenueCat WITHOUT triggering any Apple sign-in prompt.
+      // This catches subscriptions that are in the local SK2 store but not yet
+      // reflected in the current RC customer's entitlements.
+      if (tier === "free") {
+        console.log("[subscription] Startup: tier is free, attempting silent syncPurchasesForResult...");
+        try {
+          const syncResult = await Purchases.syncPurchasesForResult();
+          if (syncResult?.customerInfo) {
+            const syncTier = determineTier(syncResult.customerInfo);
+            console.log("[subscription] Startup sync result: tier=", syncTier,
+              "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
+            if (syncTier !== "free") {
+              info = syncResult.customerInfo;
+              tier = syncTier;
+            }
+          }
+        } catch (syncErr: any) {
+          console.log("[subscription] Startup sync failed:", syncErr?.message ?? syncErr);
+        }
+      }
+
+      // ── Final state ─────────────────────────────────────────────────────────
+      const finalKeys = Object.keys(info.entitlements.active);
+      const finalUserId = info.originalAppUserId ?? "unknown";
+      console.log("[subscription] Init complete: tier=", tier,
+        "| entitlements=", finalKeys,
+        "| productId=", info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none",
+        "| RC userId=", finalUserId);
+      if (finalKeys.length > 0 && !info.entitlements.active["Grade.IQ Pro"]) {
+        console.warn("[subscription] WARN: Entitlements active but NOT 'Grade.IQ Pro'. Keys found:", finalKeys);
       }
       setCurrentTier(tier);
+      setRcAppUserId(finalUserId);
 
       Purchases.addCustomerInfoUpdateListener((updated) => {
         const updatedTier = determineTier(updated);
-        console.log("[subscription] CustomerInfo update: tier=", updatedTier, "| entitlements=", Object.keys(updated.entitlements.active));
+        console.log("[subscription] CustomerInfo update: tier=", updatedTier,
+          "| entitlements=", Object.keys(updated.entitlements.active),
+          "| RC userId=", updated.originalAppUserId);
         setCurrentTier(updatedTier);
+        setRcAppUserId(updated.originalAppUserId ?? "");
       });
-    } catch (e) {
-      console.log("RevenueCat init skipped:", e);
+    } catch (e: any) {
+      console.log("[subscription] RevenueCat init error:", e?.message ?? e);
     } finally {
       setRcLoading(false);
     }
@@ -372,44 +435,84 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const restorePurchases = useCallback(async (): Promise<boolean> => {
     if (!rcConfigured) return false;
+
+    // Step 1: Silent sync using local SK2 transaction store — no Apple prompt needed.
+    // Works on existing installs where StoreKit 2 has the transaction locally.
+    console.log("[restore] Step 1: silent syncPurchasesForResult...");
     try {
       await Purchases.invalidateCustomerInfoCache();
-      console.log("[restore] Calling restorePurchases...");
+      const syncResult = await Purchases.syncPurchasesForResult();
+      if (syncResult?.customerInfo) {
+        const syncTier = determineTier(syncResult.customerInfo);
+        const syncKeys = Object.keys(syncResult.customerInfo.entitlements.active);
+        console.log("[restore] Sync result: tier=", syncTier, "| entitlements=", syncKeys,
+          "| userId=", syncResult.customerInfo.originalAppUserId);
+        setCurrentTier(syncTier);
+        setRcAppUserId(syncResult.customerInfo.originalAppUserId ?? "");
+        if (syncTier !== "free") return true;
+      }
+    } catch (syncErr: any) {
+      console.log("[restore] Sync step failed:", syncErr?.message ?? syncErr);
+    }
+
+    // Step 2: Full Apple-backed restore — may prompt Apple ID sign-in (needed for
+    // fresh installs where no local SK2 transactions exist).
+    console.log("[restore] Step 2: Purchases.restorePurchases (Apple-backed)...");
+    try {
+      await Purchases.invalidateCustomerInfoCache();
       const info = await Purchases.restorePurchases();
       const tier = determineTier(info);
       const activeKeys = Object.keys(info.entitlements.active);
-      console.log("[restore] Result: tier=", tier, "| entitlements=", activeKeys, "| originalAppUserId=", info.originalAppUserId);
+      console.log("[restore] restorePurchases result: tier=", tier,
+        "| entitlements=", activeKeys, "| userId=", info.originalAppUserId);
       setCurrentTier(tier);
+      setRcAppUserId(info.originalAppUserId ?? "");
       if (tier !== "free") return true;
 
-      // Restore may still be propagating — wait and force a fresh server fetch
-      console.log("[restore] Still free after restore, waiting 2s and re-checking...");
+      // Server propagation delay — wait and re-check
+      console.log("[restore] Still free, waiting 2s and re-fetching...");
       await new Promise(resolve => setTimeout(resolve, 2000));
       await Purchases.invalidateCustomerInfoCache();
       const refreshed = await Purchases.getCustomerInfo();
       const refreshedTier = determineTier(refreshed);
-      console.log("[restore] Re-check: tier=", refreshedTier, "| entitlements=", Object.keys(refreshed.entitlements.active));
+      console.log("[restore] Re-check: tier=", refreshedTier,
+        "| entitlements=", Object.keys(refreshed.entitlements.active));
       setCurrentTier(refreshedTier);
+      setRcAppUserId(refreshed.originalAppUserId ?? "");
       if (refreshedTier !== "free") return true;
 
-      // Final fallback: force a sync with Apple's servers using local receipt
-      console.log("[restore] Trying syncPurchasesForResult as final fallback...");
-      try {
-        const syncResult = await Purchases.syncPurchasesForResult();
-        if (syncResult?.customerInfo) {
-          const syncTier = determineTier(syncResult.customerInfo);
-          console.log("[restore] Sync result: tier=", syncTier, "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
-          setCurrentTier(syncTier);
-          if (syncTier !== "free") return true;
-        }
-      } catch (syncErr: any) {
-        console.log("[restore] syncPurchasesForResult failed:", syncErr?.message ?? syncErr);
-      }
       return false;
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? e?.readableErrorCode ?? String(e);
-      console.error("[restore] Error from RevenueCat:", msg, "| full:", JSON.stringify(e));
-      // Re-throw so callers can show the actual error to the user
+      console.error("[restore] Apple-backed restore error:", msg, "| full:", JSON.stringify(e));
+      throw new Error(msg);
+    }
+  }, [rcConfigured]);
+
+  const forceSyncSubscription = useCallback(async (): Promise<boolean> => {
+    if (!rcConfigured) return false;
+    console.log("[forcesync] Forcing syncPurchasesForResult...");
+    try {
+      await Purchases.invalidateCustomerInfoCache();
+      const syncResult = await Purchases.syncPurchasesForResult();
+      if (syncResult?.customerInfo) {
+        const syncTier = determineTier(syncResult.customerInfo);
+        const syncKeys = Object.keys(syncResult.customerInfo.entitlements.active);
+        const userId = syncResult.customerInfo.originalAppUserId ?? "";
+        console.log("[forcesync] Result: tier=", syncTier, "| entitlements=", syncKeys, "| userId=", userId);
+        setCurrentTier(syncTier);
+        setRcAppUserId(userId);
+        return syncTier !== "free";
+      }
+      // Also get customer info with cache invalidated in case sync had no result
+      const info = await Purchases.getCustomerInfo();
+      const tier = determineTier(info);
+      setCurrentTier(tier);
+      setRcAppUserId(info.originalAppUserId ?? "");
+      return tier !== "free";
+    } catch (e: any) {
+      const msg = e?.message ?? e?.underlyingErrorMessage ?? String(e);
+      console.error("[forcesync] Error:", msg);
       throw new Error(msg);
     }
   }, [rcConfigured]);
@@ -451,7 +554,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       purchaseTier,
       restorePurchases,
       refreshSubscription,
+      forceSyncSubscription,
       rcConfigured,
+      rcAppUserId,
       deepMonthlyUsageCount,
       deepMonthlyLimit,
       remainingDeepGrades,
@@ -463,7 +568,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, rcConfigured, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, canCrossover, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, canCrossover, canBulk, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

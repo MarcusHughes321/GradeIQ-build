@@ -12,8 +12,13 @@ import CompanyLabel from "@/components/CompanyLabel";
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { settings, toggleCompany, setCurrency } = useSettings();
-  const { isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades, currentTier, tierInfo, isAdminMode, toggleAdminMode, restorePurchases, rcLoading, rcConfigured } = useSubscription();
+  const {
+    isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades,
+    currentTier, tierInfo, isAdminMode, toggleAdminMode, restorePurchases,
+    forceSyncSubscription, rcLoading, rcConfigured, rcAppUserId,
+  } = useSubscription();
   const [restoring, setRestoring] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const lastTapRef = useRef(0);
 
@@ -80,6 +85,27 @@ export default function SettingsScreen() {
       setRestoring(false);
     }
   }, [rcConfigured, restorePurchases]);
+
+  const handleForceSync = useCallback(async () => {
+    if (!rcConfigured) {
+      Alert.alert("Not Available", "Subscription service is not yet initialised.");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const success = await forceSyncSubscription();
+      if (success) {
+        Alert.alert("Sync Complete", "Your subscription has been detected and activated.");
+      } else {
+        Alert.alert("Nothing Found", "No active subscription was found via local sync. Try 'Restore Purchases' to fetch from Apple's servers.");
+      }
+    } catch (e: any) {
+      const detail = e?.message ? `\n\n(${e.message})` : "";
+      Alert.alert("Sync Failed", `Could not sync subscription.${detail}`);
+    } finally {
+      setSyncing(false);
+    }
+  }, [rcConfigured, forceSyncSubscription]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -277,18 +303,49 @@ export default function SettingsScreen() {
                 </Text>
               )}
 
-              <Pressable
-                onPress={handleRestore}
-                disabled={restoring || rcLoading}
-                style={({ pressed }) => [styles.restoreBtn, { opacity: (pressed || restoring || rcLoading) ? 0.5 : 1 }]}
-              >
-                {restoring ? (
-                  <ActivityIndicator size="small" color={Colors.textMuted} />
-                ) : null}
-                <Text style={styles.restoreBtnText}>
-                  {restoring ? "Restoring..." : "Restore Purchases"}
-                </Text>
-              </Pressable>
+              <View style={styles.restoreRow}>
+                <Pressable
+                  onPress={handleForceSync}
+                  disabled={syncing || restoring || rcLoading}
+                  style={({ pressed }) => [styles.syncBtn, { opacity: (pressed || syncing || restoring || rcLoading) ? 0.5 : 1 }]}
+                >
+                  {syncing ? (
+                    <ActivityIndicator size="small" color={Colors.textMuted} />
+                  ) : null}
+                  <Text style={styles.syncBtnText}>
+                    {syncing ? "Syncing..." : "Sync Subscription"}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleRestore}
+                  disabled={restoring || rcLoading}
+                  style={({ pressed }) => [styles.restoreBtn, { opacity: (pressed || restoring || rcLoading) ? 0.5 : 1 }]}
+                >
+                  {restoring ? (
+                    <ActivityIndicator size="small" color={Colors.textMuted} />
+                  ) : null}
+                  <Text style={styles.restoreBtnText}>
+                    {restoring ? "Restoring..." : "Restore Purchases"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {rcAppUserId ? (
+                <View style={styles.debugCard}>
+                  <Text style={styles.debugTitle}>Subscription Info</Text>
+                  <View style={styles.debugItem}>
+                    <Text style={styles.debugLabel}>Device ID</Text>
+                    <Text style={styles.debugValue} numberOfLines={1} ellipsizeMode="middle">
+                      {rcAppUserId}
+                    </Text>
+                  </View>
+                  <View style={styles.debugItem}>
+                    <Text style={styles.debugLabel}>Detected Plan</Text>
+                    <Text style={styles.debugValue}>{tierInfo.name}</Text>
+                  </View>
+                </View>
+              ) : null}
             </View>
           </>
         )}
@@ -482,19 +539,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#10B981",
   },
+  restoreRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-around" as const,
+    marginTop: 4,
+    gap: 8,
+  },
+  syncBtn: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 6,
+    paddingVertical: 10,
+    flex: 1,
+  },
+  syncBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: "#60A5FA",
+    textDecorationLine: "underline" as const,
+  },
   restoreBtn: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
     justifyContent: "center" as const,
     gap: 6,
-    marginTop: 12,
     paddingVertical: 10,
+    flex: 1,
   },
   restoreBtnText: {
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     color: Colors.textMuted,
     textDecorationLine: "underline" as const,
+  },
+  debugCard: {
+    backgroundColor: "rgba(255,255,255,0.04)" as const,
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)" as const,
+  },
+  debugTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: Colors.textMuted,
+    letterSpacing: 1,
+    textTransform: "uppercase" as const,
+    marginBottom: 4,
+  },
+  debugItem: {
+    flexDirection: "row" as const,
+    justifyContent: "space-between" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    paddingVertical: 2,
+  },
+  debugLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textSecondary,
+    flexShrink: 0,
+  },
+  debugValue: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    flexShrink: 1,
+    textAlign: "right" as const,
   },
   menuRow: {
     flexDirection: "row" as const,
