@@ -4196,6 +4196,15 @@ Verify: (rightPercent - leftPercent) / (bottomPercent - topPercent) should be cl
       if (typeof leftPercent !== "number" || typeof topPercent !== "number" ||
           typeof rightPercent !== "number" || typeof bottomPercent !== "number") return null;
 
+      if (leftPercent < 0 || topPercent < 0 || rightPercent > 100 || bottomPercent > 100) {
+        console.log(`[slab-ai-bounds] Rejected — coords out of range: L=${leftPercent} T=${topPercent} R=${rightPercent} B=${bottomPercent}`);
+        return null;
+      }
+      if (leftPercent >= rightPercent || topPercent >= bottomPercent) {
+        console.log(`[slab-ai-bounds] Rejected — invalid ordering: L=${leftPercent} R=${rightPercent} T=${topPercent} B=${bottomPercent}`);
+        return null;
+      }
+
       const w = rightPercent - leftPercent;
       const h = bottomPercent - topPercent;
       if (w < 5 || h < 5) return null;
