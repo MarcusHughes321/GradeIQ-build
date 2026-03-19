@@ -499,24 +499,22 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const forceSyncSubscription = useCallback(async (): Promise<boolean> => {
     if (!rcConfigured) return false;
-    console.log("[forcesync] Forcing syncPurchasesForResult...");
+    console.log("[forcesync] Invalidating cache and fetching from RC servers...");
     try {
       await Purchases.invalidateCustomerInfoCache();
-      const syncResult = await Purchases.syncPurchasesForResult();
-      if (syncResult?.customerInfo) {
-        const syncTier = determineTier(syncResult.customerInfo);
-        const syncKeys = Object.keys(syncResult.customerInfo.entitlements.active);
-        const userId = syncResult.customerInfo.originalAppUserId ?? "";
-        console.log("[forcesync] Result: tier=", syncTier, "| entitlements=", syncKeys, "| userId=", userId);
-        setCurrentTier(syncTier);
-        setRcAppUserId(userId);
-        return syncTier !== "free";
-      }
-      // Also get customer info with cache invalidated in case sync had no result
+      // Try Apple transaction sync first (catches local SK2 receipts)
+      try {
+        await Purchases.syncPurchasesForResult();
+      } catch (_) {}
+      // Always fetch directly from RC servers — this picks up manual grants,
+      // promotional entitlements, and any RC-side changes regardless of Apple.
       const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
+      const keys = Object.keys(info.entitlements.active);
+      const userId = info.originalAppUserId ?? "";
+      console.log("[forcesync] RC fetch result: tier=", tier, "| entitlements=", keys, "| userId=", userId);
       setCurrentTier(tier);
-      setRcAppUserId(info.originalAppUserId ?? "");
+      setRcAppUserId(userId);
       return tier !== "free";
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? String(e);

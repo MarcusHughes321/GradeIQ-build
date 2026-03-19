@@ -97,7 +97,7 @@ export default function SettingsScreen() {
       if (success) {
         Alert.alert("Sync Complete", "Your subscription has been detected and activated.");
       } else {
-        Alert.alert("Nothing Found", "No active subscription was found via local sync. Try 'Restore Purchases' to fetch from Apple's servers.");
+        Alert.alert("Nothing Found", "No active subscription was found. If you have purchased a plan, force-close the app and reopen it — it will reconnect automatically.");
       }
     } catch (e: any) {
       const detail = e?.message ? `\n\n(${e.message})` : "";
