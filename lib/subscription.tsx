@@ -455,13 +455,23 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // All retries exhausted — only reset to "free" if not currently subscribed,
-      // to avoid race-condition overwrites of a valid subscription state set by
-      // the addCustomerInfoUpdateListener.
-      if (currentTierRef.current === "free") {
-        setCurrentTierSafe("free");
-        setRcAppUserId(info.originalAppUserId ?? "");
+      // All retries exhausted and still returning "free". If we were previously
+      // subscribed, do one final delayed retry before accepting the downgrade —
+      // ensures we don't permanently block a legitimate subscription expiry.
+      if (currentTierRef.current !== "free") {
+        console.log("[restore] Was subscribed — doing final 3s retry before accepting free...");
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        await Purchases.invalidateCustomerInfoCache();
+        const finalCheck = await Purchases.getCustomerInfo();
+        const finalTier = determineTier(finalCheck);
+        console.log("[restore] Final check: tier=", finalTier,
+          "| entitlements=", Object.keys(finalCheck.entitlements.active));
+        setCurrentTierSafe(finalTier);
+        setRcAppUserId(finalCheck.originalAppUserId ?? "");
+        return finalTier !== "free";
       }
+      setCurrentTierSafe("free");
+      setRcAppUserId(info.originalAppUserId ?? "");
       return false;
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? e?.readableErrorCode ?? String(e);
@@ -520,12 +530,25 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       console.log("[forcesync] Final RC check: tier=", tierFinal,
         "| entitlements=", Object.keys(infoFinal.entitlements.active),
         "| activeSubscriptions=", infoFinal.activeSubscriptions);
-      // Only downgrade to "free" if not currently subscribed — prevents race-condition
-      // overwrites where the Apple receipt sync momentarily confuses RC.
-      if (tierFinal !== "free" || currentTierRef.current === "free") {
-        setCurrentTierSafe(tierFinal);
-        setRcAppUserId(infoFinal.originalAppUserId ?? "");
+
+      // If returning "free" but we were previously subscribed, do one delayed
+      // retry before accepting the downgrade. This prevents the Apple receipt sync
+      // from momentarily confusing RC while still allowing legitimate expiries.
+      if (tierFinal === "free" && currentTierRef.current !== "free") {
+        console.log("[forcesync] Final returned free but was subscribed — retrying in 3s...");
+        await new Promise(r => setTimeout(r, 3000));
+        await Purchases.invalidateCustomerInfoCache();
+        const infoRetry = await Purchases.getCustomerInfo();
+        const tierRetry = determineTier(infoRetry);
+        console.log("[forcesync] Retry after final: tier=", tierRetry,
+          "| entitlements=", Object.keys(infoRetry.entitlements.active));
+        setCurrentTierSafe(tierRetry);
+        setRcAppUserId(infoRetry.originalAppUserId ?? "");
+        return tierRetry !== "free";
       }
+
+      setCurrentTierSafe(tierFinal);
+      setRcAppUserId(infoFinal.originalAppUserId ?? "");
       return tierFinal !== "free";
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? String(e);
