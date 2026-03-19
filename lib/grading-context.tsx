@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { Platform, AppState } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
+import * as ImageManipulator from "expo-image-manipulator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
@@ -50,10 +51,31 @@ const GradingContext = createContext<GradingContextValue | null>(null);
 
 const POLL_INTERVAL = 3000;
 const ESTIMATED_GRADE_SECONDS = 90;
+const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
 async function getBase64FromUri(uri: string): Promise<string> {
   // Already a data URI — use directly without re-fetching
   if (uri.startsWith("data:")) return uri;
+
+  // On native: use ImageManipulator to convert to JPEG before sending.
+  // This handles HEIC/HEIF photos taken on iPhone, which the server
+  // cannot reliably convert in the production environment.
+  if (Platform.OS !== "web") {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      if (result.base64) {
+        return `data:image/jpeg;base64,${result.base64}`;
+      }
+    } catch (e) {
+      console.log("[getBase64] ImageManipulator failed, falling back to fetch:", e);
+    }
+  }
+
+  // Web fallback: fetch and convert to data URI via FileReader
   const response = await fetch(uri);
   const blob = await response.blob();
   return new Promise((resolve, reject) => {
@@ -177,6 +199,19 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const endpoint = `${base}?t=${Date.now()}`;
       const resp = await apiRequest("GET", endpoint);
       const data = await resp.json();
+
+      // Job not found (server restarted / job expired) — treat as failed
+      if (resp.status === 404 || data.error === "Job not found") {
+        stopPolling();
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = null;
+        setActiveJob(prev =>
+          prev && prev.id === localJobId
+            ? { ...prev, status: "failed", error: "Grading session expired. Please try again." }
+            : prev
+        );
+        return;
+      }
 
       if (data.status === "completed" && data.result) {
         stopPolling();
@@ -313,7 +348,17 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       }
 
       stopPolling();
+      const pollStart = Date.now();
       pollingRef.current = setInterval(() => {
+        if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
+          stopPolling();
+          setActiveJob(prev =>
+            prev && prev.id === localJobId
+              ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
+              : prev
+          );
+          return;
+        }
         pollJobStatus(serverJobId, localJobId, frontImage, backImage);
       }, POLL_INTERVAL);
     } catch (error: any) {
@@ -396,7 +441,17 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       }
 
       stopPolling();
+      const pollStart = Date.now();
       pollingRef.current = setInterval(() => {
+        if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
+          stopPolling();
+          setActiveJob(prev =>
+            prev && prev.id === localJobId
+              ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
+              : prev
+          );
+          return;
+        }
         pollJobStatus(serverJobId, localJobId, frontImage, backImage, deepExtraImages);
       }, POLL_INTERVAL);
     } catch (error: any) {
@@ -462,7 +517,17 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       }
 
       stopPolling();
+      const pollStart = Date.now();
       pollingRef.current = setInterval(() => {
+        if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
+          stopPolling();
+          setActiveJob(prev =>
+            prev && prev.id === localJobId
+              ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
+              : prev
+          );
+          return;
+        }
         pollJobStatus(serverJobId, localJobId, slabFrontImage, slabBackImage || slabFrontImage, undefined, "/api/crossover-grade-job", certData);
       }, POLL_INTERVAL);
     } catch (error: any) {
@@ -493,7 +558,18 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         } : undefined;
         const resumeEndpoint = activeJob.isCrossover ? "/api/crossover-grade-job" : undefined;
         const resumeCertData = activeJob.isCrossover ? activeJob.certData : undefined;
+        const resumeJobId = activeJob.id;
+        const resumeStart = activeJob.startTime || Date.now();
         pollingRef.current = setInterval(() => {
+          if (Date.now() - resumeStart > MAX_POLL_DURATION_MS) {
+            stopPolling();
+            setActiveJob(prev =>
+              prev && prev.id === resumeJobId
+                ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
+                : prev
+            );
+            return;
+          }
           pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint, resumeCertData);
         }, POLL_INTERVAL);
       }

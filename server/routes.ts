@@ -1470,11 +1470,23 @@ async function optimizeImageForAI(dataUri: string, maxDim: number = 2048): Promi
 
     if (isHeif) {
       console.log(`[optimize] Converting HEIF/HEIC image (${Math.round(buffer.length / 1024)}KB) to JPEG`);
+      let heifConverted = false;
       try {
         buffer = Buffer.from(await sharp(buffer).jpeg({ quality: 90 }).toBuffer());
+        heifConverted = true;
       } catch {
         console.log(`[optimize] Sharp HEIF failed, trying heif-convert CLI...`);
-        buffer = Buffer.from(await convertHeifToJpeg(buffer));
+      }
+      if (!heifConverted) {
+        try {
+          buffer = Buffer.from(await convertHeifToJpeg(buffer));
+          heifConverted = true;
+        } catch (cliErr) {
+          console.error(`[optimize] heif-convert CLI also failed:`, cliErr);
+        }
+      }
+      if (!heifConverted) {
+        throw new Error("HEIC_UNSUPPORTED: Could not convert HEIC/HEIF image. Please ensure your app is up to date, or select a JPEG photo.");
       }
     }
 

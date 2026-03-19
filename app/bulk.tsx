@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import * as Notifications from "expo-notifications";
+import * as ImageManipulator from "expo-image-manipulator";
 import {
   View,
   Text,
@@ -232,6 +233,19 @@ export default function BulkScreen() {
   };
 
   const getBase64FromUri = async (uri: string): Promise<string> => {
+    if (uri.startsWith("data:")) return uri;
+    if (Platform.OS !== "web") {
+      try {
+        const result = await ImageManipulator.manipulateAsync(
+          uri,
+          [],
+          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (result.base64) return `data:image/jpeg;base64,${result.base64}`;
+      } catch (e) {
+        console.log("[bulk getBase64] ImageManipulator failed, falling back to fetch:", e);
+      }
+    }
     const response = await fetch(uri);
     const blob = await response.blob();
     return new Promise((resolve, reject) => {

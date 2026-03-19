@@ -17,6 +17,7 @@ import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "exp
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -443,6 +444,19 @@ export default function GradeScreen() {
   }, []);
 
   const getBase64FromUri = async (uri: string): Promise<string> => {
+    if (uri.startsWith("data:")) return uri;
+    if (Platform.OS !== "web") {
+      try {
+        const result = await ImageManipulator.manipulateAsync(
+          uri,
+          [],
+          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (result.base64) return `data:image/jpeg;base64,${result.base64}`;
+      } catch (e) {
+        console.log("[grade getBase64] ImageManipulator failed, falling back to fetch:", e);
+      }
+    }
     const response = await fetch(uri);
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
