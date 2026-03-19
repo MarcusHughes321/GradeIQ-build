@@ -236,7 +236,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+      Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.WARN);
       await Purchases.configure({ apiKey });
       setRcConfigured(true);
       rcConfiguredRef.current = true;
@@ -561,6 +561,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     const prevTier = currentTier;
     if (!rcConfigured) return { tier: prevTier, wasUpgrade: false };
     try {
+      await Purchases.invalidateCustomerInfoCache();
       const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
       console.log("[subscription] Manual refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
