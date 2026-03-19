@@ -499,23 +499,56 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const forceSyncSubscription = useCallback(async (): Promise<boolean> => {
     if (!rcConfigured) return false;
-    console.log("[forcesync] Invalidating cache and fetching from RC servers...");
+    console.log("[forcesync] Starting — checking RC servers directly first...");
     try {
       await Purchases.invalidateCustomerInfoCache();
-      // Try Apple transaction sync first (catches local SK2 receipts)
+
+      // ── Step 1: Read RC servers first (before any Apple sync) ───────────────
+      // getCustomerInfo() fetches the authoritative state from RC's own servers.
+      // This picks up manual grants, promotional entitlements, and any RC-side
+      // changes WITHOUT touching Apple. Must happen before sync, because
+      // syncPurchasesForResult() sends the Apple receipt which (if expired/empty)
+      // can cause RC to revise/remove entitlements granted outside of Apple.
+      const infoFirst = await Purchases.getCustomerInfo();
+      const tierFirst = determineTier(infoFirst);
+      console.log("[forcesync] RC direct fetch: tier=", tierFirst,
+        "| entitlements=", Object.keys(infoFirst.entitlements.active),
+        "| userId=", infoFirst.originalAppUserId);
+      if (tierFirst !== "free") {
+        setCurrentTier(tierFirst);
+        setRcAppUserId(infoFirst.originalAppUserId ?? "");
+        return true;
+      }
+
+      // ── Step 2: Apple receipt sync (catches SK2 local transactions) ─────────
+      // Only run if Step 1 found nothing. This syncs any Apple receipts on-device
+      // to the current RC user — useful for reinstalls with a valid Apple subscription.
+      console.log("[forcesync] RC returned free, trying Apple receipt sync...");
       try {
-        await Purchases.syncPurchasesForResult();
-      } catch (_) {}
-      // Always fetch directly from RC servers — this picks up manual grants,
-      // promotional entitlements, and any RC-side changes regardless of Apple.
-      const info = await Purchases.getCustomerInfo();
-      const tier = determineTier(info);
-      const keys = Object.keys(info.entitlements.active);
-      const userId = info.originalAppUserId ?? "";
-      console.log("[forcesync] RC fetch result: tier=", tier, "| entitlements=", keys, "| userId=", userId);
-      setCurrentTier(tier);
-      setRcAppUserId(userId);
-      return tier !== "free";
+        const syncResult = await Purchases.syncPurchasesForResult();
+        if (syncResult?.customerInfo) {
+          const syncTier = determineTier(syncResult.customerInfo);
+          console.log("[forcesync] Apple sync result: tier=", syncTier,
+            "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
+          if (syncTier !== "free") {
+            setCurrentTier(syncTier);
+            setRcAppUserId(syncResult.customerInfo.originalAppUserId ?? "");
+            return true;
+          }
+        }
+      } catch (syncErr: any) {
+        console.log("[forcesync] Apple sync failed (non-fatal):", syncErr?.message ?? syncErr);
+      }
+
+      // ── Step 3: Final RC check after sync ───────────────────────────────────
+      await Purchases.invalidateCustomerInfoCache();
+      const infoFinal = await Purchases.getCustomerInfo();
+      const tierFinal = determineTier(infoFinal);
+      console.log("[forcesync] Final RC check: tier=", tierFinal,
+        "| entitlements=", Object.keys(infoFinal.entitlements.active));
+      setCurrentTier(tierFinal);
+      setRcAppUserId(infoFinal.originalAppUserId ?? "");
+      return tierFinal !== "free";
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? String(e);
       console.error("[forcesync] Error:", msg);
