@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -334,12 +335,21 @@ export default function SettingsScreen() {
               {rcAppUserId ? (
                 <View style={styles.debugCard}>
                   <Text style={styles.debugTitle}>Subscription Info</Text>
-                  <View style={styles.debugItem}>
+                  <Pressable
+                    style={styles.debugItem}
+                    onPress={() => {
+                      Clipboard.setStringAsync(rcAppUserId);
+                      Alert.alert("Copied", "Device ID copied to clipboard.");
+                    }}
+                  >
                     <Text style={styles.debugLabel}>Device ID</Text>
-                    <Text style={styles.debugValue} numberOfLines={1} ellipsizeMode="middle">
-                      {rcAppUserId}
-                    </Text>
-                  </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
+                      <Text style={styles.debugValue} numberOfLines={1} ellipsizeMode="middle">
+                        {rcAppUserId}
+                      </Text>
+                      <Ionicons name="copy-outline" size={11} color={Colors.textMuted} />
+                    </View>
+                  </Pressable>
                   <View style={styles.debugItem}>
                     <Text style={styles.debugLabel}>Detected Plan</Text>
                     <Text style={styles.debugValue}>{tierInfo.name}</Text>
