@@ -122,13 +122,23 @@ async function saveDeepMonthlyUsage(usage: DeepMonthlyUsage): Promise<void> {
 
 function determineTier(info: CustomerInfo | null): SubscriptionTier {
   if (!info) return "free";
+
   const entitlement = info.entitlements.active["Grade.IQ Pro"];
-  if (!entitlement) return "free";
-  const productId = entitlement.productIdentifier || "";
-  if (productId.includes("obsessed")) return "obsessed";
-  if (productId.includes("enthusiast")) return "enthusiast";
-  if (productId.includes("curious")) return "curious";
-  return "curious";
+  if (entitlement) {
+    const productId = entitlement.productIdentifier || "";
+    if (productId.includes("obsessed")) return "obsessed";
+    if (productId.includes("enthusiast")) return "enthusiast";
+    if (productId.includes("curious")) return "curious";
+    return "curious";
+  }
+
+  for (const sub of (info.activeSubscriptions ?? [])) {
+    if (sub.includes("obsessed")) return "obsessed";
+    if (sub.includes("enthusiast")) return "enthusiast";
+    if (sub.includes("curious")) return "curious";
+  }
+
+  return "free";
 }
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
@@ -138,6 +148,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [rcLoading, setRcLoading] = useState(true);
   const [currentTier, setCurrentTier] = useState<SubscriptionTier>("free");
+  const currentTierRef = useRef<SubscriptionTier>("free");
+  const setCurrentTierSafe = useCallback((tier: SubscriptionTier) => {
+    currentTierRef.current = tier;
+    setCurrentTier(tier);
+  }, []);
   const [rcConfigured, setRcConfigured] = useState(false);
   const [rcAppUserId, setRcAppUserId] = useState<string>("");
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -155,8 +170,27 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         const tier = determineTier(info);
         console.log("[subscription] Foreground refresh: tier=", tier,
           "| entitlements=", Object.keys(info.entitlements.active),
+          "| activeSubscriptions=", info.activeSubscriptions,
           "| userId=", info.originalAppUserId);
-        setCurrentTier(tier);
+
+        if (tier === "free" && currentTierRef.current !== "free") {
+          console.log("[subscription] Foreground returned free but was subscribed — retrying in 3s to guard against stale RC data...");
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            await Purchases.invalidateCustomerInfoCache();
+            const retried = await Purchases.getCustomerInfo();
+            const retriedTier = determineTier(retried);
+            console.log("[subscription] Foreground retry: tier=", retriedTier,
+              "| entitlements=", Object.keys(retried.entitlements.active));
+            setCurrentTierSafe(retriedTier);
+            setRcAppUserId(retried.originalAppUserId ?? "");
+          } catch {
+            console.log("[subscription] Foreground retry failed — keeping existing tier");
+          }
+          return;
+        }
+
+        setCurrentTierSafe(tier);
         setRcAppUserId(info.originalAppUserId ?? "");
       } catch (e) {
         console.log("[subscription] Foreground refresh failed:", e);
@@ -221,7 +255,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         "| activeSubscriptions=", info.activeSubscriptions,
         "| RC userId=", userId);
 
-      setCurrentTier(tier);
+      setCurrentTierSafe(tier);
       setRcAppUserId(userId);
 
       // RC pushes real-time updates whenever entitlement status changes
@@ -232,7 +266,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           "| entitlements=", Object.keys(updated.entitlements.active),
           "| activeSubscriptions=", updated.activeSubscriptions,
           "| RC userId=", updated.originalAppUserId);
-        setCurrentTier(updatedTier);
+        setCurrentTierSafe(updatedTier);
         setRcAppUserId(updated.originalAppUserId ?? "");
       });
     } catch (e: any) {
@@ -344,7 +378,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       // If entitlement is immediately active, great
       if (customerInfo.entitlements.active[targetEntitlement] !== undefined) {
         console.log("purchaseTier: entitlement active immediately, tier=", determineTier(customerInfo));
-        setCurrentTier(determineTier(customerInfo));
+        setCurrentTierSafe(determineTier(customerInfo));
         return true;
       }
 
@@ -360,7 +394,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         const retried = await Purchases.getCustomerInfo();
         const retriedTier = determineTier(retried);
         console.log(`purchaseTier: retry ${i + 1} — entitlements:`, Object.keys(retried.entitlements.active), "tier=", retriedTier);
-        setCurrentTier(retriedTier);
+        setCurrentTierSafe(retriedTier);
         if (retried.entitlements.active[targetEntitlement] !== undefined) {
           return true;
         }
@@ -389,17 +423,46 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     console.log("[restore] Starting — contacting Apple to restore purchases...");
     try {
       await Purchases.invalidateCustomerInfoCache();
-      // Purchases.restorePurchases() contacts Apple's servers and retrieves all
-      // active subscriptions for this Apple ID, regardless of which device or
-      // RC user originally purchased. This is the definitive Apple check.
       const info = await Purchases.restorePurchases();
       const tier = determineTier(info);
-      console.log("[restore] Result: tier=", tier,
+      console.log("[restore] Initial result: tier=", tier,
         "| entitlements=", Object.keys(info.entitlements.active),
+        "| activeSubscriptions=", info.activeSubscriptions,
         "| userId=", info.originalAppUserId);
-      setCurrentTier(tier);
-      setRcAppUserId(info.originalAppUserId ?? "");
-      return tier !== "free";
+
+      if (tier !== "free") {
+        setCurrentTierSafe(tier);
+        setRcAppUserId(info.originalAppUserId ?? "");
+        return true;
+      }
+
+      // RC transfer takes time to propagate — the initial snapshot returned by
+      // restorePurchases() may not yet reflect the transferred entitlement.
+      // Retry up to 3 times (same pattern as purchaseTier) before accepting "free".
+      const retryDelays = [2000, 4000, 6000];
+      for (let i = 0; i < retryDelays.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, retryDelays[i]));
+        await Purchases.invalidateCustomerInfoCache();
+        const retried = await Purchases.getCustomerInfo();
+        const retriedTier = determineTier(retried);
+        console.log(`[restore] Retry ${i + 1}: tier=`, retriedTier,
+          "| entitlements=", Object.keys(retried.entitlements.active),
+          "| activeSubscriptions=", retried.activeSubscriptions);
+        if (retriedTier !== "free") {
+          setCurrentTierSafe(retriedTier);
+          setRcAppUserId(retried.originalAppUserId ?? "");
+          return true;
+        }
+      }
+
+      // All retries exhausted — only reset to "free" if not currently subscribed,
+      // to avoid race-condition overwrites of a valid subscription state set by
+      // the addCustomerInfoUpdateListener.
+      if (currentTierRef.current === "free") {
+        setCurrentTierSafe("free");
+        setRcAppUserId(info.originalAppUserId ?? "");
+      }
+      return false;
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? e?.readableErrorCode ?? String(e);
       console.error("[restore] Error:", msg);
@@ -425,7 +488,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         "| entitlements=", Object.keys(infoFirst.entitlements.active),
         "| userId=", infoFirst.originalAppUserId);
       if (tierFirst !== "free") {
-        setCurrentTier(tierFirst);
+        setCurrentTierSafe(tierFirst);
         setRcAppUserId(infoFirst.originalAppUserId ?? "");
         return true;
       }
@@ -441,7 +504,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           console.log("[forcesync] Apple sync result: tier=", syncTier,
             "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
           if (syncTier !== "free") {
-            setCurrentTier(syncTier);
+            setCurrentTierSafe(syncTier);
             setRcAppUserId(syncResult.customerInfo.originalAppUserId ?? "");
             return true;
           }
@@ -455,9 +518,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const infoFinal = await Purchases.getCustomerInfo();
       const tierFinal = determineTier(infoFinal);
       console.log("[forcesync] Final RC check: tier=", tierFinal,
-        "| entitlements=", Object.keys(infoFinal.entitlements.active));
-      setCurrentTier(tierFinal);
-      setRcAppUserId(infoFinal.originalAppUserId ?? "");
+        "| entitlements=", Object.keys(infoFinal.entitlements.active),
+        "| activeSubscriptions=", infoFinal.activeSubscriptions);
+      // Only downgrade to "free" if not currently subscribed — prevents race-condition
+      // overwrites where the Apple receipt sync momentarily confuses RC.
+      if (tierFinal !== "free" || currentTierRef.current === "free") {
+        setCurrentTierSafe(tierFinal);
+        setRcAppUserId(infoFinal.originalAppUserId ?? "");
+      }
       return tierFinal !== "free";
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? String(e);
@@ -473,7 +541,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
       console.log("[subscription] Manual refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
-      setCurrentTier(tier);
+      setCurrentTierSafe(tier);
       return { tier, wasUpgrade: tier !== "free" && tier !== prevTier };
     } catch (e) {
       console.error("[subscription] Manual refresh error:", e);
