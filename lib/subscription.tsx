@@ -7,7 +7,6 @@ const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
 const FREE_MONTHLY_LIMIT = 3;
-const RC_ALIAS_KEY = "gradeiq_rc_alias";
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
 
@@ -152,7 +151,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (prev.match(/inactive|background/) && nextState === "active" && rcConfiguredRef.current) {
       try {
         await Purchases.invalidateCustomerInfoCache();
-        const info = await Purchases.getCustomerInfo();
+        // Re-sync with Apple on every foreground — catches subscription renewals
+        // and new purchases made outside the app (e.g. via Apple Settings).
+        let info;
+        try {
+          const syncResult = await Purchases.syncPurchasesForResult();
+          info = syncResult.customerInfo;
+        } catch {
+          info = await Purchases.getCustomerInfo();
+        }
         const tier = determineTier(info);
         console.log("[subscription] Foreground refresh: tier=", tier,
           "| entitlements=", Object.keys(info.entitlements.active),
@@ -208,82 +215,35 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setRcConfigured(true);
       rcConfiguredRef.current = true;
 
-      // ── Layer 1: Get initial customer info ──────────────────────────────────
-      let info = await Purchases.getCustomerInfo();
-      let tier = determineTier(info);
-      console.log("[subscription] Init: tier=", tier,
-        "| entitlements=", Object.keys(info.entitlements.active),
-        "| RC userId=", info.originalAppUserId);
-
-      // ── Layer 2: Reconnect to known RC alias ────────────────────────────────
-      // We maintain a permanent alias key (gradeiq_rc_alias) that stores the
-      // custom RC user ID tied to the subscriber's purchases. On every launch
-      // where the current RC session shows "free", we try logIn() with the saved
-      // alias to reconnect. This handles cases where configure() starts a fresh
-      // anonymous session (e.g. after RC internal state clears).
-      // Also handles the one-time build-22 migration (gradeiq_rc_user_id key).
-      if (tier === "free") {
-        const oldBuild22Id = await AsyncStorage.getItem("gradeiq_rc_user_id");
-        const savedAlias = await AsyncStorage.getItem(RC_ALIAS_KEY);
-        const aliasToTry = oldBuild22Id || savedAlias;
-        if (aliasToTry) {
-          console.log("[subscription] Alias reconnect: trying logIn with alias:", aliasToTry);
-          try {
-            const loginResult = await Purchases.logIn(aliasToTry);
-            const migratedTier = determineTier(loginResult.customerInfo);
-            console.log("[subscription] Alias reconnect result: tier=", migratedTier,
-              "| entitlements=", Object.keys(loginResult.customerInfo.entitlements.active));
-            if (migratedTier !== "free") {
-              info = loginResult.customerInfo;
-              tier = migratedTier;
-            }
-            // Save the alias permanently for all future launches
-            await AsyncStorage.setItem(RC_ALIAS_KEY, aliasToTry);
-            // Clear the old build-22 key (one-time migration)
-            if (oldBuild22Id) await AsyncStorage.removeItem("gradeiq_rc_user_id");
-          } catch (migrateErr: any) {
-            console.log("[subscription] Alias reconnect failed:", migrateErr?.message ?? migrateErr);
-            if (oldBuild22Id) await AsyncStorage.removeItem("gradeiq_rc_user_id");
-          }
-        }
+      // ── Step 1: Sync with Apple directly ────────────────────────────────────
+      // syncPurchasesForResult() reads the device's StoreKit 2 transaction
+      // history and tells RevenueCat about any active Apple subscriptions.
+      // This works regardless of RC user IDs — Apple's subscription is the
+      // source of truth. If the user has an active Apple subscription for any
+      // of our products, RC will grant the entitlement to the current user here.
+      let info: CustomerInfo;
+      try {
+        await Purchases.invalidateCustomerInfoCache();
+        const syncResult = await Purchases.syncPurchasesForResult();
+        info = syncResult.customerInfo;
+        console.log("[subscription] Startup Apple sync: entitlements=",
+          Object.keys(info.entitlements.active), "| RC userId=", info.originalAppUserId);
+      } catch (syncErr: any) {
+        // Sync failed (network, StoreKit error) — fall back to cached RC data
+        console.log("[subscription] Apple sync failed, falling back to getCustomerInfo:", syncErr?.message ?? syncErr);
+        info = await Purchases.getCustomerInfo();
       }
 
-      // ── Layer 3: Silent startup sync ────────────────────────────────────────
-      // syncPurchasesForResult() reads the local StoreKit 2 transaction history
-      // and syncs it to RevenueCat WITHOUT triggering any Apple sign-in prompt.
-      // This catches subscriptions that are in the local SK2 store but not yet
-      // reflected in the current RC customer's entitlements.
-      if (tier === "free") {
-        console.log("[subscription] Startup: tier is free, attempting silent syncPurchasesForResult...");
-        try {
-          const syncResult = await Purchases.syncPurchasesForResult();
-          if (syncResult?.customerInfo) {
-            const syncTier = determineTier(syncResult.customerInfo);
-            console.log("[subscription] Startup sync result: tier=", syncTier,
-              "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
-            if (syncTier !== "free") {
-              info = syncResult.customerInfo;
-              tier = syncTier;
-            }
-          }
-        } catch (syncErr: any) {
-          console.log("[subscription] Startup sync failed:", syncErr?.message ?? syncErr);
-        }
-      }
-
-      // ── Final state ─────────────────────────────────────────────────────────
-      const finalKeys = Object.keys(info.entitlements.active);
-      const finalUserId = info.originalAppUserId ?? "unknown";
+      const tier = determineTier(info);
+      const userId = info.originalAppUserId ?? "unknown";
       console.log("[subscription] Init complete: tier=", tier,
-        "| entitlements=", finalKeys,
         "| productId=", info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none",
-        "| RC userId=", finalUserId);
-      if (finalKeys.length > 0 && !info.entitlements.active["Grade.IQ Pro"]) {
-        console.warn("[subscription] WARN: Entitlements active but NOT 'Grade.IQ Pro'. Keys found:", finalKeys);
-      }
-      setCurrentTier(tier);
-      setRcAppUserId(finalUserId);
+        "| RC userId=", userId);
 
+      setCurrentTier(tier);
+      setRcAppUserId(userId);
+
+      // Listen for any future changes (e.g. mid-session purchase completion)
       Purchases.addCustomerInfoUpdateListener((updated) => {
         const updatedTier = determineTier(updated);
         console.log("[subscription] CustomerInfo update: tier=", updatedTier,
@@ -443,56 +403,23 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const restorePurchases = useCallback(async (): Promise<boolean> => {
     if (!rcConfigured) return false;
-
-    // Step 1: Silent sync using local SK2 transaction store — no Apple prompt needed.
-    // Works on existing installs where StoreKit 2 has the transaction locally.
-    console.log("[restore] Step 1: silent syncPurchasesForResult...");
+    console.log("[restore] Starting — contacting Apple to restore purchases...");
     try {
       await Purchases.invalidateCustomerInfoCache();
-      const syncResult = await Purchases.syncPurchasesForResult();
-      if (syncResult?.customerInfo) {
-        const syncTier = determineTier(syncResult.customerInfo);
-        const syncKeys = Object.keys(syncResult.customerInfo.entitlements.active);
-        console.log("[restore] Sync result: tier=", syncTier, "| entitlements=", syncKeys,
-          "| userId=", syncResult.customerInfo.originalAppUserId);
-        setCurrentTier(syncTier);
-        setRcAppUserId(syncResult.customerInfo.originalAppUserId ?? "");
-        if (syncTier !== "free") return true;
-      }
-    } catch (syncErr: any) {
-      console.log("[restore] Sync step failed:", syncErr?.message ?? syncErr);
-    }
-
-    // Step 2: Full Apple-backed restore — may prompt Apple ID sign-in (needed for
-    // fresh installs where no local SK2 transactions exist).
-    console.log("[restore] Step 2: Purchases.restorePurchases (Apple-backed)...");
-    try {
-      await Purchases.invalidateCustomerInfoCache();
+      // Purchases.restorePurchases() contacts Apple's servers and retrieves all
+      // active subscriptions for this Apple ID, regardless of which device or
+      // RC user originally purchased. This is the definitive Apple check.
       const info = await Purchases.restorePurchases();
       const tier = determineTier(info);
-      const activeKeys = Object.keys(info.entitlements.active);
-      console.log("[restore] restorePurchases result: tier=", tier,
-        "| entitlements=", activeKeys, "| userId=", info.originalAppUserId);
+      console.log("[restore] Result: tier=", tier,
+        "| entitlements=", Object.keys(info.entitlements.active),
+        "| userId=", info.originalAppUserId);
       setCurrentTier(tier);
       setRcAppUserId(info.originalAppUserId ?? "");
-      if (tier !== "free") return true;
-
-      // Server propagation delay — wait and re-check
-      console.log("[restore] Still free, waiting 2s and re-fetching...");
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await Purchases.invalidateCustomerInfoCache();
-      const refreshed = await Purchases.getCustomerInfo();
-      const refreshedTier = determineTier(refreshed);
-      console.log("[restore] Re-check: tier=", refreshedTier,
-        "| entitlements=", Object.keys(refreshed.entitlements.active));
-      setCurrentTier(refreshedTier);
-      setRcAppUserId(refreshed.originalAppUserId ?? "");
-      if (refreshedTier !== "free") return true;
-
-      return false;
+      return tier !== "free";
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? e?.readableErrorCode ?? String(e);
-      console.error("[restore] Apple-backed restore error:", msg, "| full:", JSON.stringify(e));
+      console.error("[restore] Error:", msg);
       throw new Error(msg);
     }
   }, [rcConfigured]);
