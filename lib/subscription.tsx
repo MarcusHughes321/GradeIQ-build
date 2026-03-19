@@ -151,15 +151,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (prev.match(/inactive|background/) && nextState === "active" && rcConfiguredRef.current) {
       try {
         await Purchases.invalidateCustomerInfoCache();
-        // Re-sync with Apple on every foreground — catches subscription renewals
-        // and new purchases made outside the app (e.g. via Apple Settings).
-        let info;
-        try {
-          const syncResult = await Purchases.syncPurchasesForResult();
-          info = syncResult.customerInfo;
-        } catch {
-          info = await Purchases.getCustomerInfo();
-        }
+        const info = await Purchases.getCustomerInfo();
         const tier = determineTier(info);
         console.log("[subscription] Foreground refresh: tier=", tier,
           "| entitlements=", Object.keys(info.entitlements.active),
@@ -215,39 +207,30 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setRcConfigured(true);
       rcConfiguredRef.current = true;
 
-      // ── Step 1: Sync with Apple directly ────────────────────────────────────
-      // syncPurchasesForResult() reads the device's StoreKit 2 transaction
-      // history and tells RevenueCat about any active Apple subscriptions.
-      // This works regardless of RC user IDs — Apple's subscription is the
-      // source of truth. If the user has an active Apple subscription for any
-      // of our products, RC will grant the entitlement to the current user here.
-      let info: CustomerInfo;
-      try {
-        await Purchases.invalidateCustomerInfoCache();
-        const syncResult = await Purchases.syncPurchasesForResult();
-        info = syncResult.customerInfo;
-        console.log("[subscription] Startup Apple sync: entitlements=",
-          Object.keys(info.entitlements.active), "| RC userId=", info.originalAppUserId);
-      } catch (syncErr: any) {
-        // Sync failed (network, StoreKit error) — fall back to cached RC data
-        console.log("[subscription] Apple sync failed, falling back to getCustomerInfo:", syncErr?.message ?? syncErr);
-        info = await Purchases.getCustomerInfo();
-      }
-
+      // ── Get subscription status from RC servers ──────────────────────────────
+      // RC documentation says to use getCustomerInfo() at startup — this fetches
+      // the authoritative subscription state from RevenueCat's servers and
+      // reflects any active entitlement the user has. syncPurchases is only for
+      // the explicit "Restore Purchases" flow, not startup detection.
+      const info = await Purchases.getCustomerInfo();
       const tier = determineTier(info);
       const userId = info.originalAppUserId ?? "unknown";
-      console.log("[subscription] Init complete: tier=", tier,
+      console.log("[subscription] Init: tier=", tier,
+        "| entitlements=", Object.keys(info.entitlements.active),
         "| productId=", info.entitlements.active["Grade.IQ Pro"]?.productIdentifier ?? "none",
+        "| activeSubscriptions=", info.activeSubscriptions,
         "| RC userId=", userId);
 
       setCurrentTier(tier);
       setRcAppUserId(userId);
 
-      // Listen for any future changes (e.g. mid-session purchase completion)
+      // RC pushes real-time updates whenever entitlement status changes
+      // (e.g. immediately after a purchase completes or a subscription renews)
       Purchases.addCustomerInfoUpdateListener((updated) => {
         const updatedTier = determineTier(updated);
         console.log("[subscription] CustomerInfo update: tier=", updatedTier,
           "| entitlements=", Object.keys(updated.entitlements.active),
+          "| activeSubscriptions=", updated.activeSubscriptions,
           "| RC userId=", updated.originalAppUserId);
         setCurrentTier(updatedTier);
         setRcAppUserId(updated.originalAppUserId ?? "");
