@@ -262,10 +262,35 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       // (e.g. immediately after a purchase completes or a subscription renews)
       Purchases.addCustomerInfoUpdateListener((updated) => {
         const updatedTier = determineTier(updated);
+        const prevTier = currentTierRef.current;
+        const hasEntitlement = !!updated.entitlements.active["Grade.IQ Pro"];
         console.log("[subscription] CustomerInfo update: tier=", updatedTier,
           "| entitlements=", Object.keys(updated.entitlements.active),
           "| activeSubscriptions=", updated.activeSubscriptions,
+          "| hasEntitlement=", hasEntitlement,
           "| RC userId=", updated.originalAppUserId);
+
+        // Guard: if the tier change is driven only by activeSubscriptions (no
+        // entitlement confirming it), verify with a fresh server fetch first.
+        // This prevents phantom Apple receipt transactions (e.g. a failed Obsessed
+        // purchase in billing-retry state) from temporarily flipping the tier.
+        if (!hasEntitlement && updatedTier !== "free" && updatedTier !== prevTier) {
+          console.log("[subscription] Tier changed without entitlement — verifying with server fetch...");
+          Purchases.invalidateCustomerInfoCache()
+            .then(() => Purchases.getCustomerInfo())
+            .then(verified => {
+              const verifiedTier = determineTier(verified);
+              console.log("[subscription] Verified tier:", verifiedTier,
+                "| entitlements=", Object.keys(verified.entitlements.active));
+              setCurrentTierSafe(verifiedTier);
+              setRcAppUserId(verified.originalAppUserId ?? "");
+            })
+            .catch(() => {
+              console.log("[subscription] Verification fetch failed — keeping current tier");
+            });
+          return;
+        }
+
         setCurrentTierSafe(updatedTier);
         setRcAppUserId(updated.originalAppUserId ?? "");
       });
@@ -482,74 +507,52 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const forceSyncSubscription = useCallback(async (): Promise<boolean> => {
     if (!rcConfigured) return false;
-    console.log("[forcesync] Starting — checking RC servers directly first...");
+    console.log("[forcesync] Starting — fetching authoritative RC server state...");
     try {
+      // Invalidate the local RC cache so we always get a fresh server response.
+      // We intentionally do NOT call syncPurchasesForResult() here because that
+      // sends the full Apple receipt to RC, which can pick up phantom transactions
+      // (e.g. a failed/billing-retry purchase for a higher tier) and cause the
+      // displayed tier to flip incorrectly. getCustomerInfo() is the authoritative
+      // source — it reflects what RC's servers know about the user's entitlements.
       await Purchases.invalidateCustomerInfoCache();
+      const info = await Purchases.getCustomerInfo();
+      const tier = determineTier(info);
+      console.log("[forcesync] RC fetch: tier=", tier,
+        "| entitlements=", Object.keys(info.entitlements.active),
+        "| activeSubscriptions=", info.activeSubscriptions,
+        "| userId=", info.originalAppUserId);
 
-      // ── Step 1: Read RC servers first (before any Apple sync) ───────────────
-      // getCustomerInfo() fetches the authoritative state from RC's own servers.
-      // This picks up manual grants, promotional entitlements, and any RC-side
-      // changes WITHOUT touching Apple. Must happen before sync, because
-      // syncPurchasesForResult() sends the Apple receipt which (if expired/empty)
-      // can cause RC to revise/remove entitlements granted outside of Apple.
-      const infoFirst = await Purchases.getCustomerInfo();
-      const tierFirst = determineTier(infoFirst);
-      console.log("[forcesync] RC direct fetch: tier=", tierFirst,
-        "| entitlements=", Object.keys(infoFirst.entitlements.active),
-        "| userId=", infoFirst.originalAppUserId);
-      if (tierFirst !== "free") {
-        setCurrentTierSafe(tierFirst);
-        setRcAppUserId(infoFirst.originalAppUserId ?? "");
+      if (tier !== "free") {
+        setCurrentTierSafe(tier);
+        setRcAppUserId(info.originalAppUserId ?? "");
         return true;
       }
 
-      // ── Step 2: Apple receipt sync (catches SK2 local transactions) ─────────
-      // Only run if Step 1 found nothing. This syncs any Apple receipts on-device
-      // to the current RC user — useful for reinstalls with a valid Apple subscription.
-      console.log("[forcesync] RC returned free, trying Apple receipt sync...");
-      try {
-        const syncResult = await Purchases.syncPurchasesForResult();
-        if (syncResult?.customerInfo) {
-          const syncTier = determineTier(syncResult.customerInfo);
-          console.log("[forcesync] Apple sync result: tier=", syncTier,
-            "| entitlements=", Object.keys(syncResult.customerInfo.entitlements.active));
-          if (syncTier !== "free") {
-            setCurrentTierSafe(syncTier);
-            setRcAppUserId(syncResult.customerInfo.originalAppUserId ?? "");
-            return true;
-          }
-        }
-      } catch (syncErr: any) {
-        console.log("[forcesync] Apple sync failed (non-fatal):", syncErr?.message ?? syncErr);
-      }
-
-      // ── Step 3: Final RC check after sync ───────────────────────────────────
-      await Purchases.invalidateCustomerInfoCache();
-      const infoFinal = await Purchases.getCustomerInfo();
-      const tierFinal = determineTier(infoFinal);
-      console.log("[forcesync] Final RC check: tier=", tierFinal,
-        "| entitlements=", Object.keys(infoFinal.entitlements.active),
-        "| activeSubscriptions=", infoFinal.activeSubscriptions);
-
-      // If returning "free" but we were previously subscribed, do one delayed
-      // retry before accepting the downgrade. This prevents the Apple receipt sync
-      // from momentarily confusing RC while still allowing legitimate expiries.
-      if (tierFinal === "free" && currentTierRef.current !== "free") {
-        console.log("[forcesync] Final returned free but was subscribed — retrying in 3s...");
-        await new Promise(r => setTimeout(r, 3000));
+      // RC returned free — retry twice with cache busts before accepting it.
+      // This handles transient propagation delays after a recent purchase or restore.
+      const retryDelays = [2000, 4000];
+      for (let i = 0; i < retryDelays.length; i++) {
+        await new Promise(r => setTimeout(r, retryDelays[i]));
         await Purchases.invalidateCustomerInfoCache();
-        const infoRetry = await Purchases.getCustomerInfo();
-        const tierRetry = determineTier(infoRetry);
-        console.log("[forcesync] Retry after final: tier=", tierRetry,
-          "| entitlements=", Object.keys(infoRetry.entitlements.active));
-        setCurrentTierSafe(tierRetry);
-        setRcAppUserId(infoRetry.originalAppUserId ?? "");
-        return tierRetry !== "free";
+        const retried = await Purchases.getCustomerInfo();
+        const retriedTier = determineTier(retried);
+        console.log(`[forcesync] Retry ${i + 1}: tier=`, retriedTier,
+          "| entitlements=", Object.keys(retried.entitlements.active),
+          "| activeSubscriptions=", retried.activeSubscriptions);
+        if (retriedTier !== "free") {
+          setCurrentTierSafe(retriedTier);
+          setRcAppUserId(retried.originalAppUserId ?? "");
+          return true;
+        }
       }
 
-      setCurrentTierSafe(tierFinal);
-      setRcAppUserId(infoFinal.originalAppUserId ?? "");
-      return tierFinal !== "free";
+      // All retries returned free — accept it.
+      const finalInfo = await Purchases.getCustomerInfo();
+      const finalTier = determineTier(finalInfo);
+      setCurrentTierSafe(finalTier);
+      setRcAppUserId(finalInfo.originalAppUserId ?? "");
+      return finalTier !== "free";
     } catch (e: any) {
       const msg = e?.message ?? e?.underlyingErrorMessage ?? String(e);
       console.error("[forcesync] Error:", msg);
