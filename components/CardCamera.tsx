@@ -49,6 +49,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
+  const [focusing, setFocusing] = useState(false);
   const cameraRef = useRef<any>(null);
   const flashOpacity = useRef(new RNAnimated.Value(0)).current;
   const feedbackTextOpacity = useRef(new RNAnimated.Value(0)).current;
@@ -161,12 +162,24 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   }, [isAngled]);
 
   const handleCapture = async () => {
-    if (!cameraRef.current || capturing) return;
+    if (!cameraRef.current || capturing || focusing) return;
+
+    // Show "Focusing..." state briefly to let the camera's autofocus system
+    // settle before firing the shutter. This is the single biggest factor in
+    // preventing motion blur and soft-focus photos on iPhone.
+    setFocusing(true);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    await new Promise(r => setTimeout(r, 600));
+    setFocusing(false);
+
     setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.92,
+        quality: 1.0,
         base64: false,
+        skipMetadata: false,
       });
       if (photo?.uri) {
         const cropped = await cropToGuideFrame(photo.uri, photo.width, photo.height);
@@ -266,7 +279,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
       const result = await ImageManipulator.manipulateAsync(
         uri,
         [{ crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } }],
-        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG }
+        { compress: 0.97, format: ImageManipulator.SaveFormat.JPEG }
       );
       return result.uri;
     } catch (e) {
@@ -498,25 +511,38 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
                 {currentZoom % 1 === 0 ? `${currentZoom}x` : `${currentZoom}x`}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={handleCapture}
-              disabled={capturing}
-              style={({ pressed }) => [
-                styles.captureBtn,
-                {
-                  opacity: capturing ? 0.5 : pressed ? 0.8 : 1,
-                  borderColor: isLevel ? "#10B981" : isAngled ? angledAccentColor : "#fff",
-                },
-              ]}
-            >
-              <View style={[styles.captureBtnInner, isLevel && { backgroundColor: "#10B981" }, !isLevel && isAngled && { backgroundColor: angledAccentColor }]}>
-                {capturing ? (
-                  <ActivityIndicator color={Colors.background} size="small" />
-                ) : (
-                  <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }, !isLevel && isAngled && { backgroundColor: angledAccentColor }]} />
-                )}
-              </View>
-            </Pressable>
+            <View style={styles.captureBtnWrapper}>
+              {focusing && (
+                <View style={styles.focusingBadge}>
+                  <ActivityIndicator color="#fff" size="small" style={{ marginRight: 4 }} />
+                  <Text style={styles.focusingText}>Focusing</Text>
+                </View>
+              )}
+              <Pressable
+                onPress={handleCapture}
+                disabled={capturing || focusing}
+                style={({ pressed }) => [
+                  styles.captureBtn,
+                  {
+                    opacity: (capturing || focusing) ? 0.6 : pressed ? 0.8 : 1,
+                    borderColor: focusing ? "#FACC15" : isLevel ? "#10B981" : isAngled ? angledAccentColor : "#fff",
+                  },
+                ]}
+              >
+                <View style={[
+                  styles.captureBtnInner,
+                  focusing && { backgroundColor: "#FACC15" },
+                  !focusing && isLevel && { backgroundColor: "#10B981" },
+                  !focusing && !isLevel && isAngled && { backgroundColor: angledAccentColor },
+                ]}>
+                  {(capturing || focusing) ? (
+                    <ActivityIndicator color={Colors.background} size="small" />
+                  ) : (
+                    <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }, !isLevel && isAngled && { backgroundColor: angledAccentColor }]} />
+                  )}
+                </View>
+              </Pressable>
+            </View>
             <View style={{ width: 60 }} />
           </View>
         </View>
@@ -832,5 +858,26 @@ const styles = StyleSheet.create({
   },
   zoomBtnTextActive: {
     color: "#000",
+  },
+  captureBtnWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  focusingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.65)",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#FACC15",
+  },
+  focusingText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: "#FACC15",
+    letterSpacing: 0.5,
   },
 });
