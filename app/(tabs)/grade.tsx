@@ -684,19 +684,19 @@ export default function GradeScreen() {
 
       <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Graded Slabs</Text>
 
-      <View style={[styles.hubCard, styles.hubCardLocked]}>
-        <View style={[styles.hubIconWrap, styles.hubIconPurple, { opacity: 0.45 }]}>
+      <Pressable
+        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+        onPress={() => setMode("crossover")}
+      >
+        <View style={[styles.hubIconWrap, styles.hubIconPurple]}>
           <Ionicons name="swap-horizontal-outline" size={22} color="#8B5CF6" />
         </View>
         <View style={styles.hubCardText}>
-          <Text style={[styles.hubCardTitle, { opacity: 0.45 }]}>Crossover Grading</Text>
-          <Text style={[styles.hubCardSub, { opacity: 0.45 }]}>Estimate grades at other companies</Text>
+          <Text style={styles.hubCardTitle}>Crossover Grading</Text>
+          <Text style={styles.hubCardSub}>Grade by cert number or photo</Text>
         </View>
-        <View style={styles.hubComingSoonPill}>
-          <Ionicons name="construct-outline" size={10} color="#8B5CF6" />
-          <Text style={styles.hubComingSoonPillText}>Coming Soon</Text>
-        </View>
-      </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+      </Pressable>
     </ScrollView>
   );
 
@@ -729,13 +729,13 @@ export default function GradeScreen() {
             <Ionicons name="lock-closed" size={12} color="#F59E0B" style={{ marginLeft: 2 }} />
           )}
         </Pressable>
-        <View style={[styles.modeTab, styles.modeTabDisabled]}>
-          <Ionicons name="git-compare-outline" size={16} color={Colors.textMuted} style={{ opacity: 0.4 }} />
-          <Text style={[styles.modeTabText, { opacity: 0.4 }]}>Crossover</Text>
-          <View style={styles.modeTabSoonBadge}>
-            <Text style={styles.modeTabSoonBadgeText}>Soon</Text>
-          </View>
-        </View>
+        <Pressable
+          style={[styles.modeTab, mode === "crossover" && styles.modeTabActive]}
+          onPress={() => setMode("crossover")}
+        >
+          <Ionicons name="git-compare-outline" size={16} color={mode === "crossover" ? "#8B5CF6" : Colors.textMuted} />
+          <Text style={[styles.modeTabText, mode === "crossover" && styles.modeTabTextCrossover]}>Crossover</Text>
+        </Pressable>
       </View>
       {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
         <Pressable onPress={handleSelectDeepMode} style={({ pressed }) => [styles.deepTeaserBtn, { opacity: pressed ? 0.7 : 1 }]}>
