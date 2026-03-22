@@ -5692,25 +5692,41 @@ RESPONSE FORMAT (JSON only, no markdown):
     const cardName = nameMatch?.[1]?.trim().replace(/\s+/g, " ") || `ACE Cert #${certNumber}`;
     const setName = setMatch?.[1]?.trim().replace(/\s+/g, " ") || "";
 
-    // 6. Extract card image URL (ACE CDN label image — the slab label photo)
-    const imgMatch = html.match(/src="(https:\/\/ace\.ams3\.[^"]+\.(jpg|jpeg|png|webp))"/i);
-    const imageUrl = imgMatch?.[1] || null;
+    // 6. Extract image URLs from the HTML.
+    //    Two CDNs are used by ACE:
+    //    a) collectible-images.ams3.cdn.digitaloceanspaces.com/public/collectible/{id}/{id}_front.webp
+    //       → The actual slab photo (card inside the graded case). Present for newer certs.
+    //    b) ace.ams3.digitaloceanspaces.com/assets/labels/ace/*.jpg
+    //       → The printed label/sticker artwork. Always present but NOT useful for grading analysis.
+    const slabFrontMatch = html.match(/src="(https:\/\/collectible-images\.ams3\.[^"]+_front\.[a-z]+)"/i);
+    const slabFrontUrl = slabFrontMatch?.[1] || null;
+
+    // Back slab URL follows the same pattern — try by replacing _front with _back
+    const slabBackUrl = slabFrontUrl ? slabFrontUrl.replace("_front.", "_back.") : null;
+
+    // Label sticker image (always present, for UI preview confirmation only)
+    const labelMatch = html.match(/src="(https:\/\/ace\.ams3\.[^"]+\.(jpg|jpeg|png|webp))"/i);
+    const labelUrl = labelMatch?.[1] || null;
 
     const setWithYear = setName && yearMatch?.[1] ? `${setName} (${yearMatch[1]})` : setName;
-    console.log(`[cert-lookup] ACE cert ${certNumber} → ${cardName} | ${setWithYear || setName} | grade: ${grade} | img: ${imageUrl ? "✓" : "✗"}`);
+    console.log(`[cert-lookup] ACE cert ${certNumber} → ${cardName} | ${setWithYear || setName} | grade: ${grade}`);
+    console.log(`[cert-lookup] ACE images → slab front: ${slabFrontUrl ? "✓" : "✗"} | label: ${labelUrl ? "✓" : "✗"}`);
     if (subgrades) console.log(`[cert-lookup] ACE subgrades → Surface:${subgrades.surface} Center:${subgrades.centering} Edge:${subgrades.edges} Corner:${subgrades.corners}`);
 
-    // 7. Download the ACE label sticker image for UI preview only.
-    // This is NOT the slab photo — it's the printed label/sticker artwork.
-    // Keep frontImageBase64 empty so the UI still prompts the user to photograph their slab.
-    let labelImageBase64 = "";
-    if (imageUrl) {
-      try {
-        labelImageBase64 = await downloadImageAsBase64(imageUrl, "https://acegrading.com/");
-      } catch (imgErr: any) {
-        console.warn(`[cert-lookup] ACE label image download failed: ${imgErr.message}`);
-      }
-    }
+    // 7. Download images in parallel
+    const [frontImageBase64, backImageBase64, labelImageBase64] = await Promise.all([
+      slabFrontUrl
+        ? downloadImageAsBase64(slabFrontUrl, "https://acegrading.com/").catch(() => "")
+        : Promise.resolve(""),
+      slabBackUrl
+        ? downloadImageAsBase64(slabBackUrl, "https://acegrading.com/").catch(() => "")
+        : Promise.resolve(""),
+      labelUrl
+        ? downloadImageAsBase64(labelUrl, "https://acegrading.com/").catch(() => "")
+        : Promise.resolve(""),
+    ]);
+
+    console.log(`[cert-lookup] ACE downloads → front: ${frontImageBase64 ? frontImageBase64.length + " chars" : "none"} | back: ${backImageBase64 ? backImageBase64.length + " chars" : "none"} | label: ${labelImageBase64 ? "✓" : "✗"}`);
 
     return {
       cardName,
@@ -5718,8 +5734,9 @@ RESPONSE FORMAT (JSON only, no markdown):
       grade,
       company: "ACE",
       certNumber,
-      frontImageBase64: "",   // No usable card photo from cert lookup — user must photograph their slab
-      labelImageBase64,       // Label sticker image for UI preview/confirmation only
+      frontImageBase64,          // Actual slab photo — empty for older certs (user must photograph)
+      backImageBase64: backImageBase64 || undefined,
+      labelImageBase64,          // Label sticker artwork — always shown in cert preview card
     };
   }
 
