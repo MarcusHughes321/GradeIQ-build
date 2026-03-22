@@ -19,6 +19,8 @@ SplashScreen.preventAutoHideAsync();
 
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
 const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
+const WHATS_NEW_KEY = "gradeiq_whats_new_version";
+const CURRENT_VERSION = "1.0.6";
 
 function RootLayoutNav() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
@@ -27,14 +29,18 @@ function RootLayoutNav() {
     Promise.all([
       AsyncStorage.getItem(ONBOARDING_KEY),
       AsyncStorage.getItem(DISCLAIMER_KEY),
+      AsyncStorage.getItem(WHATS_NEW_KEY),
       getSettings(),
-    ]).then(([onboardingVal, disclaimerVal, settings]) => {
+    ]).then(([onboardingVal, disclaimerVal, seenVersion, settings]) => {
       if (onboardingVal !== "true") {
         router.replace("/onboarding");
       } else if (disclaimerVal !== "true") {
         router.replace("/disclaimer");
       } else if (settings.enabledCompanies.length === 0) {
         router.replace("/company-select");
+      } else if (seenVersion !== CURRENT_VERSION) {
+        AsyncStorage.setItem(WHATS_NEW_KEY, CURRENT_VERSION);
+        setTimeout(() => router.push("/whats-new"), 400);
       }
       setCheckedOnboarding(true);
     });
@@ -61,6 +67,7 @@ function RootLayoutNav() {
       <Stack.Screen name="feedback" />
       <Stack.Screen name="privacy" />
       <Stack.Screen name="disclaimer" options={{ animation: "fade" }} />
+      <Stack.Screen name="whats-new" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
     </Stack>
   );
 }

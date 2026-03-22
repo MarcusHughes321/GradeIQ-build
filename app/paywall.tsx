@@ -12,18 +12,18 @@ const TIER_CARDS: { tier: SubscriptionTier; highlight?: boolean; icon: keyof typ
   {
     tier: "curious",
     icon: "sparkles-outline",
-    features: ["15 Quick Grades per month", "2 Deep Grades per month", "Full AI analysis", "Market price estimates"],
+    features: ["15 Quick Grades per month", "2 Deep Grades per month", "10 Crossover Grades per month", "Full AI analysis", "Market price estimates"],
   },
   {
     tier: "enthusiast",
     highlight: true,
     icon: "flame-outline",
-    features: ["50 Quick Grades per month", "7 Deep Grades per month", "Full AI analysis", "Market price estimates", "Bulk grading up to 20 cards"],
+    features: ["50 Quick Grades per month", "7 Deep Grades per month", "25 Crossover Grades per month", "Full AI analysis", "Market price estimates", "Bulk grading up to 20 cards"],
   },
   {
     tier: "obsessed",
     icon: "diamond-outline",
-    features: ["Unlimited Quick Grades", "30 Deep Grades per month", "Full AI analysis", "Market price estimates", "Bulk grading up to 20 cards", "Priority support"],
+    features: ["Unlimited Quick Grades", "30 Deep Grades per month", "Unlimited Crossover Grades", "Full AI analysis", "Market price estimates", "Bulk grading up to 20 cards", "Priority support"],
   },
 ];
 

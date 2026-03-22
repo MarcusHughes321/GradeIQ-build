@@ -5,6 +5,7 @@ import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases"
 
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
+const CROSSOVER_USAGE_KEY = "gradeiq_crossover_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
 const FREE_MONTHLY_LIMIT = 3;
 
@@ -21,6 +22,7 @@ export interface TierInfo {
   price: string;
   monthlyLimit: number | null;
   deepGradeLimit: number;
+  crossoverGradeLimit: number | null;
   entitlementId: string;
 }
 
@@ -30,10 +32,10 @@ export interface SubscriptionRefreshResult {
 }
 
 export const TIERS: Record<SubscriptionTier, TierInfo> = {
-  free: { id: "free", name: "Free", price: "Free", monthlyLimit: FREE_MONTHLY_LIMIT, deepGradeLimit: 0, entitlementId: "" },
-  curious: { id: "curious", name: "Grade Curious", price: "£2.99", monthlyLimit: 15, deepGradeLimit: 2, entitlementId: "Grade.IQ Pro" },
-  enthusiast: { id: "enthusiast", name: "Grade Enthusiast", price: "£5.99", monthlyLimit: 50, deepGradeLimit: 7, entitlementId: "Grade.IQ Pro" },
-  obsessed: { id: "obsessed", name: "Grade Obsessed", price: "£9.99", monthlyLimit: null, deepGradeLimit: 30, entitlementId: "Grade.IQ Pro" },
+  free:       { id: "free",       name: "Free",              price: "Free",   monthlyLimit: FREE_MONTHLY_LIMIT, deepGradeLimit: 0,  crossoverGradeLimit: 0,    entitlementId: "" },
+  curious:    { id: "curious",    name: "Grade Curious",     price: "£2.99",  monthlyLimit: 15,                 deepGradeLimit: 2,  crossoverGradeLimit: 10,   entitlementId: "Grade.IQ Pro" },
+  enthusiast: { id: "enthusiast", name: "Grade Enthusiast",  price: "£5.99",  monthlyLimit: 50,                 deepGradeLimit: 7,  crossoverGradeLimit: 25,   entitlementId: "Grade.IQ Pro" },
+  obsessed:   { id: "obsessed",   name: "Grade Obsessed",    price: "£9.99",  monthlyLimit: null,               deepGradeLimit: 30, crossoverGradeLimit: null, entitlementId: "Grade.IQ Pro" },
 };
 
 interface MonthlyUsage {
@@ -66,7 +68,12 @@ interface SubscriptionContextValue {
   canDeepGrade: boolean;
   checkCanDeepGrade: () => boolean;
   recordDeepUsage: () => Promise<boolean>;
+  crossoverMonthlyUsageCount: number;
+  crossoverMonthlyLimit: number | null;
+  remainingCrossoverGrades: number | null;
   canCrossover: boolean;
+  checkCanCrossoverGrade: () => boolean;
+  recordCrossoverUsage: () => Promise<boolean>;
   canBulk: boolean;
   isAdminMode: boolean;
   toggleAdminMode: () => Promise<void>;
@@ -120,6 +127,22 @@ async function saveDeepMonthlyUsage(usage: DeepMonthlyUsage): Promise<void> {
   await AsyncStorage.setItem(DEEP_USAGE_KEY, JSON.stringify(usage));
 }
 
+async function getCrossoverMonthlyUsage(): Promise<{ month: string; count: number }> {
+  try {
+    const data = await AsyncStorage.getItem(CROSSOVER_USAGE_KEY);
+    if (!data) return { month: getMonthKey(), count: 0 };
+    const parsed = JSON.parse(data) as { month: string; count: number };
+    if (parsed.month !== getMonthKey()) return { month: getMonthKey(), count: 0 };
+    return parsed;
+  } catch {
+    return { month: getMonthKey(), count: 0 };
+  }
+}
+
+async function saveCrossoverMonthlyUsage(usage: { month: string; count: number }): Promise<void> {
+  await AsyncStorage.setItem(CROSSOVER_USAGE_KEY, JSON.stringify(usage));
+}
+
 function determineTier(info: CustomerInfo | null): SubscriptionTier {
   if (!info) return "free";
 
@@ -145,6 +168,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const isGateEnabled = GATE_ENABLED;
   const [monthlyUsageCount, setMonthlyUsageCount] = useState(0);
   const [deepMonthlyUsageCount, setDeepMonthlyUsageCount] = useState(0);
+  const [crossoverMonthlyUsageCount, setCrossoverMonthlyUsageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [rcLoading, setRcLoading] = useState(true);
   const [currentTier, setCurrentTier] = useState<SubscriptionTier>("free");
@@ -199,9 +223,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    Promise.all([getMonthlyUsage(), getDeepMonthlyUsage()]).then(([usage, deepUsage]) => {
+    Promise.all([getMonthlyUsage(), getDeepMonthlyUsage(), getCrossoverMonthlyUsage()]).then(([usage, deepUsage, crossoverUsage]) => {
       setMonthlyUsageCount(usage.count);
       setDeepMonthlyUsageCount(deepUsage.count);
+      setCrossoverMonthlyUsageCount(crossoverUsage.count);
       setLoading(false);
     });
 
@@ -578,7 +603,34 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const deepMonthlyLimit = deepGradeLimit;
 
-  const canCrossover = isAdminMode || !isGateEnabled || isSubscribed;
+  const crossoverGradeLimit = tierInfo.crossoverGradeLimit;
+  const remainingCrossoverGrades = crossoverGradeLimit === null ? null : Math.max(0, crossoverGradeLimit - crossoverMonthlyUsageCount);
+  const crossoverMonthlyLimit = crossoverGradeLimit;
+
+  const canCrossover = isAdminMode || !isGateEnabled ||
+    (crossoverGradeLimit === null ? true : (crossoverGradeLimit > 0 && crossoverMonthlyUsageCount < crossoverGradeLimit));
+
+  const checkCanCrossoverGrade = useCallback(() => {
+    if (isAdminMode) return true;
+    if (!isGateEnabled) return true;
+    if (crossoverGradeLimit === null) return true;
+    if (crossoverGradeLimit <= 0) return false;
+    return crossoverMonthlyUsageCount + 1 <= crossoverGradeLimit;
+  }, [isAdminMode, isGateEnabled, crossoverGradeLimit, crossoverMonthlyUsageCount]);
+
+  const recordCrossoverUsage = useCallback(async (): Promise<boolean> => {
+    if (isAdminMode) return true;
+    if (!isGateEnabled) return true;
+    if (crossoverGradeLimit === null) return true;
+    if (crossoverGradeLimit <= 0) return false;
+    const usage = await getCrossoverMonthlyUsage();
+    if (usage.count + 1 > crossoverGradeLimit) return false;
+    usage.count += 1;
+    await saveCrossoverMonthlyUsage(usage);
+    setCrossoverMonthlyUsageCount(usage.count);
+    return true;
+  }, [isAdminMode, isGateEnabled, crossoverGradeLimit]);
+
   const canBulk = isAdminMode || !isGateEnabled || currentTier === "curious" || currentTier === "enthusiast" || currentTier === "obsessed";
 
   const value = useMemo(
@@ -607,12 +659,17 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       canDeepGrade,
       checkCanDeepGrade,
       recordDeepUsage,
+      crossoverMonthlyUsageCount,
+      crossoverMonthlyLimit,
+      remainingCrossoverGrades,
       canCrossover,
+      checkCanCrossoverGrade,
+      recordCrossoverUsage,
       canBulk,
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, canCrossover, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

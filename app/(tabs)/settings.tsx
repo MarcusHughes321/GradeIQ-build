@@ -192,6 +192,17 @@ export default function SettingsScreen() {
 
         <View style={styles.companyList}>
           <Pressable
+            onPress={() => router.push("/whats-new")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="sparkles-outline" size={20} color="#8B5CF6" />
+              <Text style={styles.menuRowLabel}>What's New</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
             onPress={() => router.push("/about")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
           >

@@ -120,6 +120,28 @@ export default function CrossoverInfoScreen() {
           </View>
         ))}
 
+        <Text style={styles.sectionTitle}>Crossover Grades per Month</Text>
+        <View style={styles.pricingTable}>
+          {[
+            { name: "Free",             price: "Free",   crossovers: "0",         color: Colors.textMuted },
+            { name: "Grade Curious",    price: "£2.99",  crossovers: "10",        color: "#60A5FA" },
+            { name: "Grade Enthusiast", price: "£5.99",  crossovers: "25",        color: "#34D399", highlight: true },
+            { name: "Grade Obsessed",   price: "£9.99",  crossovers: "Unlimited", color: "#F59E0B" },
+          ].map((row, i) => (
+            <View key={i} style={[styles.pricingRow, row.highlight && styles.pricingRowHighlight]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pricingTierName, row.highlight && { color: Colors.text }]}>{row.name}</Text>
+                <Text style={styles.pricingTierPrice}>{row.price}/mo</Text>
+              </View>
+              <View style={[styles.pricingBadge, { backgroundColor: row.highlight ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.05)" }]}>
+                <Text style={[styles.pricingBadgeText, { color: row.crossovers === "0" ? Colors.textMuted : row.color }]}>
+                  {row.crossovers}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
         <Pressable
           onPress={() => {
             router.back();
@@ -139,7 +161,7 @@ export default function CrossoverInfoScreen() {
         </Pressable>
 
         <Text style={styles.pricingNote}>
-          Available on Grade Curious (£2.99/mo), Grade Enthusiast (£5.99/mo), and Grade Obsessed (£9.99/mo) plans.
+          Crossover limits reset on the 1st of each month. Unused grades do not carry over.
         </Text>
       </ScrollView>
     </View>
@@ -302,6 +324,46 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 17,
     marginTop: 2,
+  },
+  pricingTable: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ACCENT_BORDER,
+    overflow: "hidden",
+  },
+  pricingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  pricingRowHighlight: {
+    backgroundColor: "rgba(52, 211, 153, 0.06)",
+  },
+  pricingTierName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  pricingTierPrice: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  pricingBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  pricingBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
   },
   upgradeBtn: {
     marginTop: 8,

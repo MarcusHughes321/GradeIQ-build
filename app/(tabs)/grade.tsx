@@ -205,7 +205,7 @@ export default function GradeScreen() {
   const [certLookupError, setCertLookupError] = useState<string | null>(null);
   const [showManualUpload, setShowManualUpload] = useState(false);
 
-  const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed, canCrossover, canBulk } = useSubscription();
+  const { canGrade, recordUsage, isGateEnabled, canDeepGrade, recordDeepUsage, remainingDeepGrades, isAdminMode, isSubscribed, canCrossover, canBulk, remainingCrossoverGrades, crossoverMonthlyLimit, recordCrossoverUsage } = useSubscription();
   const { submitGrading, submitDeepGrading, submitCrossoverGrading, activeJob } = useGrading();
   const navigation = useNavigation();
 
@@ -562,7 +562,7 @@ export default function GradeScreen() {
       return;
     }
 
-    if ((mode === "quick" || mode === "crossover") && isGateEnabled && !canGrade) {
+    if (mode === "quick" && isGateEnabled && !canGrade) {
       router.push("/paywall");
       return;
     }
@@ -579,6 +579,7 @@ export default function GradeScreen() {
     setLoading(true);
 
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
+    const wrappedCrossoverUsage = async (_n: number) => { await recordCrossoverUsage(); };
     if (mode === "crossover") {
       let frontSrc: string;
       let backSrc: string | undefined;
@@ -597,7 +598,7 @@ export default function GradeScreen() {
         frontSrc = slabImage!;
         backSrc = slabBackImage || undefined;
       }
-      submitCrossoverGrading(frontSrc, backSrc, wrappedRecordUsage, certDataToPass);
+      submitCrossoverGrading(frontSrc, backSrc, wrappedCrossoverUsage, certDataToPass);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
@@ -917,6 +918,11 @@ export default function GradeScreen() {
         {mode === "deep" && remainingDeepGrades !== null && !isAdminMode && (
           <View style={styles.deepBadge}>
             <Text style={styles.deepBadgeText}>{remainingDeepGrades} deep left</Text>
+          </View>
+        )}
+        {mode === "crossover" && remainingCrossoverGrades !== null && !isAdminMode && (
+          <View style={[styles.deepBadge, { backgroundColor: "rgba(139, 92, 246, 0.15)" }]}>
+            <Text style={[styles.deepBadgeText, { color: "#8B5CF6" }]}>{remainingCrossoverGrades} left</Text>
           </View>
         )}
       </View>
