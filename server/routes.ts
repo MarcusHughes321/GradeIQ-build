@@ -4472,13 +4472,13 @@ Return ONLY this JSON, no explanation:
 
       const slabContext = mode === "slab" ? `
 SLAB-SPECIFIC NOTES:
-- The card sits INSIDE a plastic slab. The slab has: (1) a rigid outer frame/border [NOT the card], (2) a transparent window [NOT the card], (3) the physical card inside the window [THIS is what you measure].
-- LEFT/RIGHT card edges: where card material meets the clear/transparent inner plastic wall. Clear plastic should be visible between the card edge and the outer slab frame.
-- The card typically occupies 65-85% of the image width — if left/right span more than this, you are probably marking the outer slab frame instead of the card.
+⚠️ DO NOT CHANGE topPercent FOR SLABS — it is pre-measured as the bottom edge of the grading label and is correct. The current value (${initial.topPercent.toFixed(1)}%) is where the printed label panel ends and the card becomes visible through the clear plastic window. This is a fixed measurement. Do NOT adjust topPercent.
+
+- LEFT/RIGHT card edges: where card material meets the clear/transparent inner plastic wall. Clear plastic is visible between the card edge and the outer slab frame. The card occupies 65-85% of the image width.
 - BOTTOM card edge: where card material meets slab bottom plastic.
-- TOP edge (topPercent): this is the LABEL BOTTOM — where the grading label panel ends and the card artwork becomes visible. It should be 15-35% from the image top, clearly at the horizontal line where the label ends and clear plastic window begins. Do NOT move this to 0% or to the very top — the label covers the card top, so the visible card starts WHERE THE LABEL ENDS.
-- Do NOT use the outer slab frame edges as card edges — the card is INSIDE the frame.
-- For Art Rare / Full Art cards: the card edge is where the dark artwork meets the transparent slab plastic.` : `
+- INNER bounds: these mark the card's OWN PRINTED BORDER edges (where the colored frame/design starts, inside the physical card edge). For Inner TOP: this is 1-5% BELOW the outer topPercent (just inside the card's top border). For Illustration Rare / Full Art: inner top is 1-2% below outer top. For standard cards: 3-6% below outer top.
+- Do NOT place inner TOP at the Pokemon name bar or HP text — it should be close to the outer top.
+- Do NOT use outer slab frame edges as card edges.` : `
 RAW CARD NOTES:
 - The card edges are where the physical card material meets the background
 - For dark Art Rare cards: the card edge is where the dark material ends (even if subtle against a dark background)`;
@@ -4536,9 +4536,25 @@ Return ONLY this JSON (all numbers required):
       console.log(`[bounds-verify] Parsed: L=${p.leftPercent} T=${p.topPercent} R=${p.rightPercent} B=${p.bottomPercent} conf=${p.confidence}`);
 
       const vL = Math.max(0, Math.min(100, typeof p.leftPercent   === "number" ? p.leftPercent   : initial.leftPercent));
-      const vT = Math.max(0, Math.min(100, typeof p.topPercent    === "number" ? p.topPercent    : initial.topPercent));
       const vR = Math.max(0, Math.min(100, typeof p.rightPercent  === "number" ? p.rightPercent  : initial.rightPercent));
       const vB = Math.max(0, Math.min(100, typeof p.bottomPercent === "number" ? p.bottomPercent : initial.bottomPercent));
+
+      // For slabs: pin topPercent to the initial value (label bottom, pre-measured).
+      // The verification Claude tends to "correct" it toward card content which is wrong.
+      // Allow at most ±4% drift to fix genuinely bad initial detections.
+      let vT: number;
+      if (mode === "slab") {
+        const rawT = typeof p.topPercent === "number" ? Math.max(0, Math.min(100, p.topPercent)) : initial.topPercent;
+        const drift = Math.abs(rawT - initial.topPercent);
+        if (drift > 4) {
+          console.log(`[bounds-verify] Slab top PINNED: verification tried ${rawT.toFixed(1)} (drift=${drift.toFixed(1)}%), keeping initial ${initial.topPercent.toFixed(1)}%`);
+          vT = initial.topPercent;
+        } else {
+          vT = rawT;
+        }
+      } else {
+        vT = Math.max(0, Math.min(100, typeof p.topPercent === "number" ? p.topPercent : initial.topPercent));
+      }
 
       if (vL >= vR || vT >= vB) {
         console.log(`[bounds-verify] Rejected — invalid ordering: L=${vL} T=${vT} R=${vR} B=${vB}`);
@@ -4554,9 +4570,16 @@ Return ONLY this JSON (all numbers required):
 
       // Attach inner bounds if returned and valid
       const iLv = typeof p.innerLeftPercent   === "number" ? Math.max(0, Math.min(100, p.innerLeftPercent))   : null;
-      const iTv = typeof p.innerTopPercent    === "number" ? Math.max(0, Math.min(100, p.innerTopPercent))    : null;
+      let   iTv = typeof p.innerTopPercent    === "number" ? Math.max(0, Math.min(100, p.innerTopPercent))    : null;
       const iRv = typeof p.innerRightPercent  === "number" ? Math.max(0, Math.min(100, p.innerRightPercent))  : null;
       const iBv = typeof p.innerBottomPercent === "number" ? Math.max(0, Math.min(100, p.innerBottomPercent)) : null;
+
+      // For slabs: clamp inner top to within 10% of the outer top (label bottom).
+      // Prevents it drifting into the artwork area (e.g. below the Pokémon name bar).
+      if (mode === "slab" && iTv !== null && iTv > vT + 10) {
+        console.log(`[bounds-verify] Slab innerTop clamped: ${iTv.toFixed(1)} → ${(vT + 3).toFixed(1)} (was >10% below outer top)`);
+        iTv = vT + 3;
+      }
 
       if (iLv != null && iTv != null && iRv != null && iBv != null &&
           iLv > vL && iRv < vR && iTv > vT && iBv < vB && iLv < iRv && iTv < iBv) {
@@ -4619,22 +4642,19 @@ A) "Standard card" — has a visible white border strip (3-8mm) between the card
 B) "Illustration Rare / Special Illustration Rare / Full Art" — the design extends almost to the physical card edge with only a very thin (1-2mm) or no white border. Inner bound is 1-3% inside the outer card edge.
 C) "Art Rare / ex / V card" — thin coloured border with minimal white strip. Inner bound is 2-5% inside the outer card edge.
 
-STEP 2 — For the INNER TOP specifically (most important line):
-- This should be positioned just INSIDE the card's top border zone, below the label.
-- Look for the thin strip of the card's own printed frame visible between the label bottom edge and where the card's central design area begins.
-- For Illustration Rare / Full Art: inner top is 1-2% BELOW labelBottomPercent (because there is almost no top border — the artwork reaches the card top which is hidden by the label).
-- For Standard cards: inner top is 3-6% BELOW labelBottomPercent (the white border is partially visible just below the label).
-- Do NOT place innerTopPercent at the bottom of the card's header zone (e.g. below the Pokémon name/HP row). The inner top is the printed border edge, not the artwork boundary.
+STEP 2 — INNER TOP (most important line — use color-transition detection):
+For standard cards: just below the label, you'll see a thin WHITE strip before the colored card frame begins. The inner top is the horizontal line where this WHITE area ends and the COLORED FRAME begins — look for the color change from white/light to the card's frame color (yellow, blue, brown, red etc.).
+For Illustration Rare / Full Art / Special Illustration Rare: there is no visible white strip below the label — the card's design (artwork or colored border) begins almost immediately at the label bottom. Inner top = labelBottomPercent + 1-2%.
+⚠️ Do NOT place innerTopPercent at the bottom of the Pokémon name/HP bar — that is far too low. Look at the very first color change just below the label.
 
-STEP 3 — For LEFT and RIGHT inner bounds:
-- These mark the INNER EDGE of the card's side border strips (where the border ends and the central design begins).
-- For Standard cards: inner left = outer left + 5-10% (visible white strip on the left)
-- For Illustration Rare / Full Art: inner left = outer left + 1-3%
+STEP 3 — INNER LEFT and INNER RIGHT (use color-transition detection):
+On the left side of the card (moving from the physical card edge toward the center):
+- Standard cards: you'll see a WHITE strip, then a color change where the card's COLORED FRAME begins. Inner left = where the white ends and colored frame starts.
+- Illustration Rare / Full Art: almost no white — the colored design starts within 1-3% of the physical card edge. Inner left = outer left + 1-3%.
+On the right side: mirror image. Inner right = where the colored frame ends before the right white border begins (standard), or outer right − 1-3% (Illustration Rare).
 
-STEP 4 — For INNER BOTTOM:
-- Mark the inner edge of the bottom border strip.
-- For Standard cards: inner bottom = outer bottom - 5-10%
-- For Illustration Rare / Full Art: inner bottom = outer bottom - 1-3%
+STEP 4 — INNER BOTTOM (use color-transition detection):
+Below the main card content area, for standard cards there's a white border strip. Inner bottom = where the card's colored design ends and the white bottom border begins. For Illustration Rare: inner bottom = outer bottom − 1-3%.
 
 Return ONLY this JSON:
 {
