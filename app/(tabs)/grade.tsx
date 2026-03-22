@@ -43,6 +43,7 @@ type CertLookupResult = {
   certNumber: string;
   frontImageBase64: string;
   backImageBase64?: string;
+  labelImageBase64?: string;
 };
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
@@ -1129,9 +1130,9 @@ export default function GradeScreen() {
                         </View>
                       </View>
                       <View style={styles.certPreviewBody}>
-                        {certLookupResult.frontImageBase64 ? (
+                        {(certLookupResult.labelImageBase64 || certLookupResult.frontImageBase64) ? (
                           <Image
-                            source={{ uri: certLookupResult.frontImageBase64 }}
+                            source={{ uri: certLookupResult.labelImageBase64 || certLookupResult.frontImageBase64 }}
                             style={styles.certPreviewImage}
                             contentFit="contain"
                           />

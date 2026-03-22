@@ -5494,6 +5494,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     certNumber: string;
     frontImageBase64: string;
     backImageBase64?: string;
+    labelImageBase64?: string;
   }
 
   async function downloadImageAsBase64(url: string, referer?: string): Promise<string> {
@@ -5699,13 +5700,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     console.log(`[cert-lookup] ACE cert ${certNumber} → ${cardName} | ${setWithYear || setName} | grade: ${grade} | img: ${imageUrl ? "✓" : "✗"}`);
     if (subgrades) console.log(`[cert-lookup] ACE subgrades → Surface:${subgrades.surface} Center:${subgrades.centering} Edge:${subgrades.edges} Corner:${subgrades.corners}`);
 
-    // 7. Download the card image
-    let frontImageBase64 = "";
+    // 7. Download the ACE label sticker image for UI preview only.
+    // This is NOT the slab photo — it's the printed label/sticker artwork.
+    // Keep frontImageBase64 empty so the UI still prompts the user to photograph their slab.
+    let labelImageBase64 = "";
     if (imageUrl) {
       try {
-        frontImageBase64 = await downloadImageAsBase64(imageUrl, "https://acegrading.com/");
+        labelImageBase64 = await downloadImageAsBase64(imageUrl, "https://acegrading.com/");
       } catch (imgErr: any) {
-        console.warn(`[cert-lookup] ACE image download failed: ${imgErr.message}`);
+        console.warn(`[cert-lookup] ACE label image download failed: ${imgErr.message}`);
       }
     }
 
@@ -5715,7 +5718,8 @@ RESPONSE FORMAT (JSON only, no markdown):
       grade,
       company: "ACE",
       certNumber,
-      frontImageBase64,
+      frontImageBase64: "",   // No usable card photo from cert lookup — user must photograph their slab
+      labelImageBase64,       // Label sticker image for UI preview/confirmation only
     };
   }
 
