@@ -1131,21 +1131,38 @@ export default function GradeScreen() {
                       </View>
                       <View style={styles.certPreviewBody}>
                         {(certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64) ? (
-                          <View style={styles.certPreviewImageWrap}>
-                            <Image
-                              source={{ uri: certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64 }}
-                              style={[
-                                styles.certPreviewImage,
-                                certLookupResult.frontImageBase64 ? styles.certPreviewImageSlab : null,
-                              ]}
-                              contentFit="contain"
-                            />
-                            {certLookupResult.frontImageBase64 && certLookupResult.labelImageBase64 ? (
+                          <View style={certLookupResult.backImageBase64 ? styles.certPreviewImagesRow : undefined}>
+                            {/* Front slab image */}
+                            <View style={styles.certPreviewImageWrap}>
                               <Image
-                                source={{ uri: certLookupResult.labelImageBase64 }}
-                                style={styles.certPreviewLabelBadge}
+                                source={{ uri: certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64 }}
+                                style={[
+                                  certLookupResult.backImageBase64 ? styles.certPreviewImageSmall : styles.certPreviewImage,
+                                  (certLookupResult.frontImageBase64 && !certLookupResult.backImageBase64) ? styles.certPreviewImageSlab : null,
+                                ]}
                                 contentFit="contain"
                               />
+                              {certLookupResult.frontImageBase64 && certLookupResult.labelImageBase64 && !certLookupResult.backImageBase64 ? (
+                                <Image
+                                  source={{ uri: certLookupResult.labelImageBase64 }}
+                                  style={styles.certPreviewLabelBadge}
+                                  contentFit="contain"
+                                />
+                              ) : null}
+                              {certLookupResult.backImageBase64 ? (
+                                <Text style={styles.certPreviewImgLabel}>Front</Text>
+                              ) : null}
+                            </View>
+                            {/* Back slab image — only when available from cert lookup */}
+                            {certLookupResult.backImageBase64 ? (
+                              <View style={styles.certPreviewImageWrap}>
+                                <Image
+                                  source={{ uri: certLookupResult.backImageBase64 }}
+                                  style={styles.certPreviewImageSmall}
+                                  contentFit="contain"
+                                />
+                                <Text style={styles.certPreviewImgLabel}>Back</Text>
+                              </View>
                             ) : null}
                           </View>
                         ) : null}
@@ -2252,6 +2269,24 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.surfaceLight,
     backgroundColor: Colors.surface,
+  },
+  certPreviewImagesRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginRight: 8,
+  },
+  certPreviewImageSmall: {
+    width: 60,
+    height: 84,
+    borderRadius: 6,
+    backgroundColor: Colors.surface,
+  },
+  certPreviewImgLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: 3,
   },
   certPreviewInfo: {
     flex: 1,
