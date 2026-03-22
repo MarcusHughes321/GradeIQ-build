@@ -1086,8 +1086,30 @@ export default function GradeScreen() {
 
                   {certLookupError && (
                     <View style={styles.certErrorCard}>
-                      <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-                      <Text style={styles.certErrorText}>{certLookupError}</Text>
+                      <View style={styles.certErrorTop}>
+                        <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+                        <Text style={styles.certErrorText}>{certLookupError}</Text>
+                      </View>
+                      <Pressable
+                        style={({ pressed }) => [styles.certErrorPhotoBtn, { opacity: pressed ? 0.8 : 1 }]}
+                        onPress={() => {
+                          if (Platform.OS !== "web") {
+                            Alert.alert("Add Slab Photo", "Photograph your slab to analyze it", [
+                              { text: "Take Photo", onPress: () => { setCameraOpen("slabFront"); setCertLookupError(null); } },
+                              { text: "Choose from Library", onPress: async () => {
+                                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                                if (status !== "granted") return;
+                                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                                if (!result.canceled && result.assets[0]) { setSlabImage(result.assets[0].uri); setCertLookupError(null); }
+                              }},
+                              { text: "Cancel", style: "cancel" },
+                            ]);
+                          }
+                        }}
+                      >
+                        <Ionicons name="camera-outline" size={14} color="#8B5CF6" />
+                        <Text style={styles.certErrorPhotoBtnText}>Add slab photo instead</Text>
+                      </Pressable>
                     </View>
                   )}
 
@@ -1126,17 +1148,13 @@ export default function GradeScreen() {
                   )}
                 </View>
 
-                <Pressable
-                  style={styles.manualUploadToggle}
-                  onPress={() => setShowManualUpload(v => !v)}
-                >
+                <View style={styles.manualUploadToggle} pointerEvents="none">
                   <View style={styles.manualUploadDividerLine} />
-                  <Text style={styles.manualUploadDividerText}>— or add photos manually —</Text>
+                  <Text style={styles.manualUploadDividerText}>— or add photos —</Text>
                   <View style={styles.manualUploadDividerLine} />
-                </Pressable>
+                </View>
 
-                {showManualUpload && (
-                  <>
+                <>
                     <View style={styles.imageRow}>
                       <ImageCapture
                         label="Front"
@@ -1214,7 +1232,6 @@ export default function GradeScreen() {
                       </View>
                     </View>
                   </>
-                )}
 
                 <View style={styles.tipsCard}>
                   <View style={styles.tipRow}>
@@ -2100,14 +2117,18 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   certErrorCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+    flexDirection: "column",
+    gap: 10,
     backgroundColor: "rgba(239, 68, 68, 0.08)",
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
     borderColor: "rgba(239, 68, 68, 0.2)",
+  },
+  certErrorTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
   },
   certErrorText: {
     fontFamily: "Inter_400Regular",
@@ -2115,6 +2136,23 @@ const styles = StyleSheet.create({
     color: "#EF4444",
     flex: 1,
     lineHeight: 18,
+  },
+  certErrorPhotoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(139, 92, 246, 0.12)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "rgba(139, 92, 246, 0.3)",
+  },
+  certErrorPhotoBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#8B5CF6",
   },
   certPreviewCard: {
     backgroundColor: Colors.surfaceLight,

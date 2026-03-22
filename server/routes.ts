@@ -5515,15 +5515,31 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   async function lookupPSA(certNumber: string): Promise<CertLookupResult> {
+    // PSA's public API requires authentication and rate-limits unauthenticated
+    // server-side requests. Their website also blocks server requests via
+    // Cloudflare. Cert lookup for PSA is therefore not reliably available —
+    // guide users to photograph their slab instead.
     const apiUrl = `https://api.psacard.com/publicapi/cert/GetByCertNumber/${certNumber}`;
     console.log(`[cert-lookup] PSA API: ${apiUrl}`);
-    const resp = await fetch(apiUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; GradeIQ/1.0)",
-        "Accept": "application/json",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
+
+    let resp: Response;
+    try {
+      resp = await fetch(apiUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/json, text/plain, */*",
+          "Origin": "https://www.psacard.com",
+          "Referer": "https://www.psacard.com/",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (e: any) {
+      throw new Error("PSA's website couldn't be reached — please photograph your PSA slab instead.");
+    }
+
+    if (resp.status === 429 || resp.status === 401 || resp.status === 403) {
+      throw new Error("PSA's cert lookup is unavailable right now. Please photograph your PSA slab to analyze it.");
+    }
 
     if (resp.ok) {
       const data = await resp.json() as any;
@@ -5540,50 +5556,12 @@ RESPONSE FORMAT (JSON only, no markdown):
             console.log(`[cert-lookup] PSA image download failed: ${e}`);
           }
         }
-        if (!frontImageBase64) {
-          const certImageUrl = `https://www.psacard.com/certlookupapi/GetCertImage/${certNumber}`;
-          try {
-            frontImageBase64 = await downloadImageAsBase64(certImageUrl, "https://www.psacard.com/");
-          } catch (e) {
-            console.log(`[cert-lookup] PSA cert image fallback failed: ${e}`);
-          }
-        }
-        if (!frontImageBase64) throw new Error("PSA cert found but image could not be downloaded — please add photos manually");
+        if (!frontImageBase64) throw new Error("PSA cert found but image could not be downloaded — please photograph your PSA slab instead.");
         return { cardName, setName, grade: String(grade), company: "PSA", certNumber, frontImageBase64 };
       }
     }
 
-    console.log(`[cert-lookup] PSA API returned ${resp.status}, trying HTML parse`);
-    const htmlResp = await fetch(`https://www.psacard.com/cert/${certNumber}`, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!htmlResp.ok) throw new Error(`PSA cert lookup unavailable — please add photos manually`);
-    const html = await htmlResp.text();
-    const root = parseHtml(html);
-
-    const cardName = root.querySelector(".cert-name")?.text?.trim()
-      || root.querySelector("h1")?.text?.trim()
-      || root.querySelector(".card-name")?.text?.trim()
-      || "";
-    const grade = root.querySelector(".cert-grade")?.text?.trim()
-      || root.querySelector(".grade-value")?.text?.trim()
-      || "";
-    const imgEl = root.querySelector(".cert-image img") || root.querySelector(".card-image img") || root.querySelector("img[src*='psacard']");
-    const imgSrc = imgEl?.getAttribute("src") || "";
-
-    if (!cardName && !grade) throw new Error("PSA: cert not found or page format changed — please add photos manually");
-
-    let frontImageBase64 = "";
-    if (imgSrc) {
-      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.psacard.com${imgSrc}`;
-      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.psacard.com/"); } catch {}
-    }
-    if (!frontImageBase64) throw new Error("PSA cert found but image could not be downloaded — please add photos manually");
-    return { cardName, setName: "", grade, company: "PSA", certNumber, frontImageBase64 };
+    throw new Error("PSA cert not found. Check the cert number, or photograph your PSA slab instead.");
   }
 
   async function lookupBGS(certNumber: string): Promise<CertLookupResult> {
@@ -5623,108 +5601,21 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   async function lookupCGC(certNumber: string): Promise<CertLookupResult> {
-    const url = `https://www.cgccards.com/certlookup/${certNumber}`;
-    console.log(`[cert-lookup] CGC: ${url}`);
-    const resp = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!resp.ok) throw new Error(`CGC cert lookup unavailable for this company — please add photos manually`);
-    const html = await resp.text();
-    const root = parseHtml(html);
-
-    const cardName = root.querySelector(".cert-name")?.text?.trim()
-      || root.querySelector("h1")?.text?.trim()
-      || root.querySelector(".item-name")?.text?.trim()
-      || "";
-    const grade = root.querySelector(".cert-grade")?.text?.trim()
-      || root.querySelector(".grade")?.text?.trim()
-      || "";
-    const imgEl = root.querySelector(".cert-image img") || root.querySelector("img[src*='cgc']");
-    const imgSrc = imgEl?.getAttribute("src") || "";
-
-    if (!cardName && !grade) throw new Error("CGC cert lookup unavailable for this company — please add photos manually");
-
-    let frontImageBase64 = "";
-    if (imgSrc) {
-      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.cgccards.com${imgSrc}`;
-      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.cgccards.com/"); } catch {}
-    }
-    if (!frontImageBase64) throw new Error("CGC cert found but image could not be downloaded — please add photos manually");
-    return { cardName, setName: "", grade, company: "CGC", certNumber, frontImageBase64 };
+    // CGC's cert lookup website blocks server-side requests (returns 403).
+    // Guide users to photograph their CGC slab instead.
+    throw new Error("CGC's cert lookup is not accessible. Please photograph your CGC slab to analyze it.");
   }
 
   async function lookupACE(certNumber: string): Promise<CertLookupResult> {
-    const url = `https://www.acegradingcards.com/verify/?cert=${certNumber}`;
-    console.log(`[cert-lookup] ACE: ${url}`);
-    const resp = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!resp.ok) throw new Error(`ACE cert lookup unavailable for this company — please add photos manually`);
-    const html = await resp.text();
-    const root = parseHtml(html);
-
-    const cardName = root.querySelector(".card-name")?.text?.trim()
-      || root.querySelector(".cert-title")?.text?.trim()
-      || root.querySelector("h1")?.text?.trim()
-      || "";
-    const grade = root.querySelector(".grade-value")?.text?.trim()
-      || root.querySelector(".cert-grade")?.text?.trim()
-      || "";
-    const imgEl = root.querySelector(".card-image img") || root.querySelector(".cert-image img");
-    const imgSrc = imgEl?.getAttribute("src") || "";
-
-    if (!cardName && !grade) throw new Error("ACE cert lookup unavailable for this company — please add photos manually");
-
-    let frontImageBase64 = "";
-    if (imgSrc) {
-      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.acegradingcards.com${imgSrc}`;
-      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.acegradingcards.com/"); } catch {}
-    }
-    if (!frontImageBase64) throw new Error("ACE cert found but image could not be downloaded — please add photos manually");
-    return { cardName, setName: "", grade, company: "ACE", certNumber, frontImageBase64 };
+    // ACE Grading (ace-grading.com) does not have a public cert lookup page
+    // accessible via server-side requests. Guide users to photograph their slab.
+    throw new Error("ACE doesn't have a public cert lookup. Please photograph your ACE slab to analyze it.");
   }
 
   async function lookupTAG(certNumber: string): Promise<CertLookupResult> {
-    const url = `https://www.theacademygrading.com/verify/${certNumber}`;
-    console.log(`[cert-lookup] TAG: ${url}`);
-    const resp = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!resp.ok) throw new Error(`TAG cert lookup unavailable for this company — please add photos manually`);
-    const html = await resp.text();
-    const root = parseHtml(html);
-
-    const cardName = root.querySelector(".card-name")?.text?.trim()
-      || root.querySelector(".cert-title")?.text?.trim()
-      || root.querySelector("h1")?.text?.trim()
-      || "";
-    const grade = root.querySelector(".grade-value")?.text?.trim()
-      || root.querySelector(".cert-grade")?.text?.trim()
-      || "";
-    const imgEl = root.querySelector(".card-image img") || root.querySelector(".cert-image img");
-    const imgSrc = imgEl?.getAttribute("src") || "";
-
-    if (!cardName && !grade) throw new Error("TAG cert lookup unavailable for this company — please add photos manually");
-
-    let frontImageBase64 = "";
-    if (imgSrc) {
-      const imgUrl = imgSrc.startsWith("http") ? imgSrc : `https://www.theacademygrading.com${imgSrc}`;
-      try { frontImageBase64 = await downloadImageAsBase64(imgUrl, "https://www.theacademygrading.com/"); } catch {}
-    }
-    if (!frontImageBase64) throw new Error("TAG cert found but image could not be downloaded — please add photos manually");
-    return { cardName, setName: "", grade, company: "TAG", certNumber, frontImageBase64 };
+    // The Academy Grading's website cannot be reached from our servers.
+    // Guide users to photograph their TAG slab instead.
+    throw new Error("TAG's cert lookup is not accessible. Please photograph your TAG slab to analyze it.");
   }
 
   app.post("/api/cert-lookup", async (req, res) => {
