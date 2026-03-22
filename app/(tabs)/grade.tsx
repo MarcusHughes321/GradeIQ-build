@@ -1130,12 +1130,24 @@ export default function GradeScreen() {
                         </View>
                       </View>
                       <View style={styles.certPreviewBody}>
-                        {(certLookupResult.labelImageBase64 || certLookupResult.frontImageBase64) ? (
-                          <Image
-                            source={{ uri: certLookupResult.labelImageBase64 || certLookupResult.frontImageBase64 }}
-                            style={styles.certPreviewImage}
-                            contentFit="contain"
-                          />
+                        {(certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64) ? (
+                          <View style={styles.certPreviewImageWrap}>
+                            <Image
+                              source={{ uri: certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64 }}
+                              style={[
+                                styles.certPreviewImage,
+                                certLookupResult.frontImageBase64 ? styles.certPreviewImageSlab : null,
+                              ]}
+                              contentFit="contain"
+                            />
+                            {certLookupResult.frontImageBase64 && certLookupResult.labelImageBase64 ? (
+                              <Image
+                                source={{ uri: certLookupResult.labelImageBase64 }}
+                                style={styles.certPreviewLabelBadge}
+                                contentFit="contain"
+                              />
+                            ) : null}
+                          </View>
                         ) : null}
                         <View style={styles.certPreviewInfo}>
                           <Text style={styles.certPreviewCardName} numberOfLines={2}>{certLookupResult.cardName || "Unknown Card"}</Text>
@@ -1149,10 +1161,15 @@ export default function GradeScreen() {
                               <Text style={styles.certPreviewCheckText}>Ready to analyze</Text>
                             </View>
                           ) : (
-                            <View style={styles.certPreviewCheck}>
-                              <Ionicons name="camera-outline" size={14} color="#F59E0B" />
-                              <Text style={[styles.certPreviewCheckText, { color: "#F59E0B" }]}>Add slab photo below</Text>
-                            </View>
+                            <>
+                              <View style={styles.certPreviewCheck}>
+                                <Ionicons name="camera-outline" size={14} color="#F59E0B" />
+                                <Text style={[styles.certPreviewCheckText, { color: "#F59E0B" }]}>Add slab photo below</Text>
+                              </View>
+                              {certLookupResult.company === "ACE" ? (
+                                <Text style={styles.certPhotoNote}>Slab photos available for certs #585,000+</Text>
+                              ) : null}
+                            </>
                           )}
                         </View>
                       </View>
@@ -2209,16 +2226,44 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: "flex-start",
   },
+  certPreviewImageWrap: {
+    position: "relative",
+    marginBottom: 8,
+    marginRight: 8,
+  },
   certPreviewImage: {
     width: 72,
     height: 100,
     borderRadius: 6,
     backgroundColor: Colors.surface,
   },
+  certPreviewImageSlab: {
+    width: 90,
+    height: 126,
+    borderRadius: 8,
+  },
+  certPreviewLabelBadge: {
+    position: "absolute",
+    bottom: -6,
+    right: -8,
+    width: 40,
+    height: 28,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceLight,
+    backgroundColor: Colors.surface,
+  },
   certPreviewInfo: {
     flex: 1,
     gap: 4,
     justifyContent: "center",
+  },
+  certPhotoNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginTop: 2,
+    lineHeight: 14,
   },
   certPreviewCardName: {
     fontFamily: "Inter_600SemiBold",
