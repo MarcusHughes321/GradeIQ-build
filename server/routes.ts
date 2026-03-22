@@ -4611,13 +4611,30 @@ VISUAL GUIDANCE for labelBottomPercent:
 - For ACE slabs: label typically covers the top 20-30% of the image.
 - For PSA slabs: label typically covers the top 15-25% of the image.
 
-INNER ARTWORK BOUNDARY (inside the card's printed frame):
-- innerLeftPercent: where artwork begins inside the card's printed border (left side, as % of image width)
-- innerTopPercent: where artwork begins — should be slightly BELOW labelBottomPercent, inside the card's top border area
-- innerRightPercent: where artwork ends on the right
-- innerBottomPercent: where artwork ends at the bottom
-- Illustration Rare / Full Art: inner bounds are 1-3% inside the outer card edges (minimal border)
-- Standard cards with white border: inner bounds are 5-12% inside the outer card edge on each side
+INNER BORDER BOUNDARY — CRITICAL FOR CENTERING ACCURACY:
+The "inner bounds" define the card's OWN PRINTED BORDER edges — NOT the central artwork area. This is the thin coloured strip that forms the card's printed frame, just inside the physical card edge. This is what grading companies measure for centering.
+
+STEP 1 — Identify the card type first:
+A) "Standard card" — has a visible white border strip (3-8mm) between the card's physical edge and the coloured card frame. The inner bound is at the INNER EDGE of this white strip.
+B) "Illustration Rare / Special Illustration Rare / Full Art" — the design extends almost to the physical card edge with only a very thin (1-2mm) or no white border. Inner bound is 1-3% inside the outer card edge.
+C) "Art Rare / ex / V card" — thin coloured border with minimal white strip. Inner bound is 2-5% inside the outer card edge.
+
+STEP 2 — For the INNER TOP specifically (most important line):
+- This should be positioned just INSIDE the card's top border zone, below the label.
+- Look for the thin strip of the card's own printed frame visible between the label bottom edge and where the card's central design area begins.
+- For Illustration Rare / Full Art: inner top is 1-2% BELOW labelBottomPercent (because there is almost no top border — the artwork reaches the card top which is hidden by the label).
+- For Standard cards: inner top is 3-6% BELOW labelBottomPercent (the white border is partially visible just below the label).
+- Do NOT place innerTopPercent at the bottom of the card's header zone (e.g. below the Pokémon name/HP row). The inner top is the printed border edge, not the artwork boundary.
+
+STEP 3 — For LEFT and RIGHT inner bounds:
+- These mark the INNER EDGE of the card's side border strips (where the border ends and the central design begins).
+- For Standard cards: inner left = outer left + 5-10% (visible white strip on the left)
+- For Illustration Rare / Full Art: inner left = outer left + 1-3%
+
+STEP 4 — For INNER BOTTOM:
+- Mark the inner edge of the bottom border strip.
+- For Standard cards: inner bottom = outer bottom - 5-10%
+- For Illustration Rare / Full Art: inner bottom = outer bottom - 1-3%
 
 Return ONLY this JSON:
 {
@@ -4625,10 +4642,11 @@ Return ONLY this JSON:
   "rightPercent": <CARD right edge as % of image width, NOT the slab frame>,
   "bottomPercent": <CARD bottom edge as % of image height>,
   "labelBottomPercent": <bottom edge of grading label where card becomes visible, as % of image height>,
-  "innerLeftPercent": <artwork left start as % of image width>,
-  "innerTopPercent": <artwork top start, slightly below labelBottomPercent, as % of image height>,
-  "innerRightPercent": <artwork right end as % of image width>,
-  "innerBottomPercent": <artwork bottom end as % of image height>,
+  "cardType": <"standard" | "illustration_rare" | "full_art" | "art_rare">,
+  "innerLeftPercent": <inner left border edge, as % of image width>,
+  "innerTopPercent": <inner top border edge, slightly below labelBottomPercent, as % of image height>,
+  "innerRightPercent": <inner right border edge, as % of image width>,
+  "innerBottomPercent": <inner bottom border edge, as % of image height>,
   "confidence": <0.0-1.0>
 }`;
 
@@ -4703,9 +4721,21 @@ Return ONLY this JSON:
       if (typeof innerLeftPercent === "number" && typeof innerTopPercent === "number" &&
           typeof innerRightPercent === "number" && typeof innerBottomPercent === "number") {
         const iL = Math.max(0, Math.min(100, innerLeftPercent));
-        const iT = Math.max(0, Math.min(100, innerTopPercent));
+        let iT = Math.max(0, Math.min(100, innerTopPercent));
         const iR = Math.max(0, Math.min(100, innerRightPercent));
         const iB = Math.max(0, Math.min(100, innerBottomPercent));
+
+        // Clamp inner top to be close to label bottom (cT).
+        // If AI places it more than 12% below the outer top, it has drifted into
+        // the artwork area (e.g. below the Pokémon name bar). Clamp it back.
+        const maxInnerTopOffset = 12; // percent of image height
+        if (iT > cT + maxInnerTopOffset) {
+          const cardType = parsed.cardType ?? "";
+          const defaultOffset = cardType === "standard" ? 5 : 2;
+          iT = cT + defaultOffset;
+          console.log(`[slab-ai-bounds] innerTop clamped from ${innerTopPercent.toFixed(1)} → ${iT.toFixed(1)} (was too far below label bottom ${cT.toFixed(1)})`);
+        }
+
         if (iL > cL && iR < cR && iT > cT && iB < cB && iL < iR && iT < iB) {
           result.innerLeftPercent   = iL;
           result.innerTopPercent    = iT;

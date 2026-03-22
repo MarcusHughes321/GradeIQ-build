@@ -67,6 +67,13 @@ function getGradientColor(grade: number, maxGrade: number = 10): string {
 
 function parsePrice(str: string | undefined | null): number | null {
   if (!str || str.includes("No value") || str === "-") return null;
+  // Handle price ranges like "£125 - £148" or "$1,200 - $1,500"
+  const rangeSep = str.match(/^(.+?)\s*[-–]\s*(.+)$/);
+  if (rangeSep) {
+    const lo = parseFloat(rangeSep[1].replace(/[^\d.]/g, ""));
+    const hi = parseFloat(rangeSep[2].replace(/[^\d.]/g, ""));
+    if (!isNaN(lo) && !isNaN(hi) && hi > lo) return (lo + hi) / 2;
+  }
   const num = str.replace(/[^\d.]/g, "");
   const n = parseFloat(num);
   return isNaN(n) ? null : n;
