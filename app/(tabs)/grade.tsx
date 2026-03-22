@@ -1167,7 +1167,7 @@ export default function GradeScreen() {
                                 <Text style={[styles.certPreviewCheckText, { color: "#F59E0B" }]}>Add slab photo below</Text>
                               </View>
                               {certLookupResult.company === "ACE" ? (
-                                <Text style={styles.certPhotoNote}>Slab photos available for certs #585,000+</Text>
+                                <Text style={styles.certPhotoNote}>Sorry, we couldn't find a slab photo for this cert. ACE slabs before approx. #585,000 don't have photos online — please photograph your slab and upload it below.</Text>
                               ) : null}
                             </>
                           )}
@@ -2260,10 +2260,10 @@ const styles = StyleSheet.create({
   },
   certPhotoNote: {
     fontFamily: "Inter_400Regular",
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.textMuted,
-    marginTop: 2,
-    lineHeight: 14,
+    marginTop: 4,
+    lineHeight: 16,
   },
   certPreviewCardName: {
     fontFamily: "Inter_600SemiBold",
