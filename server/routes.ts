@@ -5647,59 +5647,75 @@ RESPONSE FORMAT (JSON only, no markdown):
       throw execErr;
     }
 
-    // Extract all wire:snapshot blobs and find the certification lookup component
-    const snapshotMatches = [...html.matchAll(/wire:snapshot="([^"]+)"/g)];
-    let certData: any = null;
-    for (const m of snapshotMatches) {
-      const raw = m[1].replace(/&quot;/g, '"');
+    // All cert data is server-side rendered in the initial HTML — no Livewire POST needed.
+    // Extract grade, subgrades, card name, set name and label image from the rendered HTML.
+
+    // 1. Check the cert was found by looking for the Subgrades block
+    if (!html.includes("Subgrades") && !html.includes("subgrades")) {
+      throw new Error(`ACE cert #${certNumber} was not found. Please check the cert number.`);
+    }
+
+    // 2. Extract the cert content block as plain text for easy regex parsing
+    // The cert data lives between the search form and the population chart
+    const certBlockStart = html.indexOf("#" + certNumber);
+    const certBlockEnd = html.indexOf("Population With Label", certBlockStart > 0 ? certBlockStart : 0);
+    const certBlock = certBlockStart > 0 && certBlockEnd > 0
+      ? html.substring(certBlockStart, certBlockEnd + 500)
+      : html;
+    const certText = certBlock.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+    // 3. Parse grade and label (e.g. "Grade MINT 9")
+    const gradeMatch = certText.match(/Grade\s+([A-Z][A-Z\s]*?)\s+(\d+(?:\.\d+)?)/i);
+    const gradeLabel = gradeMatch?.[1]?.trim() || "";
+    const gradeNumber = gradeMatch?.[2] || "";
+    // ACE format: "MINT 9", "GEM MINT 10", etc. — label first, number after
+    const grade = gradeNumber ? (gradeLabel ? `${gradeLabel} ${gradeNumber}` : gradeNumber) : "Unknown";
+
+    // 4. Parse subgrades (Surface, Centering, Edges, Corners)
+    const subgradeMatch = certText.match(/Surface\s+(\d+(?:\.\d+)?)\s+Centering\s+(\d+(?:\.\d+)?)\s+Edges\s+(\d+(?:\.\d+)?)\s+Corners\s+(\d+(?:\.\d+)?)/i);
+    const subgrades = subgradeMatch ? {
+      surface: subgradeMatch[1],
+      centering: subgradeMatch[2],
+      edges: subgradeMatch[3],
+      corners: subgradeMatch[4],
+    } : null;
+
+    // 5. Parse card name and set from the Card Details section
+    const detailsIdx = html.indexOf("Card Details");
+    const detailsBlock = detailsIdx > 0 ? html.substring(detailsIdx, detailsIdx + 3000) : "";
+    const detailsText = detailsBlock.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+
+    const nameMatch = detailsText.match(/\bName\s+(.+?)\s+(?:Release Year|Set|Category|Label)/i);
+    const setMatch = detailsText.match(/\bSet\s+(.+?)(?:\s+(?:Category|Release Year|Name|Label)|$)/i);
+    const yearMatch = detailsText.match(/Release Year\s+(\d{4})/i);
+    const cardName = nameMatch?.[1]?.trim().replace(/\s+/g, " ") || `ACE Cert #${certNumber}`;
+    const setName = setMatch?.[1]?.trim().replace(/\s+/g, " ") || "";
+
+    // 6. Extract card image URL (ACE CDN label image — the slab label photo)
+    const imgMatch = html.match(/src="(https:\/\/ace\.ams3\.[^"]+\.(jpg|jpeg|png|webp))"/i);
+    const imageUrl = imgMatch?.[1] || null;
+
+    const setWithYear = setName && yearMatch?.[1] ? `${setName} (${yearMatch[1]})` : setName;
+    console.log(`[cert-lookup] ACE cert ${certNumber} → ${cardName} | ${setWithYear || setName} | grade: ${grade} | img: ${imageUrl ? "✓" : "✗"}`);
+    if (subgrades) console.log(`[cert-lookup] ACE subgrades → Surface:${subgrades.surface} Center:${subgrades.centering} Edge:${subgrades.edges} Corner:${subgrades.corners}`);
+
+    // 7. Download the card image
+    let frontImageBase64 = "";
+    if (imageUrl) {
       try {
-        const obj = JSON.parse(raw);
-        if (obj?.memo?.name === "collectible-certification-lookup") {
-          certData = obj.data;
-          break;
-        }
-      } catch (_) {}
-    }
-
-    if (!certData) {
-      throw new Error("Could not read ACE cert data. Please photograph your ACE slab instead.");
-    }
-
-    // Determine grade from pop data.
-    // popReportSummary is a Livewire-serialised array: [[...counts], {"s":"arr"}]
-    // Index in the counts array directly corresponds to the grade (index 9 = grade 9, etc.)
-    const sameGradeCount: number = certData.sameGradeCount ?? 0;
-    const aceLabelCount: number = certData.aceLabelCount ?? 0;
-
-    if (sameGradeCount === 0 || aceLabelCount === 0) {
-      throw new Error(`ACE cert #${certNumber} was not found. Please check the cert number or photograph your slab.`);
-    }
-
-    const rawPop = certData.popReportSummary;
-    const popArray: number[] = Array.isArray(rawPop?.[0]) ? rawPop[0] : (Array.isArray(rawPop) ? rawPop : []);
-
-    // Find grade: the index whose count equals sameGradeCount
-    let grade = "Unknown";
-    if (popArray.length > 0) {
-      const gradeIndex = popArray.findIndex((count: number) => count === sameGradeCount);
-      if (gradeIndex > 0) {
-        // ACE grades: index 1=grade1, ..., index 9=grade9, index 10=grade10
-        // (index 0 is reserved for a special/pristine tier with 0 cards in most pop reports)
-        grade = String(gradeIndex);
-      } else if (gradeIndex === 0 && sameGradeCount > 0) {
-        grade = "Pristine";
+        frontImageBase64 = await downloadImageAsBase64(imageUrl, "https://acegrading.com/");
+      } catch (imgErr: any) {
+        console.warn(`[cert-lookup] ACE image download failed: ${imgErr.message}`);
       }
     }
 
-    console.log(`[cert-lookup] ACE cert ${certNumber} → grade ${grade} (sameGradeCount=${sameGradeCount})`);
-
     return {
-      cardName: `ACE Cert #${certNumber}`,
-      setName: "",
+      cardName,
+      setName: setWithYear || setName,
       grade,
       company: "ACE",
       certNumber,
-      frontImageBase64: "",
+      frontImageBase64,
     };
   }
 
