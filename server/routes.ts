@@ -5220,7 +5220,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       let result: any;
       if (upper === "PSA") result = await fetchPSACert(certStr);
-      else if (upper === "ACE") result = await fetchACECert(certStr);
+      else if (upper === "ACE") result = await lookupACE(certStr);
       else if (upper === "BGS" || upper === "BECKETT") result = await fetchBGSCert(certStr);
       else if (upper === "CGC") result = await fetchCGCCert(certStr);
       else if (upper === "TAG") result = await fetchTAGCert(certStr);
@@ -5607,9 +5607,100 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   async function lookupACE(certNumber: string): Promise<CertLookupResult> {
-    // ACE Grading (ace-grading.com) does not have a public cert lookup page
-    // accessible via server-side requests. Guide users to photograph their slab.
-    throw new Error("ACE doesn't have a public cert lookup. Please photograph your ACE slab to analyze it.");
+    // ACE Grading (acegrading.com) — page is accessible with browser UA via curl.
+    // Node.js fetch/https.request are blocked by Cloudflare JA3 TLS fingerprinting.
+    // We shell out to curl which uses libcurl's TLS stack (different fingerprint → 200).
+    // Grade is extracted from the Livewire snapshot pop data embedded in the initial HTML.
+    // Livewire POST (/livewire/update) is also CF-protected so card name/image unavailable.
+    const { exec } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execAsync = promisify(exec);
+
+    const certUrl = `https://acegrading.com/cert/${encodeURIComponent(certNumber)}`;
+    const curlCmd = [
+      "curl", "-s", "--max-time", "25", "--compressed",
+      "-H", `"User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"`,
+      "-H", `"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"`,
+      "-H", `"Accept-Language: en-GB,en;q=0.9"`,
+      "-H", `"Referer: https://acegrading.com/"`,
+      "-w", `"\n__HTTP_STATUS__:%{http_code}"`,
+      `"${certUrl}"`,
+    ].join(" ");
+
+    let html: string;
+    try {
+      const { stdout, stderr } = await execAsync(curlCmd, { maxBuffer: 5 * 1024 * 1024, timeout: 30000 });
+      const statusMatch = stdout.match(/\n__HTTP_STATUS__:(\d+)$/);
+      const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+      html = stdout.replace(/\n__HTTP_STATUS__:\d+$/, "");
+
+      if (status >= 400) {
+        throw new Error(`ACE returned HTTP ${status}. Please photograph your ACE slab instead.`);
+      }
+      if (!html.includes("acegrading.com") && !html.includes("collectible-certification")) {
+        throw new Error("ACE cert page did not load correctly. Please photograph your ACE slab instead.");
+      }
+    } catch (execErr: any) {
+      if (execErr.message && !execErr.message.startsWith("ACE")) {
+        throw new Error("ACE cert lookup unavailable. Please photograph your ACE slab instead.");
+      }
+      throw execErr;
+    }
+
+    // Extract all wire:snapshot blobs and find the certification lookup component
+    const snapshotMatches = [...html.matchAll(/wire:snapshot="([^"]+)"/g)];
+    let certData: any = null;
+    for (const m of snapshotMatches) {
+      const raw = m[1].replace(/&quot;/g, '"');
+      try {
+        const obj = JSON.parse(raw);
+        if (obj?.memo?.name === "collectible-certification-lookup") {
+          certData = obj.data;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    if (!certData) {
+      throw new Error("Could not read ACE cert data. Please photograph your ACE slab instead.");
+    }
+
+    // Determine grade from pop data.
+    // popReportSummary is a Livewire-serialised array: [[...counts], {"s":"arr"}]
+    // Index in the counts array directly corresponds to the grade (index 9 = grade 9, etc.)
+    const sameGradeCount: number = certData.sameGradeCount ?? 0;
+    const aceLabelCount: number = certData.aceLabelCount ?? 0;
+
+    if (sameGradeCount === 0 || aceLabelCount === 0) {
+      throw new Error(`ACE cert #${certNumber} was not found. Please check the cert number or photograph your slab.`);
+    }
+
+    const rawPop = certData.popReportSummary;
+    const popArray: number[] = Array.isArray(rawPop?.[0]) ? rawPop[0] : (Array.isArray(rawPop) ? rawPop : []);
+
+    // Find grade: the index whose count equals sameGradeCount
+    let grade = "Unknown";
+    if (popArray.length > 0) {
+      const gradeIndex = popArray.findIndex((count: number) => count === sameGradeCount);
+      if (gradeIndex > 0) {
+        // ACE grades: index 1=grade1, ..., index 9=grade9, index 10=grade10
+        // (index 0 is reserved for a special/pristine tier with 0 cards in most pop reports)
+        grade = String(gradeIndex);
+      } else if (gradeIndex === 0 && sameGradeCount > 0) {
+        grade = "Pristine";
+      }
+    }
+
+    console.log(`[cert-lookup] ACE cert ${certNumber} → grade ${grade} (sameGradeCount=${sameGradeCount})`);
+
+    return {
+      cardName: `ACE Cert #${certNumber}`,
+      setName: "",
+      grade,
+      company: "ACE",
+      certNumber,
+      frontImageBase64: "",
+    };
   }
 
   async function lookupTAG(certNumber: string): Promise<CertLookupResult> {

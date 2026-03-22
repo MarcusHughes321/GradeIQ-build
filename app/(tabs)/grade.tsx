@@ -534,6 +534,10 @@ export default function GradeScreen() {
         Alert.alert("Card Required", "Please look up a cert number or add a photo of the graded slab.");
         return;
       }
+      if (certLookupResult && !certLookupResult.frontImageBase64 && !slabImage) {
+        Alert.alert("Slab Photo Needed", "Grade found — but please add a photo of the slab below so the AI can analyse the card.");
+        return;
+      }
     } else if (mode === "quick") {
       if (!frontImage || !backImage) {
         Alert.alert("Photos Required", "Please add photos of both the front and back of your card.");
@@ -579,8 +583,8 @@ export default function GradeScreen() {
       let backSrc: string | undefined;
       let certDataToPass: CertData | undefined;
       if (certLookupResult) {
-        frontSrc = certLookupResult.frontImageBase64;
-        backSrc = certLookupResult.backImageBase64;
+        frontSrc = certLookupResult.frontImageBase64 || slabImage!;
+        backSrc = certLookupResult.backImageBase64 || slabBackImage || undefined;
         certDataToPass = {
           company: certLookupResult.company,
           grade: certLookupResult.grade,
@@ -1138,10 +1142,17 @@ export default function GradeScreen() {
                             <Text style={styles.certPreviewSetName} numberOfLines={1}>{certLookupResult.setName}</Text>
                           ) : null}
                           <Text style={styles.certPreviewCertNum}>Cert #{certLookupResult.certNumber}</Text>
-                          <View style={styles.certPreviewCheck}>
-                            <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                            <Text style={styles.certPreviewCheckText}>Ready to analyze</Text>
-                          </View>
+                          {certLookupResult.frontImageBase64 ? (
+                            <View style={styles.certPreviewCheck}>
+                              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+                              <Text style={styles.certPreviewCheckText}>Ready to analyze</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.certPreviewCheck}>
+                              <Ionicons name="camera-outline" size={14} color="#F59E0B" />
+                              <Text style={[styles.certPreviewCheckText, { color: "#F59E0B" }]}>Add slab photo below</Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                     </View>
