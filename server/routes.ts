@@ -4599,13 +4599,151 @@ Return ONLY this JSON (all numbers required):
     }
   }
 
+  /**
+   * Post-detection calibration of inner bounds for slab images.
+   *
+   * Key insight: the card's physical top border is mostly hidden behind the grading label.
+   * So the AI cannot accurately measure the top white border from the visible image alone.
+   * We use the bottom border (fully visible) as a proxy for the top border — since a standard
+   * Pokemon card has equal white borders on all 4 sides (~3mm each).
+   *
+   * For L/R: the AI can see both borders. We use the physical card geometry to cross-check
+   * and nudge the inner bounds if they're significantly off from the expected physical width.
+   *
+   * @param bounds - detected bounds (outer + inner)
+   * @param AR - image aspect ratio (width/height). 0 = unknown.
+   * @param borderFracW - border as fraction of card width (3/63 ≈ 0.0476)
+   * @param borderFracH - border as fraction of card height (3/88 ≈ 0.0341)
+   */
+  function calibrateSlabInnerBounds(
+    bounds: { leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number;
+              innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number },
+    AR: number, borderFracW: number, borderFracH: number
+  ): typeof bounds {
+    const { leftPercent: L, topPercent: T, rightPercent: R, bottomPercent: B } = bounds;
+    const cardWidthPct  = R - L;
+    const iL0 = bounds.innerLeftPercent;
+    const iT0 = bounds.innerTopPercent;
+    const iR0 = bounds.innerRightPercent;
+    const iB0 = bounds.innerBottomPercent;
+
+    if (iL0 == null || iT0 == null || iR0 == null || iB0 == null) return bounds;
+
+    const result = { ...bounds };
+
+    // ── L/R calibration ──────────────────────────────────────────────────────────
+    // Physical expected white border on each side = borderFracW × cardWidth (as % image width)
+    const expectedLRBorder = borderFracW * cardWidthPct; // in % of image width
+
+    const detectedLBorder = iL0 - L;
+    const detectedRBorder = R - iR0;
+
+    // Only nudge if the AI's value is more than 50% off the expected (i.e., clearly wrong)
+    // and the nudge would move it TOWARD the expected, not away from it.
+    const LR_TOLERANCE = 0.5; // allow 50% deviation before calibrating
+    const calibLBorder = Math.abs(detectedLBorder - expectedLRBorder) > expectedLRBorder * LR_TOLERANCE
+      ? expectedLRBorder : detectedLBorder;
+    const calibRBorder = Math.abs(detectedRBorder - expectedLRBorder) > expectedLRBorder * LR_TOLERANCE
+      ? expectedLRBorder : detectedRBorder;
+
+    if (calibLBorder !== detectedLBorder)
+      console.log(`[slab-calibrate] L border nudged: ${detectedLBorder.toFixed(1)}% → ${calibLBorder.toFixed(1)}% (expected ${expectedLRBorder.toFixed(1)}%)`);
+    if (calibRBorder !== detectedRBorder)
+      console.log(`[slab-calibrate] R border nudged: ${detectedRBorder.toFixed(1)}% → ${calibRBorder.toFixed(1)}% (expected ${expectedLRBorder.toFixed(1)}%)`);
+
+    result.innerLeftPercent  = L + calibLBorder;
+    result.innerRightPercent = R - calibRBorder;
+
+    // ── T/B calibration ──────────────────────────────────────────────────────────
+    // The top white border is mostly hidden behind the label, so the AI can only see
+    // a sliver (or none) of it. Use the bottom border (fully visible) to estimate the
+    // physical top border size via symmetry (3mm border on all sides).
+    //
+    // Method: bottom border is accurately measured. The physical border is the same size
+    // on top. Convert: topBorderPct = bottomBorderPct (if image scale is uniform vertically,
+    // which it is for non-distorted photos).
+    const measuredBottomBorder = B - iB0; // in % of image height
+
+    // Also compute from physical geometry if image dimensions are known
+    let physicalBorderH: number | null = null;
+    if (AR > 0) {
+      // Card total height as % of image height = cardWidthPct × (88/63) × AR
+      const cardHeightPct = cardWidthPct * (88 / 63) * AR;
+      physicalBorderH = borderFracH * cardHeightPct; // expected border in % of image height
+    }
+
+    // Best estimate: use bottom border (most reliable). Cross-check with physical geometry.
+    let estimatedTopBorder = measuredBottomBorder;
+    if (physicalBorderH !== null) {
+      // If physical geometry gives a very different estimate, blend them
+      // (physical geometry is less reliable due to unknown exact image aspect ratio)
+      const physBias = 0.3; // weight toward physical geometry
+      estimatedTopBorder = measuredBottomBorder * (1 - physBias) + physicalBorderH * physBias;
+    }
+
+    // Only override the AI's inner top if the symmetry estimate is meaningfully different
+    // and if the AI's value seems too small or too large
+    const calibInnerTop = T + estimatedTopBorder;
+    const AI_inner_top_gap = iT0 - T;
+    const TOP_TOLERANCE = 0.4; // allow 40% deviation from the symmetry estimate
+
+    if (Math.abs(AI_inner_top_gap - estimatedTopBorder) > estimatedTopBorder * TOP_TOLERANCE) {
+      console.log(`[slab-calibrate] innerTop adjusted: AI gave T+${AI_inner_top_gap.toFixed(1)}% (${iT0.toFixed(1)}%), symmetry says T+${estimatedTopBorder.toFixed(1)}% → using ${calibInnerTop.toFixed(1)}%`);
+      result.innerTopPercent = calibInnerTop;
+    }
+
+    // Keep inner bottom as-is (it's the most directly measurable)
+    result.innerBottomPercent = iB0;
+
+    // Final validity check
+    const fL = result.innerLeftPercent!;
+    const fT = result.innerTopPercent!;
+    const fR = result.innerRightPercent!;
+    const fB = result.innerBottomPercent!;
+    if (fL <= L || fT <= T || fR >= R || fB >= B || fL >= fR || fT >= fB) {
+      console.log(`[slab-calibrate] Calibrated inner bounds invalid, reverting to original`);
+      return bounds;
+    }
+
+    console.log(`[slab-calibrate] Final inner: iL=${fL.toFixed(1)} iT=${fT.toFixed(1)} iR=${fR.toFixed(1)} iB=${fB.toFixed(1)}`);
+    console.log(`[slab-calibrate] Centering: L/R=${((fL-L)/((fL-L)+(R-fR))*100).toFixed(0)}/${((R-fR)/((fL-L)+(R-fR))*100).toFixed(0)} T/B=${((fT-T)/((fT-T)+(B-fB))*100).toFixed(0)}/${((B-fB)/((fT-T)+(B-fB))*100).toFixed(0)}`);
+
+    return result;
+  }
+
   async function detectSlabCardBoundsWithAI(imageUrl: string): Promise<{ leftPercent: number; topPercent: number; rightPercent: number; bottomPercent: number; confidence: number; innerLeftPercent?: number; innerTopPercent?: number; innerRightPercent?: number; innerBottomPercent?: number } | null> {
     const CARD_RATIO = 2.5 / 3.5; // 0.714
     const RATIO_TOLERANCE = 0.25; // relaxed — slabs with dark cards can appear slightly non-square
     try {
+      // Extract image dimensions for calibration hints
+      let imgW = 0, imgH = 0;
+      try {
+        const buf = Buffer.from(imageUrl.replace(/^data:[^;]+;base64,/, ""), "base64");
+        const meta = await sharp(buf).metadata();
+        imgW = meta.width ?? 0;
+        imgH = meta.height ?? 0;
+      } catch (_) {}
+
+      // Physical calibration constants (standard Pokemon card: 63mm × 88mm, ~3mm white border)
+      const BORDER_FRAC_WIDTH  = 3 / 63;  // border as fraction of card width  (~0.0476)
+      const BORDER_FRAC_HEIGHT = 3 / 88;  // border as fraction of card height (~0.0341)
+      const AR = imgW > 0 && imgH > 0 ? imgW / imgH : 0; // image width/height ratio (e.g. 0.67 for portrait)
+
+      const calibrationNote = imgW > 0 && imgH > 0 ? `
+IMAGE DIMENSIONS: ${imgW}px wide × ${imgH}px tall (W/H ratio = ${AR.toFixed(3)})
+PHYSICAL CALIBRATION for standard cards (63mm × 88mm, ~3mm white border):
+  If you detect the card as X% of image width (outer right − outer left = X):
+    • Expected left/right white border = X × ${BORDER_FRAC_WIDTH.toFixed(4)} % of image width ≈ X × 0.048%
+      e.g. card is 80% wide → each side border ≈ 3.8% of image width
+    • Card total height (as % of image height) = X × (88/63) × (${imgW}/${imgH}) = X × ${(88/63 * imgW/imgH).toFixed(4)}%
+    • Expected top/bottom white border = X × ${BORDER_FRAC_HEIGHT.toFixed(4)} × (${imgW}/${imgH}) % of image height = X × ${(BORDER_FRAC_HEIGHT * imgW / imgH).toFixed(4)}%
+      e.g. card is 80% wide → each top/bottom border ≈ ${(80 * BORDER_FRAC_HEIGHT * imgW / imgH).toFixed(1)}% of image height
+  Use these formulas to sanity-check your inner bounds before returning.` : "";
+
       // Ask Claude for all four visible edges including labelBottomPercent.
       // labelBottomPercent = where the grading label ends and card becomes visible = the effective TOP line.
       const aiPrompt = `You are analyzing a Pokemon card inside a graded plastic slab case. Find the card boundaries for the centering measurement tool.
+${calibrationNote}
 
 SLAB ANATOMY (from outside to inside):
 1. OUTER SLAB FRAME: Rigid coloured plastic border around the outside. NOT the card.
@@ -4774,13 +4912,13 @@ Return ONLY this JSON:
         const verified = await verifyAndCorrectBoundsWithAI(imageForVerify, result, "slab");
         if (verified) {
           console.log(`[slab-ai-bounds] Verified: L=${verified.leftPercent.toFixed(1)} T=${verified.topPercent.toFixed(1)} R=${verified.rightPercent.toFixed(1)} B=${verified.bottomPercent.toFixed(1)} conf=${verified.confidence.toFixed(2)}`);
-          return verified;
+          return calibrateSlabInnerBounds(verified, AR, BORDER_FRAC_WIDTH, BORDER_FRAC_HEIGHT);
         }
       } catch (verifyErr) {
         console.warn("[slab-ai-bounds] Verification step failed, using initial bounds:", (verifyErr as any)?.message);
       }
 
-      return result;
+      return calibrateSlabInnerBounds(result, AR, BORDER_FRAC_WIDTH, BORDER_FRAC_HEIGHT);
     } catch (err) {
       console.warn("[slab-ai-bounds] AI detection failed:", (err as any)?.message);
       return null;
