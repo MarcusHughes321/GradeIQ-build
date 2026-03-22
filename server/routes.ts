@@ -4472,11 +4472,13 @@ Return ONLY this JSON, no explanation:
 
       const slabContext = mode === "slab" ? `
 SLAB-SPECIFIC NOTES:
-- The card is inside a plastic slab case with thin transparent plastic walls (~3-5mm each side)
-- LEFT/RIGHT card edges: where the card material meets the clear plastic wall. For dark Art Rare cards this is where the dark card material ends and clear plastic begins — look for the subtle material change at the very edge of the card inside the slab
-- BOTTOM card edge: where the card material meets the slab bottom plastic  
+- The card sits INSIDE a plastic slab. The slab has: (1) a rigid outer frame/border [NOT the card], (2) a transparent inner window [NOT the card], (3) the physical card inside the window [THIS is what you measure].
+- LEFT/RIGHT card edges: where the card material meets the clear/transparent plastic of the slab interior window. There should be a visible gap or clear plastic between the card edge and the outer slab frame walls.
+- The card typically occupies 65-85% of the image width — if your left/right values give a wider span than this, they are probably picking the outer slab frame rather than the card.
+- BOTTOM card edge: where the card material meets the slab bottom plastic
 - TOP card edge: the physical card top is BEHIND the grading label — it was estimated using card aspect ratio (width ÷ 0.714)
-- Do NOT confuse the inner holographic border or artwork edge with the card's physical edge — the card material extends to the slab wall` : `
+- Do NOT use the outer slab frame edges as the card edges — the card is INSIDE the frame
+- For Art Rare cards: the card edge is where the dark full-art printing ends and the clear slab plastic begins` : `
 RAW CARD NOTES:
 - The card edges are where the physical card material meets the background
 - For dark Art Rare cards: the card edge is where the dark material ends (even if subtle against a dark background)`;
@@ -4580,33 +4582,43 @@ Return ONLY this JSON (all numbers required):
     try {
       // Ask Claude ONLY for the three visible edges + inner bounds.
       // We calculate topPercent server-side from aspect ratio (Claude's arithmetic is unreliable).
-      const aiPrompt = `You are analyzing an image of a Pokemon card in a graded plastic slab case. Find card boundaries for centering measurement.
+      const aiPrompt = `You are analyzing a Pokemon card inside a graded plastic slab case. Your job is to find the physical card boundaries (NOT the slab outer frame).
 
-WHAT TO FIND — THREE VISIBLE OUTER EDGES:
-The slab has thin transparent plastic walls (about 3-5mm thick). The card material sits INSIDE the slab plastic.
-- leftPercent: the card's LEFT physical edge — where card material meets clear slab plastic. Look for the boundary between the colored/dark card material and the transparent slab wall. The card extends right up to the inner slab wall, so this will be very close to where the slab interior starts.
-- rightPercent: same on the RIGHT side
-- bottomPercent: where the card's bottom edge meets the slab bottom plastic
+SLAB ANATOMY — understand what you are looking at:
+1. OUTER SLAB FRAME: The rigid coloured border/frame on the outside of the case. This is often dark plastic (black, grey, or branded colour). This is NOT the card.
+2. TRANSPARENT PLASTIC WINDOW: Clear/frosted plastic through which you see the card. This is also NOT the card.
+3. THE CARD ITSELF: The printed Pokemon card material sitting inside the clear window. This IS what you must measure.
 
-CRITICAL: For dark/black Art Rare cards: the card edge is at the very inner edge of the slab plastic, not where the holographic artwork/border pattern ends. The physical card edge is typically at roughly where the slab's rigid case interior begins. Do NOT stop at an inner holographic pattern or frame — the card material extends fully to the slab wall.
+WHAT TO FIND — three visible edges of the PHYSICAL CARD (not the outer slab frame):
+- leftPercent: the LEFT physical edge of the card, where the card surface meets the clear inner plastic wall. The clear/transparent slab plastic is visible to the left of this point.
+- rightPercent: the RIGHT physical edge of the card, same principle — clear slab plastic is visible to the right of this point.
+- bottomPercent: the BOTTOM physical edge of the card, where the card material ends and the slab bottom plastic begins.
 
-NOTE: Do NOT report topPercent — the grading label covers the card top; we calculate it from aspect ratio.
+NOTE: Do NOT report topPercent. The card top is hidden behind the grading label; we calculate it from the card aspect ratio.
 
-INNER artwork boundary (where the card's printed frame ends and artwork begins):
-- innerLeftPercent: where artwork begins on LEFT (inside the printed card frame/border)
-- innerTopPercent: visible artwork start below the label panel
-- innerRightPercent: where artwork ends on RIGHT
-- innerBottomPercent: where artwork ends at BOTTOM
-- Art Rare / Full Art / Secret Rare: artwork nearly fills the card (~1-3% border per side)
-- Standard cards: white border ~5-10% per side
+VISUAL GUIDANCE:
+- The actual card typically occupies 65-85% of the image width, centred horizontally.
+- There will be clear/transparent plastic visible between the card edge and the outer slab frame on both sides.
+- For standard Pokemon cards with a white border: the card's LEFT edge is where the white printed border ends and transparent plastic begins.
+- For Illustration Rare / Full Art cards with no white border: the card's LEFT edge is where the dark artwork ends and transparent/clear plastic begins — look for a subtle but distinct material boundary.
+- The outer plastic slab frame sits OUTSIDE the card edges. Do NOT use the outer slab frame edges as the card boundaries.
+- Card left edge is typically 8-18% from the image left edge; right edge is typically 82-92% from the left.
+
+INNER ARTWORK BOUNDARY (inside the card's printed frame):
+- innerLeftPercent: where the artwork/image begins INSIDE the card's printed border (left side)
+- innerTopPercent: where artwork begins below the grading label (estimate based on visible card top where label meets card)
+- innerRightPercent: where the artwork/image ends on the right side
+- innerBottomPercent: where the artwork ends at the bottom of the card
+- For Illustration Rare / Full Art cards: inner bounds are 1-3% inside the outer card edge (minimal or no visible border)
+- For Standard cards with white border: inner bounds are 5-12% inside the outer card edge on each side
 
 Return ONLY this JSON, no explanation:
 {
-  "leftPercent": <card LEFT physical edge as % of image width>,
-  "rightPercent": <card RIGHT physical edge as % of image width>,
-  "bottomPercent": <card BOTTOM edge as % of image height>,
+  "leftPercent": <CARD left physical edge as % of image width — NOT the slab frame>,
+  "rightPercent": <CARD right physical edge as % of image width — NOT the slab frame>,
+  "bottomPercent": <CARD bottom edge as % of image height>,
   "innerLeftPercent": <artwork start on left, as % of image width>,
-  "innerTopPercent": <visible artwork start below label, as % of image height>,
+  "innerTopPercent": <artwork top start below label, as % of image height>,
   "innerRightPercent": <artwork end on right, as % of image width>,
   "innerBottomPercent": <artwork end at bottom, as % of image height>,
   "confidence": <0.0-1.0>
@@ -5665,11 +5677,26 @@ RESPONSE FORMAT (JSON only, no markdown):
       : html;
     const certText = certBlock.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
-    // 3. Parse grade and label (e.g. "Grade MINT 9")
-    const gradeMatch = certText.match(/Grade\s+([A-Z][A-Z\s]*?)\s+(\d+(?:\.\d+)?)/i);
-    const gradeLabel = gradeMatch?.[1]?.trim() || "";
-    const gradeNumber = gradeMatch?.[2] || "";
-    // ACE format: "MINT 9", "GEM MINT 10", etc. — label first, number after
+    // 3. Parse grade and label — handles "Grade NM-MT 8", "Grade MINT 9", "Grade GEM MINT 10", "Grade 8 NM-MT", etc.
+    // Try label-first: "Grade NM-MT 8" / "Grade MINT 9"
+    const gradeMatchLabelFirst = certText.match(/Grade\s+([A-Z][A-Z\s\-]*?)\s+(\d+(?:\.\d+)?)/i);
+    // Try number-first: "Grade 8 NM-MT"
+    const gradeMatchNumberFirst = certText.match(/Grade\s+(\d+(?:\.\d+)?)\s+([A-Z][A-Z\s\-]+)/i);
+    // Try number only: "Grade 8"
+    const gradeMatchNumberOnly = certText.match(/Grade\s+(\d+(?:\.\d+)?)/i);
+
+    let gradeLabel = "";
+    let gradeNumber = "";
+    if (gradeMatchLabelFirst) {
+      gradeLabel = gradeMatchLabelFirst[1].trim();
+      gradeNumber = gradeMatchLabelFirst[2];
+    } else if (gradeMatchNumberFirst) {
+      gradeNumber = gradeMatchNumberFirst[1];
+      gradeLabel = gradeMatchNumberFirst[2].trim();
+    } else if (gradeMatchNumberOnly) {
+      gradeNumber = gradeMatchNumberOnly[1];
+    }
+    // ACE format: "NM-MT 8", "GEM MINT 10", etc.
     const grade = gradeNumber ? (gradeLabel ? `${gradeLabel} ${gradeNumber}` : gradeNumber) : "Unknown";
 
     // 4. Parse subgrades (Surface, Centering, Edges, Corners)
