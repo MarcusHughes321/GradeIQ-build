@@ -33,7 +33,7 @@ import type { CertData } from "@/lib/grading-context";
 type GradeMode = "hub" | "quick" | "deep" | "crossover";
 type DeepStep = "front" | "back" | "angledFront" | "angledBack" | "cornerFrontTL" | "cornerFrontTR" | "cornerFrontBL" | "cornerFrontBR" | "cornerBackTL" | "cornerBackTR" | "cornerBackBL" | "cornerBackBR" | "slabFront" | "slabBack";
 
-const CERT_COMPANIES = ["PSA", "ACE", "BGS", "CGC", "TAG"] as const;
+const CERT_COMPANIES = ["ACE", "TAG"] as const;
 type CertCompany = typeof CERT_COMPANIES[number];
 type CertLookupResult = {
   cardName: string;
@@ -199,7 +199,7 @@ export default function GradeScreen() {
   const [slabBackImage, setSlabBackImage] = useState<string | null>(null);
 
   const [certNumber, setCertNumber] = useState("");
-  const [selectedCertCompany, setSelectedCertCompany] = useState<CertCompany>("PSA");
+  const [selectedCertCompany, setSelectedCertCompany] = useState<CertCompany>("ACE");
   const [certLookupResult, setCertLookupResult] = useState<CertLookupResult | null>(null);
   const [certLookupLoading, setCertLookupLoading] = useState(false);
   const [certLookupError, setCertLookupError] = useState<string | null>(null);
@@ -1028,21 +1028,29 @@ export default function GradeScreen() {
                   </View>
 
                   <View style={styles.certCompanyRow}>
-                    {CERT_COMPANIES.map((company) => (
-                      <Pressable
-                        key={company}
-                        style={[styles.certCompanyPill, selectedCertCompany === company && styles.certCompanyPillActive]}
-                        onPress={() => {
-                          setSelectedCertCompany(company as CertCompany);
-                          setCertLookupResult(null);
-                          setCertLookupError(null);
-                        }}
-                      >
-                        <Text style={[styles.certCompanyPillText, selectedCertCompany === company && styles.certCompanyPillTextActive]}>
-                          {company}
-                        </Text>
-                      </Pressable>
-                    ))}
+                    {/* ACE — fully enabled */}
+                    <Pressable
+                      key="ACE"
+                      style={[styles.certCompanyPill, selectedCertCompany === "ACE" && styles.certCompanyPillActive]}
+                      onPress={() => {
+                        setSelectedCertCompany("ACE");
+                        setCertLookupResult(null);
+                        setCertLookupError(null);
+                      }}
+                    >
+                      <Text style={[styles.certCompanyPillText, selectedCertCompany === "ACE" && styles.certCompanyPillTextActive]}>
+                        ACE
+                      </Text>
+                    </Pressable>
+
+                    {/* TAG — locked / coming soon */}
+                    <View key="TAG" style={[styles.certCompanyPill, styles.certCompanyPillLocked]}>
+                      <Ionicons name="lock-closed" size={10} color={Colors.textMuted} style={{ marginRight: 3 }} />
+                      <Text style={[styles.certCompanyPillText, styles.certCompanyPillTextLocked]}>TAG</Text>
+                      <View style={styles.certCompanyPillSoonBadge}>
+                        <Text style={styles.certCompanyPillSoonText}>Soon</Text>
+                      </View>
+                    </View>
                   </View>
 
                   <View style={styles.certInputRow}>
@@ -2117,6 +2125,28 @@ const styles = StyleSheet.create({
   },
   certCompanyPillTextActive: {
     color: "#8B5CF6",
+  },
+  certCompanyPillLocked: {
+    opacity: 0.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  certCompanyPillTextLocked: {
+    color: Colors.textMuted,
+  },
+  certCompanyPillSoonBadge: {
+    marginLeft: 4,
+    backgroundColor: Colors.surfaceBorder,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  certCompanyPillSoonText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 9,
+    color: Colors.textMuted,
+    letterSpacing: 0.3,
   },
   certInputRow: {
     flexDirection: "row",
