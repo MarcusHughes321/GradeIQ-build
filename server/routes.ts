@@ -5389,37 +5389,107 @@ RESPONSE FORMAT (JSON only, no markdown):
     };
   }
 
-  async function fetchTAGCert(certNumber: string) {
-    const url = `https://www.theacademygrading.com/verify/${certNumber}`;
-    const resp = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-        "Accept": "text/html",
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!resp.ok) throw new Error(`TAG lookup failed (${resp.status}). Please add photos manually.`);
-    const html = await resp.text();
-    const root = parseHtml(html);
+  async function fetchTAGCert(certNumber: string): Promise<CertLookupResult> {
+    const crypto = await import("node:crypto");
 
-    const imgEl   = root.querySelector("img[class*='cert'], img[class*='card'], .card-image img");
-    const gradeEl = root.querySelector("[class*='grade'], .cert-grade");
-    const nameEl  = root.querySelector("h1, h2, .cert-name, .card-name");
+    // TAG grading uses a crypto-authenticated API at api.taggrading.com.
+    // Authentication: x-tag-key = SHA256(HASH_KEY + ":" + certNumber) in hex.
+    // Response: AES-256-CBC encrypted — key = SHA256(DECRYPT_KEY) raw bytes,
+    //           format = "ivHex:ciphertextHex".
+    const HASH_KEY    = "TZYOj76MKF1Aw0QK0gpAGySALCNgKG";
+    const DECRYPT_KEY = "K6ucGQIf7viQW9IT0XLUk5MjSIxssgisqj";
 
-    if (!imgEl && !gradeEl) throw new Error("TAG cert lookup requires JavaScript. Please add photos manually instead.");
+    const xTagKey = crypto.createHash("sha256").update(HASH_KEY + ":" + certNumber).digest("hex");
+    const apiUrl  = `https://api.taggrading.com/graded-cards/public/detail/${encodeURIComponent(certNumber)}`;
+    console.log(`[cert-lookup] TAG API: ${apiUrl}`);
 
-    const imgSrc = imgEl?.getAttribute("src");
-    const frontImageBase64 = imgSrc ? await downloadImageAsBase64(imgSrc.startsWith("http") ? imgSrc : `https://www.theacademygrading.com${imgSrc}`) : null;
-    if (!frontImageBase64) throw new Error("TAG cert image unavailable. Please add photos manually.");
+    let resp: Response;
+    try {
+      resp = await fetch(apiUrl, {
+        headers: {
+          "Accept":         "application/json",
+          "Content-Type":   "application/json",
+          "Origin":         "https://my.taggrading.com",
+          "Referer":        "https://my.taggrading.com/",
+          "x-tag-key":      xTagKey,
+          "User-Agent":     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(20000),
+      });
+    } catch (e: any) {
+      throw new Error("TAG cert lookup couldn't be reached. Please photograph your TAG slab instead.");
+    }
+
+    if (resp.status === 404) throw new Error(`TAG cert #${certNumber} was not found. Please check the cert number.`);
+    if (!resp.ok) throw new Error(`TAG cert lookup failed (${resp.status}). Please photograph your TAG slab instead.`);
+
+    const encryptedText = await resp.text();
+
+    // Decrypt AES-256-CBC response
+    let cardData: any;
+    try {
+      const key = crypto.createHash("sha256").update(DECRYPT_KEY).digest();
+      const colonIdx = encryptedText.indexOf(":");
+      if (colonIdx < 0) throw new Error("Unexpected response format");
+      const iv         = Buffer.from(encryptedText.substring(0, colonIdx), "hex");
+      const ciphertext = encryptedText.substring(colonIdx + 1);
+      const decipher   = crypto.createDecipheriv("aes-256-cbc", key, iv);
+      let decrypted    = decipher.update(ciphertext, "hex", "utf8");
+      decrypted       += decipher.final("utf8");
+      const parsed     = JSON.parse(decrypted);
+      cardData         = parsed?.data;
+    } catch {
+      throw new Error("TAG cert lookup: could not parse response. Please photograph your TAG slab instead.");
+    }
+
+    if (!cardData) throw new Error("TAG cert data not found. Please photograph your TAG slab instead.");
+
+    // Extract card info
+    const cardName = cardData.cardName || cardData.card?.cardName || `TAG Cert #${certNumber}`;
+    const setParts = [cardData.cardSet?.setName, cardData.cardSet?.subsetName].filter(Boolean);
+    const setName  = setParts.join(" – ");
+    const grade    = (cardData.grade || cardData.tagXGrade || "").toString().trim();
+
+    // Prefer deskewed (flat) card images over slab photos for analysis accuracy
+    const frontUrl = cardData.imageFileDeskewedFront || cardData.imageFileOriginalFront || cardData.imageSlabbedFront;
+    const backUrl  = cardData.imageFileDeskewedBack  || cardData.imageSlabbedBack;
+
+    console.log(`[cert-lookup] TAG cert ${certNumber} → ${cardName} | ${setName} | grade: ${grade}`);
+    console.log(`[cert-lookup] TAG images → front: ${frontUrl ? "✓" : "✗"} | back: ${backUrl ? "✓" : "✗"}`);
+
+    // Download and resize TAG images — originals are 4000×6000px (high-res scan).
+    // We resize to max 1200px on the longer side for efficient transfer & AI analysis.
+    async function downloadTagImage(url: string): Promise<string> {
+      const raw = await downloadImageAsBase64(url, "https://my.taggrading.com/");
+      if (!raw) return "";
+      try {
+        const base64Data = raw.substring(raw.indexOf(",") + 1);
+        const buffer = Buffer.from(base64Data, "base64");
+        const resized = await sharp(buffer)
+          .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 90 })
+          .toBuffer();
+        return `data:image/jpeg;base64,${resized.toString("base64")}`;
+      } catch {
+        return raw;
+      }
+    }
+
+    const [frontImageBase64, backImageBase64] = await Promise.all([
+      frontUrl ? downloadTagImage(frontUrl).catch(() => "") : Promise.resolve(""),
+      backUrl  ? downloadTagImage(backUrl).catch(() => "")  : Promise.resolve(""),
+    ]);
+
+    if (!frontImageBase64) throw new Error("TAG cert found but card image could not be downloaded. Please photograph your TAG slab instead.");
 
     return {
-      cardName:        nameEl?.text?.trim()  || "Unknown Card",
-      setName:         "",
-      grade:           gradeEl?.text?.trim() || "",
-      company:         "TAG",
+      cardName,
+      setName,
+      grade,
+      company: "TAG",
       certNumber,
       frontImageBase64,
-      backImageBase64: undefined,
+      backImageBase64: backImageBase64 || undefined,
     };
   }
 
@@ -5430,11 +5500,15 @@ RESPONSE FORMAT (JSON only, no markdown):
         return res.status(400).json({ error: "certNumber and company are required" });
       }
 
-      const certStr = certNumber.toString().replace(/\D/g, "");
+      const upper = (company as string).toUpperCase();
+      // TAG cert numbers include an alphabetic prefix (e.g. "C5964402") — preserve it.
+      // All other companies use purely numeric cert numbers.
+      const certStr = upper === "TAG"
+        ? certNumber.toString().trim().toUpperCase()
+        : certNumber.toString().replace(/\D/g, "");
       if (!certStr) return res.status(400).json({ error: "Invalid cert number" });
 
       console.log(`[cert-lookup] ${company} cert ${certStr}`);
-      const upper = (company as string).toUpperCase();
 
       let result: any;
       if (upper === "PSA") result = await fetchPSACert(certStr);
@@ -5974,9 +6048,8 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   async function lookupTAG(certNumber: string): Promise<CertLookupResult> {
-    // The Academy Grading's website cannot be reached from our servers.
-    // Guide users to photograph their TAG slab instead.
-    throw new Error("TAG's cert lookup is not accessible. Please photograph your TAG slab to analyze it.");
+    // Delegate to fetchTAGCert which implements the crypto-authenticated API.
+    return fetchTAGCert(certNumber.trim().toUpperCase());
   }
 
   app.post("/api/cert-lookup", async (req, res) => {
