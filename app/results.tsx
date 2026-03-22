@@ -65,6 +65,24 @@ function getGradientColor(grade: number, maxGrade: number = 10): string {
   }
 }
 
+function parsePrice(str: string | undefined | null): number | null {
+  if (!str || str.includes("No value") || str === "-") return null;
+  const num = str.replace(/[^\d.]/g, "");
+  const n = parseFloat(num);
+  return isNaN(n) ? null : n;
+}
+
+function getCurrencySymbol(str: string | undefined | null): string {
+  if (!str) return "£";
+  const match = str.match(/^([£$€¥]|[A-Z]{1,3}\$?)/);
+  return match ? match[1] : "£";
+}
+
+function parseGradeNum(gradeStr: string): number {
+  const match = gradeStr.match(/(\d+(?:\.\d+)?)$/);
+  return match ? parseFloat(match[1]) : 0;
+}
+
 function getGradeSummary(psa: number, bgs: number, ace: number): string {
   const avg = (psa + bgs + ace) / 3;
   if (avg >= 9.5) return "Exceptional condition. This card is in pristine, gem mint shape across all grading standards.";
@@ -798,20 +816,56 @@ export default function ResultsScreen() {
         {result.currentGrade && (
           <View style={styles.currentGradeBanner}>
             <View style={styles.currentGradeBannerHeader}>
-              <Ionicons name="shield-checkmark-outline" size={16} color="#8B5CF6" />
-              <Text style={styles.currentGradeBannerTitle}>Currently Graded</Text>
+              <Ionicons name="git-compare-outline" size={16} color="#8B5CF6" />
+              <Text style={styles.currentGradeBannerTitle}>Crossover Analysis</Text>
               {result.currentGrade.certNumber ? (
-                <Text style={styles.currentGradeBannerCert}>#{result.currentGrade.certNumber}</Text>
+                <Text style={styles.currentGradeBannerCert}>Cert #{result.currentGrade.certNumber}</Text>
               ) : null}
             </View>
             <View style={styles.currentGradeBannerBody}>
-              <View style={styles.currentGradePill}>
-                <Text style={styles.currentGradePillCompany}>{result.currentGrade.company}</Text>
-                <Text style={styles.currentGradePillGrade}>{result.currentGrade.grade}</Text>
+              <View>
+                <Text style={styles.currentGradeBannerSublabel}>Currently in</Text>
+                <View style={styles.currentGradePill}>
+                  <Text style={styles.currentGradePillCompany}>{result.currentGrade.company}</Text>
+                  <Text style={styles.currentGradePillGrade}>{result.currentGrade.grade}</Text>
+                </View>
               </View>
-              <Text style={styles.currentGradeBannerNote}>
-                This card is encased in a {result.currentGrade.company} slab. The grades below show estimated crossover results.
-              </Text>
+              <Ionicons name="arrow-forward" size={20} color="rgba(139,92,246,0.4)" style={{ marginTop: 18 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.currentGradeBannerSublabel}>Predicted crossover grades</Text>
+                <View style={styles.crossoverChipRow}>
+                  {enabledCompanies.includes("PSA") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>PSA</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.psa.grade % 1 === 0 ? result.psa.grade : result.psa.grade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("Beckett") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>BGS</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade : result.beckett.overallGrade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("Ace") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>ACE</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.ace.overallGrade}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("CGC") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>CGC</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.cgc.grade % 1 === 0 ? result.cgc.grade : result.cgc.grade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("TAG") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>TAG</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.tag.overallGrade % 1 === 0 ? result.tag.overallGrade : result.tag.overallGrade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
             </View>
           </View>
         )}
@@ -1061,6 +1115,141 @@ export default function ResultsScreen() {
             <Text style={styles.valueNA}>No value data found</Text>
           )}
         </View>
+
+        {result.isCrossover && result.currentGrade && cardValue && (() => {
+          const currentCompanyKey = result.currentGrade!.company.toLowerCase();
+          const currSym = getCurrencySymbol(
+            cardValue.psaValue || cardValue.aceValue || cardValue.bgsValue
+          );
+          const currentSlabValueStr =
+            currentCompanyKey === "psa" ? cardValue.psaValue :
+            currentCompanyKey === "bgs" || currentCompanyKey === "beckett" ? cardValue.bgsValue :
+            currentCompanyKey === "ace" ? cardValue.aceValue :
+            currentCompanyKey === "tag" ? cardValue.tagValue :
+            currentCompanyKey === "cgc" ? cardValue.cgcValue : null;
+          const currentSlabNum = parsePrice(currentSlabValueStr);
+          const currentGradeNum = parseGradeNum(result.currentGrade!.grade);
+
+          const allCos = [
+            { company: "PSA", label: "PSA", enabled: enabledCompanies.includes("PSA"), grade: result.psa.grade, val: parsePrice(cardValue.psaValue), val10: parsePrice(cardValue.psa10Value) },
+            { company: "BGS", label: "BGS", enabled: enabledCompanies.includes("Beckett"), grade: result.beckett.overallGrade, val: parsePrice(cardValue.bgsValue), val10: parsePrice(cardValue.bgs10Value) },
+            { company: "ACE", label: "ACE", enabled: enabledCompanies.includes("Ace"), grade: result.ace.overallGrade, val: parsePrice(cardValue.aceValue), val10: parsePrice(cardValue.ace10Value) },
+            { company: "TAG", label: "TAG", enabled: enabledCompanies.includes("TAG"), grade: result.tag.overallGrade, val: parsePrice(cardValue.tagValue), val10: parsePrice(cardValue.tag10Value) },
+            { company: "CGC", label: "CGC", enabled: enabledCompanies.includes("CGC"), grade: result.cgc.grade, val: parsePrice(cardValue.cgcValue), val10: parsePrice(cardValue.cgc10Value) },
+          ].filter(c => c.enabled && c.company !== result.currentGrade!.company);
+
+          const maxBarVal = Math.max(
+            currentSlabNum || 0,
+            ...allCos.map(c => c.val10 ?? c.val ?? 0),
+          );
+
+          const formatAmt = (n: number) => `${currSym}${Math.round(n).toLocaleString()}`;
+          const formatProfit = (n: number) =>
+            n >= 0 ? `+${currSym}${Math.round(n).toLocaleString()}` : `-${currSym}${Math.round(Math.abs(n)).toLocaleString()}`;
+
+          return (
+            <View style={styles.profitCard}>
+              <View style={styles.profitHeader}>
+                <Ionicons name="trending-up-outline" size={16} color="#10B981" />
+                <Text style={styles.profitTitle}>Profit Potential</Text>
+              </View>
+
+              {/* Current slab */}
+              <View style={styles.profitCurrentRow}>
+                <View style={styles.profitCurrentLeft}>
+                  <Text style={styles.profitCurrentLabel}>Current slab value</Text>
+                  <View style={styles.profitCurrentPill}>
+                    <Text style={styles.profitCurrentCompany}>{result.currentGrade!.company}</Text>
+                    <Text style={styles.profitCurrentGrade}>{result.currentGrade!.grade}</Text>
+                  </View>
+                </View>
+                <Text style={styles.profitCurrentValue}>
+                  {currentSlabNum !== null ? formatAmt(currentSlabNum) : "No data"}
+                </Text>
+              </View>
+
+              {/* Bar showing current value */}
+              {currentSlabNum !== null && maxBarVal > 0 && (
+                <View style={styles.profitBarTrack}>
+                  <View style={[styles.profitBarFillCurrent, { width: `${Math.min(100, (currentSlabNum / maxBarVal) * 100)}%` }]} />
+                </View>
+              )}
+
+              <View style={styles.profitDivider}>
+                <View style={styles.profitDividerLine} />
+                <Text style={styles.profitDividerText}>If you crossover to...</Text>
+                <View style={styles.profitDividerLine} />
+              </View>
+
+              {allCos.map((co, idx) => {
+                const profit = co.val !== null && currentSlabNum !== null ? co.val - currentSlabNum : null;
+                const maxPotential = co.val10 !== null && currentSlabNum !== null && co.grade < 10 ? co.val10 - currentSlabNum : null;
+                const profitPositive = profit !== null && profit > 0;
+                const profitNegative = profit !== null && profit < 0;
+                const profitColor = profitPositive ? "#10B981" : profitNegative ? "#EF4444" : Colors.textMuted;
+                const gradeUp = co.grade > currentGradeNum;
+                const gradeDown = co.grade < currentGradeNum;
+                const barPct = maxBarVal > 0 && co.val !== null ? Math.min(100, (co.val / maxBarVal) * 100) : 0;
+                const bar10Pct = maxBarVal > 0 && co.val10 !== null && co.grade < 10 ? Math.min(100, (co.val10 / maxBarVal) * 100) : 0;
+
+                return (
+                  <View key={co.company} style={[styles.profitCoRow, idx === allCos.length - 1 && styles.profitCoRowLast]}>
+                    <View style={styles.profitCoHeader}>
+                      <CompanyLabel company={co.company as any} fontSize={12} />
+                      <View style={styles.profitCoGradePill}>
+                        <Text style={styles.profitCoGradeText}>
+                          {co.grade % 1 === 0 ? co.grade : co.grade.toFixed(1)}
+                        </Text>
+                        {gradeUp && <Ionicons name="arrow-up" size={10} color="#10B981" />}
+                        {gradeDown && <Ionicons name="arrow-down" size={10} color="#EF4444" />}
+                      </View>
+                      <View style={{ flex: 1 }} />
+                      {co.val !== null ? (
+                        <Text style={styles.profitCoValue}>{formatAmt(co.val)}</Text>
+                      ) : (
+                        <Text style={styles.profitCoValueNA}>No data</Text>
+                      )}
+                      {profit !== null && (
+                        <View style={[styles.profitBadge, { backgroundColor: profitPositive ? "rgba(16,185,129,0.15)" : profitNegative ? "rgba(239,68,68,0.12)" : "rgba(255,255,255,0.06)" }]}>
+                          <Text style={[styles.profitBadgeText, { color: profitColor }]}>
+                            {formatProfit(profit)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Value bar */}
+                    <View style={styles.profitBarTrack}>
+                      {bar10Pct > 0 && (
+                        <View style={[styles.profitBarFillPotential, { width: `${bar10Pct}%` }]} />
+                      )}
+                      {barPct > 0 && (
+                        <View style={[styles.profitBarFillCo, {
+                          width: `${barPct}%`,
+                          backgroundColor: profitPositive ? "rgba(16,185,129,0.55)" : profitNegative ? "rgba(239,68,68,0.45)" : "rgba(139,92,246,0.4)",
+                        }]} />
+                      )}
+                    </View>
+
+                    {maxPotential !== null && co.val10 !== null && (
+                      <Text style={styles.profitMaxLine}>
+                        Max at {co.label} 10: {formatAmt(co.val10)}
+                        {"  "}
+                        <Text style={{ color: maxPotential >= 0 ? "#10B981" : "#EF4444" }}>
+                          ({formatProfit(maxPotential)} potential)
+                        </Text>
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+
+              <Text style={styles.profitDisclaimer}>
+                Profit estimates are based on TCG market prices and are indicative only. Crossover outcomes and grades may vary.
+              </Text>
+            </View>
+          );
+        })()}
 
         <CenteringCard
           centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
@@ -2220,5 +2409,211 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 15,
     color: "#fff",
+  },
+
+  currentGradeBannerSublabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  crossoverChipRow: {
+    flexDirection: "row" as const,
+    flexWrap: "wrap" as const,
+    gap: 6,
+  },
+  crossoverMiniChip: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 3,
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.2)",
+  },
+  crossoverMiniChipLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    color: "rgba(139,92,246,0.8)",
+  },
+  crossoverMiniChipGrade: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: "#8B5CF6",
+  },
+
+  profitCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.2)",
+    gap: 12,
+  },
+  profitHeader: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+  },
+  profitTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  profitCurrentRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  profitCurrentLeft: {
+    gap: 4,
+  },
+  profitCurrentLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.4,
+  },
+  profitCurrentPill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 5,
+  },
+  profitCurrentCompany: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: "#8B5CF6",
+    backgroundColor: "rgba(139,92,246,0.12)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  profitCurrentGrade: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  profitCurrentValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: Colors.text,
+  },
+  profitBarTrack: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 3,
+    overflow: "hidden" as const,
+    position: "relative" as const,
+  },
+  profitBarFillCurrent: {
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+    bottom: 0,
+    backgroundColor: "rgba(139,92,246,0.5)",
+    borderRadius: 3,
+  },
+  profitBarFillPotential: {
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+    bottom: 0,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 3,
+  },
+  profitBarFillCo: {
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+    bottom: 0,
+    borderRadius: 3,
+  },
+  profitDivider: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    marginVertical: 2,
+  },
+  profitDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  profitDividerText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  profitCoRow: {
+    gap: 8,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  profitCoRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
+  },
+  profitCoHeader: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+  },
+  profitCoGradePill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 3,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  profitCoGradeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    color: Colors.text,
+  },
+  profitCoValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  profitCoValueNA: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  profitBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  profitBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+  },
+  profitMaxLine: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    lineHeight: 16,
+  },
+  profitDisclaimer: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    lineHeight: 16,
+    marginTop: 4,
   },
 });
