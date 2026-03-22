@@ -4472,13 +4472,13 @@ Return ONLY this JSON, no explanation:
 
       const slabContext = mode === "slab" ? `
 SLAB-SPECIFIC NOTES:
-- The card sits INSIDE a plastic slab. The slab has: (1) a rigid outer frame/border [NOT the card], (2) a transparent inner window [NOT the card], (3) the physical card inside the window [THIS is what you measure].
-- LEFT/RIGHT card edges: where the card material meets the clear/transparent plastic of the slab interior window. There should be a visible gap or clear plastic between the card edge and the outer slab frame walls.
-- The card typically occupies 65-85% of the image width — if your left/right values give a wider span than this, they are probably picking the outer slab frame rather than the card.
-- BOTTOM card edge: where the card material meets the slab bottom plastic
-- TOP card edge: the physical card top is BEHIND the grading label — it was estimated using card aspect ratio (width ÷ 0.714)
-- Do NOT use the outer slab frame edges as the card edges — the card is INSIDE the frame
-- For Art Rare cards: the card edge is where the dark full-art printing ends and the clear slab plastic begins` : `
+- The card sits INSIDE a plastic slab. The slab has: (1) a rigid outer frame/border [NOT the card], (2) a transparent window [NOT the card], (3) the physical card inside the window [THIS is what you measure].
+- LEFT/RIGHT card edges: where card material meets the clear/transparent inner plastic wall. Clear plastic should be visible between the card edge and the outer slab frame.
+- The card typically occupies 65-85% of the image width — if left/right span more than this, you are probably marking the outer slab frame instead of the card.
+- BOTTOM card edge: where card material meets slab bottom plastic.
+- TOP edge (topPercent): this is the LABEL BOTTOM — where the grading label panel ends and the card artwork becomes visible. It should be 15-35% from the image top, clearly at the horizontal line where the label ends and clear plastic window begins. Do NOT move this to 0% or to the very top — the label covers the card top, so the visible card starts WHERE THE LABEL ENDS.
+- Do NOT use the outer slab frame edges as card edges — the card is INSIDE the frame.
+- For Art Rare / Full Art cards: the card edge is where the dark artwork meets the transparent slab plastic.` : `
 RAW CARD NOTES:
 - The card edges are where the physical card material meets the background
 - For dark Art Rare cards: the card edge is where the dark material ends (even if subtle against a dark background)`;
@@ -4580,53 +4580,61 @@ Return ONLY this JSON (all numbers required):
     const CARD_RATIO = 2.5 / 3.5; // 0.714
     const RATIO_TOLERANCE = 0.25; // relaxed — slabs with dark cards can appear slightly non-square
     try {
-      // Ask Claude ONLY for the three visible edges + inner bounds.
-      // We calculate topPercent server-side from aspect ratio (Claude's arithmetic is unreliable).
-      const aiPrompt = `You are analyzing a Pokemon card inside a graded plastic slab case. Your job is to find the physical card boundaries (NOT the slab outer frame).
+      // Ask Claude for all four visible edges including labelBottomPercent.
+      // labelBottomPercent = where the grading label ends and card becomes visible = the effective TOP line.
+      const aiPrompt = `You are analyzing a Pokemon card inside a graded plastic slab case. Find the card boundaries for the centering measurement tool.
 
-SLAB ANATOMY — understand what you are looking at:
-1. OUTER SLAB FRAME: The rigid coloured border/frame on the outside of the case. This is often dark plastic (black, grey, or branded colour). This is NOT the card.
-2. TRANSPARENT PLASTIC WINDOW: Clear/frosted plastic through which you see the card. This is also NOT the card.
-3. THE CARD ITSELF: The printed Pokemon card material sitting inside the clear window. This IS what you must measure.
+SLAB ANATOMY (from outside to inside):
+1. OUTER SLAB FRAME: Rigid coloured plastic border around the outside. NOT the card.
+2. GRADING LABEL: Printed label at the top of the slab showing the card name and grade. The CARD IS BEHIND THIS LABEL — the card extends up under the label.
+3. TRANSPARENT WINDOW: Clear plastic through which you see the card below the label.
+4. THE CARD ITSELF: The printed Pokemon card material. THIS is what you measure.
 
-WHAT TO FIND — three visible edges of the PHYSICAL CARD (not the outer slab frame):
-- leftPercent: the LEFT physical edge of the card, where the card surface meets the clear inner plastic wall. The clear/transparent slab plastic is visible to the left of this point.
-- rightPercent: the RIGHT physical edge of the card, same principle — clear slab plastic is visible to the right of this point.
-- bottomPercent: the BOTTOM physical edge of the card, where the card material ends and the slab bottom plastic begins.
+WHAT TO FIND:
+- leftPercent: LEFT physical edge of the card — where card material meets the clear inner slab plastic. Clear plastic is visible to the LEFT of this point.
+- rightPercent: RIGHT physical edge of the card — same on the right side. Clear plastic is visible to the RIGHT of this point.
+- bottomPercent: BOTTOM physical edge of the card — where card material meets the slab bottom plastic.
+- labelBottomPercent: Where the GRADING LABEL ends and the card becomes VISIBLE. This is the bottom edge of the printed label panel. Below this line, the card artwork is clearly visible through the clear plastic window. This is the most important value for the centering tool top line.
 
-NOTE: Do NOT report topPercent. The card top is hidden behind the grading label; we calculate it from the card aspect ratio.
+VISUAL GUIDANCE for left/right:
+- The card occupies 65-85% of the image width, centred horizontally.
+- Clear/transparent plastic is visible between the card edge and the outer slab frame on both sides.
+- Standard cards with white border: LEFT edge = where white printed border meets transparent plastic.
+- Illustration Rare / Full Art / Special Illustration Rare cards: LEFT edge = where dark artwork meets transparent plastic — a subtle but visible material boundary.
+- Do NOT use the outer slab frame edges. The card is INSIDE the frame. Left edge is typically 8-18% from image left; right edge is typically 82-92% from image left.
 
-VISUAL GUIDANCE:
-- The actual card typically occupies 65-85% of the image width, centred horizontally.
-- There will be clear/transparent plastic visible between the card edge and the outer slab frame on both sides.
-- For standard Pokemon cards with a white border: the card's LEFT edge is where the white printed border ends and transparent plastic begins.
-- For Illustration Rare / Full Art cards with no white border: the card's LEFT edge is where the dark artwork ends and transparent/clear plastic begins — look for a subtle but distinct material boundary.
-- The outer plastic slab frame sits OUTSIDE the card edges. Do NOT use the outer slab frame edges as the card boundaries.
-- Card left edge is typically 8-18% from the image left edge; right edge is typically 82-92% from the left.
+VISUAL GUIDANCE for labelBottomPercent:
+- Look for the horizontal line where the printed grading label panel ends.
+- Below this line: card artwork is clearly visible through clear plastic.
+- Above/at this line: the label (with text, barcode, certification number) is printed.
+- Typically 15-35% from the top of the image for standard slab photos.
+- For ACE slabs: label typically covers the top 20-30% of the image.
+- For PSA slabs: label typically covers the top 15-25% of the image.
 
 INNER ARTWORK BOUNDARY (inside the card's printed frame):
-- innerLeftPercent: where the artwork/image begins INSIDE the card's printed border (left side)
-- innerTopPercent: where artwork begins below the grading label (estimate based on visible card top where label meets card)
-- innerRightPercent: where the artwork/image ends on the right side
-- innerBottomPercent: where the artwork ends at the bottom of the card
-- For Illustration Rare / Full Art cards: inner bounds are 1-3% inside the outer card edge (minimal or no visible border)
-- For Standard cards with white border: inner bounds are 5-12% inside the outer card edge on each side
+- innerLeftPercent: where artwork begins inside the card's printed border (left side, as % of image width)
+- innerTopPercent: where artwork begins — should be slightly BELOW labelBottomPercent, inside the card's top border area
+- innerRightPercent: where artwork ends on the right
+- innerBottomPercent: where artwork ends at the bottom
+- Illustration Rare / Full Art: inner bounds are 1-3% inside the outer card edges (minimal border)
+- Standard cards with white border: inner bounds are 5-12% inside the outer card edge on each side
 
-Return ONLY this JSON, no explanation:
+Return ONLY this JSON:
 {
-  "leftPercent": <CARD left physical edge as % of image width — NOT the slab frame>,
-  "rightPercent": <CARD right physical edge as % of image width — NOT the slab frame>,
+  "leftPercent": <CARD left edge as % of image width, NOT the slab frame>,
+  "rightPercent": <CARD right edge as % of image width, NOT the slab frame>,
   "bottomPercent": <CARD bottom edge as % of image height>,
-  "innerLeftPercent": <artwork start on left, as % of image width>,
-  "innerTopPercent": <artwork top start below label, as % of image height>,
-  "innerRightPercent": <artwork end on right, as % of image width>,
-  "innerBottomPercent": <artwork end at bottom, as % of image height>,
+  "labelBottomPercent": <bottom edge of grading label where card becomes visible, as % of image height>,
+  "innerLeftPercent": <artwork left start as % of image width>,
+  "innerTopPercent": <artwork top start, slightly below labelBottomPercent, as % of image height>,
+  "innerRightPercent": <artwork right end as % of image width>,
+  "innerBottomPercent": <artwork bottom end as % of image height>,
   "confidence": <0.0-1.0>
 }`;
 
       const aiResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 400,
+        max_tokens: 500,
         temperature: 0,
         messages: [{ role: "user", content: [
           { type: "text", text: aiPrompt },
@@ -4642,10 +4650,10 @@ Return ONLY this JSON, no explanation:
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      const { leftPercent, rightPercent, bottomPercent, confidence,
+      const { leftPercent, rightPercent, bottomPercent, labelBottomPercent, confidence,
               innerLeftPercent, innerTopPercent, innerRightPercent, innerBottomPercent } = parsed;
 
-      // Claude is not asked for topPercent — validate left/right/bottom only
+      // Validate left/right/bottom
       if (typeof leftPercent !== "number" || typeof rightPercent !== "number" ||
           typeof bottomPercent !== "number") {
         console.log("[slab-ai-bounds] Missing numeric fields");
@@ -4667,9 +4675,19 @@ Return ONLY this JSON, no explanation:
         return null;
       }
 
-      // Calculate card top server-side using known aspect ratio (reliable arithmetic)
-      const cardHeight = cardWidth / CARD_RATIO;
-      const cT = Math.max(0, cB - cardHeight);
+      // Use labelBottomPercent as effective topPercent if valid (visible card top below label).
+      // This is what the user sees and what grading companies measure against.
+      // Fall back to aspect-ratio computation if labelBottomPercent is not usable.
+      let cT: number;
+      if (typeof labelBottomPercent === "number" && labelBottomPercent > 5 && labelBottomPercent < cB - 10) {
+        cT = Math.max(0, Math.min(100, labelBottomPercent));
+        console.log(`[slab-ai-bounds] Using labelBottomPercent=${cT.toFixed(1)} as effective top`);
+      } else {
+        // Fallback: compute from aspect ratio (physical card top behind label)
+        const cardHeight = cardWidth / CARD_RATIO;
+        cT = Math.max(0, cB - cardHeight);
+        console.log(`[slab-ai-bounds] labelBottomPercent invalid (${labelBottomPercent}), using aspect-ratio top=${cT.toFixed(1)}`);
+      }
 
       if (cT >= cB) {
         console.log(`[slab-ai-bounds] Rejected — computed top >= bottom`);
