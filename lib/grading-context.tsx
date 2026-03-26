@@ -3,8 +3,7 @@ import { Platform, AppState } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import * as ImageManipulator from "expo-image-manipulator";
-import { fetch as expoFetch } from "expo/fetch";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
@@ -209,13 +208,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     try {
       const base = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
       const endpoint = `${base}?t=${Date.now()}`;
-      const baseUrl = getApiUrl();
-      const url = new URL(endpoint, baseUrl);
-      const resp = await expoFetch(url.toString(), { method: "GET", credentials: "include" });
+      const resp = await apiRequest("GET", endpoint);
       const data = await resp.json();
 
       // Job not found (server restarted / job expired) — treat as failed
-      if (resp.status === 404 || data.error === "Job not found") {
+      if (data.error === "Job not found") {
         stopPolling();
         await cancelScheduledNotification(scheduledNotifId.current);
         scheduledNotifId.current = null;
@@ -313,8 +310,20 @@ export function GradingProvider({ children }: { children: ReactNode }) {
             : prev
         );
       }
-    } catch (err) {
-      console.log("Poll error (will retry):", err);
+    } catch (err: any) {
+      // 404 means the job is gone (server restarted) — fail cleanly instead of retrying forever
+      if (err?.message?.startsWith("404:") || err?.message?.includes("Job not found")) {
+        stopPolling();
+        await cancelScheduledNotification(scheduledNotifId.current);
+        scheduledNotifId.current = null;
+        setActiveJob(prev =>
+          prev && prev.id === localJobId
+            ? { ...prev, status: "failed", error: "Grading session expired. Please try again." }
+            : prev
+        );
+      } else {
+        console.log("Poll error (will retry):", err);
+      }
     }
   }, [stopPolling]);
 
