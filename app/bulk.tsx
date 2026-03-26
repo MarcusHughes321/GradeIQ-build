@@ -238,8 +238,8 @@ export default function BulkScreen() {
       try {
         const result = await ImageManipulator.manipulateAsync(
           uri,
-          [],
-          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+          [{ resize: { width: 1600 } }],
+          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         if (result.base64) return `data:image/jpeg;base64,${result.base64}`;
       } catch (e) {

@@ -57,15 +57,15 @@ async function getBase64FromUri(uri: string): Promise<string> {
   // Already a data URI — use directly without re-fetching
   if (uri.startsWith("data:")) return uri;
 
-  // On native: use ImageManipulator to convert to JPEG before sending.
-  // This handles HEIC/HEIF photos taken on iPhone, which the server
-  // cannot reliably convert in the production environment.
+  // On native: use ImageManipulator to convert to JPEG and resize before sending.
+  // This handles HEIC/HEIF photos and prevents large uploads from aborting mid-transfer.
+  // The server already resizes to 1024–2048px for AI, so 1600px is ample quality.
   if (Platform.OS !== "web") {
     try {
       const result = await ImageManipulator.manipulateAsync(
         uri,
-        [],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        [{ resize: { width: 1600 } }],
+        { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       if (result.base64) {
         return `data:image/jpeg;base64,${result.base64}`;
