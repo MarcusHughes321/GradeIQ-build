@@ -238,7 +238,7 @@ export default function BulkScreen() {
       try {
         const result = await ImageManipulator.manipulateAsync(
           uri,
-          [{ resize: { width: 2048 } }],
+          [{ resize: { width: __DEV__ ? 1024 : 2048 } }],
           { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         if (result.base64) return `data:image/jpeg;base64,${result.base64}`;

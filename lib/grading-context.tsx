@@ -70,11 +70,13 @@ async function getBase64FromUri(uri: string): Promise<string> {
   // On native: use ImageManipulator to convert to JPEG and resize before sending.
   // This handles HEIC/HEIF photos and prevents large uploads from aborting mid-transfer.
   // 2048px matches the server's maximum AI input resolution — no grading quality is lost.
+  // In dev mode, use 1024px so uploads fit through the Replit dev tunnel for testing.
+  const uploadMaxDim = __DEV__ ? 1024 : 2048;
   if (Platform.OS !== "web") {
     try {
       const result = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: 2048 } }],
+        [{ resize: { width: uploadMaxDim } }],
         { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       if (result.base64) {
