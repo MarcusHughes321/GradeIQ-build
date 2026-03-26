@@ -31,18 +31,6 @@ const RELEASES: {
         desc: "Crossover grading is now available on all paid tiers — 10 per month on Curious, 25 on Enthusiast, and unlimited on Obsessed.",
       },
       {
-        icon: "ribbon-outline",
-        color: "#34D399",
-        title: "ACE Cert Lookup",
-        desc: "Enter your ACE cert number and the app automatically pulls the card image and grade — no photos needed.",
-      },
-      {
-        icon: "lock-closed-outline",
-        color: "#60A5FA",
-        title: "TAG Cert Lookup (Coming Soon)",
-        desc: "TAG cert lookup is in development. You'll be able to auto-fetch TAG-graded cards the same way ACE works today.",
-      },
-      {
         icon: "shield-checkmark-outline",
         color: "#F59E0B",
         title: "Subscription Fixes",
