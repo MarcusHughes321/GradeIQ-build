@@ -3,6 +3,7 @@ import { Platform, AppState } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import * as ImageManipulator from "expo-image-manipulator";
+import { fetch as expoFetch } from "expo/fetch";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
@@ -206,7 +207,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     try {
       const base = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
       const endpoint = `${base}?t=${Date.now()}`;
-      const resp = await apiRequest("GET", endpoint);
+      const baseUrl = getApiUrl();
+      const url = new URL(endpoint, baseUrl);
+      const resp = await expoFetch(url.toString(), { method: "GET", credentials: "include" });
       const data = await resp.json();
 
       // Job not found (server restarted / job expired) — treat as failed

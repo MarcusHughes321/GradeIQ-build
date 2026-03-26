@@ -469,17 +469,17 @@ export default function GradeScreen() {
   };
 
   useEffect(() => {
-    if (activeJob?.status === "completed" && activeJob.savedGrading && loading) {
+    if (activeJob?.status === "completed" && activeJob.savedGrading) {
       setLoading(false);
       router.replace({
         pathname: "/results",
         params: { gradingId: activeJob.savedGrading.id },
       });
-    } else if (activeJob?.status === "failed" && loading) {
+    } else if (activeJob?.status === "failed") {
       setLoading(false);
-      Alert.alert("Grading Failed", "There was an error analyzing your card. Please try again.");
+      Alert.alert("Grading Failed", activeJob.error || "There was an error analyzing your card. Please try again.");
     }
-  }, [activeJob?.status]);
+  }, [activeJob?.status, activeJob?.savedGrading?.id]);
 
   const handleSelectDeepMode = async () => {
     if (isGateEnabled && !canDeepGrade && !isAdminMode) {
