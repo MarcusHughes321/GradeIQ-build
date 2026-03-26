@@ -53,6 +53,15 @@ const POLL_INTERVAL = 3000;
 const ESTIMATED_GRADE_SECONDS = 90;
 const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
+function withSubmitTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("Upload timed out — please check your connection and try again.")), ms)
+    ),
+  ]);
+}
+
 async function getBase64FromUri(uri: string): Promise<string> {
   // Already a data URI — use directly without re-fetching
   if (uri.startsWith("data:")) return uri;
@@ -329,10 +338,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      const resp = await apiRequest("POST", "/api/grade-job", {
+      const resp = await withSubmitTimeout(apiRequest("POST", "/api/grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
-      });
+      }), 60_000);
 
       const { jobId: serverJobId } = await resp.json();
 
@@ -418,14 +427,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      const resp = await apiRequest("POST", "/api/deep-grade-job", {
+      const resp = await withSubmitTimeout(apiRequest("POST", "/api/deep-grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
         angledImage: angledFrontBase64,
         angledBackImage: angledBackBase64,
         frontCorners: frontCornerBase64,
         backCorners: backCornerBase64,
-      });
+      }), 90_000);
 
       const { jobId: serverJobId } = await resp.json();
 
@@ -497,11 +506,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
-      const resp = await apiRequest("POST", "/api/crossover-grade-job", {
+      const resp = await withSubmitTimeout(apiRequest("POST", "/api/crossover-grade-job", {
         slabImage: slabFrontBase64,
         slabBackImage: slabBackBase64,
         ...(certData ? { certData } : {}),
-      });
+      }), 60_000);
 
       const { jobId: serverJobId } = await resp.json();
 
