@@ -3,6 +3,31 @@ import { createServer, type Server } from "node:http";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import { parse as parseHtml } from "node-html-parser";
+import { Pool } from "pg";
+
+const db = new Pool({ connectionString: process.env.DATABASE_URL });
+
+async function logGradeEvent(jobId: string, mode: string, cardCount = 1): Promise<void> {
+  try {
+    await db.query(
+      "INSERT INTO grade_analytics (job_id, mode, card_count) VALUES ($1, $2, $3)",
+      [jobId, mode, cardCount]
+    );
+  } catch (e) {
+    console.error("[analytics] Failed to log grade event:", e);
+  }
+}
+
+async function completeGradeEvent(jobId: string, status: "completed" | "failed"): Promise<void> {
+  try {
+    await db.query(
+      "UPDATE grade_analytics SET status = $1, completed_at = NOW() WHERE job_id = $2",
+      [status, jobId]
+    );
+  } catch (e) {
+    console.error("[analytics] Failed to complete grade event:", e);
+  }
+}
 import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
 
 const anthropic = new Anthropic({
@@ -5543,6 +5568,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         createdAt: Date.now(),
       };
       gradingJobs.set(jobId, job);
+      await logGradeEvent(jobId, "crossover");
 
       res.json({ jobId });
 
@@ -5551,6 +5577,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           const result = await performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData);
           job.status = "completed";
           job.result = result;
+          await completeGradeEvent(jobId, "completed");
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -5560,6 +5587,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           console.error(`[crossover-grade-job] Job ${jobId} failed:`, err.message);
           job.status = "failed";
           job.error = err.message || "Unknown error";
+          await completeGradeEvent(jobId, "failed");
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Crossover Failed", "There was an error analyzing your slab. Please try again.");
@@ -5588,6 +5616,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         createdAt: Date.now(),
       };
       gradingJobs.set(jobId, job);
+      await logGradeEvent(jobId, "quick");
 
       res.json({ jobId });
 
@@ -5596,6 +5625,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`);
           job.status = "completed";
           job.result = result;
+          await completeGradeEvent(jobId, "completed");
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -5605,6 +5635,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           console.error(`[grade-job] Job ${jobId} failed:`, err.message);
           job.status = "failed";
           job.error = err.message || "Unknown error";
+          await completeGradeEvent(jobId, "failed");
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Grading Failed", "There was an error grading your card. Please try again.");
@@ -5636,6 +5667,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         createdAt: Date.now(),
       };
       gradingJobs.set(jobId, job);
+      await logGradeEvent(jobId, "bulk", cards.length);
 
       res.json({ jobId, totalCards: cards.length });
 
@@ -5668,6 +5700,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           const successCount = results.filter(r => r.status === "completed").length;
           console.log(`[bulk-grade-job] Job ${jobId} completed: ${successCount}/${cards.length} succeeded`);
+          await completeGradeEvent(jobId, "completed");
 
           if (job.pushToken) {
             sendPushNotification(
@@ -5680,6 +5713,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           console.error(`[bulk-grade-job] Job ${jobId} failed:`, err.message);
           job.status = "failed";
           job.error = err.message || "Unknown error";
+          await completeGradeEvent(jobId, "failed");
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Bulk Grading Failed", "There was an error with your bulk grading. Please try again.");
@@ -5708,6 +5742,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         createdAt: Date.now(),
       };
       gradingJobs.set(jobId, job);
+      await logGradeEvent(jobId, "deep");
 
       res.json({ jobId });
 
@@ -5716,6 +5751,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           const result = await performDeepGrading(frontImage, backImage, angledImage, angledBackImage || undefined, undefined, `[deep-grade-job:${jobId}]`, frontCorners, backCorners);
           job.status = "completed";
           job.result = result;
+          await completeGradeEvent(jobId, "completed");
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -5725,6 +5761,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           console.error(`[deep-grade-job] Job ${jobId} failed:`, err.message);
           job.status = "failed";
           job.error = err.message || "Unknown error";
+          await completeGradeEvent(jobId, "failed");
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Deep Grading Failed", "There was an error deep grading your card. Please try again.");
@@ -6088,6 +6125,61 @@ RESPONSE FORMAT (JSON only, no markdown):
     } catch (error: any) {
       console.error("[cert-lookup] Unexpected error:", error.message);
       res.status(500).json({ error: "Server error during cert lookup" });
+    }
+  });
+
+  app.get("/api/admin/analytics", async (req, res) => {
+    try {
+      const [totals, daily, byMode, recent] = await Promise.all([
+        db.query(`
+          SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') AS today,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS this_week,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS this_month,
+            COALESCE(SUM(card_count), 0) AS total_cards
+          FROM grade_analytics
+        `),
+        db.query(`
+          SELECT
+            DATE(created_at) AS day,
+            COUNT(*) AS count,
+            COALESCE(SUM(card_count), 0) AS cards
+          FROM grade_analytics
+          WHERE created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY DATE(created_at)
+          ORDER BY day ASC
+        `),
+        db.query(`
+          SELECT
+            mode,
+            COUNT(*) AS count,
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed
+          FROM grade_analytics
+          GROUP BY mode
+          ORDER BY count DESC
+        `),
+        db.query(`
+          SELECT job_id, mode, card_count, status, created_at, completed_at,
+            EXTRACT(EPOCH FROM (completed_at - created_at)) AS duration_secs
+          FROM grade_analytics
+          ORDER BY created_at DESC
+          LIMIT 20
+        `),
+      ]);
+
+      res.json({
+        totals: totals.rows[0],
+        daily: daily.rows,
+        byMode: byMode.rows,
+        recent: recent.rows,
+      });
+    } catch (err: any) {
+      console.error("[admin/analytics] Error:", err.message);
+      res.status(500).json({ error: err.message });
     }
   });
 

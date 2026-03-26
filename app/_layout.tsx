@@ -68,6 +68,7 @@ function RootLayoutNav() {
       <Stack.Screen name="privacy" />
       <Stack.Screen name="disclaimer" options={{ animation: "fade" }} />
       <Stack.Screen name="whats-new" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+      <Stack.Screen name="admin-analytics" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
     </Stack>
   );
 }

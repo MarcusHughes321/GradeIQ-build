@@ -186,6 +186,26 @@ export default function SettingsScreen() {
           </>
         )}
 
+        {isAdminMode && (
+          <>
+            <View style={[styles.section, { marginTop: 32 }]}>
+              <Text style={styles.sectionTitle}>Admin</Text>
+            </View>
+            <View style={styles.companyList}>
+              <Pressable
+                onPress={() => router.push("/admin-analytics")}
+                style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View style={styles.menuRowLeft}>
+                  <Ionicons name="bar-chart-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.menuRowLabel}>Grading Analytics</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+          </>
+        )}
+
         <View style={[styles.section, { marginTop: 32 }]}>
           <Text style={styles.sectionTitle}>About</Text>
         </View>
