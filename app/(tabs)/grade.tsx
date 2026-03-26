@@ -531,12 +531,8 @@ export default function GradeScreen() {
 
   const handleGrade = async () => {
     if (mode === "crossover") {
-      if (!certLookupResult && !slabImage) {
-        Alert.alert("Card Required", "Please look up a cert number or add a photo of the graded slab.");
-        return;
-      }
-      if (certLookupResult && !certLookupResult.frontImageBase64 && !slabImage) {
-        Alert.alert("Slab Photo Needed", "Grade found — but please add a photo of the slab below so the AI can analyse the card.");
+      if (!slabImage) {
+        Alert.alert("Photo Required", "Please add a photo of the front of the graded slab.");
         return;
       }
     } else if (mode === "quick") {
@@ -581,24 +577,7 @@ export default function GradeScreen() {
     const wrappedRecordUsage = async (n: number) => { await recordUsage(n); };
     const wrappedCrossoverUsage = async (_n: number) => { await recordCrossoverUsage(); };
     if (mode === "crossover") {
-      let frontSrc: string;
-      let backSrc: string | undefined;
-      let certDataToPass: CertData | undefined;
-      if (certLookupResult) {
-        frontSrc = certLookupResult.frontImageBase64 || slabImage!;
-        backSrc = certLookupResult.backImageBase64 || slabBackImage || undefined;
-        certDataToPass = {
-          company: certLookupResult.company,
-          grade: certLookupResult.grade,
-          certNumber: certLookupResult.certNumber,
-          cardName: certLookupResult.cardName,
-          setName: certLookupResult.setName,
-        };
-      } else {
-        frontSrc = slabImage!;
-        backSrc = slabBackImage || undefined;
-      }
-      submitCrossoverGrading(frontSrc, backSrc, wrappedCrossoverUsage, certDataToPass);
+      submitCrossoverGrading(slabImage!, slabBackImage || undefined, wrappedCrossoverUsage, undefined);
     } else if (mode === "deep" && angledFrontImage && angledBackImage) {
       const frontCorners = [cornerImages.cornerFrontTL!, cornerImages.cornerFrontTR!, cornerImages.cornerFrontBL!, cornerImages.cornerFrontBR!];
       const backCorners = [cornerImages.cornerBackTL!, cornerImages.cornerBackTR!, cornerImages.cornerBackBL!, cornerImages.cornerBackBR!];
@@ -612,7 +591,7 @@ export default function GradeScreen() {
 
   const allCornersReady = Object.values(cornerImages).every(v => v !== null);
   const canSubmit = mode === "crossover"
-    ? (!!certLookupResult || (!!slabImage && !!slabBackImage)) && !loading
+    ? !!slabImage && !loading
     : mode === "quick"
     ? !!frontImage && !!backImage && !loading
     : !!frontImage && !!backImage && !!angledFrontImage && !!angledBackImage && allCornersReady && !loading;
@@ -692,16 +671,29 @@ export default function GradeScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => setMode("crossover")}
+        onPress={() => {
+          if (isGateEnabled && !canCrossover && !isAdminMode) {
+            router.push("/crossover-info");
+          } else {
+            setMode("crossover");
+          }
+        }}
       >
         <View style={[styles.hubIconWrap, styles.hubIconPurple]}>
           <Ionicons name="swap-horizontal-outline" size={22} color="#8B5CF6" />
         </View>
         <View style={styles.hubCardText}>
           <Text style={styles.hubCardTitle}>Crossover Grading</Text>
-          <Text style={styles.hubCardSub}>Grade by cert number or photo</Text>
+          <Text style={styles.hubCardSub}>Photograph any graded slab</Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        {isGateEnabled && !canCrossover && !isAdminMode ? (
+          <View style={styles.hubLockPill}>
+            <Ionicons name="lock-closed" size={11} color="#8B5CF6" />
+            <Text style={[styles.hubLockPillText, { color: "#8B5CF6" }]}>Pro</Text>
+          </View>
+        ) : (
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        )}
       </Pressable>
     </ScrollView>
   );
@@ -737,10 +729,19 @@ export default function GradeScreen() {
         </Pressable>
         <Pressable
           style={[styles.modeTab, mode === "crossover" && styles.modeTabActive]}
-          onPress={() => setMode("crossover")}
+          onPress={() => {
+            if (isGateEnabled && !canCrossover && !isAdminMode) {
+              router.push("/crossover-info");
+            } else {
+              setMode("crossover");
+            }
+          }}
         >
           <Ionicons name="git-compare-outline" size={16} color={mode === "crossover" ? "#8B5CF6" : Colors.textMuted} />
           <Text style={[styles.modeTabText, mode === "crossover" && styles.modeTabTextCrossover]}>Crossover</Text>
+          {(isGateEnabled && !canCrossover && !isAdminMode) && (
+            <Ionicons name="lock-closed" size={12} color="#8B5CF6" style={{ marginLeft: 2 }} />
+          )}
         </Pressable>
       </View>
       {(isGateEnabled && !canDeepGrade && !isAdminMode) && (
@@ -1027,273 +1028,79 @@ export default function GradeScreen() {
           >
             {mode === "crossover" ? (
               <>
-                <View style={styles.certSection}>
-                  <View style={styles.certSectionHeader}>
-                    <Ionicons name="ribbon-outline" size={18} color="#8B5CF6" />
-                    <Text style={styles.certSectionTitle}>Look up by cert number</Text>
+                <View style={styles.crossoverHeader}>
+                  <View style={[styles.crossoverHeaderIcon, { backgroundColor: "rgba(139,92,246,0.12)" }]}>
+                    <Ionicons name="swap-horizontal-outline" size={20} color="#8B5CF6" />
                   </View>
-
-                  <View style={styles.certCompanyRow}>
-                    {/* ACE — fully enabled */}
-                    <Pressable
-                      key="ACE"
-                      style={[styles.certCompanyPill, selectedCertCompany === "ACE" && styles.certCompanyPillActive]}
-                      onPress={() => {
-                        setSelectedCertCompany("ACE");
-                        setCertLookupResult(null);
-                        setCertLookupError(null);
-                      }}
-                    >
-                      <Text style={[styles.certCompanyPillText, selectedCertCompany === "ACE" && styles.certCompanyPillTextActive]}>
-                        ACE
-                      </Text>
-                    </Pressable>
-
-                    {/* TAG — locked / coming soon */}
-                    <View key="TAG" style={[styles.certCompanyPill, styles.certCompanyPillLocked]}>
-                      <Ionicons name="lock-closed" size={10} color={Colors.textMuted} style={{ marginRight: 3 }} />
-                      <Text style={[styles.certCompanyPillText, styles.certCompanyPillTextLocked]}>TAG</Text>
-                      <View style={styles.certCompanyPillSoonBadge}>
-                        <Text style={styles.certCompanyPillSoonText}>Soon</Text>
-                      </View>
-                    </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.crossoverHeaderTitle}>Photograph the Slab</Text>
+                    <Text style={styles.crossoverHeaderSub}>Add photos of the front and back of the graded slab</Text>
                   </View>
-
-                  <View style={styles.certInputRow}>
-                    <TextInput
-                      style={styles.certInput}
-                      placeholder="Enter cert number"
-                      placeholderTextColor={Colors.textMuted}
-                      value={certNumber}
-                      onChangeText={(t) => {
-                        setCertNumber(t);
-                        if (certLookupResult) setCertLookupResult(null);
-                        if (certLookupError) setCertLookupError(null);
-                      }}
-                      keyboardType="default"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      returnKeyType="search"
-                      onSubmitEditing={handleCertLookup}
-                    />
-                    <Pressable
-                      style={({ pressed }) => [styles.certLookupBtn, { opacity: pressed ? 0.8 : 1 }]}
-                      onPress={handleCertLookup}
-                      disabled={certLookupLoading}
-                    >
-                      <LinearGradient
-                        colors={["#8B5CF6", "#6D28D9"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.certLookupBtnGradient}
-                      >
-                        {certLookupLoading ? (
-                          <ActivityIndicator color="#fff" size="small" />
-                        ) : (
-                          <Text style={styles.certLookupBtnText}>Look Up</Text>
-                        )}
-                      </LinearGradient>
-                    </Pressable>
-                  </View>
-
-                  {certLookupLoading && (
-                    <View style={styles.certLoadingRow}>
-                      <ActivityIndicator color="#8B5CF6" size="small" />
-                      <Text style={styles.certLoadingText}>Fetching from {selectedCertCompany}...</Text>
-                    </View>
-                  )}
-
-                  {certLookupError && (
-                    <View style={styles.certErrorCard}>
-                      <View style={styles.certErrorTop}>
-                        <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-                        <Text style={styles.certErrorText}>{certLookupError}</Text>
-                      </View>
-                      <Pressable
-                        style={({ pressed }) => [styles.certErrorPhotoBtn, { opacity: pressed ? 0.8 : 1 }]}
-                        onPress={() => {
-                          if (Platform.OS !== "web") {
-                            Alert.alert("Add Slab Photo", "Photograph your slab to analyze it", [
-                              { text: "Take Photo", onPress: () => { setCameraOpen("slabFront"); setCertLookupError(null); } },
-                              { text: "Choose from Library", onPress: async () => {
-                                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                                if (status !== "granted") return;
-                                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                                if (!result.canceled && result.assets[0]) { setSlabImage(result.assets[0].uri); setCertLookupError(null); }
-                              }},
-                              { text: "Cancel", style: "cancel" },
-                            ]);
-                          }
-                        }}
-                      >
-                        <Ionicons name="camera-outline" size={14} color="#8B5CF6" />
-                        <Text style={styles.certErrorPhotoBtnText}>Add slab photo instead</Text>
-                      </Pressable>
-                    </View>
-                  )}
-
-                  {certLookupResult && (
-                    <View style={styles.certPreviewCard}>
-                      <View style={styles.certPreviewHeader}>
-                        <View style={styles.certPreviewBadge}>
-                          <Text style={styles.certPreviewBadgeText}>{certLookupResult.company}</Text>
-                        </View>
-                        <View style={styles.certPreviewGradeBadge}>
-                          <Text style={styles.certPreviewGradeLabel}>Current Grade</Text>
-                          <Text style={styles.certPreviewGradeValue}>{certLookupResult.grade}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.certPreviewBody}>
-                        {(certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64) ? (
-                          <View style={certLookupResult.backImageBase64 ? styles.certPreviewImagesRow : undefined}>
-                            {/* Front slab image */}
-                            <View style={styles.certPreviewImageWrap}>
-                              <Image
-                                source={{ uri: certLookupResult.frontImageBase64 || certLookupResult.labelImageBase64 }}
-                                style={[
-                                  certLookupResult.backImageBase64 ? styles.certPreviewImageSmall : styles.certPreviewImage,
-                                  (certLookupResult.frontImageBase64 && !certLookupResult.backImageBase64) ? styles.certPreviewImageSlab : null,
-                                ]}
-                                contentFit="contain"
-                              />
-                              {certLookupResult.frontImageBase64 && certLookupResult.labelImageBase64 && !certLookupResult.backImageBase64 ? (
-                                <Image
-                                  source={{ uri: certLookupResult.labelImageBase64 }}
-                                  style={styles.certPreviewLabelBadge}
-                                  contentFit="contain"
-                                />
-                              ) : null}
-                              {certLookupResult.backImageBase64 ? (
-                                <Text style={styles.certPreviewImgLabel}>Front</Text>
-                              ) : null}
-                            </View>
-                            {/* Back slab image — only when available from cert lookup */}
-                            {certLookupResult.backImageBase64 ? (
-                              <View style={styles.certPreviewImageWrap}>
-                                <Image
-                                  source={{ uri: certLookupResult.backImageBase64 }}
-                                  style={styles.certPreviewImageSmall}
-                                  contentFit="contain"
-                                />
-                                <Text style={styles.certPreviewImgLabel}>Back</Text>
-                              </View>
-                            ) : null}
-                          </View>
-                        ) : null}
-                        <View style={styles.certPreviewInfo}>
-                          <Text style={styles.certPreviewCardName} numberOfLines={2}>{certLookupResult.cardName || "Unknown Card"}</Text>
-                          {certLookupResult.setName ? (
-                            <Text style={styles.certPreviewSetName} numberOfLines={1}>{certLookupResult.setName}</Text>
-                          ) : null}
-                          <Text style={styles.certPreviewCertNum}>Cert #{certLookupResult.certNumber}</Text>
-                          {certLookupResult.frontImageBase64 ? (
-                            <View style={styles.certPreviewCheck}>
-                              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                              <Text style={styles.certPreviewCheckText}>Ready to analyze</Text>
-                            </View>
-                          ) : (
-                            <>
-                              <View style={styles.certPreviewCheck}>
-                                <Ionicons name="camera-outline" size={14} color="#F59E0B" />
-                                <Text style={[styles.certPreviewCheckText, { color: "#F59E0B" }]}>Add slab photo below</Text>
-                              </View>
-                              {certLookupResult.company === "ACE" ? (
-                                <Text style={styles.certPhotoNote}>Sorry, we couldn't find a slab photo for this cert. ACE slabs before approx. #585,000 don't have photos online — please photograph your slab and upload it below.</Text>
-                              ) : null}
-                            </>
-                          )}
-                        </View>
-                      </View>
-                    </View>
-                  )}
                 </View>
 
-                <View style={styles.manualUploadToggle} pointerEvents="none">
-                  <View style={styles.manualUploadDividerLine} />
-                  <Text style={styles.manualUploadDividerText}>— or add photos —</Text>
-                  <View style={styles.manualUploadDividerLine} />
+                <View style={styles.imageRow}>
+                  <ImageCapture
+                    label="Front"
+                    imageUri={slabImage}
+                    onCapture={async () => {
+                      if (Platform.OS === "web") {
+                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (status !== "granted") { Alert.alert("Permission Required", "Photo library access is needed."); return; }
+                        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                        if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
+                      } else {
+                        Alert.alert("Add Slab Front Photo", "Choose an option", [
+                          { text: "Take Photo", onPress: () => setCameraOpen("slabFront") },
+                          { text: "Choose from Library", onPress: async () => {
+                            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                            if (status !== "granted") return;
+                            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                            if (!result.canceled && result.assets[0]) setSlabImage(result.assets[0].uri);
+                          }},
+                          { text: "Cancel", style: "cancel" },
+                        ]);
+                      }
+                    }}
+                    onRemove={() => setSlabImage(null)}
+                    loading={false}
+                  />
+                  <ImageCapture
+                    label="Back"
+                    imageUri={slabBackImage}
+                    onCapture={async () => {
+                      if (Platform.OS === "web") {
+                        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (status !== "granted") { Alert.alert("Permission Required", "Photo library access is needed."); return; }
+                        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                        if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
+                      } else {
+                        Alert.alert("Add Slab Back Photo", "Choose an option", [
+                          { text: "Take Photo", onPress: () => setCameraOpen("slabBack") },
+                          { text: "Choose from Library", onPress: async () => {
+                            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                            if (status !== "granted") return;
+                            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+                            if (!result.canceled && result.assets[0]) setSlabBackImage(result.assets[0].uri);
+                          }},
+                          { text: "Cancel", style: "cancel" },
+                        ]);
+                      }
+                    }}
+                    onRemove={() => setSlabBackImage(null)}
+                    loading={false}
+                  />
                 </View>
-
-                <>
-                    <View style={styles.imageRow}>
-                      <ImageCapture
-                        label="Front"
-                        imageUri={slabImage}
-                        onCapture={async () => {
-                          if (Platform.OS === "web") {
-                            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                            if (status !== "granted") {
-                              Alert.alert("Permission Required", "Photo library access is needed.");
-                              return;
-                            }
-                            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                            if (!result.canceled && result.assets[0]) {
-                              setSlabImage(result.assets[0].uri);
-                              setCertLookupResult(null);
-                            }
-                          } else {
-                            Alert.alert("Add Slab Front Photo", "Choose an option", [
-                              { text: "Take Photo", onPress: () => { setCameraOpen("slabFront"); setCertLookupResult(null); } },
-                              { text: "Choose from Library", onPress: async () => {
-                                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                                if (status !== "granted") return;
-                                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                                if (!result.canceled && result.assets[0]) { setSlabImage(result.assets[0].uri); setCertLookupResult(null); }
-                              }},
-                              { text: "Cancel", style: "cancel" },
-                            ]);
-                          }
-                        }}
-                        onRemove={() => setSlabImage(null)}
-                        loading={false}
-                      />
-                      <ImageCapture
-                        label="Back"
-                        imageUri={slabBackImage}
-                        onCapture={async () => {
-                          if (Platform.OS === "web") {
-                            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                            if (status !== "granted") {
-                              Alert.alert("Permission Required", "Photo library access is needed.");
-                              return;
-                            }
-                            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                            if (!result.canceled && result.assets[0]) {
-                              setSlabBackImage(result.assets[0].uri);
-                              setCertLookupResult(null);
-                            }
-                          } else {
-                            Alert.alert("Add Slab Back Photo", "Choose an option", [
-                              { text: "Take Photo", onPress: () => { setCameraOpen("slabBack"); setCertLookupResult(null); } },
-                              { text: "Choose from Library", onPress: async () => {
-                                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                                if (status !== "granted") return;
-                                const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
-                                if (!result.canceled && result.assets[0]) { setSlabBackImage(result.assets[0].uri); setCertLookupResult(null); }
-                              }},
-                              { text: "Cancel", style: "cancel" },
-                            ]);
-                          }
-                        }}
-                        onRemove={() => setSlabBackImage(null)}
-                        loading={false}
-                      />
-                    </View>
-
-                    <View style={styles.tipsCard}>
-                      <Text style={styles.tipsTitle}>Tips for slab photos</Text>
-                      <View style={styles.tipRow}>
-                        <Ionicons name="scan" size={16} color="#8B5CF6" />
-                        <Text style={styles.tipText}>Photograph both the front and back of the slab if possible</Text>
-                      </View>
-                      <View style={styles.tipRow}>
-                        <Ionicons name="sunny" size={16} color="#8B5CF6" />
-                        <Text style={styles.tipText}>Use good lighting to reduce glare on the plastic case</Text>
-                      </View>
-                    </View>
-                  </>
 
                 <View style={styles.tipsCard}>
+                  <Text style={styles.tipsTitle}>Tips for slab photos</Text>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="scan" size={16} color="#8B5CF6" />
+                    <Text style={styles.tipText}>Photograph both the front and back of the slab if possible</Text>
+                  </View>
+                  <View style={styles.tipRow}>
+                    <Ionicons name="sunny" size={16} color="#8B5CF6" />
+                    <Text style={styles.tipText}>Use good lighting to reduce glare on the plastic case</Text>
+                  </View>
                   <View style={styles.tipRow}>
                     <Ionicons name="information-circle" size={16} color="#8B5CF6" />
                     <Text style={styles.tipText}>Results are estimates — actual crossover outcomes may vary</Text>
@@ -2088,6 +1895,34 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: "rgba(139, 92, 246, 0.2)",
+  },
+  crossoverHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.2)",
+  },
+  crossoverHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  crossoverHeaderTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  crossoverHeaderSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   certSection: {
     backgroundColor: Colors.surface,
