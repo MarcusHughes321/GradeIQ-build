@@ -80,6 +80,7 @@ ensurePreviewReachable = "/status"
 [userenv.shared]
 EXPO_PUBLIC_SUBSCRIPTION_GATE = "on"
 EXPO_PUBLIC_RC_IOS_KEY = "appl_LEqJaUDWqGpXjrsgyQHtYaHyXRb"
+REVENUECAT_PROJECT_ID = "proj9562881b"
 
 [postMerge]
 path = "scripts/post-merge.sh"

@@ -78,6 +78,9 @@ export default function AdminAnalyticsScreen() {
   const byMode: { mode: string; count: string; completed: string; failed: string }[] = data?.byMode || [];
   const daily: { day: string; count: string; cards: string }[] = data?.daily || [];
   const recent: { job_id: string; mode: string; card_count: number; status: string; created_at: string; duration_secs: number | null }[] = data?.recent || [];
+  const rc: Record<string, number> | null = data?.rc ?? null;
+  const costs: { byMode: Record<string, number>; totalUsd: number } | null = data?.costs ?? null;
+  const revenue: { mrrUsd: number; revenueUsd: number; profitUsd: number; marginPct: number } | null = data?.revenue ?? null;
 
   const maxDaily = daily.length > 0 ? Math.max(...daily.map(d => parseInt(d.count))) : 1;
 
@@ -122,6 +125,75 @@ export default function AdminAnalyticsScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         >
+          {rc && (
+            <>
+              <Text style={styles.sectionTitle}>Revenue & Subscriptions</Text>
+              <View style={styles.revenueCard}>
+                <View style={styles.revenuePrimaryRow}>
+                  <View style={styles.revenuePrimary}>
+                    <Text style={styles.revenueCurrency}>$</Text>
+                    <Text style={styles.revenueMRR}>{rc.mrr?.toFixed(0) ?? "—"}</Text>
+                    <Text style={styles.revenueMRRLabel}>MRR</Text>
+                  </View>
+                  <View style={styles.revenueDivider} />
+                  <View style={styles.revenuePrimary}>
+                    <Text style={styles.revenueCurrency}>$</Text>
+                    <Text style={styles.revenueMRR}>{rc.revenue?.toFixed(0) ?? "—"}</Text>
+                    <Text style={styles.revenueMRRLabel}>28-Day Revenue</Text>
+                  </View>
+                </View>
+
+                <View style={styles.revenueMetricsRow}>
+                  {[
+                    { label: "Active Subs", value: rc.active_subscriptions ?? 0, color: "#34D399", icon: "ribbon" as const },
+                    { label: "New Customers", value: rc.new_customers ?? 0, color: "#60A5FA", icon: "person-add" as const },
+                    { label: "Active Users", value: rc.active_users ?? 0, color: "#F59E0B", icon: "people" as const },
+                    { label: "Active Trials", value: rc.active_trials ?? 0, color: Colors.textMuted, icon: "time" as const },
+                  ].map((m, i) => (
+                    <View key={i} style={styles.revenueMetric}>
+                      <Ionicons name={m.icon} size={14} color={m.color} />
+                      <Text style={[styles.revenueMetricValue, { color: m.color }]}>{m.value}</Text>
+                      <Text style={styles.revenueMetricLabel}>{m.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {revenue && costs && (
+                <>
+                  <Text style={styles.sectionTitle}>Profit Estimate</Text>
+                  <View style={styles.card}>
+                    <View style={[styles.profitRow, styles.rowBorder]}>
+                      <Text style={styles.profitLabel}>MRR (Revenue)</Text>
+                      <Text style={[styles.profitValue, { color: "#34D399" }]}>${revenue.mrrUsd.toFixed(2)}</Text>
+                    </View>
+                    <View style={[styles.profitRow, styles.rowBorder]}>
+                      <View>
+                        <Text style={styles.profitLabel}>AI Costs (estimated)</Text>
+                        <Text style={styles.profitSub}>
+                          {Object.entries(costs.byMode).map(([mode, cost]) => `${mode} $${cost.toFixed(2)}`).join(" · ")}
+                        </Text>
+                      </View>
+                      <Text style={[styles.profitValue, { color: "#FF3C31" }]}>-${costs.totalUsd.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.profitRow}>
+                      <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Est. Profit</Text>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={[styles.profitValue, { color: revenue.profitUsd >= 0 ? "#34D399" : "#FF3C31", fontSize: 18 }]}>
+                          ${revenue.profitUsd.toFixed(2)}
+                        </Text>
+                        <Text style={[styles.profitMargin, { color: revenue.marginPct >= 70 ? "#34D399" : revenue.marginPct >= 40 ? "#F59E0B" : "#FF3C31" }]}>
+                          {revenue.marginPct}% margin
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Text style={styles.profitNote}>AI costs estimated based on Claude Sonnet pricing. Actual costs may vary.</Text>
+                </>
+              )}
+            </>
+          )}
+
           <Text style={styles.sectionTitle}>Overview</Text>
           <View style={styles.statsGrid}>
             <StatCard label="Total Grades" value={totals?.total ?? "—"} />
@@ -326,4 +398,97 @@ const styles = StyleSheet.create({
   modePillText: { fontFamily: "Inter_700Bold", fontSize: 11 },
   recentJobId: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textSecondary },
   recentMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, marginTop: 1 },
+  revenueCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.25)",
+    overflow: "hidden",
+  },
+  revenuePrimaryRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  revenuePrimary: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 20,
+    gap: 2,
+  },
+  revenueDivider: {
+    width: 1,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  revenueCurrency: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#34D399",
+  },
+  revenueMRR: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 32,
+    color: Colors.text,
+    lineHeight: 36,
+  },
+  revenueMRRLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  revenueMetricsRow: {
+    flexDirection: "row",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+  },
+  revenueMetric: {
+    flex: 1,
+    alignItems: "center",
+    gap: 3,
+  },
+  revenueMetricValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+  },
+  revenueMetricLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 9,
+    color: Colors.textMuted,
+    textAlign: "center",
+  },
+  profitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 14,
+    paddingHorizontal: 16,
+  },
+  profitLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  profitSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  profitValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+  },
+  profitMargin: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  profitNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
+    paddingHorizontal: 20,
+    lineHeight: 16,
+  },
 });

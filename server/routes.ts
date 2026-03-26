@@ -6128,6 +6128,31 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  async function fetchRCOverview() {
+    const key = process.env.REVENUECAT_V2_KEY;
+    const projectId = process.env.REVENUECAT_PROJECT_ID;
+    if (!key || !projectId) return null;
+    try {
+      const r = await fetch(`https://api.revenuecat.com/v2/projects/${projectId}/metrics/overview`, {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!r.ok) return null;
+      const json = await r.json() as { metrics: { id: string; value: number; unit: string }[] };
+      const m: Record<string, number> = {};
+      for (const item of json.metrics) m[item.id] = item.value;
+      return m;
+    } catch {
+      return null;
+    }
+  }
+
+  const COST_PER_GRADE_USD: Record<string, number> = {
+    quick: 0.018,
+    deep: 0.040,
+    crossover: 0.030,
+    bulk: 0.018,
+  };
+
   app.get("/api/admin/analytics", async (req, res) => {
     try {
       const [totals, daily, byMode, recent] = await Promise.all([
@@ -6171,11 +6196,39 @@ RESPONSE FORMAT (JSON only, no markdown):
         `),
       ]);
 
+      const rcMetrics = await fetchRCOverview();
+
+      const costByMode: Record<string, number> = {};
+      let totalCostUsd = 0;
+      for (const row of byMode.rows) {
+        const costPer = COST_PER_GRADE_USD[row.mode] ?? 0.018;
+        const cards = parseInt(row.count);
+        const cost = parseFloat((cards * costPer).toFixed(2));
+        costByMode[row.mode] = cost;
+        totalCostUsd += cost;
+      }
+
+      const mrrUsd = rcMetrics?.mrr ?? 0;
+      const revenueUsd = rcMetrics?.revenue ?? 0;
+      const profitUsd = parseFloat((mrrUsd - totalCostUsd).toFixed(2));
+      const marginPct = mrrUsd > 0 ? Math.round((profitUsd / mrrUsd) * 100) : 0;
+
       res.json({
         totals: totals.rows[0],
         daily: daily.rows,
         byMode: byMode.rows,
         recent: recent.rows,
+        rc: rcMetrics,
+        costs: {
+          byMode: costByMode,
+          totalUsd: parseFloat(totalCostUsd.toFixed(2)),
+        },
+        revenue: {
+          mrrUsd,
+          revenueUsd,
+          profitUsd,
+          marginPct,
+        },
       });
     } catch (err: any) {
       console.error("[admin/analytics] Error:", err.message);
