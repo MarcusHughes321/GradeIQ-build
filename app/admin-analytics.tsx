@@ -82,6 +82,9 @@ export default function AdminAnalyticsScreen() {
   const costs: { byMode: Record<string, number>; totalUsd: number } | null = data?.costs ?? null;
   const revenue: { mrrUsd: number; revenueUsd: number; profitUsd: number; marginPct: number } | null = data?.revenue ?? null;
 
+  const USD_TO_GBP = 0.79;
+  const toGbp = (usd: number) => (usd * USD_TO_GBP).toFixed(2);
+
   const maxDaily = daily.length > 0 ? Math.max(...daily.map(d => parseInt(d.count))) : 1;
 
   const successRate = totals
@@ -131,14 +134,14 @@ export default function AdminAnalyticsScreen() {
               <View style={styles.revenueCard}>
                 <View style={styles.revenuePrimaryRow}>
                   <View style={styles.revenuePrimary}>
-                    <Text style={styles.revenueCurrency}>$</Text>
-                    <Text style={styles.revenueMRR}>{rc.mrr?.toFixed(0) ?? "—"}</Text>
+                    <Text style={styles.revenueCurrency}>£</Text>
+                    <Text style={styles.revenueMRR}>{rc.mrr != null ? Math.round(rc.mrr * USD_TO_GBP) : "—"}</Text>
                     <Text style={styles.revenueMRRLabel}>MRR</Text>
                   </View>
                   <View style={styles.revenueDivider} />
                   <View style={styles.revenuePrimary}>
-                    <Text style={styles.revenueCurrency}>$</Text>
-                    <Text style={styles.revenueMRR}>{rc.revenue?.toFixed(0) ?? "—"}</Text>
+                    <Text style={styles.revenueCurrency}>£</Text>
+                    <Text style={styles.revenueMRR}>{rc.revenue != null ? Math.round(rc.revenue * USD_TO_GBP) : "—"}</Text>
                     <Text style={styles.revenueMRRLabel}>28-Day Revenue</Text>
                   </View>
                 </View>
@@ -165,22 +168,22 @@ export default function AdminAnalyticsScreen() {
                   <View style={styles.card}>
                     <View style={[styles.profitRow, styles.rowBorder]}>
                       <Text style={styles.profitLabel}>MRR (Revenue)</Text>
-                      <Text style={[styles.profitValue, { color: "#34D399" }]}>${revenue.mrrUsd.toFixed(2)}</Text>
+                      <Text style={[styles.profitValue, { color: "#34D399" }]}>£{toGbp(revenue.mrrUsd)}</Text>
                     </View>
                     <View style={[styles.profitRow, styles.rowBorder]}>
                       <View>
                         <Text style={styles.profitLabel}>AI Costs (estimated)</Text>
                         <Text style={styles.profitSub}>
-                          {Object.entries(costs.byMode).map(([mode, cost]) => `${mode} $${cost.toFixed(2)}`).join(" · ")}
+                          {Object.entries(costs.byMode).map(([mode, cost]) => `${mode} £${toGbp(cost)}`).join(" · ")}
                         </Text>
                       </View>
-                      <Text style={[styles.profitValue, { color: "#FF3C31" }]}>-${costs.totalUsd.toFixed(2)}</Text>
+                      <Text style={[styles.profitValue, { color: "#FF3C31" }]}>-£{toGbp(costs.totalUsd)}</Text>
                     </View>
                     <View style={styles.profitRow}>
                       <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Est. Profit</Text>
                       <View style={{ alignItems: "flex-end" }}>
                         <Text style={[styles.profitValue, { color: revenue.profitUsd >= 0 ? "#34D399" : "#FF3C31", fontSize: 18 }]}>
-                          ${revenue.profitUsd.toFixed(2)}
+                          £{toGbp(revenue.profitUsd)}
                         </Text>
                         <Text style={[styles.profitMargin, { color: revenue.marginPct >= 70 ? "#34D399" : revenue.marginPct >= 40 ? "#F59E0B" : "#FF3C31" }]}>
                           {revenue.marginPct}% margin
