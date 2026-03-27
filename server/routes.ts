@@ -6600,7 +6600,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
-  async function buildTcgdexSetList(langCode: string, displayLang: string): Promise<any[]> {
+  async function buildTcgdexSetList(langCode: string): Promise<any[]> {
     const [listResp, seriesInfo] = await Promise.all([
       fetch(`https://api.tcgdex.net/v2/${langCode}/sets`, {
         headers: { "Accept": "application/json" },
@@ -6674,7 +6674,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/sets/japanese", async (req, res) => {
     try {
-      const sets = await buildTcgdexSetList("ja", "japanese");
+      const sets = await buildTcgdexSetList("ja");
       res.json({ sets });
     } catch (err: any) {
       console.error("[sets/japanese] Error:", err.message);
@@ -6684,7 +6684,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/sets/korean", async (req, res) => {
     try {
-      const sets = await buildTcgdexSetList("ko", "korean");
+      const sets = await buildTcgdexSetList("ko");
       res.json({ sets });
     } catch (err: any) {
       console.error("[sets/korean] Error:", err.message);
