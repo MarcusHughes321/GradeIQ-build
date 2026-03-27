@@ -6535,6 +6535,122 @@ RESPONSE FORMAT (JSON only, no markdown):
   const setCardsCache = new Map<string, { cards: any[]; fetchedAt: number }>();
   const SET_CARDS_CACHE_TTL = 6 * 60 * 60 * 1000;
 
+  // --- TCGdex series metadata cache (set → serie mapping for logo URLs & sort order) ---
+  interface TcgdexSeriesInfo {
+    /** setId → { serieId, serieReleaseDate, setIndex } */
+    sets: Map<string, { serieId: string; serieReleaseDate: string | null; setIndex: number }>;
+    /** Ordered series IDs (oldest → newest), for fallback ordering when dates absent */
+    seriesOrder: string[];
+    fetchedAt: number;
+  }
+  const tcgdexSeriesCache = new Map<string, TcgdexSeriesInfo>();
+  const TCGDEX_SERIES_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+  async function fetchTcgdexSeriesInfo(langCode: string): Promise<TcgdexSeriesInfo> {
+    const cached = tcgdexSeriesCache.get(langCode);
+    if (cached && Date.now() - cached.fetchedAt < TCGDEX_SERIES_CACHE_TTL) return cached;
+
+    const empty: TcgdexSeriesInfo = { sets: new Map(), seriesOrder: [], fetchedAt: Date.now() };
+    try {
+      const listResp = await fetch(`https://api.tcgdex.net/v2/${langCode}/series`, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!listResp.ok) return empty;
+      const seriesList = await listResp.json() as any[];
+
+      const details = await Promise.all(
+        seriesList.map((s: any) =>
+          fetch(`https://api.tcgdex.net/v2/${langCode}/series/${s.id}`, {
+            headers: { "Accept": "application/json" },
+            signal: AbortSignal.timeout(8000),
+          }).then(r => r.json()).catch(() => null)
+        )
+      );
+
+      // Sort series by releaseDate ascending (oldest first); null dates = treat as newest
+      const sortedDetails = [...details].sort((a, b) => {
+        const da = (a?.releaseDate as string | null) ?? "9999-99-99";
+        const db = (b?.releaseDate as string | null) ?? "9999-99-99";
+        return da.localeCompare(db);
+      });
+
+      const setsMap = new Map<string, { serieId: string; serieReleaseDate: string | null; setIndex: number }>();
+      const seriesOrder: string[] = [];
+      sortedDetails.forEach((detail: any) => {
+        if (!detail?.sets) return;
+        seriesOrder.push(detail.id as string);
+        const serieReleaseDate: string | null = (detail.releaseDate as string | undefined) ?? null;
+        (detail.sets as any[]).forEach((set: any, setIdx: number) => {
+          setsMap.set(set.id, {
+            serieId: detail.id as string,
+            serieReleaseDate,
+            setIndex: setIdx,
+          });
+        });
+      });
+
+      const result: TcgdexSeriesInfo = { sets: setsMap, seriesOrder, fetchedAt: Date.now() };
+      tcgdexSeriesCache.set(langCode, result);
+      console.log(`[tcgdex-series] Cached ${setsMap.size} sets across ${seriesOrder.length} series for lang=${langCode}`);
+      return result;
+    } catch (e: any) {
+      console.error(`[tcgdex-series] Failed for ${langCode}:`, e.message);
+      return empty;
+    }
+  }
+
+  async function buildTcgdexSetList(langCode: string, displayLang: string): Promise<any[]> {
+    const [listResp, seriesInfo] = await Promise.all([
+      fetch(`https://api.tcgdex.net/v2/${langCode}/sets`, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(12000),
+      }),
+      fetchTcgdexSeriesInfo(langCode),
+    ]);
+    if (!listResp.ok) throw new Error("TCGdex unavailable");
+    const list = await listResp.json() as any[];
+
+    const seriesOrderMap = new Map(seriesInfo.seriesOrder.map((id, i) => [id, i]));
+
+    const enriched = list.map((s: any) => {
+      const info = seriesInfo.sets.get(s.id);
+      // Construct logo URL from serie + set ID. TCGdex CDN path pattern:
+      // https://assets.tcgdex.net/{lang}/{SERIE}/{SETID}/logo
+      // Note: CDN access depends on client request headers; Expo Image loads directly from device.
+      const logo = info
+        ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo`
+        : null;
+      const serieReleaseDate = info?.serieReleaseDate ?? null;
+      const serieIdx = info ? (seriesOrderMap.get(info.serieId) ?? 0) : 0;
+      return {
+        id: s.id as string,
+        name: s.name as string,
+        cardCount: (s.cardCount?.official || s.cardCount?.total || 0) as number,
+        releaseDate: serieReleaseDate,
+        logo,
+        _serieIdx: serieIdx,
+        _setIdx: info?.setIndex ?? 0,
+      };
+    });
+
+    // Sort newest first: by serie release date desc, then serie list-order desc, then set index desc
+    // Null dates treated as newest (9999-99-99) so undated sets float to top
+    enriched.sort((a, b) => {
+      const dateA = a.releaseDate ?? "9999-99-99";
+      const dateB = b.releaseDate ?? "9999-99-99";
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
+      if (a._serieIdx !== b._serieIdx) return b._serieIdx - a._serieIdx;
+      return b._setIdx - a._setIdx;
+    });
+
+    return enriched.map(({ _serieIdx, _setIdx, ...rest }) => rest);
+  }
+
+  // Warm TCGdex series caches in the background on server start
+  void fetchTcgdexSeriesInfo("ja");
+  void fetchTcgdexSeriesInfo("ko");
+
   app.get("/api/sets/english", async (req, res) => {
     try {
       const sets = await ensureSetsCached();
@@ -6558,21 +6674,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/sets/japanese", async (req, res) => {
     try {
-      const resp = await fetch("https://api.tcgdex.net/v2/ja/sets", {
-        headers: { "Accept": "application/json" },
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
-      const data = await resp.json() as any[];
-      const reversed = [...data].reverse();
-      res.json({
-        sets: reversed.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          cardCount: s.cardCount?.official || s.cardCount?.total || 0,
-          logo: null,
-        }))
-      });
+      const sets = await buildTcgdexSetList("ja", "japanese");
+      res.json({ sets });
     } catch (err: any) {
       console.error("[sets/japanese] Error:", err.message);
       res.status(500).json({ error: err.message });
@@ -6581,21 +6684,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/sets/korean", async (req, res) => {
     try {
-      const resp = await fetch("https://api.tcgdex.net/v2/ko/sets", {
-        headers: { "Accept": "application/json" },
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
-      const data = await resp.json() as any[];
-      const reversed = [...data].reverse();
-      res.json({
-        sets: reversed.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          cardCount: s.cardCount?.official || s.cardCount?.total || 0,
-          logo: null,
-        }))
-      });
+      const sets = await buildTcgdexSetList("ko", "korean");
+      res.json({ sets });
     } catch (err: any) {
       console.error("[sets/korean] Error:", err.message);
       res.status(500).json({ error: err.message });
