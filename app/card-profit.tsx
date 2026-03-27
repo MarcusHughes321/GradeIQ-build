@@ -66,21 +66,54 @@ export default function CardProfitScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const { cardId, cardName } = useLocalSearchParams<{ cardId: string; cardName?: string }>();
+  const {
+    cardId,
+    cardName,
+    setName: setNameParam,
+    imageUrl: imageUrlParam,
+    cardNumber: cardNumberParam,
+    noPrice,
+  } = useLocalSearchParams<{
+    cardId: string;
+    cardName?: string;
+    setName?: string;
+    imageUrl?: string;
+    cardNumber?: string;
+    noPrice?: string;
+  }>();
   const { isSubscribed, isAdminMode, isGateEnabled } = useSubscription();
   const isPaid = isAdminMode || !isGateEnabled || isSubscribed;
 
   const [selectedCompany, setSelectedCompany] = useState<CompanyId>("PSA");
 
-  const { data, isLoading, error } = useQuery<ProfitData>({
+  const isNoPriceCard = noPrice === "1";
+
+  const staticData: ProfitData | null = isNoPriceCard
+    ? {
+        card: {
+          id: cardId || "",
+          name: cardName || "",
+          setName: setNameParam || "",
+          number: cardNumberParam || "",
+          imageUrl: imageUrlParam || null,
+        },
+        rawPriceGBP: null,
+        noPriceData: true,
+        companies: [],
+      }
+    : null;
+
+  const { data: fetchedData, isLoading, error } = useQuery<ProfitData>({
     queryKey: ["/api/cards/profit", cardId],
     queryFn: async () => {
       const resp = await apiRequest("GET", `/api/cards/profit?cardId=${encodeURIComponent(cardId || "")}`);
       return resp.json();
     },
-    enabled: !!cardId,
+    enabled: !!cardId && !isNoPriceCard,
     staleTime: 5 * 60 * 1000,
   });
+
+  const data = isNoPriceCard ? staticData : fetchedData;
 
   const activeCompany = data?.companies.find((c) => c.id === selectedCompany);
 

@@ -132,6 +132,8 @@ interface CachedSet {
   total: number;
   ptcgoCode: string;
   releaseDate: string;
+  logo?: string;
+  symbol?: string;
 }
 
 let cachedSets: CachedSet[] = [];
@@ -142,7 +144,7 @@ async function fetchAndCacheSets(): Promise<void> {
   try {
     console.log(`[set-cache] Fetching all sets from Pokemon TCG API...`);
     const resp = await fetch(
-      "https://api.pokemontcg.io/v2/sets?select=id,name,series,printedTotal,total,ptcgoCode,releaseDate&pageSize=250&orderBy=releaseDate",
+      "https://api.pokemontcg.io/v2/sets?select=id,name,series,printedTotal,total,ptcgoCode,releaseDate,images&pageSize=250&orderBy=releaseDate",
       { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
     );
     if (!resp.ok) {
@@ -158,6 +160,8 @@ async function fetchAndCacheSets(): Promise<void> {
       total: s.total || 0,
       ptcgoCode: s.ptcgoCode || "",
       releaseDate: s.releaseDate || "",
+      logo: s.images?.logo || "",
+      symbol: s.images?.symbol || "",
     }));
     setsLastFetched = Date.now();
     console.log(`[set-cache] Cached ${cachedSets.length} sets`);
@@ -6520,6 +6524,134 @@ RESPONSE FORMAT (JSON only, no markdown):
       });
     } catch (err: any) {
       console.error("[admin/analytics] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ======================================================================
+  // Set Browser Endpoints — English (pokemontcg.io), Japanese & Korean (TCGdex)
+  // ======================================================================
+
+  const setCardsCache = new Map<string, { cards: any[]; fetchedAt: number }>();
+  const SET_CARDS_CACHE_TTL = 6 * 60 * 60 * 1000;
+
+  app.get("/api/sets/english", async (req, res) => {
+    try {
+      const sets = await ensureSetsCached();
+      const sorted = [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
+      res.json({
+        sets: sorted.map(s => ({
+          id: s.id,
+          name: s.name,
+          series: s.series,
+          cardCount: s.printedTotal || s.total,
+          releaseDate: s.releaseDate,
+          logo: s.logo || null,
+          symbol: s.symbol || null,
+        }))
+      });
+    } catch (err: any) {
+      console.error("[sets/english] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/sets/japanese", async (req, res) => {
+    try {
+      const resp = await fetch("https://api.tcgdex.net/v2/ja/sets", {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
+      const data = await resp.json() as any[];
+      const reversed = [...data].reverse();
+      res.json({
+        sets: reversed.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          cardCount: s.cardCount?.official || s.cardCount?.total || 0,
+          logo: null,
+        }))
+      });
+    } catch (err: any) {
+      console.error("[sets/japanese] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/sets/korean", async (req, res) => {
+    try {
+      const resp = await fetch("https://api.tcgdex.net/v2/ko/sets", {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
+      const data = await resp.json() as any[];
+      const reversed = [...data].reverse();
+      res.json({
+        sets: reversed.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          cardCount: s.cardCount?.official || s.cardCount?.total || 0,
+          logo: null,
+        }))
+      });
+    } catch (err: any) {
+      console.error("[sets/korean] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/sets/:lang/:setId/cards", async (req, res) => {
+    const { lang, setId } = req.params;
+    if (!["english", "japanese", "korean"].includes(lang)) {
+      return res.status(400).json({ error: "Invalid language. Use english, japanese, or korean." });
+    }
+
+    const cacheKey = `${lang}:${setId}`;
+    const cached = setCardsCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < SET_CARDS_CACHE_TTL) {
+      console.log(`[sets/cards] Cache hit: ${cacheKey}`);
+      return res.json({ cards: cached.cards });
+    }
+
+    try {
+      let cards: any[] = [];
+
+      if (lang === "english") {
+        const resp = await fetch(
+          `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,images&orderBy=number`,
+          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+        );
+        if (!resp.ok) return res.status(502).json({ error: "Pokemon TCG API unavailable" });
+        const data = await resp.json() as any;
+        cards = (data?.data || []).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          number: c.number || "",
+          imageUrl: c.images?.small || c.images?.large || null,
+        }));
+      } else {
+        const langCode = lang === "japanese" ? "ja" : "ko";
+        const resp = await fetch(
+          `https://api.tcgdex.net/v2/${langCode}/sets/${encodeURIComponent(setId)}`,
+          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
+        );
+        if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
+        const data = await resp.json() as any;
+        cards = (data?.cards || []).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          number: c.localId || "",
+          imageUrl: c.image ? `${c.image}/high.jpg` : null,
+        }));
+      }
+
+      console.log(`[sets/cards] Fetched ${cards.length} cards for ${cacheKey}`);
+      setCardsCache.set(cacheKey, { cards, fetchedAt: Date.now() });
+      res.json({ cards });
+    } catch (err: any) {
+      console.error(`[sets/cards] Error for ${lang}/${setId}:`, err.message);
       res.status(500).json({ error: err.message });
     }
   });
