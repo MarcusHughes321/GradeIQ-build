@@ -286,8 +286,8 @@ function BrowseMode({
       return resp.json();
     },
     staleTime: 60 * 60 * 1000,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    retry: 2,
+    retryDelay: 1500,
   });
 
   const sets = data?.sets || [];
