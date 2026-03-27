@@ -1,0 +1,416 @@
+import React, { useState, useCallback, useRef } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  Pressable,
+  FlatList,
+  ActivityIndicator,
+  Platform,
+  Keyboard,
+} from "react-native";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Colors from "@/constants/colors";
+import { apiRequest } from "@/lib/query-client";
+
+const RECENT_SEARCHES_KEY = "gradeiq_values_recent_searches";
+const MAX_RECENT = 8;
+
+interface SearchResult {
+  id: string;
+  name: string;
+  setName: string;
+  setId: string;
+  number: string;
+  imageUrl: string | null;
+}
+
+async function loadRecentSearches(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveRecentSearches(searches: string[]): Promise<void> {
+  await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
+}
+
+export default function ValuesScreen() {
+  const insets = useSafeAreaInsets();
+  const webTopInset = Platform.OS === "web" ? 67 : 0;
+  const webBottomInset = Platform.OS === "web" ? 34 : 0;
+
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [recentLoaded, setRecentLoaded] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+
+  const loadRecent = useCallback(async () => {
+    if (recentLoaded) return;
+    const recent = await loadRecentSearches();
+    setRecentSearches(recent);
+    setRecentLoaded(true);
+  }, [recentLoaded]);
+
+  React.useEffect(() => {
+    loadRecent();
+  }, [loadRecent]);
+
+  const doSearch = useCallback(async (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    Keyboard.dismiss();
+    setLoading(true);
+    setError(null);
+    setHasSearched(true);
+    setResults([]);
+
+    try {
+      const resp = await apiRequest("GET", `/api/cards/search?q=${encodeURIComponent(trimmed)}`);
+      const data = await resp.json();
+      setResults(data.results || []);
+
+      const updated = [trimmed, ...recentSearches.filter((s) => s !== trimmed)].slice(0, MAX_RECENT);
+      setRecentSearches(updated);
+      await saveRecentSearches(updated);
+    } catch (e: any) {
+      setError("Search failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [recentSearches]);
+
+  const handleClear = useCallback(() => {
+    setQuery("");
+    setResults([]);
+    setHasSearched(false);
+    setError(null);
+    inputRef.current?.focus();
+  }, []);
+
+  const handleRemoveRecent = useCallback(async (item: string) => {
+    const updated = recentSearches.filter((s) => s !== item);
+    setRecentSearches(updated);
+    await saveRecentSearches(updated);
+  }, [recentSearches]);
+
+  const handleTapCard = useCallback((card: SearchResult) => {
+    router.push({
+      pathname: "/card-profit",
+      params: { cardId: card.id, cardName: card.name, setName: card.setName },
+    });
+  }, []);
+
+  const showRecent = !hasSearched && recentSearches.length > 0;
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Values</Text>
+        <Text style={styles.headerSub}>Search any Pokémon card to see profit potential</Text>
+      </View>
+
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search-outline" size={18} color={Colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            ref={inputRef}
+            style={styles.searchInput}
+            placeholder="e.g. 151 Charizard ex"
+            placeholderTextColor={Colors.textMuted}
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={() => doSearch(query)}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="never"
+          />
+          {query.length > 0 && (
+            <Pressable onPress={handleClear} hitSlop={12}>
+              <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.searchBtn, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => doSearch(query)}
+        >
+          <Text style={styles.searchBtnText}>Search</Text>
+        </Pressable>
+      </View>
+
+      {loading && (
+        <View style={styles.centered}>
+          <ActivityIndicator color={Colors.primary} size="large" />
+          <Text style={styles.loadingText}>Searching cards…</Text>
+        </View>
+      )}
+
+      {!loading && error && (
+        <View style={styles.centered}>
+          <Ionicons name="alert-circle-outline" size={36} color={Colors.error} />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
+      {!loading && !error && hasSearched && results.length === 0 && (
+        <View style={styles.centered}>
+          <Ionicons name="search-outline" size={36} color={Colors.textMuted} />
+          <Text style={styles.emptyTitle}>No cards found</Text>
+          <Text style={styles.emptySubtitle}>Try a different search term</Text>
+        </View>
+      )}
+
+      {!loading && !error && showRecent && (
+        <View style={styles.recentSection}>
+          <Text style={styles.recentTitle}>Recent Searches</Text>
+          {recentSearches.map((item) => (
+            <View key={item} style={styles.recentRow}>
+              <Pressable style={styles.recentTerm} onPress={() => { setQuery(item); doSearch(item); }}>
+                <Ionicons name="time-outline" size={16} color={Colors.textMuted} />
+                <Text style={styles.recentText}>{item}</Text>
+              </Pressable>
+              <Pressable onPress={() => handleRemoveRecent(item)} hitSlop={12}>
+                <Ionicons name="close" size={16} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {!loading && !error && !showRecent && !hasSearched && (
+        <View style={styles.centered}>
+          <Ionicons name="bar-chart-outline" size={48} color={Colors.textMuted} />
+          <Text style={styles.emptyTitle}>Explore Card Values</Text>
+          <Text style={styles.emptySubtitle}>Search for a Pokémon card to see how much you could make from grading it</Text>
+        </View>
+      )}
+
+      {!loading && results.length > 0 && (
+        <FlatList
+          data={results}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + webBottomInset + 100 }}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          renderItem={({ item }) => (
+            <CardResultRow card={item} onPress={() => handleTapCard(item)} />
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
+function CardResultRow({ card, onPress }: { card: SearchResult; onPress: () => void }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.cardRow, { opacity: pressed ? 0.8 : 1 }]}
+      onPress={onPress}
+    >
+      <View style={styles.cardImageContainer}>
+        {card.imageUrl ? (
+          <Image
+            source={{ uri: card.imageUrl }}
+            style={styles.cardImage}
+            contentFit="contain"
+          />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+            <Ionicons name="image-outline" size={24} color={Colors.textMuted} />
+          </View>
+        )}
+      </View>
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardName} numberOfLines={2}>{card.name}</Text>
+        <Text style={styles.cardSet} numberOfLines={1}>{card.setName}</Text>
+        {card.number ? <Text style={styles.cardNumber}>#{card.number}</Text> : null}
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  headerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 26,
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  headerSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  searchRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+    alignItems: "center",
+  },
+  searchBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 8,
+  },
+  searchIcon: {
+    flexShrink: 0,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.text,
+    paddingVertical: 0,
+  },
+  searchBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
+  },
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  loadingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  errorText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.error,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  emptyTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+    color: Colors.text,
+    textAlign: "center",
+  },
+  emptySubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  recentSection: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  recentTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  recentTerm: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  recentText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.text,
+  },
+  cardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    gap: 12,
+  },
+  cardImageContainer: {
+    width: 52,
+    height: 72,
+    borderRadius: 6,
+    overflow: "hidden",
+    backgroundColor: Colors.surface,
+  },
+  cardImage: {
+    width: 52,
+    height: 72,
+  },
+  cardImagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  cardName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+  cardSet: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  cardNumber: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+  },
+});

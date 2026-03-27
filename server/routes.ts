@@ -4010,6 +4010,294 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
     }
   }
 
+  // ======================================================================
+  // Card Value Explorer — card search and profit calculation endpoints
+  // ======================================================================
+
+  const GRADING_COMPANIES = [
+    {
+      id: "PSA",
+      name: "PSA",
+      submissionFeeGBP: 18,
+      turnaround: "45–60 business days",
+      gradeMultipliers: { 7: 1.2, 8: 1.6, 8.5: 0, 9: 2.2, 9.5: 0, 10: 5.5 },
+    },
+    {
+      id: "BGS",
+      name: "BGS (Beckett)",
+      submissionFeeGBP: 22,
+      turnaround: "45–75 business days",
+      gradeMultipliers: { 7: 1.1, 8: 1.5, 8.5: 1.9, 9: 2.1, 9.5: 3.8, 10: 6.0 },
+    },
+    {
+      id: "ACE",
+      name: "ACE",
+      submissionFeeGBP: 10,
+      turnaround: "14–21 business days",
+      gradeMultipliers: { 7: 1.0, 8: 1.3, 8.5: 1.6, 9: 1.8, 9.5: 2.5, 10: 3.5 },
+    },
+    {
+      id: "CGC",
+      name: "CGC",
+      submissionFeeGBP: 15,
+      turnaround: "30–45 business days",
+      gradeMultipliers: { 7: 1.1, 8: 1.4, 8.5: 1.7, 9: 1.9, 9.5: 2.8, 10: 4.2 },
+    },
+    {
+      id: "TAG",
+      name: "TAG",
+      submissionFeeGBP: 12,
+      turnaround: "21–35 business days",
+      gradeMultipliers: { 7: 0.9, 8: 1.2, 8.5: 1.5, 9: 1.7, 9.5: 2.3, 10: 3.2 },
+    },
+  ] as const;
+
+  const PROFIT_GRADES = [7, 8, 8.5, 9, 9.5, 10] as const;
+
+  app.get("/api/cards/search", async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      if (!q) {
+        return res.status(400).json({ error: "q is required" });
+      }
+      console.log(`[cards/search] Query: "${q}"`);
+
+      // Build search queries with natural language parsing
+      const lower = q.toLowerCase();
+
+      // Known set keyword -> pokemontcg.io set ID mappings
+      const knownSets: Record<string, string> = {
+        "151": "sv3pt5",
+        "paldea evolved": "sv2",
+        "obsidian flames": "sv3",
+        "paradox rift": "sv4",
+        "temporal forces": "sv5",
+        "twilight masquerade": "sv6",
+        "shrouded fable": "sv7",
+        "stellar crown": "sv7",
+        "surging sparks": "sv8",
+        "prismatic evolutions": "sv8pt5",
+        "paldean fates": "sv4pt5",
+        "scarlet violet": "sv1",
+        "shining fates": "swsh45",
+        "champions path": "cpa",
+        "vivid voltage": "viv",
+        "rebel clash": "swsh2",
+        "brilliant stars": "brs",
+        "astral radiance": "asr",
+        "lost origin": "lor",
+        "silver tempest": "sit",
+        "crown zenith": "crz",
+        "evolving skies": "evs",
+        "fusion strike": "fst",
+        "chilling reign": "cre",
+        "battle styles": "bst",
+        "darkness ablaze": "daa",
+        "sword shield": "swsh1",
+        "team rocket": "g1",
+        "base set": "base1",
+        "jungle": "jungle",
+        "fossil": "fossil",
+        "gym heroes": "gym1",
+        "gym challenge": "gym2",
+        "neo genesis": "neo1",
+        "hidden fates": "sm115",
+        "burning shadows": "sm3",
+        "guardians rising": "sm2",
+        "sun moon": "sm1",
+      };
+
+      // Detect if query contains a set keyword
+      let matchedSetId: string | null = null;
+      let cardNamePart = q;
+      for (const [keyword, setId] of Object.entries(knownSets)) {
+        if (lower.includes(keyword)) {
+          matchedSetId = setId;
+          // Remove the matched keyword from the card name part
+          cardNamePart = q.replace(new RegExp(keyword, "gi"), "").trim();
+          break;
+        }
+      }
+
+      // Also detect card number in the query (e.g. "Charizard 006")
+      const numMatch = q.match(/\b(\d{1,4})\b/);
+      let cardNumberPart: string | null = null;
+      if (numMatch) {
+        cardNumberPart = numMatch[1];
+        // Remove it from name part if we already have a name
+        cardNamePart = cardNamePart.replace(numMatch[0], "").trim() || cardNamePart;
+      }
+
+      const seenIds = new Set<string>();
+      const allCards: any[] = [];
+
+      const fields = "id,name,set,number,images";
+      const fetchQuery = async (query: string): Promise<any[]> => {
+        try {
+          const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=10&select=${fields}&orderBy=-set.releaseDate`;
+          const resp = await fetch(url, {
+            headers: { "Accept": "application/json" },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!resp.ok) return [];
+          const data = await resp.json() as any;
+          return data?.data || [];
+        } catch { return []; }
+      };
+
+      // Build priority query list — set-specific queries first when detected
+      const priorityQueries: string[] = [];
+      const fallbackQueries: string[] = [];
+
+      if (matchedSetId && cardNamePart) {
+        // Best: name + set ID (e.g. "151 Charizard ex" → name:"Charizard ex*" set.id:sv3pt5)
+        priorityQueries.push(`name:"${cardNamePart}*" set.id:${matchedSetId}`);
+        // Also number + set if we have both
+        if (cardNumberPart) {
+          priorityQueries.push(`number:${cardNumberPart} set.id:${matchedSetId}`);
+        }
+      } else if (matchedSetId) {
+        // Only set keyword, no card name
+        priorityQueries.push(`set.id:${matchedSetId}`);
+      }
+
+      if (cardNamePart && cardNumberPart) {
+        priorityQueries.push(`name:"${cardNamePart}*" number:${cardNumberPart}`);
+      }
+
+      if (cardNamePart) {
+        fallbackQueries.push(`name:"${cardNamePart}*"`);
+      }
+
+      // Always include general name search as fallback
+      fallbackQueries.push(`name:"${q}*"`);
+
+      // Deduplicate and run priority queries first, then fallbacks
+      const allQueries = [...new Set([...priorityQueries, ...fallbackQueries])];
+      const results = await Promise.all(allQueries.map(fetchQuery));
+      for (const cards of results) {
+        for (const c of cards) {
+          if (!seenIds.has(c.id)) {
+            seenIds.add(c.id);
+            allCards.push(c);
+          }
+        }
+      }
+
+      const mapped = allCards.slice(0, 10).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        setName: c.set?.name || "",
+        setId: c.set?.id || "",
+        number: c.number || "",
+        imageUrl: c.images?.small || c.images?.large || null,
+      }));
+
+      console.log(`[cards/search] Returning ${mapped.length} results`);
+      res.json({ results: mapped });
+    } catch (err: any) {
+      console.error("[cards/search] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cards/profit", async (req, res) => {
+    try {
+      const cardId = String(req.query.cardId || "").trim();
+      if (!cardId) {
+        return res.status(400).json({ error: "cardId is required" });
+      }
+      console.log(`[cards/profit] Looking up card: ${cardId}`);
+
+      // Fetch card details from pokemontcg.io
+      const cardResp = await fetch(
+        `https://api.pokemontcg.io/v2/cards/${encodeURIComponent(cardId)}?select=id,name,set,number,images,tcgplayer`,
+        { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(8000) }
+      );
+      if (!cardResp.ok) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      const cardData = await cardResp.json() as any;
+      const card = cardData?.data;
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+
+      // Extract TCGPlayer price from the card's data first
+      let tcgResult = extractTCGPlayerPrice(card);
+
+      // If not found in card data, fall back to lookup by name+number+set
+      if (!tcgResult.found) {
+        console.log(`[cards/profit] Price not in card data, doing lookup for "${card.name}" #${card.number} in ${card.set?.name}`);
+        tcgResult = await lookupTCGPlayerPrice(card.name, card.set?.name || "", card.number || "");
+      }
+
+      if (!tcgResult.found || !tcgResult.marketPriceGBP) {
+        return res.json({
+          card: {
+            id: card.id,
+            name: card.name,
+            setName: card.set?.name || "",
+            setId: card.set?.id || "",
+            number: card.number || "",
+            imageUrl: card.images?.large || card.images?.small || null,
+          },
+          rawPriceGBP: null,
+          noPriceData: true,
+          companies: [],
+        });
+      }
+
+      const rawPriceGBP = tcgResult.marketPriceGBP;
+
+      const companies = GRADING_COMPANIES.map((company) => {
+        const grades = PROFIT_GRADES
+          .filter(g => company.gradeMultipliers[g as keyof typeof company.gradeMultipliers] > 0)
+          .map((grade) => {
+            const multiplier = company.gradeMultipliers[grade as keyof typeof company.gradeMultipliers];
+            const gradedValueGBP = Math.round(rawPriceGBP * multiplier * 100) / 100;
+            const profitGBP = Math.round((gradedValueGBP - rawPriceGBP - company.submissionFeeGBP) * 100) / 100;
+            return {
+              grade,
+              gradedValueGBP,
+              profitGBP,
+              isProfitable: profitGBP >= 0,
+            };
+          });
+
+        // Find minimum grade needed to break even or profit (>= 0)
+        const minProfitableGrade = grades.find(g => g.profitGBP >= 0);
+
+        return {
+          id: company.id,
+          name: company.name,
+          submissionFeeGBP: company.submissionFeeGBP,
+          turnaround: company.turnaround,
+          grades,
+          minProfitableGrade: minProfitableGrade?.grade ?? null,
+        };
+      });
+
+      res.json({
+        card: {
+          id: card.id,
+          name: card.name,
+          setName: card.set?.name || "",
+          setId: card.set?.id || "",
+          number: card.number || "",
+          imageUrl: card.images?.large || card.images?.small || null,
+        },
+        rawPriceGBP,
+        noPriceData: false,
+        companies,
+        priceLastUpdated: "Prices updated daily via TCGPlayer",
+      });
+    } catch (err: any) {
+      console.error("[cards/profit] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/card-value", async (req, res) => {
     try {
       const { cardName, setName, setNumber, psaGrade, bgsGrade, aceGrade, tagGrade, cgcGrade, currency = "GBP" } = req.body;
