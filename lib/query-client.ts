@@ -52,7 +52,7 @@ export const getQueryFn: <T>(options: {
     const baseUrl = getApiUrl();
     const url = new URL(queryKey.join("/") as string, baseUrl);
 
-    const res = await fetch(url.toString(), {
+    const res = await globalThis.fetch(url.toString(), {
       credentials: "include",
     });
 

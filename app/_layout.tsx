@@ -43,6 +43,9 @@ function RootLayoutNav() {
         setTimeout(() => router.push("/whats-new"), 400);
       }
       setCheckedOnboarding(true);
+    }).catch((e) => {
+      console.warn("[layout] Onboarding check failed:", e);
+      setCheckedOnboarding(true);
     });
   }, []);
 
