@@ -34,6 +34,7 @@ interface SearchResult {
 interface BrowseSet {
   id: string;
   name: string;
+  nameEn?: string | null;
   series?: string;
   cardCount: number;
   releaseDate?: string;
@@ -289,9 +290,10 @@ function BrowseMode({
   const sets = data?.sets || [];
 
   const handleSetPress = (set: BrowseSet) => {
+    const displayName = set.nameEn || set.name;
     router.push({
       pathname: "/set-cards",
-      params: { lang, setId: set.id, setName: set.name },
+      params: { lang, setId: set.id, setName: displayName, nativeName: set.name },
     });
   };
 
@@ -363,6 +365,8 @@ function BrowseMode({
 }
 
 function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
+  const displayName = set.nameEn || set.name;
+  const nativeName = set.nameEn && set.name !== set.nameEn ? set.name : null;
   return (
     <Pressable
       style={({ pressed }) => [styles.setRow, { opacity: pressed ? 0.8 : 1 }]}
@@ -382,8 +386,10 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
         )}
       </View>
       <View style={styles.setInfo}>
-        <Text style={styles.setName} numberOfLines={2}>{set.name}</Text>
-        {set.series ? (
+        <Text style={styles.setName} numberOfLines={2}>{displayName}</Text>
+        {nativeName ? (
+          <Text style={styles.setSeries} numberOfLines={1}>{nativeName}</Text>
+        ) : set.series ? (
           <Text style={styles.setSeries} numberOfLines={1}>{set.series}</Text>
         ) : null}
         <Text style={styles.setCardCount}>{set.cardCount} cards</Text>

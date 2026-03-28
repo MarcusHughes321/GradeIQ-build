@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -22,11 +22,19 @@ const GUTTER = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - GUTTER * (COLUMNS + 1)) / COLUMNS;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
+type SortBy = "number" | "value";
+
 interface SetCard {
   id: string;
   name: string;
   number: string;
   imageUrl: string | null;
+  price?: number | null;
+}
+
+function parseCardNumber(n: string): number {
+  const m = n.match(/^(\d+)/);
+  return m ? parseInt(m[1], 10) : 9999;
 }
 
 export default function SetCardsScreen() {
@@ -40,14 +48,25 @@ export default function SetCardsScreen() {
     setName: string;
   }>();
 
+  const [sortBy, setSortBy] = useState<SortBy>("number");
+
   const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
     queryKey: ["/api/sets", lang, setId, "cards"],
     enabled: !!lang && !!setId,
     staleTime: 6 * 60 * 60 * 1000,
   });
 
-  const cards = data?.cards || [];
+  const isEnglish = lang === "english";
   const isJpKr = lang === "japanese" || lang === "korean";
+  const hasAnyPrice = isEnglish && (data?.cards ?? []).some(c => c.price != null);
+
+  const cards = useMemo(() => {
+    const raw = data?.cards ?? [];
+    if (sortBy === "value" && isEnglish) {
+      return [...raw].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
+    }
+    return [...raw].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
+  }, [data?.cards, sortBy, isEnglish]);
 
   const handleCardPress = (card: SetCard) => {
     if (isJpKr) {
@@ -96,6 +115,11 @@ export default function SetCardsScreen() {
           #{item.number}
         </Text>
       ) : null}
+      {isEnglish && item.price != null ? (
+        <Text style={styles.cardPrice} numberOfLines={1}>
+          ${item.price.toFixed(2)}
+        </Text>
+      ) : null}
     </Pressable>
   );
 
@@ -114,6 +138,38 @@ export default function SetCardsScreen() {
         </Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* Sort controls — only shown for English sets with price data */}
+      {isEnglish && hasAnyPrice && !isLoading && !error && cards.length > 0 && (
+        <View style={styles.sortBar}>
+          <Pressable
+            style={[styles.sortBtn, sortBy === "number" && styles.sortBtnActive]}
+            onPress={() => setSortBy("number")}
+          >
+            <Ionicons
+              name="list-outline"
+              size={14}
+              color={sortBy === "number" ? Colors.text : Colors.textMuted}
+            />
+            <Text style={[styles.sortBtnText, sortBy === "number" && styles.sortBtnTextActive]}>
+              Card #
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.sortBtn, sortBy === "value" && styles.sortBtnActive]}
+            onPress={() => setSortBy("value")}
+          >
+            <Ionicons
+              name="trending-down-outline"
+              size={14}
+              color={sortBy === "value" ? Colors.text : Colors.textMuted}
+            />
+            <Text style={[styles.sortBtnText, sortBy === "value" && styles.sortBtnTextActive]}>
+              Value
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {isLoading && (
         <View style={styles.centered}>
@@ -189,6 +245,37 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "center",
   },
+  sortBar: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  sortBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  sortBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  sortBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  sortBtnTextActive: {
+    color: Colors.text,
+  },
   centered: {
     flex: 1,
     alignItems: "center",
@@ -255,6 +342,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
     marginTop: 4,
+    textAlign: "center",
+  },
+  cardPrice: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.primary,
     textAlign: "center",
   },
 });
