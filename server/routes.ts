@@ -6752,18 +6752,25 @@ RESPONSE FORMAT (JSON only, no markdown):
         const data = await resp.json() as any;
         cards = (data?.data || []).map((c: any) => {
           const prices = c.tcgplayer?.prices ?? {};
-          const market =
-            prices.holofoil?.market ??
-            prices.reverseHolofoil?.market ??
-            prices.normal?.market ??
-            prices["1stEditionHolofoil"]?.market ??
-            null;
+          // Try all known TCGPlayer price variants; prefer market, fall back to mid
+          const PRICE_TYPES = [
+            "holofoil", "reverseHolofoil", "normal",
+            "1stEditionHolofoil", "1stEditionNormal",
+            "unlimitedHolofoil", "unlimited",
+          ];
+          let best: number | null = null;
+          for (const pt of PRICE_TYPES) {
+            const t = prices[pt];
+            if (!t) continue;
+            const v = t.market ?? t.mid ?? null;
+            if (v != null && (best === null || v > best)) { best = v; break; }
+          }
           return {
             id: c.id,
             name: c.name,
             number: c.number || "",
             imageUrl: c.images?.small || c.images?.large || null,
-            price: market ? Math.round(market * 100) / 100 : null,
+            price: best != null ? Math.round(best * 100) / 100 : null,
           };
         });
       } else {

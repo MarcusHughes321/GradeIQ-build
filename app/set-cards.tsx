@@ -58,15 +58,17 @@ export default function SetCardsScreen() {
 
   const isEnglish = lang === "english";
   const isJpKr = lang === "japanese" || lang === "korean";
-  const hasAnyPrice = isEnglish && (data?.cards ?? []).some(c => c.price != null);
+
+  const allCards = data?.cards ?? [];
+  const hasImages = allCards.some(c => c.imageUrl != null);
+  const hasAnyPrice = isEnglish && allCards.some(c => c.price != null);
 
   const cards = useMemo(() => {
-    const raw = data?.cards ?? [];
     if (sortBy === "value" && isEnglish) {
-      return [...raw].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
+      return [...allCards].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
     }
-    return [...raw].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
-  }, [data?.cards, sortBy, isEnglish]);
+    return [...allCards].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
+  }, [allCards, sortBy, isEnglish]);
 
   const handleCardPress = (card: SetCard) => {
     if (isJpKr) {
@@ -93,9 +95,10 @@ export default function SetCardsScreen() {
     }
   };
 
-  const renderCard = ({ item }: { item: SetCard }) => (
+  // Grid item (EN with images)
+  const renderGridCard = ({ item }: { item: SetCard }) => (
     <Pressable
-      style={({ pressed }) => [styles.cardItem, { opacity: pressed ? 0.75 : 1 }]}
+      style={({ pressed }) => [styles.gridItem, { opacity: pressed ? 0.75 : 1 }]}
       onPress={() => handleCardPress(item)}
     >
       {item.imageUrl ? (
@@ -111,17 +114,27 @@ export default function SetCardsScreen() {
         </View>
       )}
       {item.number ? (
-        <Text style={styles.cardNumber} numberOfLines={1}>
-          #{item.number}
-        </Text>
+        <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
       ) : null}
-      {isEnglish && item.price != null ? (
-        <Text style={styles.cardPrice} numberOfLines={1}>
-          ${item.price.toFixed(2)}
-        </Text>
+      {item.price != null ? (
+        <Text style={styles.cardPrice} numberOfLines={1}>${item.price.toFixed(2)}</Text>
       ) : null}
     </Pressable>
   );
+
+  // List item (JP/KR — no images from API)
+  const renderListCard = ({ item }: { item: SetCard }) => (
+    <Pressable
+      style={({ pressed }) => [styles.listItem, { opacity: pressed ? 0.8 : 1 }]}
+      onPress={() => handleCardPress(item)}
+    >
+      <Text style={styles.listNumber}>#{item.number}</Text>
+      <Text style={styles.listName} numberOfLines={1}>{item.name}</Text>
+      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+    </Pressable>
+  );
+
+  const showGrid = isEnglish || hasImages;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -139,7 +152,7 @@ export default function SetCardsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Sort controls — only shown for English sets with price data */}
+      {/* Sort controls — only for English with price data */}
       {isEnglish && hasAnyPrice && !isLoading && !error && cards.length > 0 && (
         <View style={styles.sortBar}>
           <Pressable
@@ -160,12 +173,12 @@ export default function SetCardsScreen() {
             onPress={() => setSortBy("value")}
           >
             <Ionicons
-              name="trending-down-outline"
+              name="arrow-down-outline"
               size={14}
               color={sortBy === "value" ? Colors.text : Colors.textMuted}
             />
             <Text style={[styles.sortBtnText, sortBy === "value" && styles.sortBtnTextActive]}>
-              Value
+              Highest Value
             </Text>
           </Pressable>
         </View>
@@ -191,16 +204,16 @@ export default function SetCardsScreen() {
       {!isLoading && !error && cards.length === 0 && (
         <View style={styles.centered}>
           <Ionicons name="albums-outline" size={36} color={Colors.textMuted} />
-          <Text style={styles.emptyTitle}>No card images available</Text>
-          {isJpKr && (
-            <Text style={styles.emptySubtitle}>
-              Card images for this set aren't in our database yet. Use Search to look up a specific card by name.
-            </Text>
-          )}
+          <Text style={styles.emptyTitle}>No card data available</Text>
+          <Text style={styles.emptySubtitle}>
+            {isJpKr
+              ? "Card data for this set isn't in our database yet. Try using Search to look up a card by name."
+              : "No cards found for this set."}
+          </Text>
         </View>
       )}
 
-      {!isLoading && cards.length > 0 && (
+      {!isLoading && cards.length > 0 && showGrid && (
         <FlatList
           data={cards}
           keyExtractor={(item) => item.id}
@@ -209,10 +222,28 @@ export default function SetCardsScreen() {
             styles.grid,
             { paddingBottom: insets.bottom + webBottomInset + 24 },
           ]}
-          columnWrapperStyle={styles.row}
+          columnWrapperStyle={styles.gridRow}
           showsVerticalScrollIndicator={false}
-          renderItem={renderCard}
+          renderItem={renderGridCard}
         />
+      )}
+
+      {!isLoading && cards.length > 0 && !showGrid && (
+        <>
+          <View style={styles.listHeader}>
+            <Text style={styles.listHeaderText}>
+              {cards.length} cards — names and numbers only
+            </Text>
+          </View>
+          <FlatList
+            data={cards}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 24 }}
+            showsVerticalScrollIndicator={false}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            renderItem={renderListCard}
+          />
+        </>
       )}
     </View>
   );
@@ -315,15 +346,16 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+  // Grid layout (English)
   grid: {
     paddingTop: GUTTER,
     paddingHorizontal: GUTTER,
   },
-  row: {
+  gridRow: {
     gap: GUTTER,
     marginBottom: GUTTER,
   },
-  cardItem: {
+  gridItem: {
     width: CARD_WIDTH,
     alignItems: "center",
   },
@@ -349,5 +381,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary,
     textAlign: "center",
+  },
+  // List layout (JP/KR)
+  listHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  listHeaderText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  listItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  listNumber: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textMuted,
+    width: 44,
+  },
+  listName: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.text,
+    flex: 1,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+    marginLeft: 16,
   },
 });
