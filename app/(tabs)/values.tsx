@@ -281,10 +281,6 @@ function BrowseMode({
 }) {
   const { data, isLoading, error, refetch } = useQuery<{ sets: BrowseSet[] }>({
     queryKey: ["/api/sets", lang],
-    queryFn: async () => {
-      const resp = await apiRequest("GET", `/api/sets/${lang}`);
-      return resp.json();
-    },
     staleTime: 60 * 60 * 1000,
     retry: 2,
     retryDelay: 1500,
@@ -331,6 +327,9 @@ function BrowseMode({
         <View style={styles.centered}>
           <Ionicons name="alert-circle-outline" size={36} color={Colors.error} />
           <Text style={styles.errorText}>Failed to load sets</Text>
+          <Text style={[styles.errorText, { fontSize: 11, opacity: 0.6, marginTop: 4 }]} numberOfLines={3}>
+            {(error as Error)?.message || String(error)}
+          </Text>
           <Pressable onPress={() => refetch()} style={{ marginTop: 8 }}>
             <Text style={styles.retryText}>Try again</Text>
           </Pressable>

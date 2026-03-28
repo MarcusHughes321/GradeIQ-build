@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
 
 const COLUMNS = 3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -43,10 +42,6 @@ export default function SetCardsScreen() {
 
   const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
     queryKey: ["/api/sets", lang, setId, "cards"],
-    queryFn: async () => {
-      const resp = await apiRequest("GET", `/api/sets/${lang}/${setId}/cards`);
-      return resp.json();
-    },
     enabled: !!lang && !!setId,
     staleTime: 6 * 60 * 60 * 1000,
   });
