@@ -11,7 +11,7 @@ import { SettingsProvider } from "@/lib/settings-context";
 import { SubscriptionProvider } from "@/lib/subscription";
 import { GradingProvider } from "@/lib/grading-context";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
 import { getSettings } from "@/lib/settings";
@@ -84,6 +84,8 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
     ...Ionicons.font,
+    ...MaterialCommunityIcons.font,
+    ...Feather.font,
   });
 
   useEffect(() => {
