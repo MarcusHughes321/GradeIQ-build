@@ -23,31 +23,22 @@ import { apiRequest } from "@/lib/query-client";
 const RECENT_SEARCHES_KEY = "gradeiq_values_recent_searches";
 const MAX_RECENT = 8;
 
-// PSA estimated multipliers & GBP conversion
-const GBP_RATE = 0.79; // approximate USD→GBP
-const PSA_FEE_GBP = 18;
-const PSA10_MULT = 5.5;
-const PSA9_MULT = 2.2;
+// GBP conversion from USD (approximate, for display only)
+const GBP_RATE = 0.79;
 
-function calcProfitGBP(rawUSD: number, mult: number): number {
-  const rawGBP = rawUSD * GBP_RATE;
-  return rawGBP * mult - rawGBP - PSA_FEE_GBP;
+function rawGBP(rawUSD: number): number {
+  return rawUSD * GBP_RATE;
 }
 
-function fmtGBP(n: number): string {
-  const abs = Math.abs(n);
-  return (n >= 0 ? "+" : "-") + "£" + (abs >= 10 ? Math.round(abs) : abs.toFixed(0));
-}
-
-// Profit tier ranges (exclusive — each tab shows cards that fit only that tier)
-const PROFIT_TIERS = [
-  { label: "£50+", min: 50,   max: 100  },
-  { label: "£100+", min: 100, max: 200  },
-  { label: "£200+", min: 200, max: 500  },
-  { label: "£500+", min: 500, max: 1000 },
-  { label: "£1k+",  min: 1000, max: Infinity },
+// Price tiers based on actual TCGPlayer raw market price in GBP
+const PRICE_TIERS = [
+  { label: "£50+",  minGBP: 50,   maxGBP: 100  },
+  { label: "£100+", minGBP: 100,  maxGBP: 200  },
+  { label: "£200+", minGBP: 200,  maxGBP: 500  },
+  { label: "£500+", minGBP: 500,  maxGBP: 1000 },
+  { label: "£1k+",  minGBP: 1000, maxGBP: Infinity },
 ] as const;
-type ProfitTierMin = typeof PROFIT_TIERS[number]["min"];
+type PriceTierMin = typeof PRICE_TIERS[number]["minGBP"];
 
 interface SearchResult {
   id: string;
@@ -106,7 +97,7 @@ export default function ValuesScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
-  const [profitTier, setProfitTier] = useState<ProfitTierMin>(50);
+  const [priceTier, setPriceTier] = useState<PriceTierMin>(50);
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -131,19 +122,19 @@ export default function ValuesScreen() {
   });
   const allPicks = picksData?.cards || [];
 
-  // Filter to cards in the selected tier's exclusive profit range, sorted best-to-lowest
+  // Filter to cards in the selected price tier's raw GBP range, sorted highest price first
   const tieredPicks = useMemo(() => {
     if (allPicks.length === 0) return [];
-    const tier = PROFIT_TIERS.find(t => t.min === profitTier);
+    const tier = PRICE_TIERS.find(t => t.minGBP === priceTier);
     if (!tier) return [];
     return allPicks
       .filter(c => {
-        const p = calcProfitGBP(c.rawPriceUSD, PSA10_MULT);
-        return p >= tier.min && p < tier.max;
+        const p = rawGBP(c.rawPriceUSD);
+        return p >= tier.minGBP && p < tier.maxGBP;
       })
-      .sort((a, b) => calcProfitGBP(b.rawPriceUSD, PSA10_MULT) - calcProfitGBP(a.rawPriceUSD, PSA10_MULT))
+      .sort((a, b) => rawGBP(b.rawPriceUSD) - rawGBP(a.rawPriceUSD))
       .slice(0, 10);
-  }, [allPicks, profitTier]);
+  }, [allPicks, priceTier]);
 
   const loadRecent = useCallback(async () => {
     if (recentLoaded) return;
@@ -199,9 +190,8 @@ export default function ValuesScreen() {
   }, []);
 
   const renderTopCard = (item: TopPick, index: number) => {
-    const rawGBP = item.rawPriceUSD * GBP_RATE;
-    const profit10 = calcProfitGBP(item.rawPriceUSD, PSA10_MULT);
-    const profit9 = calcProfitGBP(item.rawPriceUSD, PSA9_MULT);
+    const priceGBP = rawGBP(item.rawPriceUSD);
+    const priceUSD = item.rawPriceUSD;
 
     return (
       <Pressable
@@ -223,20 +213,14 @@ export default function ValuesScreen() {
         <Text style={styles.topCardSet} numberOfLines={1}>{item.setName}</Text>
         <View style={styles.topCardDivider} />
         <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>Raw</Text>
-          <Text style={styles.topCardValue}>£{Math.round(rawGBP)}</Text>
-        </View>
-        <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>PSA 10</Text>
-          <Text style={[styles.topCardProfit, { color: profit10 >= 0 ? "#22c55e" : Colors.error }]}>
-            {fmtGBP(profit10)}
+          <Text style={styles.topCardLabel}>Market</Text>
+          <Text style={[styles.topCardValue, { color: "#22c55e", fontFamily: "Inter_700Bold" }]}>
+            £{Math.round(priceGBP)}
           </Text>
         </View>
         <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>PSA 9</Text>
-          <Text style={[styles.topCardProfit, { color: profit9 >= 0 ? "#f59e0b" : Colors.error }]}>
-            {fmtGBP(profit9)}
-          </Text>
+          <Text style={styles.topCardLabel}>USD</Text>
+          <Text style={styles.topCardValue}>${priceUSD.toFixed(0)}</Text>
         </View>
         <Text style={styles.topCardHint}>Tap for full breakdown</Text>
       </Pressable>
@@ -336,23 +320,23 @@ export default function ValuesScreen() {
         <View style={styles.topPicksHeader}>
           <View style={{ flex: 1 }}>
             <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-            <Text style={styles.topPicksSubtitle}>Est. PSA 10 profit across all English sets</Text>
+            <Text style={styles.topPicksSubtitle}>Live raw market prices from TCGPlayer</Text>
           </View>
         </View>
 
-        {/* Profit tier tabs */}
+        {/* Price tier tabs — based on actual raw TCGPlayer market price in GBP */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tierTabsScroll}
         >
-          {PROFIT_TIERS.map(tier => (
+          {PRICE_TIERS.map(tier => (
             <Pressable
-              key={tier.min}
-              style={[styles.tierTab, profitTier === tier.min && styles.tierTabActive]}
-              onPress={() => setProfitTier(tier.min)}
+              key={tier.minGBP}
+              style={[styles.tierTab, priceTier === tier.minGBP && styles.tierTabActive]}
+              onPress={() => setPriceTier(tier.minGBP)}
             >
-              <Text style={[styles.tierTabText, profitTier === tier.min && styles.tierTabTextActive]}>
+              <Text style={[styles.tierTabText, priceTier === tier.minGBP && styles.tierTabTextActive]}>
                 {tier.label}
               </Text>
             </Pressable>
@@ -380,7 +364,7 @@ export default function ValuesScreen() {
 
         {!picksLoading && !picksError && tieredPicks.length === 0 && allPicks.length > 0 && (
           <View style={styles.inlineFeedback}>
-            <Text style={styles.feedbackText}>No cards found at this profit tier</Text>
+            <Text style={styles.feedbackText}>No cards found at this price range</Text>
           </View>
         )}
 
@@ -398,7 +382,7 @@ export default function ValuesScreen() {
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
-              Estimated using PSA multipliers (×5.5 for PSA 10, ×2.2 for PSA 9) at ~£0.79/$ · −£18 grading fee. Verify prices before submitting.
+              Raw market prices from TCGPlayer · GBP converted at ~£0.79/$ · Tap a card for the full price breakdown.
             </Text>
           </View>
         )}
