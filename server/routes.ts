@@ -143,6 +143,8 @@ const SET_CACHE_TTL = 24 * 60 * 60 * 1000;
 let topGradingPicksCache: any[] | null = null;
 let topGradingPicksLastFetch = 0;
 const TOP_PICKS_TTL = 2 * 60 * 60 * 1000;
+// Bust cache on startup so the expanded pool is fetched fresh
+topGradingPicksLastFetch = 0;
 
 async function fetchAndCacheSets(): Promise<void> {
   try {
@@ -6719,15 +6721,16 @@ RESPONSE FORMAT (JSON only, no markdown):
         return res.json({ cards: topGradingPicksCache });
       }
 
-      // Fetch cards ordered by holofoil market price, then by normal price
+      // Fetch a broad pool of cards across all price ranges
+      // pageSize=100 gives enough variety to cover all profit tiers (£50+ through £1000+)
       const [holoResp, normalResp] = await Promise.all([
         fetch(
-          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.holofoil.market:[10 TO *]&orderBy=-tcgplayer.prices.holofoil.market&pageSize=40&select=id,name,set,number,images,tcgplayer",
-          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
+          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.holofoil.market:[10 TO *]&orderBy=-tcgplayer.prices.holofoil.market&pageSize=100&select=id,name,set,number,images,tcgplayer",
+          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) }
         ),
         fetch(
-          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.normal.market:[10 TO *]&orderBy=-tcgplayer.prices.normal.market&pageSize=20&select=id,name,set,number,images,tcgplayer",
-          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
+          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.normal.market:[10 TO *]&orderBy=-tcgplayer.prices.normal.market&pageSize=100&select=id,name,set,number,images,tcgplayer",
+          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) }
         ),
       ]);
 
@@ -6753,7 +6756,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         })
         .filter(c => c.bestPriceUSD > 0)
         .sort((a, b) => b.bestPriceUSD - a.bestPriceUSD)
-        .slice(0, 20);
+        .slice(0, 150); // return a large pool so frontend can filter by profit tier
 
       const mapped = unique.map(c => ({
         id: c.id,

@@ -23,15 +23,31 @@ import { apiRequest } from "@/lib/query-client";
 const RECENT_SEARCHES_KEY = "gradeiq_values_recent_searches";
 const MAX_RECENT = 8;
 
-// PSA estimated multipliers
-const GRADE_MULTIPLIERS: Record<number, number> = { 10: 5.5, 9: 2.2, 8: 1.6, 7: 1.2 };
-const PSA_FEE_USD = 22;
+// PSA estimated multipliers & GBP conversion
+const GBP_RATE = 0.79; // approximate USD→GBP
+const PSA_FEE_GBP = 18;
+const PSA10_MULT = 5.5;
+const PSA9_MULT = 2.2;
 
-type TopGrade = 10 | 9 | 8;
-
-function calcProfit(rawUSD: number, grade: number): number {
-  return rawUSD * (GRADE_MULTIPLIERS[grade] ?? 1) - rawUSD - PSA_FEE_USD;
+function calcProfitGBP(rawUSD: number, mult: number): number {
+  const rawGBP = rawUSD * GBP_RATE;
+  return rawGBP * mult - rawGBP - PSA_FEE_GBP;
 }
+
+function fmtGBP(n: number): string {
+  const abs = Math.abs(n);
+  return (n >= 0 ? "+" : "-") + "£" + (abs >= 10 ? Math.round(abs) : abs.toFixed(0));
+}
+
+// Profit tier filter thresholds (PSA 10 GBP profit)
+const PROFIT_TIERS = [
+  { label: "£50+", min: 50 },
+  { label: "£100+", min: 100 },
+  { label: "£200+", min: 200 },
+  { label: "£500+", min: 500 },
+  { label: "£1k+", min: 1000 },
+] as const;
+type ProfitTierMin = typeof PROFIT_TIERS[number]["min"];
 
 interface SearchResult {
   id: string;
@@ -90,7 +106,7 @@ export default function ValuesScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
-  const [topGrade, setTopGrade] = useState<TopGrade>(10);
+  const [profitTier, setProfitTier] = useState<ProfitTierMin>(50);
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -115,15 +131,14 @@ export default function ValuesScreen() {
   });
   const allPicks = picksData?.cards || [];
 
-  // Re-rank by selected grade
-  const top10 = useMemo(() => {
+  // Filter to cards where estimated PSA10 GBP profit meets the tier, sorted best first
+  const tieredPicks = useMemo(() => {
     if (allPicks.length === 0) return [];
-    return [...allPicks]
-      .sort((a, b) => calcProfit(b.rawPriceUSD, topGrade) - calcProfit(a.rawPriceUSD, topGrade))
+    return allPicks
+      .filter(c => calcProfitGBP(c.rawPriceUSD, PSA10_MULT) >= profitTier)
+      .sort((a, b) => calcProfitGBP(b.rawPriceUSD, PSA10_MULT) - calcProfitGBP(a.rawPriceUSD, PSA10_MULT))
       .slice(0, 10);
-  }, [allPicks, topGrade]);
-
-  const belowGrade: number = topGrade === 10 ? 9 : topGrade === 9 ? 8 : 7;
+  }, [allPicks, profitTier]);
 
   const loadRecent = useCallback(async () => {
     if (recentLoaded) return;
@@ -179,11 +194,9 @@ export default function ValuesScreen() {
   }, []);
 
   const renderTopCard = (item: TopPick, index: number) => {
-    const raw = item.rawPriceUSD;
-    const profit = calcProfit(raw, topGrade);
-    const belowProfit = calcProfit(raw, belowGrade);
-    const profitColor = profit >= 0 ? "#22c55e" : Colors.error;
-    const belowColor = belowProfit >= 0 ? "#22c55e" : Colors.error;
+    const rawGBP = item.rawPriceUSD * GBP_RATE;
+    const profit10 = calcProfitGBP(item.rawPriceUSD, PSA10_MULT);
+    const profit9 = calcProfitGBP(item.rawPriceUSD, PSA9_MULT);
 
     return (
       <Pressable
@@ -206,18 +219,18 @@ export default function ValuesScreen() {
         <View style={styles.topCardDivider} />
         <View style={styles.topCardRow}>
           <Text style={styles.topCardLabel}>Raw</Text>
-          <Text style={styles.topCardValue}>${raw.toFixed(2)}</Text>
+          <Text style={styles.topCardValue}>£{Math.round(rawGBP)}</Text>
         </View>
         <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>PSA {topGrade}</Text>
-          <Text style={[styles.topCardProfit, { color: profitColor }]}>
-            {profit >= 0 ? "+" : ""}${Math.abs(profit).toFixed(0)}
+          <Text style={styles.topCardLabel}>PSA 10</Text>
+          <Text style={[styles.topCardProfit, { color: profit10 >= 0 ? "#22c55e" : Colors.error }]}>
+            {fmtGBP(profit10)}
           </Text>
         </View>
         <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>PSA {belowGrade}</Text>
-          <Text style={[styles.topCardProfit, { color: belowColor }]}>
-            {belowProfit >= 0 ? "+" : "-"}${Math.abs(belowProfit).toFixed(0)}
+          <Text style={styles.topCardLabel}>PSA 9</Text>
+          <Text style={[styles.topCardProfit, { color: profit9 >= 0 ? "#f59e0b" : Colors.error }]}>
+            {fmtGBP(profit9)}
           </Text>
         </View>
         <Text style={styles.topCardHint}>Tap for full breakdown</Text>
@@ -318,22 +331,28 @@ export default function ValuesScreen() {
         <View style={styles.topPicksHeader}>
           <View style={{ flex: 1 }}>
             <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-            <Text style={styles.topPicksSubtitle}>Highest profit potential across all English sets</Text>
-          </View>
-          <View style={styles.gradeSelector}>
-            {([10, 9, 8] as TopGrade[]).map(g => (
-              <Pressable
-                key={g}
-                style={[styles.gradeSelectorBtn, topGrade === g && styles.gradeSelectorBtnActive]}
-                onPress={() => setTopGrade(g)}
-              >
-                <Text style={[styles.gradeSelectorText, topGrade === g && styles.gradeSelectorTextActive]}>
-                  {g}
-                </Text>
-              </Pressable>
-            ))}
+            <Text style={styles.topPicksSubtitle}>Est. PSA 10 profit across all English sets</Text>
           </View>
         </View>
+
+        {/* Profit tier tabs */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tierTabsScroll}
+        >
+          {PROFIT_TIERS.map(tier => (
+            <Pressable
+              key={tier.min}
+              style={[styles.tierTab, profitTier === tier.min && styles.tierTabActive]}
+              onPress={() => setProfitTier(tier.min)}
+            >
+              <Text style={[styles.tierTabText, profitTier === tier.min && styles.tierTabTextActive]}>
+                {tier.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
 
         {picksLoading && (
           <View style={styles.inlineFeedback}>
@@ -354,21 +373,27 @@ export default function ValuesScreen() {
           </View>
         )}
 
-        {!picksLoading && !picksError && top10.length > 0 && (
+        {!picksLoading && !picksError && tieredPicks.length === 0 && allPicks.length > 0 && (
+          <View style={styles.inlineFeedback}>
+            <Text style={styles.feedbackText}>No cards found at this profit tier</Text>
+          </View>
+        )}
+
+        {!picksLoading && !picksError && tieredPicks.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.topPicksScroll}
           >
-            {top10.map((card, i) => renderTopCard(card, i))}
+            {tieredPicks.map((card, i) => renderTopCard(card, i))}
           </ScrollView>
         )}
 
-        {!picksLoading && !picksError && top10.length > 0 && (
+        {!picksLoading && !picksError && tieredPicks.length > 0 && (
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
-              Estimated profit using PSA multipliers (×{GRADE_MULTIPLIERS[topGrade]} for PSA {topGrade}, −$22 grading fee). Tap a card for full breakdown.
+              Estimated using PSA multipliers (×5.5 for PSA 10, ×2.2 for PSA 9) at ~£0.79/$ · −£18 grading fee. Verify prices before submitting.
             </Text>
           </View>
         )}
@@ -560,19 +585,31 @@ const styles = StyleSheet.create({
   },
   topPicksTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.text },
   topPicksSubtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  gradeSelector: {
-    flexDirection: "row",
+  tierTabsScroll: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  tierTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
     backgroundColor: Colors.background,
-    borderRadius: 8,
-    padding: 2,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
-    flexShrink: 0,
   },
-  gradeSelectorBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  gradeSelectorBtnActive: { backgroundColor: Colors.primary },
-  gradeSelectorText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.textMuted },
-  gradeSelectorTextActive: { color: "#fff" },
+  tierTabActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  tierTabText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  tierTabTextActive: {
+    color: "#fff",
+  },
   topPicksScroll: { paddingHorizontal: 16, gap: 10 },
 
   topCard: {
