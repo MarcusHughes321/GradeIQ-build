@@ -2,7 +2,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as Font from "expo-font";
+import { Asset } from "expo-asset";
 import React, { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -12,7 +14,6 @@ import { SettingsProvider } from "@/lib/settings-context";
 import { SubscriptionProvider } from "@/lib/subscription";
 import { GradingProvider } from "@/lib/grading-context";
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
-import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
 import { getSettings } from "@/lib/settings";
@@ -23,6 +24,10 @@ const ONBOARDING_KEY = "gradeiq_onboarding_complete";
 const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
 const WHATS_NEW_KEY = "gradeiq_whats_new_version";
 const CURRENT_VERSION = "1.0.6";
+
+const IONICONS_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf");
+const MCT_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf");
+const FEATHER_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf");
 
 function RootLayoutNav() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
@@ -84,18 +89,29 @@ export default function RootLayout() {
   useEffect(() => {
     async function loadResources() {
       try {
+        // On Android, pre-download font assets explicitly before registering.
+        // This ensures the file is local before ReactFontManager.setTypeface() is called.
+        if (Platform.OS === "android") {
+          const fontAssets = await Asset.loadAsync([IONICONS_TTF, MCT_TTF, FEATHER_TTF]);
+          console.log("[fonts] Asset download states:", fontAssets.map(a => `${a.name}: downloaded=${a.downloaded} localUri=${a.localUri}`));
+        }
+
         await Font.loadAsync({
           Inter_400Regular,
           Inter_500Medium,
           Inter_600SemiBold,
           Inter_700Bold,
-          // Load icon fonts with explicit require so Metro bundles the TTF files
-          // Font family names must match what @expo/vector-icons v15 registers internally
-          "ionicons": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"),
-          "material-community": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
-          "feather": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf"),
+          // Register under both old PascalCase names (matching Expo Go's bundled assets)
+          // AND new lowercase names (used by @expo/vector-icons v15 font family references).
+          // Android font lookup is case-sensitive so both registrations are needed.
+          "Ionicons": IONICONS_TTF,
+          "ionicons": IONICONS_TTF,
+          "MaterialCommunityIcons": MCT_TTF,
+          "material-community": MCT_TTF,
+          "Feather": FEATHER_TTF,
+          "feather": FEATHER_TTF,
         });
-        console.log("[fonts] All fonts loaded successfully");
+        console.log("[fonts] All fonts registered. isLoaded(ionicons)=", Font.isLoaded("ionicons"), "isLoaded(Ionicons)=", Font.isLoaded("Ionicons"));
       } catch (e) {
         console.warn("[fonts] Font loading error:", e);
       } finally {
