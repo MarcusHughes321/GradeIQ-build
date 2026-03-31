@@ -12,7 +12,6 @@ import { SettingsProvider } from "@/lib/settings-context";
 import { SubscriptionProvider } from "@/lib/subscription";
 import { GradingProvider } from "@/lib/grading-context";
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
-import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
 import { getSettings } from "@/lib/settings";
@@ -80,14 +79,14 @@ export default function RootLayout() {
   useEffect(() => {
     async function loadResources() {
       try {
+        // Icon fonts (Ionicons, MaterialCommunityIcons, Feather) are pre-bundled
+        // inside Expo Go's native APK — loading them again via Metro can conflict.
+        // In a production build they are bundled as native assets automatically.
         await Font.loadAsync({
           Inter_400Regular,
           Inter_500Medium,
           Inter_600SemiBold,
           Inter_700Bold,
-          ...Ionicons.font,
-          ...MaterialCommunityIcons.font,
-          ...Feather.font,
         });
       } catch (e) {
         console.warn("[fonts] Font loading error:", e);
