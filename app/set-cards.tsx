@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   Dimensions,
+  ScrollView,
 } from "react-native";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -23,6 +24,7 @@ const CARD_WIDTH = (SCREEN_WIDTH - GUTTER * (COLUMNS + 1)) / COLUMNS;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
 type SortBy = "number" | "value";
+type TopGrade = 10 | 9 | 8;
 
 interface SetCard {
   id: string;
@@ -30,6 +32,25 @@ interface SetCard {
   number: string;
   imageUrl: string | null;
   price?: number | null;
+}
+
+// PSA multipliers (estimated) — Grade: multiplier × raw price
+const GRADE_MULTIPLIERS: Record<number, number> = {
+  10: 5.5,
+  9: 2.2,
+  8: 1.6,
+  7: 1.2,
+};
+// Estimated PSA grading fee (USD)
+const PSA_FEE_USD = 22;
+
+function calcProfit(rawUSD: number, grade: number): number {
+  const mult = GRADE_MULTIPLIERS[grade] ?? 1;
+  return rawUSD * mult - rawUSD - PSA_FEE_USD;
+}
+
+function calcGradedValue(rawUSD: number, grade: number): number {
+  return rawUSD * (GRADE_MULTIPLIERS[grade] ?? 1);
 }
 
 function parseCardNumber(n: string): number {
@@ -49,6 +70,7 @@ export default function SetCardsScreen() {
   }>();
 
   const [sortBy, setSortBy] = useState<SortBy>("number");
+  const [topGrade, setTopGrade] = useState<TopGrade>(10);
 
   const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
     queryKey: ["/api/sets", lang, setId, "cards"],
@@ -57,10 +79,8 @@ export default function SetCardsScreen() {
   });
 
   const isEnglish = lang === "english";
-  const isJpKr = lang === "japanese" || lang === "korean";
 
   const allCards = data?.cards ?? [];
-  const hasImages = allCards.some(c => c.imageUrl != null);
   const hasAnyPrice = isEnglish && allCards.some(c => c.price != null);
 
   const cards = useMemo(() => {
@@ -70,32 +90,28 @@ export default function SetCardsScreen() {
     return [...allCards].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
   }, [allCards, sortBy, isEnglish]);
 
-  const handleCardPress = (card: SetCard) => {
-    if (isJpKr) {
-      router.push({
-        pathname: "/card-profit",
-        params: {
-          cardId: card.id,
-          cardName: card.name,
-          setName: setName || "",
-          cardNumber: card.number,
-          imageUrl: card.imageUrl || "",
-          noPrice: "1",
-        },
-      });
-    } else {
-      router.push({
-        pathname: "/card-profit",
-        params: {
-          cardId: card.id,
-          cardName: card.name,
-          setName: setName || "",
-        },
-      });
-    }
+  // Top 10 grading picks — cards sorted by estimated profit at selected grade
+  const top10 = useMemo(() => {
+    if (!hasAnyPrice) return [];
+    const priced = allCards.filter(c => c.price != null && c.price > 0);
+    return [...priced]
+      .sort((a, b) => calcProfit(b.price!, topGrade) - calcProfit(a.price!, topGrade))
+      .slice(0, 10);
+  }, [allCards, topGrade, hasAnyPrice]);
+
+  const belowGrade: number = topGrade === 10 ? 9 : topGrade === 9 ? 8 : 7;
+
+  const handleCardPress = (card: SetCard, opts?: { fromTopPicks?: boolean }) => {
+    router.push({
+      pathname: "/card-profit",
+      params: {
+        cardId: card.id,
+        cardName: card.name,
+        setName: setName || "",
+      },
+    });
   };
 
-  // Grid item (EN with images)
   const renderGridCard = ({ item }: { item: SetCard }) => (
     <Pressable
       style={({ pressed }) => [styles.gridItem, { opacity: pressed ? 0.75 : 1 }]}
@@ -122,19 +138,117 @@ export default function SetCardsScreen() {
     </Pressable>
   );
 
-  // List item (JP/KR — no images from API)
-  const renderListCard = ({ item }: { item: SetCard }) => (
-    <Pressable
-      style={({ pressed }) => [styles.listItem, { opacity: pressed ? 0.8 : 1 }]}
-      onPress={() => handleCardPress(item)}
-    >
-      <Text style={styles.listNumber}>#{item.number}</Text>
-      <Text style={styles.listName} numberOfLines={1}>{item.name}</Text>
-      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-    </Pressable>
-  );
+  // Top-picks horizontal card
+  const renderTopCard = (item: SetCard, index: number) => {
+    const raw = item.price!;
+    const profit = calcProfit(raw, topGrade);
+    const gradedValue = calcGradedValue(raw, topGrade);
+    const belowProfit = calcProfit(raw, belowGrade);
+    const profitColor = profit >= 0 ? "#22c55e" : Colors.error;
+    const belowColor = belowProfit >= 0 ? "#22c55e" : Colors.error;
 
-  const showGrid = isEnglish || hasImages;
+    return (
+      <Pressable
+        key={item.id}
+        style={({ pressed }) => [styles.topCard, { opacity: pressed ? 0.8 : 1 }]}
+        onPress={() => handleCardPress(item)}
+      >
+        <View style={styles.topCardRank}>
+          <Text style={styles.topCardRankText}>#{index + 1}</Text>
+        </View>
+        {item.imageUrl ? (
+          <Image source={{ uri: item.imageUrl }} style={styles.topCardImg} contentFit="contain" />
+        ) : (
+          <View style={[styles.topCardImg, styles.cardImagePlaceholder]}>
+            <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
+          </View>
+        )}
+        <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
+        <View style={styles.topCardDivider} />
+        <View style={styles.topCardRow}>
+          <Text style={styles.topCardLabel}>Raw</Text>
+          <Text style={styles.topCardValue}>${raw.toFixed(2)}</Text>
+        </View>
+        <View style={styles.topCardRow}>
+          <Text style={styles.topCardLabel}>PSA {topGrade}</Text>
+          <Text style={[styles.topCardProfit, { color: profitColor }]}>
+            {profit >= 0 ? "+" : ""}${profit.toFixed(0)}
+          </Text>
+        </View>
+        <View style={styles.topCardRow}>
+          <Text style={styles.topCardLabel}>PSA {belowGrade}</Text>
+          <Text style={[styles.topCardProfit, { color: belowColor }]}>
+            {belowProfit >= 0 ? "+" : ""}${belowProfit.toFixed(0)}
+          </Text>
+        </View>
+        <Text style={styles.topCardHint}>Tap for full breakdown</Text>
+      </Pressable>
+    );
+  };
+
+  const showTopPicks = isEnglish && hasAnyPrice && top10.length > 0 && !isLoading && !error;
+
+  const listHeader = (
+    <>
+      {/* Sort controls */}
+      {isEnglish && hasAnyPrice && !isLoading && !error && cards.length > 0 && (
+        <View style={styles.sortBar}>
+          <Pressable
+            style={[styles.sortBtn, sortBy === "number" && styles.sortBtnActive]}
+            onPress={() => setSortBy("number")}
+          >
+            <Ionicons name="list-outline" size={14} color={sortBy === "number" ? Colors.text : Colors.textMuted} />
+            <Text style={[styles.sortBtnText, sortBy === "number" && styles.sortBtnTextActive]}>Card #</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.sortBtn, sortBy === "value" && styles.sortBtnActive]}
+            onPress={() => setSortBy("value")}
+          >
+            <Ionicons name="arrow-down-outline" size={14} color={sortBy === "value" ? Colors.text : Colors.textMuted} />
+            <Text style={[styles.sortBtnText, sortBy === "value" && styles.sortBtnTextActive]}>Highest Value</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* ── Top Grading Picks ── */}
+      {showTopPicks && (
+        <View style={styles.topPicksSection}>
+          <View style={styles.topPicksHeader}>
+            <View>
+              <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
+              <Text style={styles.topPicksSubtitle}>Estimated PSA profit · based on TCGplayer raw prices</Text>
+            </View>
+            <View style={styles.gradeSelector}>
+              {([10, 9, 8] as TopGrade[]).map((g) => (
+                <Pressable
+                  key={g}
+                  style={[styles.gradeSelectorBtn, topGrade === g && styles.gradeSelectorBtnActive]}
+                  onPress={() => setTopGrade(g)}
+                >
+                  <Text style={[styles.gradeSelectorText, topGrade === g && styles.gradeSelectorTextActive]}>
+                    {g}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.topPicksScroll}
+          >
+            {top10.map((card, i) => renderTopCard(card, i))}
+          </ScrollView>
+          <View style={styles.topPicksDisclaimer}>
+            <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
+            <Text style={styles.topPicksDisclaimerText}>
+              Estimated values use PSA multipliers (×{GRADE_MULTIPLIERS[topGrade]} for PSA {topGrade}). Actual graded card prices vary. Always verify current market prices before submitting.
+            </Text>
+          </View>
+        </View>
+      )}
+    </>
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -146,43 +260,9 @@ export default function SetCardsScreen() {
         >
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </Pressable>
-        <Text style={styles.navTitle} numberOfLines={1}>
-          {setName || "Set"}
-        </Text>
+        <Text style={styles.navTitle} numberOfLines={1}>{setName || "Set"}</Text>
         <View style={{ width: 40 }} />
       </View>
-
-      {/* Sort controls — only for English with price data */}
-      {isEnglish && hasAnyPrice && !isLoading && !error && cards.length > 0 && (
-        <View style={styles.sortBar}>
-          <Pressable
-            style={[styles.sortBtn, sortBy === "number" && styles.sortBtnActive]}
-            onPress={() => setSortBy("number")}
-          >
-            <Ionicons
-              name="list-outline"
-              size={14}
-              color={sortBy === "number" ? Colors.text : Colors.textMuted}
-            />
-            <Text style={[styles.sortBtnText, sortBy === "number" && styles.sortBtnTextActive]}>
-              Card #
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.sortBtn, sortBy === "value" && styles.sortBtnActive]}
-            onPress={() => setSortBy("value")}
-          >
-            <Ionicons
-              name="arrow-down-outline"
-              size={14}
-              color={sortBy === "value" ? Colors.text : Colors.textMuted}
-            />
-            <Text style={[styles.sortBtnText, sortBy === "value" && styles.sortBtnTextActive]}>
-              Highest Value
-            </Text>
-          </Pressable>
-        </View>
-      )}
 
       {isLoading && (
         <View style={styles.centered}>
@@ -210,37 +290,17 @@ export default function SetCardsScreen() {
         </View>
       )}
 
-      {!isLoading && cards.length > 0 && showGrid && (
+      {!isLoading && cards.length > 0 && (
         <FlatList
           data={cards}
           keyExtractor={(item) => item.id}
           numColumns={COLUMNS}
-          contentContainerStyle={[
-            styles.grid,
-            { paddingBottom: insets.bottom + webBottomInset + 24 },
-          ]}
+          ListHeaderComponent={listHeader}
+          contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + webBottomInset + 24 }]}
           columnWrapperStyle={styles.gridRow}
           showsVerticalScrollIndicator={false}
           renderItem={renderGridCard}
         />
-      )}
-
-      {!isLoading && cards.length > 0 && !showGrid && (
-        <>
-          <View style={styles.listHeader}>
-            <Text style={styles.listHeaderText}>
-              {cards.length} cards — names and numbers only
-            </Text>
-          </View>
-          <FlatList
-            data={cards}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 24 }}
-            showsVerticalScrollIndicator={false}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            renderItem={renderListCard}
-          />
-        </>
       )}
     </View>
   );
@@ -276,10 +336,9 @@ const styles = StyleSheet.create({
   sortBar: {
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
   },
   sortBtn: {
     flexDirection: "row",
@@ -304,6 +363,150 @@ const styles = StyleSheet.create({
   sortBtnTextActive: {
     color: Colors.text,
   },
+  // ── Top Grading Picks ────────────────────────────────────
+  topPicksSection: {
+    marginTop: 4,
+    marginBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+    paddingTop: 14,
+    paddingBottom: 12,
+    backgroundColor: Colors.surface,
+  },
+  topPicksHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    gap: 12,
+  },
+  topPicksTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.text,
+  },
+  topPicksSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  gradeSelector: {
+    flexDirection: "row",
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  gradeSelectorBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  gradeSelectorBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  gradeSelectorText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  gradeSelectorTextActive: {
+    color: "#fff",
+  },
+  topPicksScroll: {
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  topCard: {
+    width: 140,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    position: "relative",
+  },
+  topCardRank: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  topCardRankText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  topCardImg: {
+    width: "100%" as any,
+    height: 90,
+    borderRadius: 6,
+    backgroundColor: Colors.surface,
+    marginBottom: 6,
+  },
+  topCardName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.text,
+    lineHeight: 16,
+    marginBottom: 6,
+    minHeight: 32,
+  },
+  topCardDivider: {
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+    marginBottom: 6,
+  },
+  topCardRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 3,
+  },
+  topCardLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  topCardValue: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  topCardProfit: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+  },
+  topCardHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: 6,
+  },
+  topPicksDisclaimer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 5,
+    paddingHorizontal: 14,
+    marginTop: 10,
+  },
+  topPicksDisclaimerText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    flex: 1,
+    lineHeight: 15,
+  },
+  // ── Centered states ──────────────────────────────────────
   centered: {
     flex: 1,
     alignItems: "center",
@@ -343,7 +546,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-  // Grid layout (English)
+  // ── Grid layout ──────────────────────────────────────────
   grid: {
     paddingTop: GUTTER,
     paddingHorizontal: GUTTER,
@@ -378,37 +581,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary,
     textAlign: "center",
-  },
-  // List layout (JP/KR)
-  listHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
-  },
-  listHeaderText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  listItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  listNumber: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textMuted,
-    width: 44,
-  },
-  listName: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: Colors.text,
-    flex: 1,
   },
   separator: {
     height: 1,

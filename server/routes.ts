@@ -6699,6 +6699,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           releaseDate: s.releaseDate,
           logo: s.logo || null,
           symbol: s.symbol || null,
+          hasPrices: true,
         }))
       });
     } catch (err: any) {

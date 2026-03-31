@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -40,9 +40,8 @@ interface BrowseSet {
   releaseDate?: string;
   logo: string | null;
   symbol?: string | null;
+  hasPrices?: boolean;
 }
-
-type BrowseLang = "english";
 
 async function loadRecentSearches(): Promise<string[]> {
   try {
@@ -63,16 +62,23 @@ export default function ValuesScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const [mode, setMode] = useState<"search" | "browse">("search");
-
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
   const inputRef = useRef<TextInput>(null);
+
+  // Browse sets data (always loaded)
+  const { data: setsData, isLoading: setsLoading, error: setsError, refetch: setsRefetch } = useQuery<{ sets: BrowseSet[] }>({
+    queryKey: ["/api/sets/english"],
+    staleTime: 60 * 60 * 1000,
+    retry: 2,
+    retryDelay: 1500,
+  });
+  const sets = useMemo(() => setsData?.sets || [], [setsData]);
 
   const loadRecent = useCallback(async () => {
     if (recentLoaded) return;
@@ -90,7 +96,7 @@ export default function ValuesScreen() {
     if (!trimmed) return;
     Keyboard.dismiss();
     setLoading(true);
-    setError(null);
+    setSearchError(null);
     setHasSearched(true);
     setResults([]);
 
@@ -102,8 +108,8 @@ export default function ValuesScreen() {
       const updated = [trimmed, ...recentSearches.filter((s) => s !== trimmed)].slice(0, MAX_RECENT);
       setRecentSearches(updated);
       await saveRecentSearches(updated);
-    } catch (e: any) {
-      setError("Search failed. Please try again.");
+    } catch {
+      setSearchError("Search failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -113,7 +119,7 @@ export default function ValuesScreen() {
     setQuery("");
     setResults([]);
     setHasSearched(false);
-    setError(null);
+    setSearchError(null);
     inputRef.current?.focus();
   }, []);
 
@@ -130,201 +136,155 @@ export default function ValuesScreen() {
     });
   }, []);
 
-  const showRecent = !hasSearched && recentSearches.length > 0;
-
-  return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Values</Text>
-
-        {/* Search / Browse toggle */}
-        <View style={styles.modeToggle}>
-          <Pressable
-            style={[styles.modeBtn, mode === "search" && styles.modeBtnActive]}
-            onPress={() => setMode("search")}
-          >
-            <Text style={[styles.modeBtnText, mode === "search" && styles.modeBtnTextActive]}>
-              Search
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.modeBtn, mode === "browse" && styles.modeBtnActive]}
-            onPress={() => setMode("browse")}
-          >
-            <Text style={[styles.modeBtnText, mode === "browse" && styles.modeBtnTextActive]}>
-              Browse
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {mode === "search" && (
-        <>
-          <View style={styles.searchRow}>
-            <View style={styles.searchBox}>
-              <Ionicons name="search-outline" size={18} color={Colors.textMuted} style={styles.searchIcon} />
-              <TextInput
-                ref={inputRef}
-                style={styles.searchInput}
-                placeholder="e.g. 151 Charizard ex"
-                placeholderTextColor={Colors.textMuted}
-                value={query}
-                onChangeText={setQuery}
-                onSubmitEditing={() => doSearch(query)}
-                returnKeyType="search"
-                autoCorrect={false}
-                autoCapitalize="none"
-                clearButtonMode="never"
-              />
-              {query.length > 0 && (
-                <Pressable onPress={handleClear} hitSlop={12}>
-                  <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                </Pressable>
-              )}
-            </View>
-            <Pressable
-              style={({ pressed }) => [styles.searchBtn, { opacity: pressed ? 0.8 : 1 }]}
-              onPress={() => doSearch(query)}
-            >
-              <Text style={styles.searchBtnText}>Search</Text>
-            </Pressable>
-          </View>
-
-          {loading && (
-            <View style={styles.centered}>
-              <ActivityIndicator color={Colors.primary} size="large" />
-              <Text style={styles.loadingText}>Searching cards…</Text>
-            </View>
-          )}
-
-          {!loading && error && (
-            <View style={styles.centered}>
-              <Ionicons name="alert-circle-outline" size={36} color={Colors.error} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          {!loading && !error && hasSearched && results.length === 0 && (
-            <View style={styles.centered}>
-              <Ionicons name="search-outline" size={36} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>No cards found</Text>
-              <Text style={styles.emptySubtitle}>Try a different search term</Text>
-            </View>
-          )}
-
-          {!loading && !error && showRecent && (
-            <View style={styles.recentSection}>
-              <Text style={styles.recentTitle}>Recent Searches</Text>
-              {recentSearches.map((item) => (
-                <View key={item} style={styles.recentRow}>
-                  <Pressable style={styles.recentTerm} onPress={() => { setQuery(item); doSearch(item); }}>
-                    <Ionicons name="time-outline" size={16} color={Colors.textMuted} />
-                    <Text style={styles.recentText}>{item}</Text>
-                  </Pressable>
-                  <Pressable onPress={() => handleRemoveRecent(item)} hitSlop={12}>
-                    <Ionicons name="close" size={16} color={Colors.textMuted} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {!loading && !error && !showRecent && !hasSearched && (
-            <View style={styles.centered}>
-              <Ionicons name="bar-chart-outline" size={48} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>Explore Card Values</Text>
-              <Text style={styles.emptySubtitle}>Search for a Pokémon card to see how much you could make from grading it</Text>
-            </View>
-          )}
-
-          {!loading && results.length > 0 && (
-            <FlatList
-              data={results}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + webBottomInset + 100 }}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-              renderItem={({ item }) => (
-                <CardResultRow card={item} onPress={() => handleTapCard(item)} />
-              )}
-            />
-          )}
-        </>
-      )}
-
-      {mode === "browse" && (
-        <BrowseMode bottomInset={insets.bottom + webBottomInset} />
-      )}
-    </View>
-  );
-}
-
-// ─── Browse Mode ─────────────────────────────────────────────────────────────
-
-function BrowseMode({ bottomInset }: { bottomInset: number }) {
-  const { data, isLoading, error, refetch } = useQuery<{ sets: BrowseSet[] }>({
-    queryKey: ["/api/sets/english"],
-    staleTime: 60 * 60 * 1000,
-    retry: 2,
-    retryDelay: 1500,
-  });
-
-  const sets = data?.sets || [];
-
-  const handleSetPress = (set: BrowseSet) => {
+  const handleSetPress = useCallback((set: BrowseSet) => {
     router.push({
       pathname: "/set-cards",
       params: { lang: "english", setId: set.id, setName: set.name },
     });
-  };
+  }, []);
 
-  return (
-    <View style={{ flex: 1 }}>
-      {isLoading && (
-        <View style={styles.centered}>
-          <ActivityIndicator color={Colors.primary} size="large" />
+  const showRecent = !hasSearched && recentSearches.length > 0;
+
+  const listHeader = (
+    <View>
+      {/* Screen title + search bar */}
+      <View style={[styles.header, { paddingTop: insets.top + webTopInset + 14 }]}>
+        <Text style={styles.headerTitle}>Values</Text>
+      </View>
+
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search-outline" size={18} color={Colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            ref={inputRef}
+            style={styles.searchInput}
+            placeholder="e.g. 151 Charizard ex"
+            placeholderTextColor={Colors.textMuted}
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={() => doSearch(query)}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="never"
+          />
+          {query.length > 0 && (
+            <Pressable onPress={handleClear} hitSlop={12}>
+              <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.searchBtn, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => doSearch(query)}
+        >
+          <Text style={styles.searchBtnText}>Search</Text>
+        </Pressable>
+      </View>
+
+      {/* Search loading */}
+      {loading && (
+        <View style={styles.searchFeedback}>
+          <ActivityIndicator color={Colors.primary} size="small" />
+          <Text style={styles.loadingText}>Searching…</Text>
+        </View>
+      )}
+
+      {/* Search error */}
+      {!loading && searchError && (
+        <View style={styles.searchFeedback}>
+          <Ionicons name="alert-circle-outline" size={18} color={Colors.error} />
+          <Text style={styles.searchErrorText}>{searchError}</Text>
+        </View>
+      )}
+
+      {/* No results */}
+      {!loading && !searchError && hasSearched && results.length === 0 && (
+        <View style={styles.searchFeedback}>
+          <Text style={styles.noResultsText}>No cards found for "{query}"</Text>
+        </View>
+      )}
+
+      {/* Search results */}
+      {!loading && results.length > 0 && (
+        <View style={styles.resultsSection}>
+          <Text style={styles.sectionLabel}>Search Results</Text>
+          {results.map((card) => (
+            <View key={card.id}>
+              <CardResultRow card={card} onPress={() => handleTapCard(card)} />
+              <View style={styles.separator} />
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Recent searches (only when not searched) */}
+      {!hasSearched && showRecent && (
+        <View style={styles.recentSection}>
+          <Text style={styles.sectionLabel}>Recent Searches</Text>
+          {recentSearches.map((item) => (
+            <View key={item} style={styles.recentRow}>
+              <Pressable style={styles.recentTerm} onPress={() => { setQuery(item); doSearch(item); }}>
+                <Ionicons name="time-outline" size={16} color={Colors.textMuted} />
+                <Text style={styles.recentText}>{item}</Text>
+              </Pressable>
+              <Pressable onPress={() => handleRemoveRecent(item)} hitSlop={12}>
+                <Ionicons name="close" size={16} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Browse section header */}
+      <View style={styles.browseSectionHeader}>
+        <Text style={styles.sectionTitle}>Browse Sets</Text>
+        <View style={styles.langPill}>
+          <Text style={styles.langPillText}>🇬🇧 English only · more coming soon</Text>
+        </View>
+      </View>
+
+      {/* Browse loading / error */}
+      {setsLoading && (
+        <View style={styles.searchFeedback}>
+          <ActivityIndicator color={Colors.primary} size="small" />
           <Text style={styles.loadingText}>Loading sets…</Text>
         </View>
       )}
-
-      {!isLoading && error && (
-        <View style={styles.centered}>
-          <Ionicons name="alert-circle-outline" size={36} color={Colors.error} />
-          <Text style={styles.errorText}>Failed to load sets</Text>
-          <Pressable onPress={() => refetch()} style={{ marginTop: 8 }}>
-            <Text style={styles.retryText}>Try again</Text>
+      {!setsLoading && !!setsError && (
+        <View style={styles.searchFeedback}>
+          <Ionicons name="alert-circle-outline" size={18} color={Colors.error} />
+          <Text style={styles.searchErrorText}>Couldn't load sets</Text>
+          <Pressable onPress={() => setsRefetch()} hitSlop={8}>
+            <Text style={styles.retryText}>Retry</Text>
           </Pressable>
         </View>
       )}
-
-      {!isLoading && !error && sets.length === 0 && (
-        <View style={styles.centered}>
-          <Ionicons name="albums-outline" size={36} color={Colors.textMuted} />
-          <Text style={styles.emptyTitle}>No sets found</Text>
-        </View>
-      )}
-
-      {!isLoading && sets.length > 0 && (
-        <FlatList
-          data={sets}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingTop: 8,
-            paddingBottom: bottomInset + 100,
-          }}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          renderItem={({ item }) => (
-            <SetRow set={item} onPress={() => handleSetPress(item)} />
-          )}
-        />
-      )}
     </View>
+  );
+
+  return (
+    <FlatList
+      style={styles.container}
+      data={sets}
+      keyExtractor={(item) => item.id}
+      ListHeaderComponent={listHeader}
+      ItemSeparatorComponent={() => <View style={styles.separator} />}
+      contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      renderItem={({ item }) => (
+        <SetRow set={item} onPress={() => handleSetPress(item)} />
+      )}
+    />
   );
 }
 
+// ─── Set Row ──────────────────────────────────────────────────────────────────
+
 function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
   const displayName = set.nameEn || set.name;
-  const nativeName = set.nameEn && set.name !== set.nameEn ? set.name : null;
+  const hasPrices = set.hasPrices !== false; // default true for english sets
   return (
     <Pressable
       style={({ pressed }) => [styles.setRow, { opacity: pressed ? 0.8 : 1 }]}
@@ -332,11 +292,7 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
     >
       <View style={styles.setLogoContainer}>
         {set.logo ? (
-          <Image
-            source={{ uri: set.logo }}
-            style={styles.setLogo}
-            contentFit="contain"
-          />
+          <Image source={{ uri: set.logo }} style={styles.setLogo} contentFit="contain" />
         ) : (
           <View style={styles.setLogoPlaceholder}>
             <Ionicons name="albums-outline" size={20} color={Colors.textMuted} />
@@ -345,19 +301,25 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
       </View>
       <View style={styles.setInfo}>
         <Text style={styles.setName} numberOfLines={2}>{displayName}</Text>
-        {nativeName ? (
-          <Text style={styles.setSeries} numberOfLines={1}>{nativeName}</Text>
-        ) : set.series ? (
+        {set.series ? (
           <Text style={styles.setSeries} numberOfLines={1}>{set.series}</Text>
         ) : null}
-        <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
+        <View style={styles.setMeta}>
+          <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
+          {hasPrices && (
+            <View style={styles.pricesBadge}>
+              <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
+              <Text style={styles.pricesBadgeText}>TCGplayer prices</Text>
+            </View>
+          )}
+        </View>
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
     </Pressable>
   );
 }
 
-// ─── Search Mode Components ───────────────────────────────────────────────────
+// ─── Card Result Row ──────────────────────────────────────────────────────────
 
 function CardResultRow({ card, onPress }: { card: SearchResult; onPress: () => void }) {
   return (
@@ -367,11 +329,7 @@ function CardResultRow({ card, onPress }: { card: SearchResult; onPress: () => v
     >
       <View style={styles.cardImageContainer}>
         {card.imageUrl ? (
-          <Image
-            source={{ uri: card.imageUrl }}
-            style={styles.cardImage}
-            contentFit="contain"
-          />
+          <Image source={{ uri: card.imageUrl }} style={styles.cardImage} contentFit="contain" />
         ) : (
           <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
             <Ionicons name="image-outline" size={24} color={Colors.textMuted} />
@@ -395,39 +353,12 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 14,
     paddingBottom: 10,
-    gap: 12,
   },
   headerTitle: {
     fontFamily: "Inter_700Bold",
     fontSize: 26,
     color: Colors.text,
-  },
-  modeToggle: {
-    flexDirection: "row",
-    backgroundColor: Colors.surface,
-    borderRadius: 10,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    alignSelf: "flex-start",
-  },
-  modeBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  modeBtnActive: {
-    backgroundColor: Colors.primary,
-  },
-  modeBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  modeBtnTextActive: {
-    color: "#fff",
   },
   searchRow: {
     flexDirection: "row",
@@ -471,53 +402,52 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#fff",
   },
-  centered: {
-    flex: 1,
+  searchFeedback: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 12,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   loadingText: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.textSecondary,
   },
-  errorText: {
+  searchErrorText: {
     fontFamily: "Inter_400Regular",
-    fontSize: 15,
+    fontSize: 14,
     color: Colors.error,
-    textAlign: "center",
-    marginTop: 8,
+    flex: 1,
   },
-  retryText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: Colors.primary,
-  },
-  emptyTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 18,
-    color: Colors.text,
-    textAlign: "center",
-  },
-  emptySubtitle: {
+  noResultsText: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  retryText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.primary,
+  },
+  resultsSection: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   recentSection: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
-  recentTitle: {
+  sectionLabel: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     marginBottom: 8,
   },
   recentRow: {
@@ -538,9 +468,38 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
   },
+  browseSectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    marginTop: 4,
+  },
+  sectionTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+  },
+  langPill: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  langPillText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
   setRow: {
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 12,
   },
@@ -579,10 +538,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
+  setMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 2,
+  },
   setCardCount: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  pricesBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(34,197,94,0.1)",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  pricesBadgeText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: "#22c55e",
   },
   cardRow: {
     flexDirection: "row",
