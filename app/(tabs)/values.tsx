@@ -39,13 +39,13 @@ function fmtGBP(n: number): string {
   return (n >= 0 ? "+" : "-") + "£" + (abs >= 10 ? Math.round(abs) : abs.toFixed(0));
 }
 
-// Profit tier filter thresholds (PSA 10 GBP profit)
+// Profit tier ranges (exclusive — each tab shows cards that fit only that tier)
 const PROFIT_TIERS = [
-  { label: "£50+", min: 50 },
-  { label: "£100+", min: 100 },
-  { label: "£200+", min: 200 },
-  { label: "£500+", min: 500 },
-  { label: "£1k+", min: 1000 },
+  { label: "£50+", min: 50,   max: 100  },
+  { label: "£100+", min: 100, max: 200  },
+  { label: "£200+", min: 200, max: 500  },
+  { label: "£500+", min: 500, max: 1000 },
+  { label: "£1k+",  min: 1000, max: Infinity },
 ] as const;
 type ProfitTierMin = typeof PROFIT_TIERS[number]["min"];
 
@@ -131,11 +131,16 @@ export default function ValuesScreen() {
   });
   const allPicks = picksData?.cards || [];
 
-  // Filter to cards where estimated PSA10 GBP profit meets the tier, sorted best first
+  // Filter to cards in the selected tier's exclusive profit range, sorted best-to-lowest
   const tieredPicks = useMemo(() => {
     if (allPicks.length === 0) return [];
+    const tier = PROFIT_TIERS.find(t => t.min === profitTier);
+    if (!tier) return [];
     return allPicks
-      .filter(c => calcProfitGBP(c.rawPriceUSD, PSA10_MULT) >= profitTier)
+      .filter(c => {
+        const p = calcProfitGBP(c.rawPriceUSD, PSA10_MULT);
+        return p >= tier.min && p < tier.max;
+      })
       .sort((a, b) => calcProfitGBP(b.rawPriceUSD, PSA10_MULT) - calcProfitGBP(a.rawPriceUSD, PSA10_MULT))
       .slice(0, 10);
   }, [allPicks, profitTier]);

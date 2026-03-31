@@ -6721,25 +6721,22 @@ RESPONSE FORMAT (JSON only, no markdown):
         return res.json({ cards: topGradingPicksCache });
       }
 
-      // Fetch a broad pool of cards across all price ranges
-      // pageSize=100 gives enough variety to cover all profit tiers (£50+ through £1000+)
-      const [holoResp, normalResp] = await Promise.all([
-        fetch(
-          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.holofoil.market:[10 TO *]&orderBy=-tcgplayer.prices.holofoil.market&pageSize=100&select=id,name,set,number,images,tcgplayer",
-          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) }
-        ),
-        fetch(
-          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.normal.market:[10 TO *]&orderBy=-tcgplayer.prices.normal.market&pageSize=100&select=id,name,set,number,images,tcgplayer",
-          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) }
-        ),
+      // Fetch 5 pools, one per profit tier, based on the raw USD price range each tier requires.
+      // PSA10 GBP profit formula: rawUSD × 0.79 × 4.5 − 18
+      // → £50 profit ≈ $19 raw, £100 ≈ $33, £200 ≈ $61, £500 ≈ $146, £1000 ≈ $286
+      const opts = { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) };
+      const base = "https://api.pokemontcg.io/v2/cards?select=id,name,set,number,images,tcgplayer&pageSize=25";
+      const [r1k, r500, r200, r100, r50, rNorm] = await Promise.all([
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[280 TO *]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[140 TO 290]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[59 TO 148]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[30 TO 63]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[17 TO 35]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.normal.market:[17 TO 35]&orderBy=-tcgplayer.prices.normal.market`, opts),
       ]);
 
-      const [holoData, normalData] = await Promise.all([
-        holoResp.ok ? holoResp.json() : { data: [] },
-        normalResp.ok ? normalResp.json() : { data: [] },
-      ]);
-
-      const allCards: any[] = [...(holoData.data || []), ...(normalData.data || [])];
+      const poolData = await Promise.all([r1k, r500, r200, r100, r50, rNorm].map(r => r.ok ? r.json() : { data: [] }));
+      const allCards: any[] = poolData.flatMap((d: any) => d.data || []);
 
       // Dedupe by id and extract best market price
       const seen = new Set<string>();
