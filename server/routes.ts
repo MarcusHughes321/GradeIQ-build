@@ -140,6 +140,10 @@ let cachedSets: CachedSet[] = [];
 let setsLastFetched = 0;
 const SET_CACHE_TTL = 24 * 60 * 60 * 1000;
 
+let topGradingPicksCache: any[] | null = null;
+let topGradingPicksLastFetch = 0;
+const TOP_PICKS_TTL = 2 * 60 * 60 * 1000;
+
 async function fetchAndCacheSets(): Promise<void> {
   try {
     console.log(`[set-cache] Fetching all sets from Pokemon TCG API...`);
@@ -6704,6 +6708,72 @@ RESPONSE FORMAT (JSON only, no markdown):
       });
     } catch (err: any) {
       console.error("[sets/english] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Top Grading Picks (all English sets) ──────────────────────────────────
+  app.get("/api/cards/top-grading-picks", async (req, res) => {
+    try {
+      if (topGradingPicksCache && Date.now() - topGradingPicksLastFetch < TOP_PICKS_TTL) {
+        return res.json({ cards: topGradingPicksCache });
+      }
+
+      // Fetch cards ordered by holofoil market price, then by normal price
+      const [holoResp, normalResp] = await Promise.all([
+        fetch(
+          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.holofoil.market:[10 TO *]&orderBy=-tcgplayer.prices.holofoil.market&pageSize=40&select=id,name,set,number,images,tcgplayer",
+          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
+        ),
+        fetch(
+          "https://api.pokemontcg.io/v2/cards?q=tcgplayer.prices.normal.market:[10 TO *]&orderBy=-tcgplayer.prices.normal.market&pageSize=20&select=id,name,set,number,images,tcgplayer",
+          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
+        ),
+      ]);
+
+      const [holoData, normalData] = await Promise.all([
+        holoResp.ok ? holoResp.json() : { data: [] },
+        normalResp.ok ? normalResp.json() : { data: [] },
+      ]);
+
+      const allCards: any[] = [...(holoData.data || []), ...(normalData.data || [])];
+
+      // Dedupe by id and extract best market price
+      const seen = new Set<string>();
+      const unique = allCards
+        .filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; })
+        .map(c => {
+          const prices = c.tcgplayer?.prices || {};
+          let bestPriceUSD = 0;
+          for (const pt of Object.values(prices) as any[]) {
+            const m = pt?.market || 0;
+            if (m > bestPriceUSD) bestPriceUSD = m;
+          }
+          return { ...c, bestPriceUSD };
+        })
+        .filter(c => c.bestPriceUSD > 0)
+        .sort((a, b) => b.bestPriceUSD - a.bestPriceUSD)
+        .slice(0, 20);
+
+      const mapped = unique.map(c => ({
+        id: c.id,
+        name: c.name,
+        setName: c.set?.name || "",
+        setId: c.set?.id || "",
+        number: c.number || "",
+        imageUrl: c.images?.small || c.images?.large || null,
+        rawPriceUSD: Math.round(c.bestPriceUSD * 100) / 100,
+      }));
+
+      topGradingPicksCache = mapped;
+      topGradingPicksLastFetch = Date.now();
+
+      console.log(`[top-grading-picks] Cached ${mapped.length} picks`);
+      res.json({ cards: mapped });
+    } catch (err: any) {
+      console.error("[top-grading-picks] Error:", err.message);
+      // Return cached stale data on error rather than failing
+      if (topGradingPicksCache) return res.json({ cards: topGradingPicksCache });
       res.status(500).json({ error: err.message });
     }
   });
