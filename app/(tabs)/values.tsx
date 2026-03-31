@@ -102,11 +102,15 @@ export default function ValuesScreen() {
   });
   const sets = useMemo(() => setsData?.sets || [], [setsData]);
 
-  // Global Top Grading Picks
-  const { data: picksData, isLoading: picksLoading } = useQuery<{ cards: TopPick[] }>({
-    queryKey: ["/api/cards/top-grading-picks"],
+  // Global Top Grading Picks — explicit queryFn to avoid URL join issues
+  const { data: picksData, isLoading: picksLoading, error: picksError, refetch: refetchPicks } = useQuery<{ cards: TopPick[] }>({
+    queryKey: ["top-grading-picks"],
+    queryFn: async () => {
+      const resp = await apiRequest("GET", "/api/cards/top-grading-picks");
+      return resp.json();
+    },
     staleTime: 2 * 60 * 60 * 1000,
-    retry: 2,
+    retry: 1,
     retryDelay: 2000,
   });
   const allPicks = picksData?.cards || [];
@@ -338,7 +342,19 @@ export default function ValuesScreen() {
           </View>
         )}
 
-        {!picksLoading && top10.length > 0 && (
+        {!picksLoading && !!picksError && (
+          <View style={styles.inlineFeedback}>
+            <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
+            <Text style={[styles.feedbackText, { color: Colors.error, flex: 1 }]}>
+              Couldn't load picks
+            </Text>
+            <Pressable onPress={() => refetchPicks()} hitSlop={8}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {!picksLoading && !picksError && top10.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -348,7 +364,7 @@ export default function ValuesScreen() {
           </ScrollView>
         )}
 
-        {!picksLoading && top10.length > 0 && (
+        {!picksLoading && !picksError && top10.length > 0 && (
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
