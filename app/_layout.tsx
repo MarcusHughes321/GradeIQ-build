@@ -18,6 +18,11 @@ import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
 import { getSettings } from "@/lib/settings";
 
+// Require font files at module level so Metro bundles them
+const IONICONS_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf");
+const MCT_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf");
+const FEATHER_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf");
+
 SplashScreen.preventAutoHideAsync();
 
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
@@ -25,9 +30,45 @@ const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
 const WHATS_NEW_KEY = "gradeiq_whats_new_version";
 const CURRENT_VERSION = "1.0.6";
 
-const IONICONS_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf");
-const MCT_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf");
-const FEATHER_TTF = require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf");
+/**
+ * On Android, Expo Go bundles its own (possibly outdated) icon fonts in assets/fonts/.
+ * expo-font's loadAsync skips fonts already found via getLoadedFonts(), which scans assets.
+ * We bypass this by calling the native ExpoFontLoader directly, which always calls
+ * ReactFontManager.setTypeface() regardless of any "already loaded" state.
+ */
+async function forceRegisterIconFontsAndroid() {
+  try {
+    // Download the correct font files from our npm package via Metro's asset server
+    const [ioniconsAsset, mctAsset, featherAsset] = await Asset.loadAsync([
+      IONICONS_TTF, MCT_TTF, FEATHER_TTF,
+    ]);
+
+    // Import the native module directly to bypass expo-font's isLoaded check
+    const ExpoFontLoader = require("expo-font/build/ExpoFontLoader").default;
+
+    const registerFont = async (name: string, asset: typeof ioniconsAsset) => {
+      if (!asset.localUri) return;
+      try {
+        await ExpoFontLoader.loadAsync(name, asset.localUri);
+        console.log(`[fonts] Force-registered: ${name}`);
+      } catch (e) {
+        console.warn(`[fonts] Force-register failed for ${name}:`, e);
+      }
+    };
+
+    // Register under both v15 lowercase names AND old PascalCase names
+    await Promise.all([
+      registerFont("ionicons", ioniconsAsset),
+      registerFont("Ionicons", ioniconsAsset),
+      registerFont("material-community", mctAsset),
+      registerFont("MaterialCommunityIcons", mctAsset),
+      registerFont("feather", featherAsset),
+      registerFont("Feather", featherAsset),
+    ]);
+  } catch (e) {
+    console.warn("[fonts] forceRegisterIconFontsAndroid error:", e);
+  }
+}
 
 function RootLayoutNav() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
@@ -89,29 +130,30 @@ export default function RootLayout() {
   useEffect(() => {
     async function loadResources() {
       try {
-        // On Android, pre-download font assets explicitly before registering.
-        // This ensures the file is local before ReactFontManager.setTypeface() is called.
+        // On Android: force-register icon fonts by calling native module directly.
+        // This bypasses expo-font's "already loaded" skip that uses Expo Go's
+        // bundled (potentially outdated) fonts, ensuring our v15 fonts are used.
         if (Platform.OS === "android") {
-          const fontAssets = await Asset.loadAsync([IONICONS_TTF, MCT_TTF, FEATHER_TTF]);
-          console.log("[fonts] Asset download states:", fontAssets.map(a => `${a.name}: downloaded=${a.downloaded} localUri=${a.localUri}`));
+          await forceRegisterIconFontsAndroid();
         }
 
+        // Load all fonts (Inter + icon fonts for non-Android) via expo-font
         await Font.loadAsync({
           Inter_400Regular,
           Inter_500Medium,
           Inter_600SemiBold,
           Inter_700Bold,
-          // Register under both old PascalCase names (matching Expo Go's bundled assets)
-          // AND new lowercase names (used by @expo/vector-icons v15 font family references).
-          // Android font lookup is case-sensitive so both registrations are needed.
-          "Ionicons": IONICONS_TTF,
-          "ionicons": IONICONS_TTF,
-          "MaterialCommunityIcons": MCT_TTF,
-          "material-community": MCT_TTF,
-          "Feather": FEATHER_TTF,
-          "feather": FEATHER_TTF,
+          ...(Platform.OS !== "android" ? {
+            "ionicons": IONICONS_TTF,
+            "Ionicons": IONICONS_TTF,
+            "material-community": MCT_TTF,
+            "MaterialCommunityIcons": MCT_TTF,
+            "feather": FEATHER_TTF,
+            "Feather": FEATHER_TTF,
+          } : {}),
         });
-        console.log("[fonts] All fonts registered. isLoaded(ionicons)=", Font.isLoaded("ionicons"), "isLoaded(Ionicons)=", Font.isLoaded("Ionicons"));
+
+        console.log("[fonts] Ready. isLoaded(ionicons)=", Font.isLoaded("ionicons"));
       } catch (e) {
         console.warn("[fonts] Font loading error:", e);
       } finally {
