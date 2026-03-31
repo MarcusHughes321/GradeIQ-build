@@ -194,7 +194,8 @@ export default function SetCardsScreen() {
       {!isLoading && error && (
         <View style={styles.centered}>
           <Ionicons name="alert-circle-outline" size={36} color={Colors.error} />
-          <Text style={styles.errorText}>Failed to load cards</Text>
+          <Text style={styles.errorText}>Card data unavailable</Text>
+          <Text style={styles.emptySubtitle}>This set's card data couldn't be loaded. It may not be available from our data provider.</Text>
           <Pressable onPress={() => router.back()} style={styles.backLink}>
             <Text style={styles.backLinkText}>Go back</Text>
           </Pressable>
@@ -205,11 +206,7 @@ export default function SetCardsScreen() {
         <View style={styles.centered}>
           <Ionicons name="albums-outline" size={36} color={Colors.textMuted} />
           <Text style={styles.emptyTitle}>No card data available</Text>
-          <Text style={styles.emptySubtitle}>
-            {isJpKr
-              ? "Card data for this set isn't in our database yet. Try using Search to look up a card by name."
-              : "No cards found for this set."}
-          </Text>
+          <Text style={styles.emptySubtitle}>Card data for this set isn't available yet.</Text>
         </View>
       )}
 

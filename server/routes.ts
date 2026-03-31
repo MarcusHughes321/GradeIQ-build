@@ -6746,7 +6746,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       if (lang === "english") {
         const resp = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,images,tcgplayer&orderBy=number`,
-          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(10000) }
         );
         if (!resp.ok) return res.status(502).json({ error: "Pokemon TCG API unavailable" });
         const data = await resp.json() as any;

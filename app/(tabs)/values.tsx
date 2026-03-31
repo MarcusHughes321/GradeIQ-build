@@ -42,7 +42,7 @@ interface BrowseSet {
   symbol?: string | null;
 }
 
-type BrowseLang = "english" | "japanese" | "korean";
+type BrowseLang = "english";
 
 async function loadRecentSearches(): Promise<string[]> {
   try {
@@ -64,7 +64,6 @@ export default function ValuesScreen() {
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
   const [mode, setMode] = useState<"search" | "browse">("search");
-  const [browseLang, setBrowseLang] = useState<BrowseLang>("english");
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -253,11 +252,7 @@ export default function ValuesScreen() {
       )}
 
       {mode === "browse" && (
-        <BrowseMode
-          lang={browseLang}
-          onChangeLang={setBrowseLang}
-          bottomInset={insets.bottom + webBottomInset}
-        />
+        <BrowseMode bottomInset={insets.bottom + webBottomInset} />
       )}
     </View>
   );
@@ -265,23 +260,9 @@ export default function ValuesScreen() {
 
 // ─── Browse Mode ─────────────────────────────────────────────────────────────
 
-const LANG_TABS: { id: BrowseLang; label: string }[] = [
-  { id: "english", label: "English" },
-  { id: "japanese", label: "Japanese" },
-  { id: "korean", label: "Korean" },
-];
-
-function BrowseMode({
-  lang,
-  onChangeLang,
-  bottomInset,
-}: {
-  lang: BrowseLang;
-  onChangeLang: (l: BrowseLang) => void;
-  bottomInset: number;
-}) {
+function BrowseMode({ bottomInset }: { bottomInset: number }) {
   const { data, isLoading, error, refetch } = useQuery<{ sets: BrowseSet[] }>({
-    queryKey: ["/api/sets", lang],
+    queryKey: ["/api/sets/english"],
     staleTime: 60 * 60 * 1000,
     retry: 2,
     retryDelay: 1500,
@@ -290,34 +271,14 @@ function BrowseMode({
   const sets = data?.sets || [];
 
   const handleSetPress = (set: BrowseSet) => {
-    const displayName = set.nameEn || set.name;
     router.push({
       pathname: "/set-cards",
-      params: { lang, setId: set.id, setName: displayName, nativeName: set.name },
+      params: { lang: "english", setId: set.id, setName: set.name },
     });
   };
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Language tabs */}
-      <View style={styles.langTabRow}>
-        {LANG_TABS.map((tab) => (
-          <Pressable
-            key={tab.id}
-            style={[styles.langTab, lang === tab.id && styles.langTabActive]}
-            onPress={() => onChangeLang(tab.id)}
-          >
-            <Text style={[styles.langTabText, lang === tab.id && styles.langTabTextActive]}>
-              {tab.label}
-            </Text>
-          </Pressable>
-        ))}
-        <View style={styles.langTabLocked}>
-          <Text style={styles.langTabLockedText}>Chinese</Text>
-          <Text style={styles.langTabLockedBadge}>Soon</Text>
-        </View>
-      </View>
-
       {isLoading && (
         <View style={styles.centered}>
           <ActivityIndicator color={Colors.primary} size="large" />
@@ -329,9 +290,6 @@ function BrowseMode({
         <View style={styles.centered}>
           <Ionicons name="alert-circle-outline" size={36} color={Colors.error} />
           <Text style={styles.errorText}>Failed to load sets</Text>
-          <Text style={[styles.errorText, { fontSize: 11, opacity: 0.6, marginTop: 4 }]} numberOfLines={3}>
-            {(error as Error)?.message || String(error)}
-          </Text>
           <Pressable onPress={() => refetch()} style={{ marginTop: 8 }}>
             <Text style={styles.retryText}>Try again</Text>
           </Pressable>
@@ -579,62 +537,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 15,
     color: Colors.text,
-  },
-  langTabRow: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
-    flexWrap: "wrap",
-  },
-  langTab: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  langTabActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  langTabText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  langTabTextActive: {
-    color: "#fff",
-  },
-  langTabLocked: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    opacity: 0.5,
-  },
-  langTabLockedText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  langTabLockedBadge: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 9,
-    color: Colors.textMuted,
-    backgroundColor: Colors.surfaceBorder,
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    overflow: "hidden",
   },
   setRow: {
     flexDirection: "row",
