@@ -89,9 +89,11 @@ export default function RootLayout() {
           Inter_500Medium,
           Inter_600SemiBold,
           Inter_700Bold,
-          ...Ionicons.font,
-          ...MaterialCommunityIcons.font,
-          ...Feather.font,
+          // Load icon fonts with explicit require so Metro bundles the TTF files
+          // Font family names must match what @expo/vector-icons v15 registers internally
+          "ionicons": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"),
+          "material-community": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
+          "feather": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Feather.ttf"),
         });
         console.log("[fonts] All fonts loaded successfully");
       } catch (e) {
