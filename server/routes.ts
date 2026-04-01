@@ -7396,21 +7396,28 @@ RESPONSE FORMAT (JSON only, no markdown):
         return res.json({ cards: topGradingPicksCache });
       }
 
-      // Fetch 5 pools, one per profit tier, based on the raw USD price range each tier requires.
-      // PSA10 GBP profit formula: rawUSD × 0.79 × 4.5 − 18
-      // → £50 profit ≈ $19 raw, £100 ≈ $33, £200 ≈ $61, £500 ≈ $146, £1000 ≈ $286
+      // Fetch pools covering all 8 "Under £X" tiers.
+      // GBP/USD ≈ 0.79, so: £5=$6.3, £10=$12.7, £20=$25.3, £50=$63, £100=$127, £200=$253, £500=$633, £1000=$1266
       const opts = { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) };
       const base = "https://api.pokemontcg.io/v2/cards?select=id,name,set,number,images,tcgplayer&pageSize=25";
-      const [r1k, r500, r200, r100, r50, rNorm] = await Promise.all([
+      const [r1k, r500, r200, r100, r50, r20, r10, r5, rNorm20, rNorm10, rNorm5] = await Promise.all([
+        // High-value holofoil pools
         fetch(`${base}&q=tcgplayer.prices.holofoil.market:[280 TO *]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
         fetch(`${base}&q=tcgplayer.prices.holofoil.market:[140 TO 290]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
         fetch(`${base}&q=tcgplayer.prices.holofoil.market:[59 TO 148]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
         fetch(`${base}&q=tcgplayer.prices.holofoil.market:[30 TO 63]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
         fetch(`${base}&q=tcgplayer.prices.holofoil.market:[17 TO 35]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
-        fetch(`${base}&q=tcgplayer.prices.normal.market:[17 TO 35]&orderBy=-tcgplayer.prices.normal.market`, opts),
+        // Lower-value holofoil pools (Under £20, £10, £5)
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[10 TO 20]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[5 TO 13]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.holofoil.market:[1 TO 7]&orderBy=-tcgplayer.prices.holofoil.market`, opts),
+        // Normal price pools for lower tiers (many cheap cards are non-holo)
+        fetch(`${base}&q=tcgplayer.prices.normal.market:[10 TO 26]&orderBy=-tcgplayer.prices.normal.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.normal.market:[5 TO 13]&orderBy=-tcgplayer.prices.normal.market`, opts),
+        fetch(`${base}&q=tcgplayer.prices.normal.market:[1 TO 7]&orderBy=-tcgplayer.prices.normal.market`, opts),
       ]);
 
-      const poolData = await Promise.all([r1k, r500, r200, r100, r50, rNorm].map(r => r.ok ? r.json() : { data: [] }));
+      const poolData = await Promise.all([r1k, r500, r200, r100, r50, r20, r10, r5, rNorm20, rNorm10, rNorm5].map(r => r.ok ? r.json() : { data: [] }));
       const allCards: any[] = poolData.flatMap((d: any) => d.data || []);
 
       // Dedupe by id and extract best market price
@@ -7428,7 +7435,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         })
         .filter(c => c.bestPriceUSD > 0)
         .sort((a, b) => b.bestPriceUSD - a.bestPriceUSD)
-        .slice(0, 150); // return a large pool so frontend can filter by profit tier
+        .slice(0, 250); // return a large pool so frontend can filter by all 8 price tiers
 
       const mapped = unique.map(c => ({
         id: c.id,
