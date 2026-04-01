@@ -203,10 +203,10 @@ async function fetchEbayGradedPrices(cardName: string, setName: string): Promise
   const appId = process.env.EBAY_APP_ID;
   if (!appId) throw new Error("EBAY_APP_ID not configured");
 
-  const cleanSet = cleanSetForSearch(setName);
-
+  // Do NOT include the set name — eBay sellers almost never include it in titles.
+  // Grade label + card name + "Pokemon" is specific enough to find the right listings.
   const buildUrl = (gradeQ: string) => {
-    const q = encodeURIComponent(`${gradeQ} ${cardName} ${cleanSet} Pokemon`);
+    const q = encodeURIComponent(`${gradeQ} ${cardName} Pokemon`);
     return (
       `https://svcs.ebay.com/services/search/FindingService/v1` +
       `?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.0` +
