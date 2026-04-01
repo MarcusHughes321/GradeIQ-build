@@ -213,8 +213,8 @@ export default function SetCardsScreen() {
           />
           <Text style={editionParam === "1st" ? styles.editionBanner1stText : styles.editionBannerUnlimitedText}>
             {editionParam === "1st"
-              ? "1st Edition — prices reflect the stamped print run"
-              : "Unlimited — prices reflect the non-stamped print run"}
+              ? "1st Edition · TCGPlayer doesn't separate editions — tap any card for real eBay 1st edition prices"
+              : "Unlimited · TCGPlayer doesn't separate editions — tap any card for real eBay unlimited prices"}
           </Text>
         </View>
       )}
@@ -283,7 +283,9 @@ export default function SetCardsScreen() {
           <View style={styles.topPicksDisclaimer}>
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
-              Raw: TCGPlayer market price · eBay: last sold price (excl. Best Offer) · All prices in {currency}
+              {editionParam
+                ? `Raw: TCGPlayer reference price (same for both editions) · Tap a card for real eBay ${editionParam === "1st" ? "1st Edition" : "Unlimited"} last-sold prices`
+                : `Raw: TCGPlayer market price · Tap a card for eBay last-sold prices · All prices in ${currency}`}
             </Text>
           </View>
         </View>
