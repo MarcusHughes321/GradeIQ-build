@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo } from "react";
+import React, { useState, useCallback, useRef, useMemo, memo } from "react";
 import {
   View,
   Text,
@@ -84,6 +84,113 @@ async function loadRecentSearches(): Promise<string[]> {
 async function saveRecentSearches(searches: string[]): Promise<void> {
   await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
 }
+
+interface EbayPriceResult {
+  psa10Median: number;
+  psa9Median: number;
+  psa10Samples: number;
+  psa9Samples: number;
+}
+
+const TopPickCard = memo(({ item, index, onPress }: {
+  item: TopPick;
+  index: number;
+  onPress: () => void;
+}) => {
+  const priceGBP = rawGBP(item.rawPriceUSD);
+
+  const { data: ebay, isLoading: ebayLoading } = useQuery<EbayPriceResult>({
+    queryKey: ["ebay-graded-price", item.name, item.setName],
+    queryFn: () =>
+      apiRequest(
+        "GET",
+        `/api/ebay-graded-price?name=${encodeURIComponent(item.name)}&setName=${encodeURIComponent(item.setName)}`
+      ).then(r => r.json()),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
+
+  const psa10GBP = ebay && ebay.psa10Median > 0 ? rawGBP(ebay.psa10Median) : null;
+  const psa9GBP  = ebay && ebay.psa9Median  > 0 ? rawGBP(ebay.psa9Median)  : null;
+
+  return (
+    <Pressable
+      style={({ pressed }) => [cardStyles.card, { opacity: pressed ? 0.8 : 1 }]}
+      onPress={onPress}
+    >
+      <View style={cardStyles.rank}>
+        <Text style={cardStyles.rankText}>#{index + 1}</Text>
+      </View>
+      {item.imageUrl ? (
+        <Image source={{ uri: item.imageUrl }} style={cardStyles.img} contentFit="contain" />
+      ) : (
+        <View style={[cardStyles.img, cardStyles.imgPlaceholder]}>
+          <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
+        </View>
+      )}
+      <Text style={cardStyles.name} numberOfLines={2}>{item.name}</Text>
+      <Text style={cardStyles.set}  numberOfLines={1}>{item.setName}</Text>
+      <View style={cardStyles.divider} />
+
+      {/* Raw TCGPlayer price */}
+      <View style={cardStyles.row}>
+        <Text style={cardStyles.label}>Raw</Text>
+        <Text style={cardStyles.value}>£{Math.round(priceGBP)}</Text>
+      </View>
+
+      {/* Real eBay PSA 10 sold price */}
+      <View style={cardStyles.row}>
+        <Text style={cardStyles.label}>PSA 10</Text>
+        {ebayLoading ? (
+          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+        ) : psa10GBP ? (
+          <Text style={[cardStyles.graded, { color: "#22c55e" }]}>£{Math.round(psa10GBP)}</Text>
+        ) : (
+          <Text style={cardStyles.muted}>—</Text>
+        )}
+      </View>
+
+      {/* Real eBay PSA 9 sold price */}
+      <View style={cardStyles.row}>
+        <Text style={cardStyles.label}>PSA 9</Text>
+        {ebayLoading ? (
+          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+        ) : psa9GBP ? (
+          <Text style={[cardStyles.graded, { color: "#f59e0b" }]}>£{Math.round(psa9GBP)}</Text>
+        ) : (
+          <Text style={cardStyles.muted}>—</Text>
+        )}
+      </View>
+
+      {ebay && (ebay.psa10Samples > 0 || ebay.psa9Samples > 0) && (
+        <Text style={cardStyles.samples}>
+          {ebay.psa10Samples > 0 ? `${ebay.psa10Samples} PSA10 ` : ""}
+          {ebay.psa9Samples  > 0 ? `${ebay.psa9Samples} PSA9` : ""} sales
+        </Text>
+      )}
+
+      <Text style={cardStyles.hint}>Tap for full breakdown</Text>
+    </Pressable>
+  );
+});
+
+const cardStyles = StyleSheet.create({
+  card:         { width: 150, backgroundColor: Colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  rank:         { position: "absolute", top: 8, right: 8, backgroundColor: Colors.primary, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
+  rankText:     { fontFamily: "Inter_700Bold", fontSize: 10, color: "#fff" },
+  img:          { width: "100%", height: 100, marginBottom: 8, borderRadius: 6 },
+  imgPlaceholder: { backgroundColor: Colors.background, alignItems: "center", justifyContent: "center" },
+  name:         { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.text, marginBottom: 2 },
+  set:          { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, marginBottom: 8 },
+  divider:      { height: 1, backgroundColor: Colors.surfaceBorder, marginBottom: 8 },
+  row:          { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  label:        { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+  value:        { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.text },
+  graded:       { fontFamily: "Inter_700Bold", fontSize: 12 },
+  muted:        { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
+  samples:      { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted, marginTop: 2, textAlign: "right" },
+  hint:         { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.primary, marginTop: 6, textAlign: "center" },
+});
 
 export default function ValuesScreen() {
   const insets = useSafeAreaInsets();
@@ -189,43 +296,14 @@ export default function ValuesScreen() {
     router.push({ pathname: "/set-cards", params: { lang: "english", setId: set.id, setName: set.name } });
   }, []);
 
-  const renderTopCard = (item: TopPick, index: number) => {
-    const priceGBP = rawGBP(item.rawPriceUSD);
-    const priceUSD = item.rawPriceUSD;
-
-    return (
-      <Pressable
-        key={item.id}
-        style={({ pressed }) => [styles.topCard, { opacity: pressed ? 0.8 : 1 }]}
-        onPress={() => handleTapCard(item.id, item.name, item.setName)}
-      >
-        <View style={styles.topCardRank}>
-          <Text style={styles.topCardRankText}>#{index + 1}</Text>
-        </View>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.topCardImg} contentFit="contain" />
-        ) : (
-          <View style={[styles.topCardImg, styles.topCardImgPlaceholder]}>
-            <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
-          </View>
-        )}
-        <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
-        <Text style={styles.topCardSet} numberOfLines={1}>{item.setName}</Text>
-        <View style={styles.topCardDivider} />
-        <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>Market</Text>
-          <Text style={[styles.topCardValue, { color: "#22c55e", fontFamily: "Inter_700Bold" }]}>
-            £{Math.round(priceGBP)}
-          </Text>
-        </View>
-        <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>USD</Text>
-          <Text style={styles.topCardValue}>${priceUSD.toFixed(0)}</Text>
-        </View>
-        <Text style={styles.topCardHint}>Tap for full breakdown</Text>
-      </Pressable>
-    );
-  };
+  const renderTopCard = useCallback((item: TopPick, index: number) => (
+    <TopPickCard
+      key={item.id}
+      item={item}
+      index={index}
+      onPress={() => handleTapCard(item.id, item.name, item.setName)}
+    />
+  ), [handleTapCard]);
 
   const listHeader = (
     <View>
@@ -382,7 +460,7 @@ export default function ValuesScreen() {
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
-              Raw market prices from TCGPlayer · GBP converted at ~£0.79/$ · Tap a card for the full price breakdown.
+              Raw: TCGPlayer market price · PSA 10/9: eBay sold listings (median) · GBP at ~£0.79/$
             </Text>
           </View>
         )}

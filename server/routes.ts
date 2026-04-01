@@ -143,8 +143,105 @@ const SET_CACHE_TTL = 24 * 60 * 60 * 1000;
 let topGradingPicksCache: any[] | null = null;
 let topGradingPicksLastFetch = 0;
 const TOP_PICKS_TTL = 2 * 60 * 60 * 1000;
-// Bust cache on startup so the expanded pool is fetched fresh
-topGradingPicksLastFetch = 0;
+topGradingPicksLastFetch = 0; // bust on startup
+
+// ── eBay Graded Price Cache ────────────────────────────────────────────────
+const ebayPriceCache = new Map<string, {
+  psa10Median: number; psa9Median: number;
+  psa10Samples: number; psa9Samples: number;
+  fetchedAt: number;
+}>();
+const EBAY_PRICE_TTL = 24 * 60 * 60 * 1000; // 24 h
+
+/** Strip verbose series prefixes so eBay search works better */
+function cleanSetForSearch(setName: string): string {
+  return setName
+    .replace(/^scarlet\s*[&]\s*violet\s*[-–:]\s*/i, "")
+    .replace(/^sword\s*[&]\s*shield\s*[-–:]\s*/i, "")
+    .replace(/^sun\s*[&]\s*moon\s*[-–:]\s*/i, "")
+    .replace(/^black\s*[&]\s*white\s*[-–:]\s*/i, "")
+    .replace(/^x\s*y\s*[-–:]\s*/i, "")
+    .trim();
+}
+
+function medianOf(nums: number[]): number {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function iqrFilter(prices: number[]): number[] {
+  if (prices.length < 4) return prices;
+  const s = [...prices].sort((a, b) => a - b);
+  const q1 = s[Math.floor(s.length * 0.25)];
+  const q3 = s[Math.floor(s.length * 0.75)];
+  const iqr = q3 - q1;
+  return s.filter(p => p >= q1 - 1.5 * iqr && p <= q3 + 1.5 * iqr);
+}
+
+async function fetchEbayGradedPrices(cardName: string, setName: string) {
+  const cacheKey = `${cardName}|${setName}`;
+  const hit = ebayPriceCache.get(cacheKey);
+  if (hit && Date.now() - hit.fetchedAt < EBAY_PRICE_TTL) return hit;
+
+  const appId = process.env.EBAY_APP_ID;
+  if (!appId) throw new Error("EBAY_APP_ID not configured");
+
+  const cleanSet = cleanSetForSearch(setName);
+
+  const buildUrl = (grade: number) => {
+    const q = encodeURIComponent(`PSA ${grade} ${cardName} ${cleanSet} Pokemon`);
+    return (
+      `https://svcs.ebay.com/services/search/FindingService/v1` +
+      `?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.0` +
+      `&SECURITY-APPNAME=${encodeURIComponent(appId)}` +
+      `&RESPONSE-DATA-FORMAT=JSON` +
+      `&keywords=${q}` +
+      `&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true` +
+      `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=20`
+    );
+  };
+
+  const [r10, r9] = await Promise.all([
+    fetch(buildUrl(10), { signal: AbortSignal.timeout(10000) }),
+    fetch(buildUrl(9),  { signal: AbortSignal.timeout(10000) }),
+  ]);
+  const [d10, d9] = await Promise.all([
+    r10.ok ? r10.json() : {},
+    r9.ok  ? r9.json()  : {},
+  ]);
+
+  const extract = (data: any, grade: number): number[] => {
+    const items = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
+    const g = String(grade);
+    return iqrFilter(
+      items
+        .filter((it: any) => {
+          const t = (it?.title?.[0] || "").toUpperCase();
+          return t.includes(`PSA ${g}`) || t.includes(`PSA-${g}`) || t.includes(`PSA${g}`);
+        })
+        .map((it: any) =>
+          parseFloat(it?.sellingStatus?.[0]?.currentPrice?.[0]?.["__value__"] || "0")
+        )
+        .filter((p: number) => p > 5)
+    );
+  };
+
+  const p10 = extract(d10, 10);
+  const p9  = extract(d9,  9);
+
+  const result = {
+    psa10Median:  Math.round(medianOf(p10) * 100) / 100,
+    psa9Median:   Math.round(medianOf(p9)  * 100) / 100,
+    psa10Samples: p10.length,
+    psa9Samples:  p9.length,
+    fetchedAt:    Date.now(),
+  };
+  ebayPriceCache.set(cacheKey, result);
+  console.log(`[ebay-price] ${cardName} | PSA10 $${result.psa10Median} (n=${result.psa10Samples}) | PSA9 $${result.psa9Median} (n=${result.psa9Samples})`);
+  return result;
+}
 
 async function fetchAndCacheSets(): Promise<void> {
   try {
@@ -6772,8 +6869,23 @@ RESPONSE FORMAT (JSON only, no markdown):
       res.json({ cards: mapped });
     } catch (err: any) {
       console.error("[top-grading-picks] Error:", err.message);
-      // Return cached stale data on error rather than failing
       if (topGradingPicksCache) return res.json({ cards: topGradingPicksCache });
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── eBay Graded Price Lookup ───────────────────────────────────────────────
+  // Returns real PSA 10 & PSA 9 median sold prices from eBay completed listings.
+  app.get("/api/ebay-graded-price", async (req, res) => {
+    const { name, setName } = req.query;
+    if (!name || !setName) {
+      return res.status(400).json({ error: "name and setName query params required" });
+    }
+    try {
+      const result = await fetchEbayGradedPrices(String(name), String(setName));
+      res.json(result);
+    } catch (err: any) {
+      console.error("[ebay-graded-price]", err.message);
       res.status(500).json({ error: err.message });
     }
   });
