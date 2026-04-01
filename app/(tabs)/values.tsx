@@ -49,15 +49,18 @@ function fmtPrice(usd: number, rate: number, symbol: string, round = true): stri
   return round ? `${symbol}${Math.round(v)}` : `${symbol}${v.toFixed(2)}`;
 }
 
-// Price tiers based on actual TCGPlayer raw market price in GBP
+// Price tiers — "Under £X" buckets based on raw TCGPlayer market price in GBP
 const PRICE_TIERS = [
-  { label: "£50+",  minGBP: 50,   maxGBP: 100  },
-  { label: "£100+", minGBP: 100,  maxGBP: 200  },
-  { label: "£200+", minGBP: 200,  maxGBP: 500  },
-  { label: "£500+", minGBP: 500,  maxGBP: 1000 },
-  { label: "£1k+",  minGBP: 1000, maxGBP: Infinity },
+  { label: "Under £5",    maxGBP: 5    },
+  { label: "Under £10",   maxGBP: 10   },
+  { label: "Under £20",   maxGBP: 20   },
+  { label: "Under £50",   maxGBP: 50   },
+  { label: "Under £100",  maxGBP: 100  },
+  { label: "Under £200",  maxGBP: 200  },
+  { label: "Under £500",  maxGBP: 500  },
+  { label: "Under £1000", maxGBP: 1000 },
 ] as const;
-type PriceTierMin = typeof PRICE_TIERS[number]["minGBP"];
+type PriceTierMax = typeof PRICE_TIERS[number]["maxGBP"];
 
 interface SearchResult {
   id: string;
@@ -261,7 +264,7 @@ export default function ValuesScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
-  const [priceTier, setPriceTier] = useState<PriceTierMin>(50);
+  const [priceTier, setPriceTier] = useState<PriceTierMax>(50);
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -319,13 +322,13 @@ export default function ValuesScreen() {
   });
   const allPicks = picksData?.cards || [];
 
-  // All cards in the selected price tier — tier labels are always GBP so filter uses GBP rate
+  // All cards in the selected price tier — filter by raw price < maxGBP threshold
   const filteredTierPicks = useMemo(() => {
-    const tier = PRICE_TIERS.find(t => t.minGBP === priceTier);
+    const tier = PRICE_TIERS.find(t => t.maxGBP === priceTier);
     if (!tier || allPicks.length === 0) return [];
     return allPicks.filter(c => {
       const pGBP = c.rawPriceUSD * gbpRate;
-      return pGBP >= tier.minGBP && pGBP < tier.maxGBP;
+      return pGBP > 0 && pGBP < tier.maxGBP;
     });
   }, [allPicks, priceTier, gbpRate]);
 
@@ -600,11 +603,11 @@ export default function ValuesScreen() {
         >
           {PRICE_TIERS.map(tier => (
             <Pressable
-              key={tier.minGBP}
-              style={[styles.tierTab, priceTier === tier.minGBP && styles.tierTabActive]}
-              onPress={() => setPriceTier(tier.minGBP)}
+              key={tier.maxGBP}
+              style={[styles.tierTab, priceTier === tier.maxGBP && styles.tierTabActive]}
+              onPress={() => setPriceTier(tier.maxGBP)}
             >
-              <Text style={[styles.tierTabText, priceTier === tier.minGBP && styles.tierTabTextActive]}>
+              <Text style={[styles.tierTabText, priceTier === tier.maxGBP && styles.tierTabTextActive]}>
                 {tier.label}
               </Text>
             </Pressable>
