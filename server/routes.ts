@@ -370,12 +370,15 @@ function extractLastEbay(data: any, titleMatch: (t: string) => boolean): number 
 async function fetchEbayGradedPrices(
   cardName: string,
   setName: string,
-  cardNumber?: string
+  cardNumber?: string,
+  edition?: "1st" | "unlimited" | null
 ): Promise<EbayAllGrades> {
   // Base card number e.g. "295" from "295/217" — sellers commonly include this in titles
   const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
+  // Append "1st edition" for 1st edition cards so eBay results match that print run
+  const editionTag = edition === "1st" ? "1st edition" : "";
   // Set name intentionally excluded — sellers rarely include it in titles.
-  const cardIdStr = [cardName, baseNum].filter(Boolean).join(" ");
+  const cardIdStr = [cardName, baseNum, editionTag].filter(Boolean).join(" ");
 
   const cacheKey = cardIdStr;
 
@@ -6898,6 +6901,20 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── Card Catalog helpers ─────────────────────────────────────────────────
 
+  // WOTC-era English sets that were printed in both 1st Edition and Unlimited runs
+  const WOTC_1ST_EDITION_SET_IDS = new Set([
+    "base1",  // Base Set
+    "base2",  // Jungle
+    "base3",  // Fossil
+    "base5",  // Team Rocket
+    "gym1",   // Gym Heroes
+    "gym2",   // Gym Challenge
+    "neo1",   // Neo Genesis
+    "neo2",   // Neo Discovery
+    "neo3",   // Neo Revelation
+    "neo4",   // Neo Destiny
+  ]);
+
   const CATALOG_PRICE_TYPES = [
     "holofoil", "reverseHolofoil", "normal",
     "1stEditionHolofoil", "1stEditionNormal",
@@ -6907,6 +6924,22 @@ RESPONSE FORMAT (JSON only, no markdown):
   function pickBestTcgPrice(tcgplayer: any): number | null {
     const prices = tcgplayer?.prices ?? {};
     for (const pt of CATALOG_PRICE_TYPES) {
+      const t = prices[pt];
+      if (!t) continue;
+      const v = t.market ?? t.mid ?? null;
+      if (v != null) return Math.round(v * 100) / 100;
+    }
+    return null;
+  }
+
+  // Edition-aware price picker: "1st" → 1stEdition buckets, "unlimited" → unlimited/holofoil buckets
+  function pickEditionTcgPrice(tcgplayer: any, edition: "1st" | "unlimited" | null): number | null {
+    if (!edition) return pickBestTcgPrice(tcgplayer);
+    const prices = tcgplayer?.prices ?? {};
+    const types = edition === "1st"
+      ? ["1stEditionHolofoil", "1stEditionNormal"]
+      : ["unlimitedHolofoil", "unlimitedNormal", "holofoil", "normal"];
+    for (const pt of types) {
       const t = prices[pt];
       if (!t) continue;
       const v = t.market ?? t.mid ?? null;
@@ -7434,15 +7467,17 @@ RESPONSE FORMAT (JSON only, no markdown):
   // ── eBay All Grades Lookup (all companies + raw) ──────────────────────────
   // Returns last eBay sold price for PSA 10/9, BGS 9.5/9, ACE 10, TAG 10, CGC 10, raw.
   app.get("/api/ebay-all-grades", async (req, res) => {
-    const { name, setName, cardNumber } = req.query;
+    const { name, setName, cardNumber, edition } = req.query;
     if (!name || !setName) {
       return res.status(400).json({ error: "name and setName query params required" });
     }
+    const editionVal = edition === "1st" || edition === "unlimited" ? edition : null;
     try {
       const { fetchedAt, ...grades } = await fetchEbayGradedPrices(
         String(name),
         String(setName),
-        cardNumber ? String(cardNumber) : undefined
+        cardNumber ? String(cardNumber) : undefined,
+        editionVal
       );
       res.json(grades);
     } catch (err: any) {
@@ -7477,7 +7512,14 @@ RESPONSE FORMAT (JSON only, no markdown):
       return res.status(400).json({ error: "Invalid language. Use english, japanese, or korean." });
     }
 
-    const cacheKey = `${lang}:${setId}`;
+    // Optional edition filter for WOTC-era sets that have both 1st Edition and Unlimited prints
+    const editionParam = req.query.edition;
+    const edition: "1st" | "unlimited" | null =
+      editionParam === "1st" ? "1st" : editionParam === "unlimited" ? "unlimited" : null;
+
+    // For WOTC sets with an edition param, always fetch fresh from the API (edition-aware pricing)
+    const isWotcEdition = edition !== null && WOTC_1ST_EDITION_SET_IDS.has(setId);
+    const cacheKey = isWotcEdition ? `${lang}:${setId}:${edition}` : `${lang}:${setId}`;
 
     // L1: in-memory cache (fastest path — same server process)
     const cached = setCardsCache.get(cacheKey);
@@ -7490,7 +7532,8 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
 
     // L2: PostgreSQL card_catalog (fast — survives restarts, pre-populated daily)
-    if (lang === "english") {
+    // Skip for WOTC edition requests — catalog stores only one price per card
+    if (lang === "english" && !isWotcEdition) {
       try {
         const dbCards = await getCardsFromCatalog(setId);
         if (dbCards !== null) {
@@ -7504,15 +7547,35 @@ RESPONSE FORMAT (JSON only, no markdown):
       }
     }
 
-    // L3: External API (slow — only when DB has no data for this set)
+    // L3: External API (slow — only when DB has no data for this set, or WOTC edition request)
     try {
       let cards: any[] = [];
 
       if (lang === "english") {
-        console.log(`[sets/cards] L3 API fetch: ${setId} (not yet in catalog)`);
-        cards = await fetchSetCardsFromApi(setId, "");
-        // Write to DB catalog immediately so future requests are fast
-        void upsertCardsForSet(cards);
+        if (isWotcEdition) {
+          console.log(`[sets/cards] L3 API fetch (edition=${edition}): ${setId}`);
+          // Fetch from API and apply edition-specific price picking
+          const resp = await fetch(
+            `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
+            { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
+          );
+          if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
+          const data = await resp.json() as any;
+          cards = (data?.data || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            number: c.number || "",
+            rarity: c.rarity || null,
+            imageUrl: c.images?.small || c.images?.large || null,
+            price: pickEditionTcgPrice(c.tcgplayer, edition),
+            setId,
+          }));
+        } else {
+          console.log(`[sets/cards] L3 API fetch: ${setId} (not yet in catalog)`);
+          cards = await fetchSetCardsFromApi(setId, "");
+          // Write to DB catalog immediately so future requests are fast
+          void upsertCardsForSet(cards);
+        }
       } else {
         const langCode = lang === "japanese" ? "ja" : "ko";
         const resp = await fetch(

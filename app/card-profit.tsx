@@ -104,7 +104,7 @@ export default function CardProfitScreen() {
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
-  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD } = useLocalSearchParams<{
+  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, edition } = useLocalSearchParams<{
     cardId: string;
     cardName: string;
     setName: string;
@@ -112,7 +112,11 @@ export default function CardProfitScreen() {
     setTotal?: string;
     imageUrl?: string;
     rawPriceUSD?: string;
+    edition?: string;
   }>();
+
+  const editionParam: "1st" | "unlimited" | null =
+    edition === "1st" ? "1st" : edition === "unlimited" ? "unlimited" : null;
 
   // Format card number: "045" + setTotal → "045/143", otherwise just "045"
   const displayCardNumber = cardNumber
@@ -206,12 +210,14 @@ export default function CardProfitScreen() {
   const hasRawPrice = rawLocalVal > 0;
 
   const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
-    queryKey: ["ebay-all-grades", cardName, setName],
-    queryFn: () =>
-      apiRequest(
+    queryKey: ["ebay-all-grades", cardName, setName, editionParam],
+    queryFn: () => {
+      const editionQ = editionParam ? `&edition=${editionParam}` : "";
+      return apiRequest(
         "GET",
-        `/api/ebay-all-grades?name=${encodeURIComponent(cardName || "")}&setName=${encodeURIComponent(setName || "")}`
-      ).then(r => r.json()),
+        `/api/ebay-all-grades?name=${encodeURIComponent(cardName || "")}&setName=${encodeURIComponent(setName || "")}${editionQ}`
+      ).then(r => r.json());
+    },
     enabled: !!(cardName && setName),
     staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
@@ -336,6 +342,18 @@ export default function CardProfitScreen() {
           <Text style={st.heroSet}>{setName}</Text>
           {!!displayCardNumber && (
             <Text style={st.heroNumber}>#{displayCardNumber}</Text>
+          )}
+          {editionParam && (
+            <View style={editionParam === "1st" ? st.editionBadge1st : st.editionBadgeUnlimited}>
+              <Ionicons
+                name={editionParam === "1st" ? "star" : "layers-outline"}
+                size={11}
+                color={editionParam === "1st" ? "#fff" : Colors.textSecondary}
+              />
+              <Text style={editionParam === "1st" ? st.editionBadge1stText : st.editionBadgeUnlimitedText}>
+                {editionParam === "1st" ? "1st Edition" : "Unlimited"}
+              </Text>
+            </View>
           )}
 
           {/* Raw price pill */}
@@ -573,7 +591,43 @@ const st = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     textAlign: "center",
-    marginBottom: 14,
+    marginBottom: 8,
+  },
+  editionBadge1st: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "center",
+    backgroundColor: "#7c3aed",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 10,
+  },
+  editionBadge1stText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: "#fff",
+    letterSpacing: 0.3,
+  },
+  editionBadgeUnlimited: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "center",
+    backgroundColor: Colors.surface,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  editionBadgeUnlimitedText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textSecondary,
+    letterSpacing: 0.3,
   },
   heroPriceRow: {
     flexDirection: "row",

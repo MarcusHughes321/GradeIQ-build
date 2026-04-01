@@ -92,12 +92,15 @@ export default function SetCardsScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const { lang, setId, setName, setTotal } = useLocalSearchParams<{
+  const { lang, setId, setName, setTotal, edition } = useLocalSearchParams<{
     lang: string;
     setId: string;
     setName: string;
     setTotal?: string;
+    edition?: string;
   }>();
+
+  const editionParam = edition === "1st" || edition === "unlimited" ? edition : null;
 
   const [sortBy, setSortBy] = useState<SortBy>("number");
 
@@ -113,8 +116,19 @@ export default function SetCardsScreen() {
   // All TCGPlayer prices are in USD; eBay prices are nominally in USD too
   const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
 
+  const cardsUrl = editionParam
+    ? `/api/sets/${lang}/${setId}/cards?edition=${editionParam}`
+    : `/api/sets/${lang}/${setId}/cards`;
+
   const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
-    queryKey: ["/api/sets", lang, setId, "cards"],
+    queryKey: ["/api/sets", lang, setId, "cards", editionParam ?? "any"],
+    queryFn: async () => {
+      const { getApiUrl } = await import("@/lib/query-client");
+      const url = new URL(cardsUrl, getApiUrl());
+      const resp = await fetch(url.toString());
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.json();
+    },
     enabled: !!lang && !!setId,
     staleTime: 6 * 60 * 60 * 1000,
   });
@@ -154,6 +168,7 @@ export default function SetCardsScreen() {
         setTotal: resolvedSetTotal,
         imageUrl: card.imageUrl || "",
         rawPriceUSD: card.price ? String(card.price) : "0",
+        ...(editionParam ? { edition: editionParam } : {}),
       },
     });
   };
@@ -188,6 +203,22 @@ export default function SetCardsScreen() {
 
   const listHeader = (
     <>
+      {/* Edition banner — shown for WOTC 1st Edition / Unlimited sets */}
+      {editionParam && (
+        <View style={editionParam === "1st" ? styles.editionBanner1st : styles.editionBannerUnlimited}>
+          <Ionicons
+            name={editionParam === "1st" ? "star" : "layers-outline"}
+            size={14}
+            color={editionParam === "1st" ? "#fff" : Colors.textSecondary}
+          />
+          <Text style={editionParam === "1st" ? styles.editionBanner1stText : styles.editionBannerUnlimitedText}>
+            {editionParam === "1st"
+              ? "1st Edition — prices reflect the stamped print run"
+              : "Unlimited — prices reflect the non-stamped print run"}
+          </Text>
+        </View>
+      )}
+
       {/* No price data notice */}
       {isEnglish && !hasAnyPrice && !isLoading && !error && allCards.length > 0 && (
         <View style={styles.noPriceNotice}>
@@ -560,6 +591,43 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
+  },
+  // Edition banners
+  editionBanner1st: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: "#7c3aed",
+    borderRadius: 10,
+    padding: 10,
+  },
+  editionBanner1stText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: "#fff",
+    flex: 1,
+  },
+  editionBannerUnlimited: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 10,
+  },
+  editionBannerUnlimitedText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    flex: 1,
   },
   noPriceNotice: {
     flexDirection: "row",

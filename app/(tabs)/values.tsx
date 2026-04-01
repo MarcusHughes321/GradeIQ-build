@@ -68,6 +68,20 @@ interface SearchResult {
   imageUrl: string | null;
 }
 
+// WOTC-era sets that were printed in both 1st Edition and Unlimited runs
+const WOTC_1ST_EDITION_SETS: Record<string, string> = {
+  "base1": "Base Set",
+  "base2": "Jungle",
+  "base3": "Fossil",
+  "base5": "Team Rocket",
+  "gym1":  "Gym Heroes",
+  "gym2":  "Gym Challenge",
+  "neo1":  "Neo Genesis",
+  "neo2":  "Neo Discovery",
+  "neo3":  "Neo Revelation",
+  "neo4":  "Neo Destiny",
+};
+
 interface BrowseSet {
   id: string;
   name: string;
@@ -77,8 +91,9 @@ interface BrowseSet {
   releaseDate?: string;
   logo: string | null;
   symbol?: string | null;
-  hasCardData?: boolean | null;  // null = not yet browsed
-  hasPrices?: boolean | null;    // null = not yet browsed
+  hasCardData?: boolean | null;
+  hasPrices?: boolean | null;
+  edition?: "1st" | "unlimited"; // only set for WOTC split entries
 }
 
 interface TopPick {
@@ -267,15 +282,29 @@ export default function ValuesScreen() {
   const [setSearch, setSetSearch] = useState("");
   const setSearchRef = useRef<TextInput>(null);
 
+  // Expand WOTC sets into two entries (1st Edition + Unlimited) before filtering
+  const expandedSets = useMemo<BrowseSet[]>(() => {
+    const result: BrowseSet[] = [];
+    for (const s of sets) {
+      if (WOTC_1ST_EDITION_SETS[s.id]) {
+        result.push({ ...s, name: s.name + " · 1st Edition", edition: "1st" });
+        result.push({ ...s, name: s.name + " · Unlimited",   edition: "unlimited" });
+      } else {
+        result.push(s);
+      }
+    }
+    return result;
+  }, [sets]);
+
   const filteredSets = useMemo(() => {
     const q = setSearch.trim().toLowerCase();
-    if (!q) return sets;
-    return sets.filter(s =>
+    if (!q) return expandedSets;
+    return expandedSets.filter(s =>
       s.name.toLowerCase().includes(q) ||
       (s.nameEn && s.nameEn.toLowerCase().includes(q)) ||
       (s.series && s.series.toLowerCase().includes(q))
     );
-  }, [sets, setSearch]);
+  }, [expandedSets, setSearch]);
 
   // Global Top Grading Picks — explicit queryFn to avoid URL join issues
   const { data: picksData, isLoading: picksLoading, error: picksError, refetch: refetchPicks } = useQuery<{ cards: TopPick[] }>({
@@ -437,7 +466,16 @@ export default function ValuesScreen() {
   }, []);
 
   const handleSetPress = useCallback((set: BrowseSet) => {
-    router.push({ pathname: "/set-cards", params: { lang: "english", setId: set.id, setName: set.name, setTotal: String(set.cardCount) } });
+    router.push({
+      pathname: "/set-cards",
+      params: {
+        lang: "english",
+        setId: set.id,
+        setName: set.name,
+        setTotal: String(set.cardCount),
+        ...(set.edition ? { edition: set.edition } : {}),
+      },
+    });
   }, []);
 
   const renderTopCard = useCallback((entry: typeof tieredPicks[0], index: number) => (
@@ -695,7 +733,7 @@ export default function ValuesScreen() {
     <FlatList
       style={styles.container}
       data={filteredSets}
-      keyExtractor={item => item.id}
+      keyExtractor={item => item.edition ? `${item.id}_${item.edition}` : item.id}
       ListHeaderComponent={listHeader}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}
@@ -726,7 +764,18 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
         )}
       </View>
       <View style={styles.setInfo}>
-        <Text style={styles.setName} numberOfLines={2}>{set.nameEn || set.name}</Text>
+        {/* Edition badge — only for WOTC split entries */}
+        {set.edition && (
+          <View style={set.edition === "1st" ? styles.editionBadge1st : styles.editionBadgeUnlimited}>
+            <Text style={set.edition === "1st" ? styles.editionBadge1stText : styles.editionBadgeUnlimitedText}>
+              {set.edition === "1st" ? "1st Edition" : "Unlimited"}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.setName} numberOfLines={2}>
+          {/* Strip the edition suffix from the display name — it's shown as a badge */}
+          {(set.nameEn || set.name).replace(/ · (1st Edition|Unlimited)$/, "")}
+        </Text>
         {set.series ? <Text style={styles.setSeries} numberOfLines={1}>{set.series}</Text> : null}
         <View style={styles.setMeta}>
           <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
@@ -963,6 +1012,38 @@ const styles = StyleSheet.create({
     borderColor: Colors.surfaceBorder,
   },
   langPillText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textSecondary },
+
+  // Edition badges (1st Edition / Unlimited)
+  editionBadge1st: {
+    alignSelf: "flex-start",
+    backgroundColor: "#7c3aed",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  editionBadge1stText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    color: "#fff",
+    letterSpacing: 0.4,
+  },
+  editionBadgeUnlimited: {
+    alignSelf: "flex-start",
+    backgroundColor: Colors.surface,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  editionBadgeUnlimitedText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.textSecondary,
+    letterSpacing: 0.4,
+  },
 
   // Set search bar
   setSearchWrap: {
