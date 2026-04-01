@@ -293,6 +293,9 @@ export default function ValuesScreen() {
   // Alias for template clarity
   const tieredPicks = enrichedTopPicks;
 
+  // True while any eBay query for the current tier is still loading
+  const tierEbayLoading = tierEbayQueries.some(q => q.isLoading || q.isFetching);
+
   const loadRecent = useCallback(async () => {
     if (recentLoaded) return;
     const recent = await loadRecentSearches();
@@ -512,6 +515,21 @@ export default function ValuesScreen() {
         {!picksLoading && !picksError && tieredPicks.length === 0 && allPicks.length > 0 && (
           <View style={styles.inlineFeedback}>
             <Text style={styles.feedbackText}>No cards found at this price range</Text>
+          </View>
+        )}
+
+        {!picksLoading && !picksError && tieredPicks.length > 0 && (
+          <View style={styles.rankingStatus}>
+            <Ionicons
+              name={tierEbayLoading ? "sync-outline" : "trending-up-outline"}
+              size={11}
+              color={Colors.textMuted}
+            />
+            <Text style={styles.rankingStatusText}>
+              {tierEbayLoading
+                ? "Loading eBay prices to rank by profit…"
+                : "Ranked by estimated PSA 10 profit"}
+            </Text>
           </View>
         )}
 
@@ -779,6 +797,8 @@ const styles = StyleSheet.create({
   topCardProfit: { fontFamily: "Inter_700Bold", fontSize: 11 },
   topCardHint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center", marginTop: 6 },
 
+  rankingStatus: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 16, marginBottom: 6 },
+  rankingStatusText: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
   disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 5, paddingHorizontal: 16, marginTop: 8 },
   disclaimerText: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, flex: 1, lineHeight: 15 },
 
