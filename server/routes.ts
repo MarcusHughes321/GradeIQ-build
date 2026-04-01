@@ -157,28 +157,26 @@ interface EbayAllGrades {
 }
 // ── Persistent eBay Cache ─────────────────────────────────────────────────
 // Survives server restarts so we don't burn rate limits on every reload.
-const EBAY_CACHE_PATH = path.join(process.cwd(), "server/data/ebay-cache.json");
-const EBAY_PRICE_TTL  = 24 * 60 * 60 * 1000; // 24 h
+// 3-day TTL — data stays fresh long enough to be useful but not stale
+const EBAY_PRICE_TTL = 3 * 24 * 60 * 60 * 1000;
+// L1: in-memory map (fast, per-process — warmed from DB on first hit)
+const ebayPriceCache = new Map<string, EbayAllGrades>();
 
-function loadEbayCacheFromDisk(): Map<string, EbayAllGrades> {
+// Ensure the shared DB cache table exists (called once at startup)
+async function initEbayPriceCacheTable(): Promise<void> {
   try {
-    if (fs.existsSync(EBAY_CACHE_PATH)) {
-      const raw = JSON.parse(fs.readFileSync(EBAY_CACHE_PATH, "utf8"));
-      return new Map<string, EbayAllGrades>(Object.entries(raw));
-    }
-  } catch { /* corrupt file — start fresh */ }
-  return new Map<string, EbayAllGrades>();
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ebay_price_cache (
+        cache_key   TEXT PRIMARY KEY,
+        data        JSONB NOT NULL,
+        fetched_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[ebay-cache] DB table ready");
+  } catch (e: any) {
+    console.error("[ebay-cache] Failed to create table:", e.message);
+  }
 }
-
-function saveEbayCacheToDisk(cache: Map<string, EbayAllGrades>): void {
-  try {
-    fs.mkdirSync(path.dirname(EBAY_CACHE_PATH), { recursive: true });
-    fs.writeFileSync(EBAY_CACHE_PATH, JSON.stringify(Object.fromEntries(cache)));
-  } catch { /* disk write failure is non-fatal */ }
-}
-
-const ebayPriceCache = loadEbayCacheFromDisk();
-console.log(`[ebay-cache] Loaded ${ebayPriceCache.size} cached entries from disk`);
 
 // ── eBay API Request Throttle ─────────────────────────────────────────────
 // Caps concurrent eBay calls to 2 with a 300 ms gap to stay under rate limits.
@@ -268,8 +266,27 @@ async function fetchEbayGradedPrices(
   const cardIdStr = [cardName, baseNum].filter(Boolean).join(" ");
 
   const cacheKey = cardIdStr;
-  const hit = ebayPriceCache.get(cacheKey);
-  if (hit && Date.now() - hit.fetchedAt < EBAY_PRICE_TTL) return hit;
+
+  // L1: in-memory (fast, same server process)
+  const memHit = ebayPriceCache.get(cacheKey);
+  if (memHit && Date.now() - memHit.fetchedAt < EBAY_PRICE_TTL) return memHit;
+
+  // L2: PostgreSQL (shared across all users, survives restarts)
+  try {
+    const dbRes = await db.query<{ data: EbayAllGrades; fetched_ms: string }>(
+      `SELECT data, EXTRACT(EPOCH FROM fetched_at) * 1000 AS fetched_ms
+         FROM ebay_price_cache WHERE cache_key = $1`,
+      [cacheKey]
+    );
+    if (dbRes.rows.length > 0) {
+      const fetchedAt = parseFloat(dbRes.rows[0].fetched_ms);
+      if (Date.now() - fetchedAt < EBAY_PRICE_TTL) {
+        const result: EbayAllGrades = { ...dbRes.rows[0].data, fetchedAt };
+        ebayPriceCache.set(cacheKey, result); // warm L1
+        return result;
+      }
+    }
+  } catch { /* DB unavailable — fall through to live fetch */ }
 
   const appId = process.env.EBAY_APP_ID;
   if (!appId) throw new Error("EBAY_APP_ID not configured");
@@ -336,8 +353,16 @@ async function fetchEbayGradedPrices(
     raw:   extractLastEbay(rawData,    rawMatch),
     fetchedAt: Date.now(),
   };
+  // Store in L1
   ebayPriceCache.set(cacheKey, result);
-  saveEbayCacheToDisk(ebayPriceCache); // persist so restarts don't lose cached prices
+  // Store in L2 (PostgreSQL — shared across all users, 3-day TTL)
+  const { fetchedAt: _fa, ...dbData } = result;
+  db.query(
+    `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
+    [cacheKey, JSON.stringify(dbData)]
+  ).catch(e => console.error("[ebay-cache] DB write failed:", e.message));
   console.log(
     `[ebay-price] ${cardIdStr} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
     ` BGS9.5 $${result.bgs95} BGS9 $${result.bgs9}` +
@@ -3036,6 +3061,9 @@ function enforceGradingScales(result: any): any {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Ensure the shared eBay price cache table exists before any requests come in
+  await initEbayPriceCacheTable();
+
   interface GradingJob {
     id: string;
     status: "processing" | "completed" | "failed";

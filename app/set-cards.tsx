@@ -16,7 +16,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
 
 const COLUMNS = 3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -37,35 +36,13 @@ interface SetCard {
   price?: number | null;
 }
 
-interface EbayAllGrades {
-  psa10: number; psa9: number;
-  bgs95: number; bgs9: number;
-  ace10: number; tag10: number; cgc10: number;
-  raw: number;
-}
-
-const SetPickCard = memo(({ item, index, setName, onPress }: {
+const SetPickCard = memo(({ item, index, onPress }: {
   item: SetCard;
   index: number;
   setName: string;
   onPress: () => void;
 }) => {
-  const { data: ebay, isLoading } = useQuery<EbayAllGrades>({
-    queryKey: ["ebay-all-grades", item.name, setName, item.number],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        name: item.name,
-        setName,
-        ...(item.number ? { cardNumber: item.number } : {}),
-      });
-      return apiRequest("GET", `/api/ebay-all-grades?${params}`).then(r => r.json());
-    },
-    staleTime: 24 * 60 * 60 * 1000,
-    retry: 1,
-  });
-
-  const psa10GBP = ebay && ebay.psa10 > 0 ? rawGBP(ebay.psa10) : null;
-  const psa9GBP  = ebay && ebay.psa9  > 0 ? rawGBP(ebay.psa9)  : null;
+  const rawGBPVal = item.price != null && item.price > 0 ? rawGBP(item.price) : null;
 
   return (
     <Pressable
@@ -86,30 +63,14 @@ const SetPickCard = memo(({ item, index, setName, onPress }: {
       <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
       <View style={styles.topCardDivider} />
       <View style={styles.topCardRow}>
-        <Text style={styles.topCardLabel}>Raw</Text>
-        <Text style={styles.topCardValue}>${item.price?.toFixed(0) ?? "—"}</Text>
-      </View>
-      <View style={styles.topCardRow}>
-        <Text style={styles.topCardLabel}>PSA 10</Text>
-        {isLoading ? (
-          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : psa10GBP ? (
-          <Text style={[styles.topCardProfit, { color: "#22c55e" }]}>£{Math.round(psa10GBP)}</Text>
+        <Text style={styles.topCardLabel}>Raw (TCG)</Text>
+        {rawGBPVal != null ? (
+          <Text style={styles.topCardValue}>£{Math.round(rawGBPVal)}</Text>
         ) : (
           <Text style={styles.topCardMuted}>—</Text>
         )}
       </View>
-      <View style={styles.topCardRow}>
-        <Text style={styles.topCardLabel}>PSA 9</Text>
-        {isLoading ? (
-          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : psa9GBP ? (
-          <Text style={[styles.topCardProfit, { color: "#f59e0b" }]}>£{Math.round(psa9GBP)}</Text>
-        ) : (
-          <Text style={styles.topCardMuted}>—</Text>
-        )}
-      </View>
-      <Text style={styles.topCardHint}>Tap for full breakdown</Text>
+      <Text style={styles.topCardHint}>Tap for eBay grades</Text>
     </Pressable>
   );
 });
