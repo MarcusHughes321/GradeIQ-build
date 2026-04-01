@@ -41,6 +41,7 @@ interface EbayAllGrades {
   psa10: number; psa9: number;
   bgs95: number; bgs9: number;
   ace10: number; tag10: number; cgc10: number;
+  raw: number;
 }
 
 const SetPickCard = memo(({ item, index, setName, onPress }: {
@@ -50,12 +51,15 @@ const SetPickCard = memo(({ item, index, setName, onPress }: {
   onPress: () => void;
 }) => {
   const { data: ebay, isLoading } = useQuery<EbayAllGrades>({
-    queryKey: ["ebay-all-grades", item.name, setName],
-    queryFn: () =>
-      apiRequest(
-        "GET",
-        `/api/ebay-all-grades?name=${encodeURIComponent(item.name)}&setName=${encodeURIComponent(setName)}`
-      ).then(r => r.json()),
+    queryKey: ["ebay-all-grades", item.name, setName, item.number],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        name: item.name,
+        setName,
+        ...(item.number ? { cardNumber: item.number } : {}),
+      });
+      return apiRequest("GET", `/api/ebay-all-grades?${params}`).then(r => r.json());
+    },
     staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });

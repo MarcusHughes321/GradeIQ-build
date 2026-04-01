@@ -150,6 +150,7 @@ interface EbayAllGrades {
   psa10: number; psa9: number;
   bgs95: number; bgs9: number;
   ace10: number; tag10: number; cgc10: number;
+  raw: number;   // ungraded eBay last-sold price (USD) — 0 if none found
   fetchedAt: number;
 }
 const ebayPriceCache = new Map<string, EbayAllGrades>();
@@ -195,39 +196,61 @@ function extractLastEbay(data: any, titleMatch: (t: string) => boolean): number 
   return 0;
 }
 
-async function fetchEbayGradedPrices(cardName: string, setName: string): Promise<EbayAllGrades> {
-  const cacheKey = `${cardName}|${setName}`;
+async function fetchEbayGradedPrices(
+  cardName: string,
+  setName: string,
+  cardNumber?: string
+): Promise<EbayAllGrades> {
+  // Base card number e.g. "295" from "295/217" — commonly included in eBay titles
+  const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
+  const cleanSet = cleanSetForSearch(setName);
+  // Card identifier combines name + set (stripped) + base number; falsy parts excluded
+  const cardIdStr = [cardName, cleanSet, baseNum].filter(Boolean).join(" ");
+
+  const cacheKey = `${cardIdStr}`;
   const hit = ebayPriceCache.get(cacheKey);
   if (hit && Date.now() - hit.fetchedAt < EBAY_PRICE_TTL) return hit;
 
   const appId = process.env.EBAY_APP_ID;
   if (!appId) throw new Error("EBAY_APP_ID not configured");
 
-  // Do NOT include the set name — eBay sellers almost never include it in titles.
-  // Grade label + card name + "Pokemon" is specific enough to find the right listings.
-  const buildUrl = (gradeQ: string) => {
-    const q = encodeURIComponent(`${gradeQ} ${cardName} Pokemon`);
+  const buildEbayUrl = (q: string) => {
+    const encoded = encodeURIComponent(q);
     return (
       `https://svcs.ebay.com/services/search/FindingService/v1` +
       `?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.0` +
       `&SECURITY-APPNAME=${encodeURIComponent(appId)}` +
       `&RESPONSE-DATA-FORMAT=JSON` +
-      `&keywords=${q}` +
+      `&keywords=${encoded}` +
       `&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true` +
       `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=30` +
       `&outputSelector(0)=ListingInfo`
     );
   };
 
-  // 7 parallel calls — one per grade/company target
-  const responses = await Promise.all(
-    EBAY_GRADE_TARGETS.map(g => fetch(buildUrl(g.q), { signal: AbortSignal.timeout(12000) }))
-  );
-  const datasets = await Promise.all(
-    responses.map(r => r.ok ? r.json() : {})
-  );
+  // Raw (ungraded) predicate — exclude any listing that mentions a grading label + number
+  const rawMatch = (t: string) =>
+    !/(PSA|BGS|CGC|ACE|TAG)\s+\d/.test(t) &&
+    !/BECKETT\s+\d/.test(t) &&
+    !t.includes("GRADED") &&
+    !t.includes("SLABBED");
 
-  const [d_psa10, d_psa9, d_bgs95, d_bgs9, d_ace10, d_tag10, d_cgc10] = datasets;
+  // 8 parallel calls: 7 grades + 1 raw
+  const [gradedResponses, rawResp] = await Promise.all([
+    Promise.all(
+      EBAY_GRADE_TARGETS.map(g =>
+        fetch(buildEbayUrl(`${g.q} ${cardIdStr} Pokemon`), { signal: AbortSignal.timeout(12000) })
+      )
+    ),
+    fetch(buildEbayUrl(`${cardIdStr} Pokemon`), { signal: AbortSignal.timeout(12000) }),
+  ]);
+
+  const [gradedDatasets, rawData] = await Promise.all([
+    Promise.all(gradedResponses.map(r => r.ok ? r.json() : {})),
+    rawResp.ok ? rawResp.json() : {},
+  ]);
+
+  const [d_psa10, d_psa9, d_bgs95, d_bgs9, d_ace10, d_tag10, d_cgc10] = gradedDatasets;
 
   const result: EbayAllGrades = {
     psa10: extractLastEbay(d_psa10, EBAY_GRADE_TARGETS[0].match),
@@ -237,13 +260,14 @@ async function fetchEbayGradedPrices(cardName: string, setName: string): Promise
     ace10: extractLastEbay(d_ace10, EBAY_GRADE_TARGETS[4].match),
     tag10: extractLastEbay(d_tag10, EBAY_GRADE_TARGETS[5].match),
     cgc10: extractLastEbay(d_cgc10, EBAY_GRADE_TARGETS[6].match),
+    raw:   extractLastEbay(rawData,  rawMatch),
     fetchedAt: Date.now(),
   };
   ebayPriceCache.set(cacheKey, result);
   console.log(
-    `[ebay-price] ${cardName} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
+    `[ebay-price] ${cardIdStr} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
     ` BGS9.5 $${result.bgs95} BGS9 $${result.bgs9}` +
-    ` ACE10 $${result.ace10} TAG10 $${result.tag10} CGC10 $${result.cgc10}`
+    ` ACE10 $${result.ace10} TAG10 $${result.tag10} CGC10 $${result.cgc10} Raw $${result.raw}`
   );
   return result;
 }
@@ -6881,12 +6905,12 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── eBay Graded Price Lookup (PSA 10 / PSA 9 — backward compat) ──────────
   app.get("/api/ebay-graded-price", async (req, res) => {
-    const { name, setName } = req.query;
+    const { name, setName, cardNumber } = req.query;
     if (!name || !setName) {
       return res.status(400).json({ error: "name and setName query params required" });
     }
     try {
-      const r = await fetchEbayGradedPrices(String(name), String(setName));
+      const r = await fetchEbayGradedPrices(String(name), String(setName), cardNumber ? String(cardNumber) : undefined);
       res.json({ psa10Last: r.psa10, psa9Last: r.psa9 });
     } catch (err: any) {
       console.error("[ebay-graded-price]", err.message);
@@ -6894,15 +6918,19 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  // ── eBay All Grades Lookup (all companies) ────────────────────────────────
-  // Returns last eBay sold price for PSA 10/9, BGS 9.5/9, ACE 10, TAG 10, CGC 10.
+  // ── eBay All Grades Lookup (all companies + raw) ──────────────────────────
+  // Returns last eBay sold price for PSA 10/9, BGS 9.5/9, ACE 10, TAG 10, CGC 10, raw.
   app.get("/api/ebay-all-grades", async (req, res) => {
-    const { name, setName } = req.query;
+    const { name, setName, cardNumber } = req.query;
     if (!name || !setName) {
       return res.status(400).json({ error: "name and setName query params required" });
     }
     try {
-      const { fetchedAt, ...grades } = await fetchEbayGradedPrices(String(name), String(setName));
+      const { fetchedAt, ...grades } = await fetchEbayGradedPrices(
+        String(name),
+        String(setName),
+        cardNumber ? String(cardNumber) : undefined
+      );
       res.json(grades);
     } catch (err: any) {
       console.error("[ebay-all-grades]", err.message);

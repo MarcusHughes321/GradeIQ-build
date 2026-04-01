@@ -155,7 +155,7 @@ export default function ResultsScreen() {
   const [loadingValue, setLoadingValue] = useState(false);
   const [ebayPrices, setEbayPrices] = useState<{
     psa10: number; psa9: number; bgs95: number; bgs9: number;
-    ace10: number; tag10: number; cgc10: number;
+    ace10: number; tag10: number; cgc10: number; raw: number;
   } | null>(null);
   const [ebayLoading, setEbayLoading] = useState(false);
   const [reAnalysing, setReAnalysing] = useState(false);
@@ -330,18 +330,21 @@ export default function ResultsScreen() {
   useEffect(() => {
     const cardName = grading?.result?.cardName;
     const setName = grading?.result?.setName || grading?.result?.setInfo;
+    const cardNumber = grading?.result?.setNumber;
     if (!cardName || !setName) return;
     if (!(isSubscribed || isAdminMode)) return;
     setEbayLoading(true);
     setEbayPrices(null);
-    apiRequest(
-      "GET",
-      `/api/ebay-all-grades?name=${encodeURIComponent(cardName)}&setName=${encodeURIComponent(setName)}`
-    )
+    const params = new URLSearchParams({
+      name: cardName,
+      setName,
+      ...(cardNumber ? { cardNumber } : {}),
+    });
+    apiRequest("GET", `/api/ebay-all-grades?${params}`)
       .then(r => r.json())
       .then(data => { setEbayPrices(data); setEbayLoading(false); })
       .catch(() => { setEbayLoading(false); });
-  }, [grading?.result?.cardName, grading?.result?.setName, grading?.result?.setInfo, isSubscribed, isAdminMode]);
+  }, [grading?.result?.cardName, grading?.result?.setName, grading?.result?.setInfo, grading?.result?.setNumber, isSubscribed, isAdminMode]);
 
   const loadGrading = async () => {
     const all = await getGradings();
@@ -1012,188 +1015,113 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.valueCard}>
-          <View style={styles.valueHeader}>
-            <Ionicons name="pricetag-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.valueTitle}>Estimated Card Values</Text>
+        {/* ── Market Prices (eBay primary, TCGPlayer raw fallback) ── */}
+        <View style={styles.ebayCard}>
+          <View style={styles.ebayCardHeader}>
+            <View style={styles.ebayLogoRow}>
+              <Text style={styles.ebayLogoText}>
+                <Text style={{ color: "#E53238" }}>e</Text>
+                <Text style={{ color: "#0064D2" }}>b</Text>
+                <Text style={{ color: "#F5AF02" }}>a</Text>
+                <Text style={{ color: "#86B817" }}>y</Text>
+              </Text>
+              <Text style={styles.ebayCardTitle}>Market Prices</Text>
+            </View>
+            {ebayLoading && <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.75 }] }} />}
           </View>
+
           {isGateEnabled && !isSubscribed && !isAdminMode ? (
             <View style={{ overflow: "hidden" as const, borderRadius: 12 }}>
-              <View style={styles.valueGrid}>
-                <View style={styles.valueSectionHeader}>
-                  <Text style={styles.valueSectionTitle}>Your Grade</Text>
-                  <Text style={styles.valueSectionTitle}>In Grade 10</Text>
+              {[
+                { label: "PSA 10", color: "#22c55e" },
+                { label: "PSA 9",  color: "#86efac" },
+                { label: "BGS 9.5", color: "#60a5fa" },
+                { label: "BGS 9",  color: "#93c5fd" },
+                { label: "ACE 10", color: "#f59e0b" },
+                { label: "TAG 10", color: "#c084fc" },
+                { label: "CGC 10", color: "#fb7185" },
+                { label: "Raw",    color: Colors.text },
+              ].map(({ label, color }) => (
+                <View key={label} style={styles.ebayPriceRow}>
+                  <Text style={styles.ebayPriceLabel}>{label}</Text>
+                  <Text style={[styles.ebayPriceValue, { color }]}>£---</Text>
                 </View>
-                {enabledCompanies.includes("PSA") && (
-                <View style={styles.valueRow}>
-                  <View style={styles.valueLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.valueLabel}> --</Text></View>
-                  <Text style={styles.valueAmount}>£--</Text>
-                  <Text style={styles.valueAmount10}>£--</Text>
-                </View>
-                )}
-                {enabledCompanies.includes("Beckett") && (
-                <View style={styles.valueRow}>
-                  <View style={styles.valueLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.valueLabel}> --</Text></View>
-                  <Text style={styles.valueAmount}>£--</Text>
-                  <Text style={styles.valueAmount10}>£--</Text>
-                </View>
-                )}
-                {enabledCompanies.includes("Ace") && (
-                <View style={styles.valueRow}>
-                  <View style={styles.valueLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.valueLabel}> --</Text></View>
-                  <Text style={styles.valueAmount}>£--</Text>
-                  <Text style={styles.valueAmount10}>£--</Text>
-                </View>
-                )}
-                <View style={[styles.valueRow, styles.valueRowLast]}>
-                  <Text style={styles.valueLabel}>Raw (Ungraded)</Text>
-                  <Text style={styles.valueAmount}>£--</Text>
-                  <Text style={styles.valueAmount10}>{" "}</Text>
-                </View>
-              </View>
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={() => router.push("/paywall")}
-              >
+              ))}
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => router.push("/paywall")}>
                 <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
                   <View style={styles.proBlurContent}>
                     <Ionicons name="lock-closed" size={20} color="#F59E0B" />
                     <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                    <Text style={styles.proBlurSubtitle}>Upgrade to see market values</Text>
+                    <Text style={styles.proBlurSubtitle}>Upgrade to see eBay market prices</Text>
                   </View>
                 </BlurView>
               </Pressable>
             </View>
-          ) : loadingValue ? (
-            <View style={styles.valueLoading}>
-              <ActivityIndicator color={Colors.primary} size="small" />
-              <Text style={styles.valueLoadingText}>Looking up values...</Text>
+          ) : ebayLoading && !ebayPrices ? (
+            <View style={styles.ebayLoadingRow}>
+              <Text style={styles.ebayLoadingText}>Fetching eBay sold prices…</Text>
             </View>
-          ) : cardValue ? (
-            <View style={styles.valueGrid}>
-              <View style={styles.valueSectionHeader}>
-                <Text style={styles.valueSectionTitle}>Your Grade</Text>
-                <Text style={styles.valueSectionTitle}>In Grade 10</Text>
+          ) : ebayPrices ? (
+            <View>
+              {[
+                { label: "PSA 10",  value: ebayPrices.psa10,  color: "#22c55e" },
+                { label: "PSA 9",   value: ebayPrices.psa9,   color: "#86efac" },
+                { label: "BGS 9.5", value: ebayPrices.bgs95,  color: "#60a5fa" },
+                { label: "BGS 9",   value: ebayPrices.bgs9,   color: "#93c5fd" },
+                { label: "ACE 10",  value: ebayPrices.ace10,  color: "#f59e0b" },
+                { label: "TAG 10",  value: ebayPrices.tag10,  color: "#c084fc" },
+                { label: "CGC 10",  value: ebayPrices.cgc10,  color: "#fb7185" },
+              ].map(({ label, value, color }) => (
+                <View key={label} style={styles.ebayPriceRow}>
+                  <Text style={styles.ebayPriceLabel}>{label}</Text>
+                  {value > 0 ? (
+                    <Text style={[styles.ebayPriceValue, { color }]}>
+                      £{Math.round(value * 0.79)}
+                    </Text>
+                  ) : (
+                    <Text style={styles.ebayPriceMuted}>No sale found</Text>
+                  )}
+                </View>
+              ))}
+
+              {/* Raw (ungraded) — eBay primary, TCGPlayer fallback */}
+              <View style={[styles.ebayPriceRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
+                <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
+                {ebayPrices.raw > 0 ? (
+                  <View style={styles.ebayValueWithBadge}>
+                    <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>
+                      £{Math.round(ebayPrices.raw * 0.79)}
+                    </Text>
+                    <View style={styles.ebaySourceBadge}>
+                      <Text style={styles.ebaySourceBadgeText}>eBay</Text>
+                    </View>
+                  </View>
+                ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
+                  <View style={styles.ebayValueWithBadge}>
+                    <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>
+                      {cardValue.rawValue}
+                    </Text>
+                    <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}>
+                      <Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text>
+                    </View>
+                  </View>
+                ) : loadingValue ? (
+                  <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
+                ) : (
+                  <Text style={styles.ebayPriceMuted}>No price data</Text>
+                )}
               </View>
-              {enabledCompanies.includes("PSA") && (
-              <View style={styles.valueRow}>
-                <View style={styles.valueLabelRow}><CompanyLabel company="PSA" fontSize={13} /><Text style={styles.valueLabel}> {result.psa.grade}</Text></View>
-                <Text style={[styles.valueAmount, cardValue.psaValue.includes("No value") && styles.valueNA]}>
-                  {cardValue.psaValue}
-                </Text>
-                <Text style={[styles.valueAmount10, cardValue.psa10Value?.includes("No value") && styles.valueNA]}>
-                  {result.psa.grade === 10 ? "-" : cardValue.psa10Value || "-"}
-                </Text>
-              </View>
-              )}
-              {enabledCompanies.includes("Beckett") && (
-              <View style={styles.valueRow}>
-                <View style={styles.valueLabelRow}><CompanyLabel company="BGS" fontSize={13} /><Text style={styles.valueLabel}> {result.beckett.overallGrade}</Text></View>
-                <Text style={[styles.valueAmount, cardValue.bgsValue.includes("No value") && styles.valueNA]}>
-                  {cardValue.bgsValue}
-                </Text>
-                <Text style={[styles.valueAmount10, cardValue.bgs10Value?.includes("No value") && styles.valueNA]}>
-                  {result.beckett.overallGrade === 10 ? "-" : cardValue.bgs10Value || "-"}
-                </Text>
-              </View>
-              )}
-              {enabledCompanies.includes("Ace") && (
-              <View style={styles.valueRow}>
-                <View style={styles.valueLabelRow}><CompanyLabel company="ACE" fontSize={13} /><Text style={styles.valueLabel}> {result.ace.overallGrade}</Text></View>
-                <Text style={[styles.valueAmount, cardValue.aceValue.includes("No value") && styles.valueNA]}>
-                  {cardValue.aceValue}
-                </Text>
-                <Text style={[styles.valueAmount10, cardValue.ace10Value?.includes("No value") && styles.valueNA]}>
-                  {result.ace.overallGrade === 10 ? "-" : cardValue.ace10Value || "-"}
-                </Text>
-              </View>
-              )}
-              {enabledCompanies.includes("TAG") && (
-              <View style={styles.valueRow}>
-                <View style={styles.valueLabelRow}><CompanyLabel company="TAG" fontSize={13} /><Text style={styles.valueLabel}> {result.tag.overallGrade}</Text></View>
-                <Text style={[styles.valueAmount, cardValue.tagValue?.includes("No value") && styles.valueNA]}>
-                  {cardValue.tagValue || "-"}
-                </Text>
-                <Text style={[styles.valueAmount10, cardValue.tag10Value?.includes("No value") && styles.valueNA]}>
-                  {result.tag.overallGrade === 10 ? "-" : cardValue.tag10Value || "-"}
-                </Text>
-              </View>
-              )}
-              {enabledCompanies.includes("CGC") && (
-              <View style={styles.valueRow}>
-                <View style={styles.valueLabelRow}><CompanyLabel company="CGC" fontSize={13} /><Text style={styles.valueLabel}> {result.cgc.grade}</Text></View>
-                <Text style={[styles.valueAmount, cardValue.cgcValue?.includes("No value") && styles.valueNA]}>
-                  {cardValue.cgcValue || "-"}
-                </Text>
-                <Text style={[styles.valueAmount10, cardValue.cgc10Value?.includes("No value") && styles.valueNA]}>
-                  {result.cgc.grade === 10 ? "-" : cardValue.cgc10Value || "-"}
-                </Text>
-              </View>
-              )}
-              <View style={[styles.valueRow, styles.valueRowLast]}>
-                <Text style={styles.valueLabel}>Raw (Ungraded)</Text>
-                <Text style={[styles.valueAmount, cardValue.rawValue.includes("No value") && styles.valueNA]}>
-                  {cardValue.rawValue}
-                </Text>
-                <Text style={styles.valueAmount10}>{" "}</Text>
-              </View>
-              <Text style={styles.valueSource}>{cardValue.source}</Text>
+
+              <Text style={styles.ebayDisclaimer}>
+                Graded: last qualifying sale on eBay · excl. Best Offer · USD→GBP ~£0.79/$
+              </Text>
             </View>
           ) : (
-            <Text style={styles.valueNA}>No value data found</Text>
+            <View style={styles.ebayLoadingRow}>
+              <Text style={styles.ebayPriceMuted}>No price data available</Text>
+            </View>
           )}
         </View>
-
-        {/* ── eBay Last Sold Prices ── */}
-        {(isSubscribed || isAdminMode) && (
-          <View style={styles.ebayCard}>
-            <View style={styles.ebayCardHeader}>
-              <View style={styles.ebayLogoRow}>
-                <Text style={styles.ebayLogoText}>
-                  <Text style={{ color: "#E53238" }}>e</Text>
-                  <Text style={{ color: "#0064D2" }}>b</Text>
-                  <Text style={{ color: "#F5AF02" }}>a</Text>
-                  <Text style={{ color: "#86B817" }}>y</Text>
-                </Text>
-                <Text style={styles.ebayCardTitle}>Last Sold Prices</Text>
-              </View>
-              {ebayLoading && <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.75 }] }} />}
-            </View>
-            {ebayLoading && !ebayPrices ? (
-              <View style={styles.ebayLoadingRow}>
-                <Text style={styles.ebayLoadingText}>Fetching eBay sold prices…</Text>
-              </View>
-            ) : ebayPrices ? (
-              <View>
-                {[
-                  { label: "PSA 10",   value: ebayPrices.psa10,  color: "#22c55e" },
-                  { label: "PSA 9",    value: ebayPrices.psa9,   color: "#86efac" },
-                  { label: "BGS 9.5",  value: ebayPrices.bgs95,  color: "#60a5fa" },
-                  { label: "BGS 9",    value: ebayPrices.bgs9,   color: "#93c5fd" },
-                  { label: "ACE 10",   value: ebayPrices.ace10,  color: "#f59e0b" },
-                  { label: "TAG 10",   value: ebayPrices.tag10,  color: "#c084fc" },
-                  { label: "CGC 10",   value: ebayPrices.cgc10,  color: "#fb7185" },
-                ].map(({ label, value, color }) => (
-                  <View key={label} style={styles.ebayPriceRow}>
-                    <Text style={styles.ebayPriceLabel}>{label}</Text>
-                    {value > 0 ? (
-                      <Text style={[styles.ebayPriceValue, { color }]}>
-                        £{Math.round(value * 0.79)}
-                      </Text>
-                    ) : (
-                      <Text style={styles.ebayPriceMuted}>No sale found</Text>
-                    )}
-                  </View>
-                ))}
-                <Text style={styles.ebayDisclaimer}>
-                  Last qualifying sale on eBay · excl. Best Offer · USD→GBP at ~£0.79/$
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.ebayPriceMuted}>No eBay data available</Text>
-            )}
-          </View>
-        )}
 
         {result.isCrossover && result.currentGrade && cardValue && (() => {
           const currentCompanyKey = result.currentGrade!.company.toLowerCase();
@@ -2130,6 +2058,22 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
+  },
+  ebayValueWithBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  ebaySourceBadge: {
+    backgroundColor: "#0064D2",
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  ebaySourceBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    color: "#fff",
   },
   ebayDisclaimer: {
     fontFamily: "Inter_400Regular",
