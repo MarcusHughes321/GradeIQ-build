@@ -163,6 +163,19 @@ export default function SetCardsScreen() {
 
   const listHeader = (
     <>
+      {/* No price data notice */}
+      {isEnglish && !hasAnyPrice && !isLoading && !error && allCards.length > 0 && (
+        <View style={styles.noPriceNotice}>
+          <Ionicons name="time-outline" size={16} color="#f59e0b" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.noPriceNoticeTitle}>No TCGPlayer prices available yet</Text>
+            <Text style={styles.noPriceNoticeBody}>
+              This is likely a new or regional set that hasn't been indexed by our data provider. Raw prices and profit estimates aren't available, but you can still grade individual cards.
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Sort controls */}
       {isEnglish && hasAnyPrice && !isLoading && !error && cards.length > 0 && (
         <View style={styles.sortBar}>
@@ -518,6 +531,31 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
+  },
+  noPriceNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: "rgba(245,158,11,0.08)",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.2)",
+    padding: 12,
+  },
+  noPriceNoticeTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#f59e0b",
+    marginBottom: 3,
+  },
+  noPriceNoticeBody: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 17,
   },
   // ── Grid layout ──────────────────────────────────────────
   grid: {

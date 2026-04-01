@@ -647,10 +647,15 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
         {set.series ? <Text style={styles.setSeries} numberOfLines={1}>{set.series}</Text> : null}
         <View style={styles.setMeta}>
           <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
-          {hasPrices && (
+          {hasPrices ? (
             <View style={styles.pricesBadge}>
               <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
               <Text style={styles.pricesBadgeText}>TCGplayer prices</Text>
+            </View>
+          ) : (
+            <View style={styles.noPriceBadge}>
+              <Ionicons name="time-outline" size={10} color="#f59e0b" />
+              <Text style={styles.noPriceBadgeText}>No price data yet</Text>
             </View>
           )}
         </View>
@@ -883,6 +888,16 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   pricesBadgeText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#22c55e" },
+  noPriceBadge: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 3,
+    backgroundColor: "rgba(245,158,11,0.1)",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  noPriceBadgeText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#f59e0b" },
 
   // Card result row
   cardRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
