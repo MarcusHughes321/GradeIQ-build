@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
   StyleSheet,
   Platform,
+  Modal,
+  Dimensions,
 } from "react-native";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -97,13 +99,17 @@ export default function CardProfitScreen() {
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
-  const { cardName, setName, imageUrl, rawPriceUSD } = useLocalSearchParams<{
+  const { cardName, setName, cardNumber, imageUrl, rawPriceUSD } = useLocalSearchParams<{
     cardId: string;
     cardName: string;
     setName: string;
+    cardNumber?: string;
     imageUrl?: string;
     rawPriceUSD?: string;
   }>();
+
+  const [imageFullscreen, setImageFullscreen] = useState(false);
+  const SCREEN = Dimensions.get("window");
 
   const currency = settings.currency || "GBP";
   const { data: ratesData } = useQuery<ExchangeRateData>({
@@ -182,38 +188,83 @@ export default function CardProfitScreen() {
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Fullscreen image modal */}
+      {!!imageUrl && (
+        <Modal
+          visible={imageFullscreen}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={() => setImageFullscreen(false)}
+        >
+          <Pressable
+            style={st.fullscreenOverlay}
+            onPress={() => setImageFullscreen(false)}
+          >
+            <Image
+              source={{ uri: imageUrl }}
+              style={{ width: SCREEN.width, height: SCREEN.height }}
+              contentFit="contain"
+            />
+            <Pressable
+              style={st.fullscreenClose}
+              onPress={() => setImageFullscreen(false)}
+              hitSlop={12}
+            >
+              <Ionicons name="close-circle" size={34} color="rgba(255,255,255,0.9)" />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
       <ScrollView
         style={st.scroll}
         contentContainerStyle={{ paddingBottom: insets.bottom + webBot + 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Card header */}
-        <View style={st.cardHeader}>
-          {imageUrl ? (
-            <Image
-              source={{ uri: imageUrl }}
-              style={st.cardImg}
-              contentFit="contain"
-            />
-          ) : (
-            <View style={[st.cardImg, st.cardImgPlaceholder]}>
-              <Ionicons name="image-outline" size={36} color={Colors.textMuted} />
-            </View>
-          )}
-          <View style={st.cardMeta}>
-            <Text style={st.cardName} numberOfLines={3}>{cardName || "Unknown Card"}</Text>
-            <Text style={st.cardSet} numberOfLines={1}>{setName}</Text>
-            <View style={st.rawRow}>
-              <Ionicons name="pricetag-outline" size={12} color={Colors.textMuted} />
-              <Text style={st.rawLabel}>Raw (TCGPlayer)</Text>
-              <Text style={st.rawValue}>
-                {hasRawPrice ? fmtLocal(rawLocalVal) : "—"}
-              </Text>
-            </View>
-            {!hasRawPrice && (
-              <Text style={st.noRawNote}>No raw price — profit figures unavailable</Text>
+        {/* Card hero — large centred image */}
+        <View style={st.heroSection}>
+          <Pressable
+            onPress={() => imageUrl ? setImageFullscreen(true) : undefined}
+            style={({ pressed }) => [st.heroImgWrap, { opacity: pressed && !!imageUrl ? 0.85 : 1 }]}
+          >
+            {imageUrl ? (
+              <Image
+                source={{ uri: imageUrl }}
+                style={st.heroImg}
+                contentFit="contain"
+              />
+            ) : (
+              <View style={[st.heroImg, st.heroImgPlaceholder]}>
+                <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
+              </View>
             )}
+            {!!imageUrl && (
+              <View style={st.heroZoomHint}>
+                <Ionicons name="expand-outline" size={12} color="rgba(255,255,255,0.7)" />
+                <Text style={st.heroZoomHintTxt}>Tap to expand</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* Card identity */}
+          <Text style={st.heroName}>{cardName || "Unknown Card"}</Text>
+          <Text style={st.heroSet}>{setName}</Text>
+          {!!cardNumber && (
+            <Text style={st.heroNumber}>#{cardNumber}</Text>
+          )}
+
+          {/* Raw price pill */}
+          <View style={st.heroPriceRow}>
+            <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
+            <Text style={st.heroPriceLabel}>Raw (TCGPlayer)</Text>
+            <Text style={st.heroPriceValue}>
+              {hasRawPrice ? fmtLocal(rawLocalVal) : "No price data"}
+            </Text>
           </View>
+          {!hasRawPrice && (
+            <Text style={st.noRawNote}>Profit figures are unavailable without a raw price</Text>
+          )}
         </View>
 
         {/* eBay fetch status */}
@@ -387,47 +438,76 @@ const st = StyleSheet.create({
 
   scroll: { flex: 1 },
 
-  cardHeader: {
-    flexDirection: "row",
-    gap: 14,
-    padding: 16,
+  // ── Hero card section ────────────────────────────────────────────────────
+  heroSection: {
+    alignItems: "center",
+    paddingVertical: 20,
+    paddingHorizontal: 20,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.surfaceBorder,
   },
-  cardImg: {
-    width: 88,
-    height: 124,
-    borderRadius: 6,
+  heroImgWrap: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  heroImg: {
+    width: 180,
+    height: 252,           // 180 × 1.4 — Pokémon card aspect ratio
+    borderRadius: 10,
     backgroundColor: Colors.background,
-    flexShrink: 0,
   },
-  cardImgPlaceholder: { alignItems: "center", justifyContent: "center" },
-  cardMeta: { flex: 1, justifyContent: "center", gap: 4 },
-  cardName: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: Colors.text,
-    lineHeight: 22,
-  },
-  cardSet: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  rawRow: {
+  heroImgPlaceholder: { alignItems: "center", justifyContent: "center" },
+  heroZoomHint: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    marginTop: 8,
+    gap: 4,
+    marginTop: 6,
   },
-  rawLabel: {
+  heroZoomHintTxt: {
     fontFamily: "Inter_400Regular",
-    fontSize: 12,
+    fontSize: 11,
+    color: "rgba(255,255,255,0.5)",
+  },
+  heroName: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    color: Colors.text,
+    textAlign: "center",
+    lineHeight: 26,
+    marginBottom: 4,
+  },
+  heroSet: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  heroNumber: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginBottom: 14,
+  },
+  heroPriceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  heroPriceLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
     color: Colors.textMuted,
     flex: 1,
   },
-  rawValue: {
+  heroPriceValue: {
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.text,
@@ -436,8 +516,21 @@ const st = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
-    marginTop: 2,
+    marginTop: 6,
+    textAlign: "center",
     lineHeight: 15,
+  },
+  // ── Fullscreen modal ─────────────────────────────────────────────────────
+  fullscreenOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fullscreenClose: {
+    position: "absolute",
+    top: 56,
+    right: 20,
   },
 
   feedbackRow: {

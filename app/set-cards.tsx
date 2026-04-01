@@ -146,6 +146,7 @@ export default function SetCardsScreen() {
         cardId: card.id,
         cardName: card.name,
         setName: setName || "",
+        cardNumber: card.number || "",
         imageUrl: card.imageUrl || "",
         rawPriceUSD: card.price ? String(card.price) : "0",
       },
@@ -195,8 +196,8 @@ export default function SetCardsScreen() {
         </View>
       )}
 
-      {/* Sort controls */}
-      {isEnglish && hasAnyPrice && !isLoading && !error && cards.length > 0 && (
+      {/* Sort controls — always shown once cards load */}
+      {!isLoading && !error && cards.length > 0 && (
         <View style={styles.sortBar}>
           <Pressable
             style={[styles.sortBtn, sortBy === "number" && styles.sortBtnActive]}
@@ -205,13 +206,15 @@ export default function SetCardsScreen() {
             <Ionicons name="list-outline" size={14} color={sortBy === "number" ? Colors.text : Colors.textMuted} />
             <Text style={[styles.sortBtnText, sortBy === "number" && styles.sortBtnTextActive]}>Card #</Text>
           </Pressable>
-          <Pressable
-            style={[styles.sortBtn, sortBy === "value" && styles.sortBtnActive]}
-            onPress={() => setSortBy("value")}
-          >
-            <Ionicons name="arrow-down-outline" size={14} color={sortBy === "value" ? Colors.text : Colors.textMuted} />
-            <Text style={[styles.sortBtnText, sortBy === "value" && styles.sortBtnTextActive]}>Highest Value</Text>
-          </Pressable>
+          {isEnglish && hasAnyPrice && (
+            <Pressable
+              style={[styles.sortBtn, sortBy === "value" && styles.sortBtnActive]}
+              onPress={() => setSortBy("value")}
+            >
+              <Ionicons name="arrow-down-outline" size={14} color={sortBy === "value" ? Colors.text : Colors.textMuted} />
+              <Text style={[styles.sortBtnText, sortBy === "value" && styles.sortBtnTextActive]}>Highest Value</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
