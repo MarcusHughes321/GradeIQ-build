@@ -96,7 +96,6 @@ async function saveRecentSearches(searches: string[]): Promise<void> {
 
 const PSA_FEE_GBP = 25;
 const PSA_GRADES_ASC = [7, 8, 9, 10] as const;
-const GBP_RATE = 0.79;
 
 // Presentational card — all eBay metrics precomputed by parent
 const TopPickCard = memo(({ item, index, onPress, psa10GBP, psa10Profit, minProfitGrade, ebayLoading }: {
