@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,12 @@ import {
   Modal,
 } from "react-native";
 import { Image } from "expo-image";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -115,6 +121,73 @@ export default function CardProfitScreen() {
 
   const [imageFullscreen, setImageFullscreen] = useState(false);
 
+  // ── Pinch-to-zoom state for fullscreen viewer ───────────────────────────
+  const zoomScale     = useSharedValue(1);
+  const savedScale    = useSharedValue(1);
+  const translateX    = useSharedValue(0);
+  const translateY    = useSharedValue(0);
+  const savedTx       = useSharedValue(0);
+  const savedTy       = useSharedValue(0);
+
+  // Reset zoom whenever the modal closes
+  useEffect(() => {
+    if (!imageFullscreen) {
+      zoomScale.value  = withSpring(1);
+      savedScale.value = 1;
+      translateX.value = withSpring(0);
+      translateY.value = withSpring(0);
+      savedTx.value    = 0;
+      savedTy.value    = 0;
+    }
+  }, [imageFullscreen]);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((e) => {
+      zoomScale.value = Math.max(1, savedScale.value * e.scale);
+    })
+    .onEnd(() => {
+      savedScale.value = zoomScale.value;
+    });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((e) => {
+      translateX.value = savedTx.value + e.translationX;
+      translateY.value = savedTy.value + e.translationY;
+    })
+    .onEnd(() => {
+      savedTx.value = translateX.value;
+      savedTy.value = translateY.value;
+    });
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      zoomScale.value  = withSpring(1);
+      savedScale.value = 1;
+      translateX.value = withSpring(0);
+      translateY.value = withSpring(0);
+      savedTx.value    = 0;
+      savedTy.value    = 0;
+    });
+
+  const zoomGesture = Gesture.Race(
+    doubleTap,
+    Gesture.Simultaneous(pinchGesture, panGesture),
+  );
+
+  const zoomStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: zoomScale.value },
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+    ],
+  }));
+
+  // Derive hires URL for fullscreen (pokemontcg.io standard → _hires variant)
+  const hiresImageUrl = imageUrl
+    ? imageUrl.replace(/\.png$/i, "_hires.png")
+    : imageUrl;
+
   const currency = settings.currency || "GBP";
   const { data: ratesData } = useQuery<ExchangeRateData>({
     queryKey: ["/api/exchange-rates"],
@@ -201,18 +274,18 @@ export default function CardProfitScreen() {
           onRequestClose={() => setImageFullscreen(false)}
         >
           <View style={{ flex: 1, backgroundColor: "#000" }}>
-            {/* Tap anywhere to dismiss */}
-            <Pressable
-              style={{ flex: 1 }}
-              onPress={() => setImageFullscreen(false)}
-            >
-              <Image
-                source={{ uri: imageUrl }}
-                style={{ flex: 1 }}
-                contentFit="contain"
-              />
-            </Pressable>
-            {/* Close button absolutely positioned over the image */}
+            {/* Pinch-to-zoom + pan area. Double-tap resets. */}
+            <GestureDetector gesture={zoomGesture}>
+              <Animated.View style={[{ flex: 1 }, zoomStyle]}>
+                <Image
+                  source={{ uri: hiresImageUrl || imageUrl }}
+                  style={{ flex: 1 }}
+                  contentFit="contain"
+                  transition={200}
+                />
+              </Animated.View>
+            </GestureDetector>
+            {/* Close button */}
             <Pressable
               style={st.fullscreenClose}
               onPress={() => setImageFullscreen(false)}
@@ -220,6 +293,10 @@ export default function CardProfitScreen() {
             >
               <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
             </Pressable>
+            {/* Hint */}
+            <View style={st.zoomHintBanner}>
+              <Text style={st.zoomHintBannerTxt}>Pinch to zoom · Double-tap to reset</Text>
+            </View>
           </View>
         </Modal>
       )}
@@ -538,6 +615,20 @@ const st = StyleSheet.create({
     position: "absolute",
     top: 56,
     right: 20,
+    zIndex: 10,
+  },
+  zoomHintBanner: {
+    position: "absolute",
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 10,
+  },
+  zoomHintBannerTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.45)",
   },
 
   feedbackRow: {
