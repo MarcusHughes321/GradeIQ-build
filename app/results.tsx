@@ -153,6 +153,11 @@ export default function ResultsScreen() {
   const [originalCentering, setOriginalCentering] = useState<CenteringMeasurement | null>(null);
   const [cardValue, setCardValue] = useState<CardValueEstimate | null>(null);
   const [loadingValue, setLoadingValue] = useState(false);
+  const [ebayPrices, setEbayPrices] = useState<{
+    psa10: number; psa9: number; bgs95: number; bgs9: number;
+    ace10: number; tag10: number; cgc10: number;
+  } | null>(null);
+  const [ebayLoading, setEbayLoading] = useState(false);
   const [reAnalysing, setReAnalysing] = useState(false);
   const [reAnalyseStage, setReAnalyseStage] = useState("");
   const [correctionVisible, setCorrectionVisible] = useState(false);
@@ -321,6 +326,22 @@ export default function ResultsScreen() {
   useEffect(() => {
     loadGrading();
   }, [gradingId]);
+
+  useEffect(() => {
+    const cardName = grading?.result?.cardName;
+    const setName = grading?.result?.setName || grading?.result?.setInfo;
+    if (!cardName || !setName) return;
+    if (!(isSubscribed || isAdminMode)) return;
+    setEbayLoading(true);
+    setEbayPrices(null);
+    apiRequest(
+      "GET",
+      `/api/ebay-all-grades?name=${encodeURIComponent(cardName)}&setName=${encodeURIComponent(setName)}`
+    )
+      .then(r => r.json())
+      .then(data => { setEbayPrices(data); setEbayLoading(false); })
+      .catch(() => { setEbayLoading(false); });
+  }, [grading?.result?.cardName, grading?.result?.setName, grading?.result?.setInfo, isSubscribed, isAdminMode]);
 
   const loadGrading = async () => {
     const all = await getGradings();
@@ -1122,6 +1143,57 @@ export default function ResultsScreen() {
             <Text style={styles.valueNA}>No value data found</Text>
           )}
         </View>
+
+        {/* ── eBay Last Sold Prices ── */}
+        {(isSubscribed || isAdminMode) && (
+          <View style={styles.ebayCard}>
+            <View style={styles.ebayCardHeader}>
+              <View style={styles.ebayLogoRow}>
+                <Text style={styles.ebayLogoText}>
+                  <Text style={{ color: "#E53238" }}>e</Text>
+                  <Text style={{ color: "#0064D2" }}>b</Text>
+                  <Text style={{ color: "#F5AF02" }}>a</Text>
+                  <Text style={{ color: "#86B817" }}>y</Text>
+                </Text>
+                <Text style={styles.ebayCardTitle}>Last Sold Prices</Text>
+              </View>
+              {ebayLoading && <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.75 }] }} />}
+            </View>
+            {ebayLoading && !ebayPrices ? (
+              <View style={styles.ebayLoadingRow}>
+                <Text style={styles.ebayLoadingText}>Fetching eBay sold prices…</Text>
+              </View>
+            ) : ebayPrices ? (
+              <View>
+                {[
+                  { label: "PSA 10",   value: ebayPrices.psa10,  color: "#22c55e" },
+                  { label: "PSA 9",    value: ebayPrices.psa9,   color: "#86efac" },
+                  { label: "BGS 9.5",  value: ebayPrices.bgs95,  color: "#60a5fa" },
+                  { label: "BGS 9",    value: ebayPrices.bgs9,   color: "#93c5fd" },
+                  { label: "ACE 10",   value: ebayPrices.ace10,  color: "#f59e0b" },
+                  { label: "TAG 10",   value: ebayPrices.tag10,  color: "#c084fc" },
+                  { label: "CGC 10",   value: ebayPrices.cgc10,  color: "#fb7185" },
+                ].map(({ label, value, color }) => (
+                  <View key={label} style={styles.ebayPriceRow}>
+                    <Text style={styles.ebayPriceLabel}>{label}</Text>
+                    {value > 0 ? (
+                      <Text style={[styles.ebayPriceValue, { color }]}>
+                        £{Math.round(value * 0.79)}
+                      </Text>
+                    ) : (
+                      <Text style={styles.ebayPriceMuted}>No sale found</Text>
+                    )}
+                  </View>
+                ))}
+                <Text style={styles.ebayDisclaimer}>
+                  Last qualifying sale on eBay · excl. Best Offer · USD→GBP at ~£0.79/$
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.ebayPriceMuted}>No eBay data available</Text>
+            )}
+          </View>
+        )}
 
         {result.isCrossover && result.currentGrade && cardValue && (() => {
           const currentCompanyKey = result.currentGrade!.company.toLowerCase();
@@ -1998,6 +2070,73 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: "center",
     marginTop: 6,
+  },
+  ebayCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  ebayCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  ebayLogoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  ebayLogoText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    letterSpacing: -0.5,
+  },
+  ebayCardTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  ebayLoadingRow: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  ebayLoadingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  ebayPriceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  ebayPriceLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  ebayPriceValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+  },
+  ebayPriceMuted: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  ebayDisclaimer: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 10,
+    lineHeight: 16,
   },
   disclaimer: {
     flexDirection: "row",

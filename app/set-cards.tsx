@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, memo } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
+import { apiRequest } from "@/lib/query-client";
 
 const COLUMNS = 3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -23,8 +24,10 @@ const GUTTER = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - GUTTER * (COLUMNS + 1)) / COLUMNS;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
+const GBP_RATE = 0.79;
+const rawGBP = (usd: number) => usd * GBP_RATE;
+
 type SortBy = "number" | "value";
-type TopGrade = 10 | 9 | 8;
 
 interface SetCard {
   id: string;
@@ -34,24 +37,78 @@ interface SetCard {
   price?: number | null;
 }
 
-// PSA multipliers (estimated) — Grade: multiplier × raw price
-const GRADE_MULTIPLIERS: Record<number, number> = {
-  10: 5.5,
-  9: 2.2,
-  8: 1.6,
-  7: 1.2,
-};
-// Estimated PSA grading fee (USD)
-const PSA_FEE_USD = 22;
-
-function calcProfit(rawUSD: number, grade: number): number {
-  const mult = GRADE_MULTIPLIERS[grade] ?? 1;
-  return rawUSD * mult - rawUSD - PSA_FEE_USD;
+interface EbayAllGrades {
+  psa10: number; psa9: number;
+  bgs95: number; bgs9: number;
+  ace10: number; tag10: number; cgc10: number;
 }
 
-function calcGradedValue(rawUSD: number, grade: number): number {
-  return rawUSD * (GRADE_MULTIPLIERS[grade] ?? 1);
-}
+const SetPickCard = memo(({ item, index, setName, onPress }: {
+  item: SetCard;
+  index: number;
+  setName: string;
+  onPress: () => void;
+}) => {
+  const { data: ebay, isLoading } = useQuery<EbayAllGrades>({
+    queryKey: ["ebay-all-grades", item.name, setName],
+    queryFn: () =>
+      apiRequest(
+        "GET",
+        `/api/ebay-all-grades?name=${encodeURIComponent(item.name)}&setName=${encodeURIComponent(setName)}`
+      ).then(r => r.json()),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
+
+  const psa10GBP = ebay && ebay.psa10 > 0 ? rawGBP(ebay.psa10) : null;
+  const psa9GBP  = ebay && ebay.psa9  > 0 ? rawGBP(ebay.psa9)  : null;
+
+  return (
+    <Pressable
+      key={item.id}
+      style={({ pressed }) => [styles.topCard, { opacity: pressed ? 0.8 : 1 }]}
+      onPress={onPress}
+    >
+      <View style={styles.topCardRank}>
+        <Text style={styles.topCardRankText}>#{index + 1}</Text>
+      </View>
+      {item.imageUrl ? (
+        <Image source={{ uri: item.imageUrl }} style={styles.topCardImg} contentFit="contain" />
+      ) : (
+        <View style={[styles.topCardImg, styles.cardImagePlaceholder]}>
+          <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
+        </View>
+      )}
+      <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
+      <View style={styles.topCardDivider} />
+      <View style={styles.topCardRow}>
+        <Text style={styles.topCardLabel}>Raw</Text>
+        <Text style={styles.topCardValue}>${item.price?.toFixed(0) ?? "—"}</Text>
+      </View>
+      <View style={styles.topCardRow}>
+        <Text style={styles.topCardLabel}>PSA 10</Text>
+        {isLoading ? (
+          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+        ) : psa10GBP ? (
+          <Text style={[styles.topCardProfit, { color: "#22c55e" }]}>£{Math.round(psa10GBP)}</Text>
+        ) : (
+          <Text style={styles.topCardMuted}>—</Text>
+        )}
+      </View>
+      <View style={styles.topCardRow}>
+        <Text style={styles.topCardLabel}>PSA 9</Text>
+        {isLoading ? (
+          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+        ) : psa9GBP ? (
+          <Text style={[styles.topCardProfit, { color: "#f59e0b" }]}>£{Math.round(psa9GBP)}</Text>
+        ) : (
+          <Text style={styles.topCardMuted}>—</Text>
+        )}
+      </View>
+      <Text style={styles.topCardHint}>Tap for full breakdown</Text>
+    </Pressable>
+  );
+});
 
 function parseCardNumber(n: string): number {
   const m = n.match(/^(\d+)/);
@@ -70,7 +127,6 @@ export default function SetCardsScreen() {
   }>();
 
   const [sortBy, setSortBy] = useState<SortBy>("number");
-  const [topGrade, setTopGrade] = useState<TopGrade>(10);
 
   const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
     queryKey: ["/api/sets", lang, setId, "cards"],
@@ -90,16 +146,14 @@ export default function SetCardsScreen() {
     return [...allCards].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
   }, [allCards, sortBy, isEnglish]);
 
-  // Top 10 grading picks — cards sorted by estimated profit at selected grade
+  // Top 10 by highest raw TCGPlayer price — eBay graded prices fetched per card
   const top10 = useMemo(() => {
     if (!hasAnyPrice) return [];
-    const priced = allCards.filter(c => c.price != null && c.price > 0);
-    return [...priced]
-      .sort((a, b) => calcProfit(b.price!, topGrade) - calcProfit(a.price!, topGrade))
+    return [...allCards]
+      .filter(c => c.price != null && c.price > 0)
+      .sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
       .slice(0, 10);
-  }, [allCards, topGrade, hasAnyPrice]);
-
-  const belowGrade: number = topGrade === 10 ? 9 : topGrade === 9 ? 8 : 7;
+  }, [allCards, hasAnyPrice]);
 
   const handleCardPress = (card: SetCard, opts?: { fromTopPicks?: boolean }) => {
     router.push({
@@ -138,54 +192,6 @@ export default function SetCardsScreen() {
     </Pressable>
   );
 
-  // Top-picks horizontal card
-  const renderTopCard = (item: SetCard, index: number) => {
-    const raw = item.price!;
-    const profit = calcProfit(raw, topGrade);
-    const gradedValue = calcGradedValue(raw, topGrade);
-    const belowProfit = calcProfit(raw, belowGrade);
-    const profitColor = profit >= 0 ? "#22c55e" : Colors.error;
-    const belowColor = belowProfit >= 0 ? "#22c55e" : Colors.error;
-
-    return (
-      <Pressable
-        key={item.id}
-        style={({ pressed }) => [styles.topCard, { opacity: pressed ? 0.8 : 1 }]}
-        onPress={() => handleCardPress(item)}
-      >
-        <View style={styles.topCardRank}>
-          <Text style={styles.topCardRankText}>#{index + 1}</Text>
-        </View>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.topCardImg} contentFit="contain" />
-        ) : (
-          <View style={[styles.topCardImg, styles.cardImagePlaceholder]}>
-            <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
-          </View>
-        )}
-        <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
-        <View style={styles.topCardDivider} />
-        <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>Raw</Text>
-          <Text style={styles.topCardValue}>${raw.toFixed(2)}</Text>
-        </View>
-        <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>PSA {topGrade}</Text>
-          <Text style={[styles.topCardProfit, { color: profitColor }]}>
-            {profit >= 0 ? "+" : ""}${profit.toFixed(0)}
-          </Text>
-        </View>
-        <View style={styles.topCardRow}>
-          <Text style={styles.topCardLabel}>PSA {belowGrade}</Text>
-          <Text style={[styles.topCardProfit, { color: belowColor }]}>
-            {belowProfit >= 0 ? "+" : ""}${belowProfit.toFixed(0)}
-          </Text>
-        </View>
-        <Text style={styles.topCardHint}>Tap for full breakdown</Text>
-      </Pressable>
-    );
-  };
-
   const showTopPicks = isEnglish && hasAnyPrice && top10.length > 0 && !isLoading && !error;
 
   const listHeader = (
@@ -216,20 +222,7 @@ export default function SetCardsScreen() {
           <View style={styles.topPicksHeader}>
             <View>
               <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-              <Text style={styles.topPicksSubtitle}>Estimated PSA profit · based on TCGplayer raw prices</Text>
-            </View>
-            <View style={styles.gradeSelector}>
-              {([10, 9, 8] as TopGrade[]).map((g) => (
-                <Pressable
-                  key={g}
-                  style={[styles.gradeSelectorBtn, topGrade === g && styles.gradeSelectorBtnActive]}
-                  onPress={() => setTopGrade(g)}
-                >
-                  <Text style={[styles.gradeSelectorText, topGrade === g && styles.gradeSelectorTextActive]}>
-                    {g}
-                  </Text>
-                </Pressable>
-              ))}
+              <Text style={styles.topPicksSubtitle}>eBay last sold · PSA 10 &amp; 9 · excl. Best Offer</Text>
             </View>
           </View>
           <ScrollView
@@ -237,12 +230,20 @@ export default function SetCardsScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.topPicksScroll}
           >
-            {top10.map((card, i) => renderTopCard(card, i))}
+            {top10.map((card, i) => (
+              <SetPickCard
+                key={card.id}
+                item={card}
+                index={i}
+                setName={setName || ""}
+                onPress={() => handleCardPress(card)}
+              />
+            ))}
           </ScrollView>
           <View style={styles.topPicksDisclaimer}>
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
-              Estimated values use PSA multipliers (×{GRADE_MULTIPLIERS[topGrade]} for PSA {topGrade}). Actual graded card prices vary. Always verify current market prices before submitting.
+              eBay last sold prices for PSA graded cards · excl. Best Offer sales · USD→GBP at ~£0.79/$
             </Text>
           </View>
         </View>
@@ -484,6 +485,11 @@ const styles = StyleSheet.create({
   topCardProfit: {
     fontFamily: "Inter_700Bold",
     fontSize: 11,
+  },
+  topCardMuted: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
   },
   topCardHint: {
     fontFamily: "Inter_400Regular",

@@ -146,10 +146,13 @@ const TOP_PICKS_TTL = 2 * 60 * 60 * 1000;
 topGradingPicksLastFetch = 0; // bust on startup
 
 // ── eBay Graded Price Cache ────────────────────────────────────────────────
-const ebayPriceCache = new Map<string, {
-  psa10Last: number; psa9Last: number;
+interface EbayAllGrades {
+  psa10: number; psa9: number;
+  bgs95: number; bgs9: number;
+  ace10: number; tag10: number; cgc10: number;
   fetchedAt: number;
-}>();
+}
+const ebayPriceCache = new Map<string, EbayAllGrades>();
 const EBAY_PRICE_TTL = 24 * 60 * 60 * 1000; // 24 h
 
 /** Strip verbose series prefixes so eBay search works better */
@@ -163,23 +166,36 @@ function cleanSetForSearch(setName: string): string {
     .trim();
 }
 
-function medianOf(nums: number[]): number {
-  if (!nums.length) return 0;
-  const s = [...nums].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+// Grade targets — each has the search keywords and a title-match predicate.
+// sortOrder=EndTimeSoonest → eBay returns most-recently-sold first.
+const EBAY_GRADE_TARGETS = [
+  { key: "psa10", q: "PSA 10",  match: (t: string) => t.includes("PSA 10")  || t.includes("PSA-10")  },
+  { key: "psa9",  q: "PSA 9",   match: (t: string) => (t.includes("PSA 9")  || t.includes("PSA-9"))  && !t.includes("PSA 9.") },
+  { key: "bgs95", q: "BGS 9.5", match: (t: string) => t.includes("BGS 9.5") || t.includes("BECKETT 9.5") },
+  { key: "bgs9",  q: "BGS 9",   match: (t: string) => (t.includes("BGS 9")  || t.includes("BECKETT 9")) && !t.includes("9.5") },
+  { key: "ace10", q: "ACE 10",  match: (t: string) => t.includes("ACE 10")  },
+  { key: "tag10", q: "TAG 10",  match: (t: string) => t.includes("TAG 10")  },
+  { key: "cgc10", q: "CGC 10",  match: (t: string) => t.includes("CGC 10")  },
+] as const;
+
+/**
+ * Walk eBay result list (most-recent-first) and return the price of the FIRST
+ * item whose title matches, was NOT a Best Offer sale, and has a plausible price.
+ */
+function extractLastEbay(data: any, titleMatch: (t: string) => boolean): number {
+  const items: any[] = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
+  for (const it of items) {
+    const title = (it?.title?.[0] || "").toUpperCase();
+    if (!titleMatch(title)) continue;
+    const isBestOffer = it?.listingInfo?.[0]?.bestOfferEnabled?.[0] === "true";
+    if (isBestOffer) continue;
+    const price = parseFloat(it?.sellingStatus?.[0]?.currentPrice?.[0]?.["__value__"] || "0");
+    if (price > 5) return Math.round(price * 100) / 100;
+  }
+  return 0;
 }
 
-function iqrFilter(prices: number[]): number[] {
-  if (prices.length < 4) return prices;
-  const s = [...prices].sort((a, b) => a - b);
-  const q1 = s[Math.floor(s.length * 0.25)];
-  const q3 = s[Math.floor(s.length * 0.75)];
-  const iqr = q3 - q1;
-  return s.filter(p => p >= q1 - 1.5 * iqr && p <= q3 + 1.5 * iqr);
-}
-
-async function fetchEbayGradedPrices(cardName: string, setName: string) {
+async function fetchEbayGradedPrices(cardName: string, setName: string): Promise<EbayAllGrades> {
   const cacheKey = `${cardName}|${setName}`;
   const hit = ebayPriceCache.get(cacheKey);
   if (hit && Date.now() - hit.fetchedAt < EBAY_PRICE_TTL) return hit;
@@ -189,10 +205,8 @@ async function fetchEbayGradedPrices(cardName: string, setName: string) {
 
   const cleanSet = cleanSetForSearch(setName);
 
-  // Request ListingInfo so we can detect Best Offer listings and skip them.
-  // sortOrder=EndTimeSoonest returns the most recently sold item first.
-  const buildUrl = (grade: number) => {
-    const q = encodeURIComponent(`PSA ${grade} ${cardName} ${cleanSet} Pokemon`);
+  const buildUrl = (gradeQ: string) => {
+    const q = encodeURIComponent(`${gradeQ} ${cardName} ${cleanSet} Pokemon`);
     return (
       `https://svcs.ebay.com/services/search/FindingService/v1` +
       `?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.0` +
@@ -205,53 +219,32 @@ async function fetchEbayGradedPrices(cardName: string, setName: string) {
     );
   };
 
-  const [r10, r9] = await Promise.all([
-    fetch(buildUrl(10), { signal: AbortSignal.timeout(10000) }),
-    fetch(buildUrl(9),  { signal: AbortSignal.timeout(10000) }),
-  ]);
-  const [d10, d9] = await Promise.all([
-    r10.ok ? r10.json() : {},
-    r9.ok  ? r9.json()  : {},
-  ]);
+  // 7 parallel calls — one per grade/company target
+  const responses = await Promise.all(
+    EBAY_GRADE_TARGETS.map(g => fetch(buildUrl(g.q), { signal: AbortSignal.timeout(12000) }))
+  );
+  const datasets = await Promise.all(
+    responses.map(r => r.ok ? r.json() : {})
+  );
 
-  /**
-   * Walk the result list (most-recent-first) and return the price of the
-   * FIRST item that:
-   *  - Has the right PSA grade in the title
-   *  - Was NOT sold via Best Offer (bestOfferEnabled = false)
-   *  - Has a sensible price (> $5)
-   */
-  const extractLast = (data: any, grade: number): number => {
-    const items: any[] = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
-    const g = String(grade);
-    for (const it of items) {
-      const title = (it?.title?.[0] || "").toUpperCase();
-      const hasGrade =
-        title.includes(`PSA ${g}`) ||
-        title.includes(`PSA-${g}`) ||
-        title.includes(`PSA${g}`);
-      if (!hasGrade) continue;
+  const [d_psa10, d_psa9, d_bgs95, d_bgs9, d_ace10, d_tag10, d_cgc10] = datasets;
 
-      // Skip listings where Best Offer was enabled (price may be negotiated down)
-      const isBestOffer =
-        it?.listingInfo?.[0]?.bestOfferEnabled?.[0] === "true";
-      if (isBestOffer) continue;
-
-      const price = parseFloat(
-        it?.sellingStatus?.[0]?.currentPrice?.[0]?.["__value__"] || "0"
-      );
-      if (price > 5) return Math.round(price * 100) / 100;
-    }
-    return 0; // no qualifying sale found
-  };
-
-  const result = {
-    psa10Last: extractLast(d10, 10),
-    psa9Last:  extractLast(d9,  9),
+  const result: EbayAllGrades = {
+    psa10: extractLastEbay(d_psa10, EBAY_GRADE_TARGETS[0].match),
+    psa9:  extractLastEbay(d_psa9,  EBAY_GRADE_TARGETS[1].match),
+    bgs95: extractLastEbay(d_bgs95, EBAY_GRADE_TARGETS[2].match),
+    bgs9:  extractLastEbay(d_bgs9,  EBAY_GRADE_TARGETS[3].match),
+    ace10: extractLastEbay(d_ace10, EBAY_GRADE_TARGETS[4].match),
+    tag10: extractLastEbay(d_tag10, EBAY_GRADE_TARGETS[5].match),
+    cgc10: extractLastEbay(d_cgc10, EBAY_GRADE_TARGETS[6].match),
     fetchedAt: Date.now(),
   };
   ebayPriceCache.set(cacheKey, result);
-  console.log(`[ebay-price] ${cardName} | PSA10 last $${result.psa10Last} | PSA9 last $${result.psa9Last}`);
+  console.log(
+    `[ebay-price] ${cardName} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
+    ` BGS9.5 $${result.bgs95} BGS9 $${result.bgs9}` +
+    ` ACE10 $${result.ace10} TAG10 $${result.tag10} CGC10 $${result.cgc10}`
+  );
   return result;
 }
 
@@ -6886,18 +6879,33 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  // ── eBay Graded Price Lookup ───────────────────────────────────────────────
-  // Returns real PSA 10 & PSA 9 median sold prices from eBay completed listings.
+  // ── eBay Graded Price Lookup (PSA 10 / PSA 9 — backward compat) ──────────
   app.get("/api/ebay-graded-price", async (req, res) => {
     const { name, setName } = req.query;
     if (!name || !setName) {
       return res.status(400).json({ error: "name and setName query params required" });
     }
     try {
-      const result = await fetchEbayGradedPrices(String(name), String(setName));
-      res.json(result);
+      const r = await fetchEbayGradedPrices(String(name), String(setName));
+      res.json({ psa10Last: r.psa10, psa9Last: r.psa9 });
     } catch (err: any) {
       console.error("[ebay-graded-price]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── eBay All Grades Lookup (all companies) ────────────────────────────────
+  // Returns last eBay sold price for PSA 10/9, BGS 9.5/9, ACE 10, TAG 10, CGC 10.
+  app.get("/api/ebay-all-grades", async (req, res) => {
+    const { name, setName } = req.query;
+    if (!name || !setName) {
+      return res.status(400).json({ error: "name and setName query params required" });
+    }
+    try {
+      const { fetchedAt, ...grades } = await fetchEbayGradedPrices(String(name), String(setName));
+      res.json(grades);
+    } catch (err: any) {
+      console.error("[ebay-all-grades]", err.message);
       res.status(500).json({ error: err.message });
     }
   });
