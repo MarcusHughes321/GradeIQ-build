@@ -1,7 +1,7 @@
 # Grade.IQ - Pokemon Card Grading App
 
 ## Overview
-Grade.IQ is a mobile application designed to estimate Pokemon card grades using AI vision technology, aligning with the grading standards of PSA, Beckett (BGS), and Ace Grading. Users can capture images of their cards, and the AI will analyze key attributes such as centering, corners, edges, and surface condition to provide estimated grades. The project aims to offer a comprehensive tool for collectors to assess their cards' potential grades and market values, supporting a business vision to become a leading AI-powered grading assistant in the collectible card market.
+Grade.IQ is a mobile application that uses AI vision technology to estimate Pokemon card grades, aligning with PSA, Beckett (BGS), and Ace Grading standards. It allows users to capture card images for AI analysis of centering, corners, edges, and surface, providing estimated grades and market values. The project aims to become a leading AI-powered grading assistant in the collectible card market.
 
 ## User Preferences
 I want iterative development. Ask before making major changes. I prefer detailed explanations. I prefer simple language. I like functional programming.
@@ -9,58 +9,56 @@ I want iterative development. Ask before making major changes. I prefer detailed
 ## System Architecture
 
 ### UI/UX Decisions
-The app features a modern, dark-themed interface with a primary color of #FF3C31 (red), a black background (#000000), white text (#FFFFFF), and a surface color of #111111. The Inter font is used throughout the application. The navigation is structured around a bottom tab bar with "Home," "Grade," and "Settings" tabs, utilizing Expo Router for file-based routing. All grade displays use a red→yellow→green gradient color system to visually represent grade quality.
+The app features a dark-themed interface using red (#FF3C31), black (#000000), white (#FFFFFF), and a surface color of #111111, with the Inter font. Navigation uses a bottom tab bar ("Home," "Grade," "Settings") and Expo Router. Grade displays use a red→yellow→green gradient.
 
 ### Technical Implementations
-- **Frontend**: Built with Expo React Native, leveraging Expo Router for navigation.
-- **Backend**: An Express.js server written in TypeScript handles API requests.
-- **AI Integration**: Claude Sonnet 4-6 (Anthropic) is used for all AI analysis via Replit AI Integrations (`javascript_anthropic_ai_integrations` blueprint). All 7 AI calls in `server/routes.ts` use `anthropic.messages.create()` with the `claude-sonnet-4-6` model. Response parsed from `(response.content[0] as Anthropic.TextBlock)?.text`. Images converted via `toClaudeImage()` helper (strips data URI prefix, uses `source: { type: "base64", ... }` format).
+- **Frontend**: Expo React Native with Expo Router.
+- **Backend**: Express.js server in TypeScript.
+- **AI Integration**: Anthropic's Claude Sonnet 4-6 via Replit AI Integrations for all AI analysis, processing images converted to a base64 format suitable for Claude.
 - **Image Processing**:
-    - **Auto-Crop to Card**: After photo capture/upload, images are automatically cropped to the card with ~12% padding. If the card fills <70% of the image, the server detects card bounds and crops; otherwise skips. Ensures centering tool works well even with screenshots or wide-angle photos. Re-detects bounds on the cropped image for accurate alignment lines.
-    - **AI Card Boundary Detection**: Two-tier system. (1) **Claude-first (primary)**: `detectRawCardBoundsWithAI()` and `detectSlabCardBoundsWithAI()` send images to Claude Sonnet 4-6 to identify BOTH outer card edges (physical card boundary) AND inner artwork bounds (where the printed border ends and artwork begins) as image-% coordinates. Used by `/api/detect-bounds` endpoint and crossover grading pipeline. (2) **Sobel fallback**: Multi-resolution Sobel gradient approach (coarse 200px → fine 600px) using line profile + rectangle fitting, used when Claude fails. The grading prompt (Step 6) also instructs Claude to return `frontCardBounds`/`backCardBounds` (including inner bounds) as part of the grading JSON — when valid, these are used directly instead of running Sobel post-grading. `isValidCardBounds()` requires span 30-94% in each dimension. For slabs: the card TOP edge is computed using aspect ratio (top = bottom − width/0.714) so it correctly locates the physical card top which is hidden under the grading label. `slabGeometryFallback()` also uses aspect-ratio calculation for the top edge (not label-offset). Inner bounds drive the inner centering lines; outer bounds drive the outer card-edge lines. `enforceCardBounds()` passes inner bounds through from any source.
-    - **Pinch-to-Zoom & Draggable Lines**: Interactive centering tool with pinch-to-zoom (1x-4x) and intelligent gesture detection — touch near a handle and drag perpendicular to move it, parallel movement pans instead. Haptic feedback on handle grab, zoom-scaled 44x44pt hit areas.
-    - **Separated Centering Controls**: Straighten button (detects/corrects tilt without moving lines) uses `/api/detect-angle`. Auto-align uses the bounds from the grading result (AI-derived when valid).
-    - **Image Optimization**: Server-side image resizing (max 1024px) and JPEG compression occur before AI processing. HEIF/HEIC image format support is included, with automatic conversion to JPEG.
-    - **Auto-Straighten**: Detects and corrects card tilt angle using Sobel edge detection.
+    - **Auto-Crop**: Images are automatically cropped to the card with padding.
+    - **AI Card Boundary Detection**: Claude Sonnet 4-6 primarily detects outer card edges and inner artwork bounds; a multi-resolution Sobel gradient is used as a fallback. For slabs, the physical card top is located using aspect ratio.
+    - **Interactive Centering Tool**: Features pinch-to-zoom (1x-4x) and draggable lines with haptic feedback.
+    - **Straighten & Auto-Align**: Detects and corrects card tilt; auto-aligns using AI-derived bounds.
+    - **Optimization**: Server-side resizing (max 1024px) and JPEG compression, including HEIF/HEIC conversion.
 - **Grading Logic**:
-    - **Single AI Call Architecture**: A streamlined approach where one AI call handles both card identification and condition assessment, reporting exact set codes and card numbers.
-    - **Grading Philosophy**: Follows a "start at 10, deduct for visible flaws" methodology. Back-only minor defects (whitening, faint scratches) are treated more leniently than front defects — minor back-corner whitening on 2-3 corners is grade 9 territory, matching real PSA/BGS standards.
-    - **Comprehensive Set Knowledge**: `server/pokemon-sets.ts` contains full set code mappings for English (all eras from Base Set through Mega Evolution), Japanese, Korean, and Chinese TCG sets. The AI prompt includes this data so the AI can accurately identify sets from printed set codes. Server-side `resolveSetName()` also validates/corrects set names using this data.
-    - **Multi-language Support**: AI can read cards in various languages (Japanese, Korean, Chinese) and provide English names/details.
-    - **Card Number Detection**: AI reads card numbers from the card bottom, utilizing multiple strategies for accuracy.
-    - **Vintage Card Support**: AI can identify older cards (WOTC, e-Card, EX era) by their set symbols when printed set codes are not available.
+    - **Single AI Call**: Handles card identification and condition assessment, including set codes and card numbers.
+    - **Deductive Grading**: Starts at grade 10, deducting for visible flaws, with leniency for minor back-only defects.
+    - **Comprehensive Set Knowledge**: Uses `server/pokemon-sets.ts` for English, Japanese, Korean, and Chinese TCG set data, enabling accurate AI identification.
+    - **Multi-language Support**: AI reads cards in various languages and provides English details.
+    - **Vintage Support**: AI identifies older cards using set symbols.
 - **User Features**:
-    - **Three Grading Modes**: Quick Grade (2 photos: front + back, fast), Deep Grade (12 photos: front + back + angled front + angled back + 4 front corner close-ups + 4 back corner close-ups, plus 4 auto-crops backup = up to 16 images to AI, premium accuracy), and Crossover Grade (photo-only — user photographs their graded slab, pro subscribers only; cert lookup backend exists but is hidden from UI pending grading company permission). Mode selector on Grade tab with guided step-by-step capture for Deep Grade. Free users tapping Crossover see a feature info screen with tier pricing and upgrade CTA.
-    - **Deep Grade Features**: Server-side image enhancement (sharpening + contrast boost via Sharp), auto-corner cropping, modified AI prompt analyzing all 8 images for surface detail. First-use onboarding modal (AsyncStorage key: `gradeiq_deep_intro_seen`). Amber/gold (#F59E0B) color accent for Deep Grade UI.
-    - **Deep Grade Corner Photos**: Users capture 8 corner close-ups (4 front + 4 back) by holding their phone close to each corner. These are the PRIMARY source for corner/edge grading. Auto-cropped corners serve as fallback when user corners aren't provided.
-    - **Image Enhancement Pipeline**: All images sharpened via `sharp().sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })`, brightness adjusted `.modulate({ brightness: 1.02 })`, and contrast boosted `.linear(1.15, -(128 * 0.15))` before AI analysis.
-    - **Progress UI**: Animated progress bar with mode-specific stages (8 for Quick, 10 for Deep) providing real-time analysis status.
-    - **Background Grading**: Users can navigate away from the Grade tab while analysis runs in the background. A GradingContext (`lib/grading-context.tsx`) manages the job lifecycle (processing/completed/failed). The Home tab shows a status banner and the tab icon displays a dot badge (red=processing, green=complete). A "Continue browsing" button on the analysis screen lets users return to Home mid-grading. Only one grading job runs at a time.
-    - **Bulk Grading**: Allows grading of up to 20 cards simultaneously (Quick Grade only), with parallel processing and average grade summaries.
-    - **Subscription Model**: Tiered subscription system controlled by `EXPO_PUBLIC_SUBSCRIPTION_GATE` environment variable. Tiers: Free (3 Quick Grades/month, 0 Deep), Grade Curious (£2.99/month, 15 Quick + 2 Deep), Grade Enthusiast (£5.99/month, 50 Quick + 7 Deep), Grade Obsessed (£9.99/month, unlimited Quick + 30 Deep). Usage tracked monthly via AsyncStorage with automatic reset. RevenueCat handles payment processing via App Store/Google Play. Admin mode bypasses all limits. Build 30 fixes four subscription detection bugs in `lib/subscription.tsx`: (1) `determineTier` now falls back to `info.activeSubscriptions` when `entitlements.active["Grade.IQ Pro"]` is empty — catches the propagation window where Apple confirmed the subscription but RC hasn't yet; (2) `restorePurchases` adds a 3-attempt retry loop (2s/4s/6s) matching `purchaseTier`; (3) `restorePurchases` + `forceSyncSubscription` + foreground handler never call `setCurrentTierSafe("free")` when currently subscribed without retrying first; (4) foreground handler does one delayed retry before accepting a "free" downgrade; (5) `currentTierRef` useRef tracks latest tier for safe access inside `useCallback` closures with empty deps. Context exposes `rcAppUserId` and `forceSyncSubscription()`. Settings screen shows "Sync Subscription" + "Restore Purchases" side by side plus a "Subscription Info" card with Device ID and detected plan. AsyncStorage key `gradeiq_rc_alias` stores the RC custom alias permanently for reconnection.
-    - **First-use Company Selection**: Guides new users to select grading companies, with all companies off by default.
+    - **Grading Modes**:
+        - **Quick Grade**: 2 photos (front + back).
+        - **Deep Grade**: 12-16 photos (front, back, angled shots, 8 corner close-ups). Features server-side image enhancement and a modified AI prompt.
+        - **Crossover Grade**: For graded slabs (photo-only for free users, cert lookup for pro subscribers with specific company integrations).
+    - **Image Enhancement Pipeline**: All images are sharpened, brightness adjusted, and contrast boosted before AI analysis.
+    - **Progress UI**: Animated progress bar with mode-specific stages.
+    - **Background Grading**: Jobs run in the background, with status indicated on the Home tab and tab icon.
+    - **Bulk Grading**: Up to 20 cards simultaneously (Quick Grade only).
+    - **Subscription Model**: Tiered access to features (Free, Grade Curious, Grade Enthusiast, Grade Obsessed) managed by RevenueCat.
+    - **First-use Company Selection**: Guides users to select preferred grading companies.
 
 ### Feature Specifications
-- **Core Grading**: Provides estimated grades for PSA, Beckett, ACE, TAG, and CGC based on detailed condition analysis (centering, corners, edges, surface).
-- **Crossover Grading**: Two entry paths — (1) Cert number lookup: enter a cert number and company, server fetches official card scan from the grading company's public API and passes it to Claude for analysis; (2) Photo upload: photograph the graded slab. Cert lookup is the primary UI (company pills + cert input + card preview), with "or add photos manually" as a collapsible fallback. `POST /api/cert-lookup` endpoint handles per-company fetching. `certData` (company/grade/certNumber) is passed through the job to override AI-read slab labels in the `currentGrade` result field. Results show a "Currently Graded" purple banner. Uses `/api/crossover-grade-job` endpoint with `performCrossoverGrading` server function. Purple/indigo (#8B5CF6) color accent. PSA lookup may be rate-limited by their API; clear error message directs users to photo fallback. **Cert lookup status**: ACE=✓ working (curl + HTML scrape, slab front+back images); BGS=✓ working (HTML scrape); TAG=✓ working (crypto-authenticated REST API at api.taggrading.com — x-tag-key = SHA256("TZYOj76MKF1Aw0QK0gpAGySALCNgKG:"+certNum), response AES-256-CBC encrypted, returns deskewed front+back card images resized to 1200px); PSA=✗ rate-limited/blocked; CGC=✗ blocked. TAG cert format: alphanumeric with letter prefix e.g. "C5964402".
-- **Detailed Results**: Displays comprehensive grading results, including sub-grades, card name, set name, and set number.
-- **Market Value Estimation**: Tiered price data strategy:
-    - **Raw/TCGPlayer prices**: pokemontcg.io API (name-first search) + TCGCSV API fallback (set-based, comprehensive promo set aliases for SV, SWSH, SM, XY, BW, HGSS, DP, WOTC, ME promos). Shown in set browser (no eBay calls for browsing). Currency: GBP, USD, EUR, AUD, CAD, JPY.
-    - **eBay graded prices** (PSA10/9, BGS9.5/9, ACE10, TAG10, CGC10, raw eBay): Real last-sold prices fetched only when a user opens a specific card result — NOT during set browsing. `fetchEbayGradedPrices()` uses 2 eBay API calls (1×100-result broad search for all graded grades + 1×30-result for raw), down from 8 calls. Throttle queue: max 2 concurrent, 300ms gap.
-    - **Two-tier cache**: L1 in-memory map (fast, per-process); L2 PostgreSQL `ebay_price_cache` table (shared across all users, survives restarts, 3-day TTL). On cache hit, L1 is warmed from DB. On cache miss, eBay is called and result written to both. Table auto-created at startup via `initEbayPriceCacheTable()`.
-    - **Set browser**: Shows TCGPlayer raw price (GBP-converted) only. "Tap for eBay grades" hint directs users to results screen.
-    - **Results screen**: Full Market Prices section with all 7 graded eBay prices + raw (eBay with TCGPlayer fallback). Pro users see all rows; free users see blurred placeholder.
-- **Grading History**: Local storage (AsyncStorage) maintains a history of graded cards.
-- **Customization**: Users can toggle grading companies in settings.
-- **Share Results**: Branded shareable results card with Grade.IQ logo, card image, all company grades, and sub-grades. Uses `react-native-view-shot` to capture and `expo-sharing` for the native share sheet. Red "Share Results" button at the bottom of the results screen. Supports multiple social media formats: Instagram Post (1080x1080), Instagram/TikTok Story (1080x1920), and Twitter/Facebook (1200x630).
+- **Core Grading**: Provides estimated grades for PSA, Beckett, ACE, TAG, and CGC based on detailed condition analysis.
+- **Crossover Grading**: Allows cert number lookup (for ACE, BGS, TAG) or photo upload of graded slabs.
+- **Detailed Results**: Displays comprehensive grading results including sub-grades, card name, set name, and set number.
+- **Market Value Estimation**:
+    - **Raw/TCGPlayer prices**: From pokemontcg.io and TCGCSV API, for set browsing.
+    - **eBay Graded Prices**: Real last-sold prices (PSA10/9, BGS9.5/9, ACE10, TAG10, CGC10, raw eBay) fetched on demand. Utilizes a two-tier cache (in-memory and PostgreSQL `ebay_price_cache` table).
+    - **Card Catalog DB**: `card_catalog` PostgreSQL table stores English card data, updated daily.
+- **Set Browser**: Displays TCGPlayer raw prices.
+- **Grading History**: Stored locally via AsyncStorage.
+- **Customization**: Users can toggle grading companies.
+- **Share Results**: Branded shareable cards with Grade.IQ logo and grading details, supporting multiple social media formats via `react-native-view-shot` and `expo-sharing`.
 
 ## External Dependencies
-- **OpenAI GPT-5.2 vision**: For AI-powered image analysis and grading.
+- **Anthropic Claude Sonnet 4-6**: For AI-powered image analysis and grading.
 - **Expo React Native**: Frontend framework.
 - **Express.js**: Backend framework.
-- **AsyncStorage**: Local data storage for grading history.
-- **TCGCSV API**: For retrieving TCGPlayer market pricing data.
-- **RevenueCat**: For managing in-app subscriptions and purchases (iOS/Android).
-- **Bulbapedia**: Used as a data source for an Asian card database cache (Japanese, Korean, Chinese) for verified card names.
-- **sharp / heif-convert**: Libraries used for server-side image processing and HEIF/HEIC conversion.
-- **expo-sensors**: Utilized for the SpiritLevel component to assist with phone alignment during photo capture.
+- **AsyncStorage**: Local data storage.
+- **TCGCSV API**: For TCGPlayer market pricing data.
+- **RevenueCat**: For in-app subscriptions and purchases.
+- **Bulbapedia**: Data source for Asian card database cache.
+- **sharp / heif-convert**: Server-side image processing and HEIF/HEIC conversion.
+- **expo-sensors**: Used for the SpiritLevel component.

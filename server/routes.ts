@@ -246,6 +246,32 @@ async function initSetPriceStatusTable(): Promise<void> {
   }
 }
 
+// ── Card Catalog — PostgreSQL persistence ─────────────────────────────────
+// Stores all English card data (name, number, image, TCGPlayer price) so the
+// set browser loads instantly from the DB rather than hitting external APIs.
+async function initCardCatalogTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS card_catalog (
+        card_id          VARCHAR(120) PRIMARY KEY,
+        set_id           VARCHAR(60)  NOT NULL,
+        set_name         VARCHAR(200) NOT NULL,
+        name             VARCHAR(200) NOT NULL,
+        number           VARCHAR(30)  NOT NULL DEFAULT '',
+        rarity           VARCHAR(100),
+        image_url        TEXT,
+        price_usd        NUMERIC(10,2),
+        price_updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        card_updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS card_catalog_set_id_idx ON card_catalog (set_id)`);
+    console.log("[card-catalog] DB table ready");
+  } catch (e: any) {
+    console.error("[card-catalog] Failed to create table:", e.message);
+  }
+}
+
 // ── eBay API Request Throttle ─────────────────────────────────────────────
 // Caps concurrent eBay calls to 2 with a 300 ms gap to stay under rate limits.
 const EBAY_MAX_CONCURRENT = 2;
@@ -3148,6 +3174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure DB tables exist before any requests come in
   await initEbayPriceCacheTable();
   await initSetPriceStatusTable();
+  await initCardCatalogTable();
 
   // Pre-fetch today's exchange rates on startup (non-blocking)
   void getExchangeRates();
@@ -6868,6 +6895,174 @@ RESPONSE FORMAT (JSON only, no markdown):
   const SET_CARDS_CACHE_TTL = 6 * 60 * 60 * 1000;
   // Tracks card/price availability per set — backed by PostgreSQL for persistence across restarts
   const setPriceStatusCache = new Map<string, { hasCards: boolean; hasPrices: boolean; checkedAt: number }>();
+
+  // ── Card Catalog helpers ─────────────────────────────────────────────────
+
+  const CATALOG_PRICE_TYPES = [
+    "holofoil", "reverseHolofoil", "normal",
+    "1stEditionHolofoil", "1stEditionNormal",
+    "unlimitedHolofoil", "unlimited",
+  ];
+
+  function pickBestTcgPrice(tcgplayer: any): number | null {
+    const prices = tcgplayer?.prices ?? {};
+    for (const pt of CATALOG_PRICE_TYPES) {
+      const t = prices[pt];
+      if (!t) continue;
+      const v = t.market ?? t.mid ?? null;
+      if (v != null) return Math.round(v * 100) / 100;
+    }
+    return null;
+  }
+
+  // Fetch all cards for one set from Pokemon TCG API and return shaped rows
+  async function fetchSetCardsFromApi(setId: string, setName: string): Promise<any[]> {
+    const resp = await fetch(
+      `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
+      { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
+    );
+    if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
+    const data = await resp.json() as any;
+    return (data?.data || []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      number: c.number || "",
+      rarity: c.rarity || null,
+      imageUrl: c.images?.small || c.images?.large || null,
+      price: pickBestTcgPrice(c.tcgplayer),
+      setId,
+      setName,
+    }));
+  }
+
+  // Bulk-upsert an array of shaped card rows into card_catalog
+  async function upsertCardsForSet(cards: any[]): Promise<void> {
+    if (cards.length === 0) return;
+    const now = new Date();
+    // Process in chunks of 50 to stay within parameter limits
+    const CHUNK = 50;
+    for (let i = 0; i < cards.length; i += CHUNK) {
+      const chunk = cards.slice(i, i + CHUNK);
+      const placeholders = chunk.map((_, j) => {
+        const base = j * 9;
+        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9})`;
+      }).join(",");
+      const values: any[] = [];
+      for (const c of chunk) {
+        values.push(c.id, c.setId, c.setName, c.name, c.number, c.rarity ?? null, c.imageUrl ?? null, c.price ?? null, now);
+      }
+      await db.query(
+        `INSERT INTO card_catalog (card_id, set_id, set_name, name, number, rarity, image_url, price_usd, price_updated_at)
+         VALUES ${placeholders}
+         ON CONFLICT (card_id) DO UPDATE SET
+           name             = EXCLUDED.name,
+           number           = EXCLUDED.number,
+           rarity           = EXCLUDED.rarity,
+           image_url        = EXCLUDED.image_url,
+           price_usd        = EXCLUDED.price_usd,
+           price_updated_at = EXCLUDED.price_updated_at`,
+        values
+      );
+    }
+  }
+
+  // Read all cards for a set from the DB (returns null if set not found in catalog)
+  async function getCardsFromCatalog(setId: string): Promise<any[] | null> {
+    try {
+      const { rows } = await db.query(
+        `SELECT card_id as id, name, number, rarity, image_url as "imageUrl", price_usd::float as price
+         FROM card_catalog WHERE set_id = $1 ORDER BY number`,
+        [setId]
+      );
+      if (rows.length === 0) return null;
+      return rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        number: r.number || "",
+        imageUrl: r.imageUrl || null,
+        price: r.price != null ? Math.round(r.price * 100) / 100 : null,
+      }));
+    } catch (err: any) {
+      console.error(`[card-catalog] DB read error for ${setId}:`, err.message);
+      return null;
+    }
+  }
+
+  // Check how many cards are stored in the catalog (used to detect first-run)
+  async function getCardCatalogCount(): Promise<number> {
+    try {
+      const { rows } = await db.query(`SELECT COUNT(*) as cnt FROM card_catalog`);
+      return parseInt(rows[0]?.cnt ?? "0", 10);
+    } catch { return 0; }
+  }
+
+  // Sync all English sets into card_catalog — fetches from Pokemon TCG API
+  // On first run this populates the whole catalog; subsequent runs only refresh
+  // sets whose prices might be stale (fetched > 20h ago) or new sets.
+  let cardCatalogSyncRunning = false;
+  async function syncAllEnglishSets(mode: "full" | "prices-only" = "full"): Promise<void> {
+    if (cardCatalogSyncRunning) { console.log("[card-catalog] Sync already in progress — skipping"); return; }
+    cardCatalogSyncRunning = true;
+    try {
+      const allSets = await ensureSetsCached();
+      console.log(`[card-catalog] Starting ${mode} sync for ${allSets.length} English sets...`);
+      let synced = 0;
+      let skipped = 0;
+      let errors = 0;
+
+      for (const s of allSets) {
+        try {
+          // In prices-only mode skip sets whose prices were updated < 20h ago
+          if (mode === "prices-only") {
+            const { rows } = await db.query(
+              `SELECT MIN(price_updated_at) as oldest FROM card_catalog WHERE set_id = $1`,
+              [s.id]
+            );
+            const oldest = rows[0]?.oldest;
+            if (oldest && Date.now() - new Date(oldest).getTime() < 20 * 60 * 60 * 1000) {
+              skipped++;
+              continue;
+            }
+          }
+
+          const cards = await fetchSetCardsFromApi(s.id, s.name);
+          await upsertCardsForSet(cards);
+
+          const hasPrices = cards.some(c => c.price != null);
+          upsertSetPriceStatus(s.id, cards.length > 0, hasPrices);
+
+          // Warm the in-memory cache too so the next request is instant
+          setCardsCache.set(`english:${s.id}`, { cards: cards.map(c => ({ id: c.id, name: c.name, number: c.number, imageUrl: c.imageUrl, price: c.price })), fetchedAt: Date.now() });
+
+          synced++;
+          if (synced % 20 === 0) console.log(`[card-catalog] Synced ${synced}/${allSets.length} sets...`);
+        } catch (err: any) {
+          console.warn(`[card-catalog] Failed to sync set ${s.id}: ${err.message}`);
+          errors++;
+        }
+        // Polite delay between API calls — 300ms
+        await new Promise(r => setTimeout(r, 300));
+      }
+      console.log(`[card-catalog] Sync complete — ${synced} synced, ${skipped} skipped (fresh), ${errors} errors`);
+    } finally {
+      cardCatalogSyncRunning = false;
+    }
+  }
+
+  // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
+  function scheduleDailyCardCatalogSync() {
+    const now = new Date();
+    const next = new Date();
+    next.setUTCHours(3, 30, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const delay = next.getTime() - now.getTime();
+    const delayMin = Math.round(delay / 60000);
+    console.log(`[card-catalog] Daily sync scheduled in ${delayMin} min`);
+    setTimeout(async () => {
+      await syncAllEnglishSets("prices-only");
+      scheduleDailyCardCatalogSync();
+    }, delay);
+  }
   const PRICE_STATUS_TTL = 23 * 60 * 60 * 1000; // 23h — re-check after 1 day
   let priceStatusPrePopStarted = false;
 
@@ -7108,8 +7303,20 @@ RESPONSE FORMAT (JSON only, no markdown):
   void fetchTcgdexSeriesInfo("ko");
   void getTcgdexEnNames();
 
-  // Start the daily refresh scheduler once (outside the request handler so it doesn't re-schedule on every request)
+  // Start the daily refresh schedulers
   scheduleDailySetStatusRefresh();
+  scheduleDailyCardCatalogSync();
+
+  // Kick off first-run catalog population if the DB is empty (non-blocking)
+  void (async () => {
+    const count = await getCardCatalogCount();
+    if (count === 0) {
+      console.log("[card-catalog] Empty catalog — starting initial population in background...");
+      void syncAllEnglishSets("full");
+    } else {
+      console.log(`[card-catalog] Catalog ready with ${count} cards`);
+    }
+  })();
 
   app.get("/api/sets/english", async (req, res) => {
     try {
@@ -7271,49 +7478,41 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
 
     const cacheKey = `${lang}:${setId}`;
+
+    // L1: in-memory cache (fastest path — same server process)
     const cached = setCardsCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < SET_CARDS_CACHE_TTL) {
-      console.log(`[sets/cards] Cache hit: ${cacheKey}`);
-      // Ensure price status is reflected even on cache hits
+      console.log(`[sets/cards] L1 cache hit: ${cacheKey}`);
       if (lang === "english" && !setPriceStatusCache.has(setId)) {
         upsertSetPriceStatus(setId, cached.cards.length > 0, cached.cards.some((c: any) => c.price != null));
       }
       return res.json({ cards: cached.cards });
     }
 
+    // L2: PostgreSQL card_catalog (fast — survives restarts, pre-populated daily)
+    if (lang === "english") {
+      try {
+        const dbCards = await getCardsFromCatalog(setId);
+        if (dbCards !== null) {
+          console.log(`[sets/cards] L2 DB hit: ${setId} (${dbCards.length} cards)`);
+          setCardsCache.set(cacheKey, { cards: dbCards, fetchedAt: Date.now() });
+          upsertSetPriceStatus(setId, dbCards.length > 0, dbCards.some(c => c.price != null));
+          return res.json({ cards: dbCards });
+        }
+      } catch (err: any) {
+        console.warn(`[sets/cards] DB read failed for ${setId}, falling back to API:`, err.message);
+      }
+    }
+
+    // L3: External API (slow — only when DB has no data for this set)
     try {
       let cards: any[] = [];
 
       if (lang === "english") {
-        const resp = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,images,tcgplayer&orderBy=number`,
-          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(10000) }
-        );
-        if (!resp.ok) return res.status(502).json({ error: "Pokemon TCG API unavailable" });
-        const data = await resp.json() as any;
-        cards = (data?.data || []).map((c: any) => {
-          const prices = c.tcgplayer?.prices ?? {};
-          // Try all known TCGPlayer price variants; prefer market, fall back to mid
-          const PRICE_TYPES = [
-            "holofoil", "reverseHolofoil", "normal",
-            "1stEditionHolofoil", "1stEditionNormal",
-            "unlimitedHolofoil", "unlimited",
-          ];
-          let best: number | null = null;
-          for (const pt of PRICE_TYPES) {
-            const t = prices[pt];
-            if (!t) continue;
-            const v = t.market ?? t.mid ?? null;
-            if (v != null && (best === null || v > best)) { best = v; break; }
-          }
-          return {
-            id: c.id,
-            name: c.name,
-            number: c.number || "",
-            imageUrl: c.images?.small || c.images?.large || null,
-            price: best != null ? Math.round(best * 100) / 100 : null,
-          };
-        });
+        console.log(`[sets/cards] L3 API fetch: ${setId} (not yet in catalog)`);
+        cards = await fetchSetCardsFromApi(setId, "");
+        // Write to DB catalog immediately so future requests are fast
+        void upsertCardsForSet(cards);
       } else {
         const langCode = lang === "japanese" ? "ja" : "ko";
         const resp = await fetch(
@@ -7330,13 +7529,20 @@ RESPONSE FORMAT (JSON only, no markdown):
         }));
       }
 
-      console.log(`[sets/cards] Fetched ${cards.length} cards for ${cacheKey}`);
-      setCardsCache.set(cacheKey, { cards, fetchedAt: Date.now() });
-      // Record card/price availability for the set list to surface before clicking in
+      const shaped = cards.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        number: c.number || "",
+        imageUrl: c.imageUrl || null,
+        price: c.price ?? null,
+      }));
+
+      console.log(`[sets/cards] Fetched ${shaped.length} cards for ${cacheKey}`);
+      setCardsCache.set(cacheKey, { cards: shaped, fetchedAt: Date.now() });
       if (lang === "english") {
-        upsertSetPriceStatus(setId, cards.length > 0, cards.some((c: any) => c.price != null));
+        upsertSetPriceStatus(setId, shaped.length > 0, shaped.some((c: any) => c.price != null));
       }
-      res.json({ cards });
+      res.json({ cards: shaped });
     } catch (err: any) {
       console.error(`[sets/cards] Error for ${lang}/${setId}:`, err.message);
       res.status(500).json({ error: err.message });
