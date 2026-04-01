@@ -107,6 +107,21 @@ interface AreaAnnotation {
   notes: string;
 }
 
+/** Map (company, grade) → the matching eBay price key, e.g. ("psa", 9) → "psa9" */
+function getEbayGradePrice(
+  ebay: Record<string, number> | null,
+  company: string,
+  grade: number
+): number | null {
+  if (!ebay) return null;
+  const key = company.toLowerCase() + grade.toString().replace(".", "");
+  const val = ebay[key];
+  return typeof val === "number" && val > 0 ? val : null;
+}
+
+/** Convert eBay USD price to GBP and round */
+const toGBP = (usd: number) => Math.round(usd * 0.79);
+
 function getAnnotations(result: GradingResult): AreaAnnotation[] {
   const bgs = result.beckett;
   return [
@@ -154,8 +169,12 @@ export default function ResultsScreen() {
   const [cardValue, setCardValue] = useState<CardValueEstimate | null>(null);
   const [loadingValue, setLoadingValue] = useState(false);
   const [ebayPrices, setEbayPrices] = useState<{
-    psa10: number; psa9: number; bgs95: number; bgs9: number;
-    ace10: number; tag10: number; cgc10: number; raw: number;
+    psa10: number; psa9: number; psa8: number; psa7: number;
+    bgs10: number; bgs95: number; bgs9: number; bgs85: number; bgs8: number;
+    ace10: number; ace9: number; ace8: number;
+    tag10: number; tag9: number; tag8: number;
+    cgc10: number; cgc95: number; cgc9: number; cgc8: number;
+    raw: number;
   } | null>(null);
   const [ebayLoading, setEbayLoading] = useState(false);
   const [reAnalysing, setReAnalysing] = useState(false);
@@ -1030,119 +1049,182 @@ export default function ResultsScreen() {
             {ebayLoading && <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.75 }] }} />}
           </View>
 
-          {isGateEnabled && !isSubscribed && !isAdminMode ? (
-            <View style={{ overflow: "hidden" as const, borderRadius: 12 }}>
-              {[
-                { label: "PSA 10", color: "#22c55e" },
-                { label: "PSA 9",  color: "#86efac" },
-                { label: "BGS 9.5", color: "#60a5fa" },
-                { label: "BGS 9",  color: "#93c5fd" },
-                { label: "ACE 10", color: "#f59e0b" },
-                { label: "TAG 10", color: "#c084fc" },
-                { label: "CGC 10", color: "#fb7185" },
-                { label: "Raw",    color: Colors.text },
-              ].map(({ label, color }) => (
-                <View key={label} style={styles.ebayPriceRow}>
-                  <Text style={styles.ebayPriceLabel}>{label}</Text>
-                  <Text style={[styles.ebayPriceValue, { color }]}>£---</Text>
-                </View>
-              ))}
-              <Pressable style={StyleSheet.absoluteFill} onPress={() => router.push("/paywall")}>
-                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
-                  <View style={styles.proBlurContent}>
-                    <Ionicons name="lock-closed" size={20} color="#F59E0B" />
-                    <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                    <Text style={styles.proBlurSubtitle}>Upgrade to see eBay market prices</Text>
+          {(() => {
+            // Build the per-company rows (only enabled companies)
+            const marketRows = [
+              enabledCompanies.includes("PSA")     && { key: "psa", label: "PSA",     grade: result.psa.grade,           color: "#F59E0B" },
+              enabledCompanies.includes("Beckett") && { key: "bgs", label: "BGS",     grade: result.beckett.overallGrade, color: "#60a5fa" },
+              enabledCompanies.includes("Ace")     && { key: "ace", label: "ACE",     grade: result.ace.overallGrade,     color: "#f59e0b" },
+              enabledCompanies.includes("TAG")     && { key: "tag", label: "TAG",     grade: result.tag.overallGrade,     color: "#c084fc" },
+              enabledCompanies.includes("CGC")     && { key: "cgc", label: "CGC",     grade: result.cgc.grade,            color: "#fb7185" },
+            ].filter(Boolean) as { key: string; label: string; grade: number; color: string }[];
+
+            if (isGateEnabled && !isSubscribed && !isAdminMode) {
+              // Blurred placeholder — shows same shape as the real content
+              return (
+                <View style={{ overflow: "hidden" as const, borderRadius: 12 }}>
+                  {/* Column headers */}
+                  <View style={styles.ebayColHeader}>
+                    <View style={{ flex: 1 }} />
+                    <Text style={[styles.ebayColHeaderText, { width: 80 }]}>Your Grade</Text>
+                    <Text style={[styles.ebayColHeaderText, { width: 80, textAlign: "right" as const }]}>Grade 10</Text>
                   </View>
-                </BlurView>
-              </Pressable>
-            </View>
-          ) : ebayLoading && !ebayPrices ? (
-            <View style={styles.ebayLoadingRow}>
-              <Text style={styles.ebayLoadingText}>Fetching eBay sold prices…</Text>
-            </View>
-          ) : ebayPrices ? (
-            <View>
-              {[
-                { label: "PSA 10",  value: ebayPrices.psa10,  color: "#22c55e" },
-                { label: "PSA 9",   value: ebayPrices.psa9,   color: "#86efac" },
-                { label: "BGS 9.5", value: ebayPrices.bgs95,  color: "#60a5fa" },
-                { label: "BGS 9",   value: ebayPrices.bgs9,   color: "#93c5fd" },
-                { label: "ACE 10",  value: ebayPrices.ace10,  color: "#f59e0b" },
-                { label: "TAG 10",  value: ebayPrices.tag10,  color: "#c084fc" },
-                { label: "CGC 10",  value: ebayPrices.cgc10,  color: "#fb7185" },
-              ].map(({ label, value, color }) => (
-                <View key={label} style={styles.ebayPriceRow}>
-                  <Text style={styles.ebayPriceLabel}>{label}</Text>
-                  {value > 0 ? (
-                    <Text style={[styles.ebayPriceValue, { color }]}>
-                      £{Math.round(value * 0.79)}
-                    </Text>
+                  {marketRows.map(co => (
+                    <View key={co.key} style={styles.ebayGradeRow}>
+                      <Text style={[styles.ebayGradeRowLabel, { color: co.color }]}>{co.label}</Text>
+                      <View style={styles.ebayGradeRowCell}>
+                        <View style={styles.ebayGradePill}><Text style={styles.ebayGradePillText}>{co.grade}</Text></View>
+                        <Text style={[styles.ebayGradePrice, { color: co.color }]}>£---</Text>
+                      </View>
+                      <View style={styles.ebayGradeRowCell}>
+                        {co.grade < 10 ? <Text style={styles.ebayGradePrice}>£---</Text> : <Text style={styles.ebayGradePriceMuted}>—</Text>}
+                      </View>
+                    </View>
+                  ))}
+                  <View style={[styles.ebayPriceRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
+                    <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
+                    <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>£---</Text>
+                  </View>
+                  <Pressable style={StyleSheet.absoluteFill} onPress={() => router.push("/paywall")}>
+                    <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
+                      <View style={styles.proBlurContent}>
+                        <Ionicons name="lock-closed" size={20} color="#F59E0B" />
+                        <Text style={styles.proBlurTitle}>Pro Feature</Text>
+                        <Text style={styles.proBlurSubtitle}>Upgrade to see eBay market prices</Text>
+                      </View>
+                    </BlurView>
+                  </Pressable>
+                </View>
+              );
+            }
+
+            if (ebayLoading && !ebayPrices) {
+              return (
+                <View style={styles.ebayLoadingRow}>
+                  <Text style={styles.ebayLoadingText}>Fetching eBay sold prices…</Text>
+                </View>
+              );
+            }
+
+            if (!ebayPrices) {
+              return (
+                <View style={styles.ebayLoadingRow}>
+                  <Text style={styles.ebayPriceMuted}>No price data available</Text>
+                </View>
+              );
+            }
+
+            return (
+              <View>
+                {/* Column headers */}
+                <View style={styles.ebayColHeader}>
+                  <View style={{ flex: 1 }} />
+                  <Text style={[styles.ebayColHeaderText, { width: 80 }]}>Your Grade</Text>
+                  <Text style={[styles.ebayColHeaderText, { width: 80, textAlign: "right" as const }]}>Grade 10</Text>
+                </View>
+
+                {marketRows.map(co => {
+                  const actualPrice = getEbayGradePrice(ebayPrices as any, co.key, co.grade);
+                  const grade10Price = co.grade < 10
+                    ? getEbayGradePrice(ebayPrices as any, co.key, 10)
+                    : null;
+                  return (
+                    <View key={co.key} style={styles.ebayGradeRow}>
+                      <Text style={[styles.ebayGradeRowLabel, { color: co.color }]}>{co.label}</Text>
+                      {/* Your grade column */}
+                      <View style={styles.ebayGradeRowCell}>
+                        <View style={styles.ebayGradePill}>
+                          <Text style={styles.ebayGradePillText}>
+                            {co.grade % 1 === 0 ? co.grade : co.grade.toFixed(1)}
+                          </Text>
+                        </View>
+                        {actualPrice != null ? (
+                          <Text style={[styles.ebayGradePrice, { color: co.color }]}>£{toGBP(actualPrice)}</Text>
+                        ) : (
+                          <Text style={styles.ebayGradePriceMuted}>—</Text>
+                        )}
+                      </View>
+                      {/* Grade 10 column */}
+                      <View style={[styles.ebayGradeRowCell, { justifyContent: "flex-end" as const }]}>
+                        {co.grade < 10 ? (
+                          grade10Price != null ? (
+                            <Text style={[styles.ebayGradePrice, { color: "#22c55e" }]}>£{toGBP(grade10Price)}</Text>
+                          ) : (
+                            <Text style={styles.ebayGradePriceMuted}>—</Text>
+                          )
+                        ) : (
+                          <Text style={styles.ebayGradePriceMuted}>✓ 10</Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+
+                {/* Raw (ungraded) — eBay primary, TCGPlayer fallback */}
+                <View style={[styles.ebayPriceRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
+                  <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
+                  {ebayPrices.raw > 0 ? (
+                    <View style={styles.ebayValueWithBadge}>
+                      <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>£{toGBP(ebayPrices.raw)}</Text>
+                      <View style={styles.ebaySourceBadge}>
+                        <Text style={styles.ebaySourceBadgeText}>eBay</Text>
+                      </View>
+                    </View>
+                  ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
+                    <View style={styles.ebayValueWithBadge}>
+                      <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{cardValue.rawValue}</Text>
+                      <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}>
+                        <Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text>
+                      </View>
+                    </View>
+                  ) : loadingValue ? (
+                    <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
                   ) : (
-                    <Text style={styles.ebayPriceMuted}>No sale found</Text>
+                    <Text style={styles.ebayPriceMuted}>No price data</Text>
                   )}
                 </View>
-              ))}
 
-              {/* Raw (ungraded) — eBay primary, TCGPlayer fallback */}
-              <View style={[styles.ebayPriceRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
-                <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
-                {ebayPrices.raw > 0 ? (
-                  <View style={styles.ebayValueWithBadge}>
-                    <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>
-                      £{Math.round(ebayPrices.raw * 0.79)}
-                    </Text>
-                    <View style={styles.ebaySourceBadge}>
-                      <Text style={styles.ebaySourceBadgeText}>eBay</Text>
-                    </View>
-                  </View>
-                ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
-                  <View style={styles.ebayValueWithBadge}>
-                    <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>
-                      {cardValue.rawValue}
-                    </Text>
-                    <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}>
-                      <Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text>
-                    </View>
-                  </View>
-                ) : loadingValue ? (
-                  <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
-                ) : (
-                  <Text style={styles.ebayPriceMuted}>No price data</Text>
-                )}
+                <Text style={styles.ebayDisclaimer}>
+                  Last qualifying eBay sale · excl. Best Offer · Raw = TCGPlayer if no eBay data
+                </Text>
               </View>
-
-              <Text style={styles.ebayDisclaimer}>
-                Graded: last qualifying sale on eBay · excl. Best Offer · USD→GBP ~£0.79/$
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.ebayLoadingRow}>
-              <Text style={styles.ebayPriceMuted}>No price data available</Text>
-            </View>
-          )}
+            );
+          })()}
         </View>
 
-        {result.isCrossover && result.currentGrade && cardValue && (() => {
-          const currentCompanyKey = result.currentGrade!.company.toLowerCase();
-          const currSym = getCurrencySymbol(
-            cardValue.psaValue || cardValue.aceValue || cardValue.bgsValue
-          );
-          const currentSlabValueStr =
-            currentCompanyKey === "psa" ? cardValue.psaValue :
-            currentCompanyKey === "bgs" || currentCompanyKey === "beckett" ? cardValue.bgsValue :
-            currentCompanyKey === "ace" ? cardValue.aceValue :
-            currentCompanyKey === "tag" ? cardValue.tagValue :
-            currentCompanyKey === "cgc" ? cardValue.cgcValue : null;
-          const currentSlabNum = parsePrice(currentSlabValueStr);
+        {result.isCrossover && result.currentGrade && (() => {
+          const currentCompanyRaw = result.currentGrade!.company.toLowerCase();
+          // Normalise company key for eBay lookup ("beckett" → "bgs")
+          const currentEbayKey = (currentCompanyRaw === "beckett" || currentCompanyRaw === "beckett grading") ? "bgs" : currentCompanyRaw;
           const currentGradeNum = parseGradeNum(result.currentGrade!.grade);
 
+          // Prefer real eBay prices; fall back to TCGPlayer cardValue if eBay unavailable
+          const resolveGBP = (ebayKey: string, grade: number, fallbackStr?: string | null): number | null => {
+            const usd = getEbayGradePrice(ebayPrices as any, ebayKey, grade);
+            if (usd != null) return toGBP(usd);
+            return parsePrice(fallbackStr);
+          };
+
+          const currSym = ebayPrices ? "£" : getCurrencySymbol(
+            cardValue?.psaValue || cardValue?.aceValue || cardValue?.bgsValue
+          );
+
+          const currentSlabNum = resolveGBP(
+            currentEbayKey,
+            currentGradeNum,
+            currentCompanyRaw === "psa"     ? cardValue?.psaValue :
+            currentCompanyRaw === "bgs" || currentCompanyRaw === "beckett" ? cardValue?.bgsValue :
+            currentCompanyRaw === "ace"     ? cardValue?.aceValue :
+            currentCompanyRaw === "tag"     ? cardValue?.tagValue :
+            currentCompanyRaw === "cgc"     ? cardValue?.cgcValue : null
+          );
+
           const allCos = [
-            { company: "PSA", label: "PSA", enabled: enabledCompanies.includes("PSA"), grade: result.psa.grade, val: parsePrice(cardValue.psaValue), val10: parsePrice(cardValue.psa10Value) },
-            { company: "BGS", label: "BGS", enabled: enabledCompanies.includes("Beckett"), grade: result.beckett.overallGrade, val: parsePrice(cardValue.bgsValue), val10: parsePrice(cardValue.bgs10Value) },
-            { company: "ACE", label: "ACE", enabled: enabledCompanies.includes("Ace"), grade: result.ace.overallGrade, val: parsePrice(cardValue.aceValue), val10: parsePrice(cardValue.ace10Value) },
-            { company: "TAG", label: "TAG", enabled: enabledCompanies.includes("TAG"), grade: result.tag.overallGrade, val: parsePrice(cardValue.tagValue), val10: parsePrice(cardValue.tag10Value) },
-            { company: "CGC", label: "CGC", enabled: enabledCompanies.includes("CGC"), grade: result.cgc.grade, val: parsePrice(cardValue.cgcValue), val10: parsePrice(cardValue.cgc10Value) },
+            { company: "PSA", label: "PSA", enabled: enabledCompanies.includes("PSA"),     ebayKey: "psa", grade: result.psa.grade,           val: resolveGBP("psa", result.psa.grade,           cardValue?.psaValue), val10: resolveGBP("psa", 10, cardValue?.psa10Value) },
+            { company: "BGS", label: "BGS", enabled: enabledCompanies.includes("Beckett"), ebayKey: "bgs", grade: result.beckett.overallGrade, val: resolveGBP("bgs", result.beckett.overallGrade, cardValue?.bgsValue), val10: resolveGBP("bgs", 10, cardValue?.bgs10Value) },
+            { company: "ACE", label: "ACE", enabled: enabledCompanies.includes("Ace"),     ebayKey: "ace", grade: result.ace.overallGrade,     val: resolveGBP("ace", result.ace.overallGrade,     cardValue?.aceValue), val10: resolveGBP("ace", 10, cardValue?.ace10Value) },
+            { company: "TAG", label: "TAG", enabled: enabledCompanies.includes("TAG"),     ebayKey: "tag", grade: result.tag.overallGrade,     val: resolveGBP("tag", result.tag.overallGrade,     cardValue?.tagValue), val10: resolveGBP("tag", 10, cardValue?.tag10Value) },
+            { company: "CGC", label: "CGC", enabled: enabledCompanies.includes("CGC"),     ebayKey: "cgc", grade: result.cgc.grade,            val: resolveGBP("cgc", result.cgc.grade,            cardValue?.cgcValue), val10: resolveGBP("cgc", 10, cardValue?.cgc10Value) },
           ].filter(c => c.enabled && c.company !== result.currentGrade!.company);
 
           const maxBarVal = Math.max(
@@ -2081,6 +2163,62 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 10,
     lineHeight: 16,
+  },
+  // Two-column Market Prices layout (Your Grade | Grade 10)
+  ebayColHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 6,
+    marginBottom: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  ebayColHeaderText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
+  },
+  ebayGradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  ebayGradeRowLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    width: 36,
+  },
+  ebayGradeRowCell: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  ebayGradePill: {
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 28,
+    alignItems: "center",
+  },
+  ebayGradePillText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    color: Colors.text,
+  },
+  ebayGradePrice: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  ebayGradePriceMuted: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
   },
   disclaimer: {
     flexDirection: "row",

@@ -149,10 +149,18 @@ topGradingPicksLastFetch = 0; // bust on startup
 
 // ── eBay Graded Price Cache ────────────────────────────────────────────────
 interface EbayAllGrades {
-  psa10: number; psa9: number;
-  bgs95: number; bgs9: number;
-  ace10: number; tag10: number; cgc10: number;
-  raw: number;   // ungraded eBay last-sold price (USD) — 0 if none found
+  // PSA (whole grades)
+  psa10: number; psa9: number; psa8: number; psa7: number;
+  // BGS/Beckett (half-step grades)
+  bgs10: number; bgs95: number; bgs9: number; bgs85: number; bgs8: number;
+  // ACE
+  ace10: number; ace9: number; ace8: number;
+  // TAG
+  tag10: number; tag9: number; tag8: number;
+  // CGC
+  cgc10: number; cgc95: number; cgc9: number; cgc8: number;
+  // Ungraded eBay last-sold price (USD) — 0 if none found
+  raw: number;
   fetchedAt: number;
 }
 // ── Persistent eBay Cache ─────────────────────────────────────────────────
@@ -226,17 +234,35 @@ function cleanSetForSearch(setName: string): string {
     .trim();
 }
 
-// Grade targets — each has the search keywords and a title-match predicate.
-// sortOrder=EndTimeSoonest → eBay returns most-recently-sold first.
-const EBAY_GRADE_TARGETS = [
-  { key: "psa10", q: "PSA 10",  match: (t: string) => t.includes("PSA 10")  || t.includes("PSA-10")  },
-  { key: "psa9",  q: "PSA 9",   match: (t: string) => (t.includes("PSA 9")  || t.includes("PSA-9"))  && !t.includes("PSA 9.") },
-  { key: "bgs95", q: "BGS 9.5", match: (t: string) => t.includes("BGS 9.5") || t.includes("BECKETT 9.5") },
-  { key: "bgs9",  q: "BGS 9",   match: (t: string) => (t.includes("BGS 9")  || t.includes("BECKETT 9")) && !t.includes("9.5") },
-  { key: "ace10", q: "ACE 10",  match: (t: string) => t.includes("ACE 10")  },
-  { key: "tag10", q: "TAG 10",  match: (t: string) => t.includes("TAG 10")  },
-  { key: "cgc10", q: "CGC 10",  match: (t: string) => t.includes("CGC 10")  },
-] as const;
+// Grade targets — predicates applied to the same 100-result broad search.
+// sortOrder=EndTimeSoonest → most-recently-sold first.
+// All run against the single 100-result graded dataset — zero extra API calls.
+const EBAY_GRADE_TARGETS: { key: keyof EbayAllGrades; match: (t: string) => boolean }[] = [
+  // PSA (whole grades)
+  { key: "psa10", match: t => t.includes("PSA 10")  || t.includes("PSA-10") },
+  { key: "psa9",  match: t => (t.includes("PSA 9")  || t.includes("PSA-9"))  && !/PSA[\s-]9[.\-]/.test(t) },
+  { key: "psa8",  match: t => (t.includes("PSA 8")  || t.includes("PSA-8"))  && !/PSA[\s-]8[.\-]/.test(t) && !t.includes("PSA 10") },
+  { key: "psa7",  match: t => (t.includes("PSA 7")  || t.includes("PSA-7"))  && !/PSA[\s-]7[.\-]/.test(t) && !t.includes("PSA 10") },
+  // BGS/Beckett (half-step grades)
+  { key: "bgs10", match: t => t.includes("BGS 10") || t.includes("BECKETT 10") || t.includes("BGS PRISTINE") || t.includes("BECKETT PRISTINE") },
+  { key: "bgs95", match: t => t.includes("BGS 9.5") || t.includes("BECKETT 9.5") },
+  { key: "bgs9",  match: t => (t.includes("BGS 9") || t.includes("BECKETT 9")) && !t.includes("9.5") && !t.includes("BGS 10") && !t.includes("BECKETT 10") },
+  { key: "bgs85", match: t => t.includes("BGS 8.5") || t.includes("BECKETT 8.5") },
+  { key: "bgs8",  match: t => (t.includes("BGS 8") || t.includes("BECKETT 8")) && !t.includes("8.5") && !t.includes("BGS 10") },
+  // ACE
+  { key: "ace10", match: t => t.includes("ACE 10") },
+  { key: "ace9",  match: t => t.includes("ACE 9")  && !/ACE\s9\./.test(t) && !t.includes("ACE 10") },
+  { key: "ace8",  match: t => t.includes("ACE 8")  && !/ACE\s8\./.test(t) && !t.includes("ACE 10") },
+  // TAG
+  { key: "tag10", match: t => t.includes("TAG 10") },
+  { key: "tag9",  match: t => t.includes("TAG 9")  && !/TAG\s9\./.test(t) && !t.includes("TAG 10") },
+  { key: "tag8",  match: t => t.includes("TAG 8")  && !/TAG\s8\./.test(t) && !t.includes("TAG 10") },
+  // CGC
+  { key: "cgc10", match: t => t.includes("CGC 10") },
+  { key: "cgc95", match: t => t.includes("CGC 9.5") },
+  { key: "cgc9",  match: t => t.includes("CGC 9") && !t.includes("9.5") && !t.includes("CGC 10") },
+  { key: "cgc8",  match: t => t.includes("CGC 8") && !t.includes("8.5") && !t.includes("CGC 10") },
+];
 
 /**
  * Walk eBay result list (most-recent-first) and return the price of the FIRST
@@ -341,16 +367,14 @@ async function fetchEbayGradedPrices(
     parseEbayJson(rawResp),
   ]);
 
-  // All seven grade predicates run against the same 100-result dataset
+  // All grade predicates run against the same 100-result dataset — no extra API calls
+  const extracted = Object.fromEntries(
+    EBAY_GRADE_TARGETS.map(g => [g.key, extractLastEbay(gradedData, g.match)])
+  ) as Omit<EbayAllGrades, "raw" | "fetchedAt">;
+
   const result: EbayAllGrades = {
-    psa10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[0].match),
-    psa9:  extractLastEbay(gradedData, EBAY_GRADE_TARGETS[1].match),
-    bgs95: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[2].match),
-    bgs9:  extractLastEbay(gradedData, EBAY_GRADE_TARGETS[3].match),
-    ace10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[4].match),
-    tag10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[5].match),
-    cgc10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[6].match),
-    raw:   extractLastEbay(rawData,    rawMatch),
+    ...extracted,
+    raw:       extractLastEbay(rawData, rawMatch),
     fetchedAt: Date.now(),
   };
   // Store in L1
