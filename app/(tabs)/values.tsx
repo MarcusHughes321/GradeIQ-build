@@ -86,10 +86,8 @@ async function saveRecentSearches(searches: string[]): Promise<void> {
 }
 
 interface EbayPriceResult {
-  psa10Median: number;
-  psa9Median: number;
-  psa10Samples: number;
-  psa9Samples: number;
+  psa10Last: number;
+  psa9Last: number;
 }
 
 const TopPickCard = memo(({ item, index, onPress }: {
@@ -110,8 +108,8 @@ const TopPickCard = memo(({ item, index, onPress }: {
     retry: 1,
   });
 
-  const psa10GBP = ebay && ebay.psa10Median > 0 ? rawGBP(ebay.psa10Median) : null;
-  const psa9GBP  = ebay && ebay.psa9Median  > 0 ? rawGBP(ebay.psa9Median)  : null;
+  const psa10GBP = ebay && ebay.psa10Last > 0 ? rawGBP(ebay.psa10Last) : null;
+  const psa9GBP  = ebay && ebay.psa9Last  > 0 ? rawGBP(ebay.psa9Last)  : null;
 
   return (
     <Pressable
@@ -162,12 +160,6 @@ const TopPickCard = memo(({ item, index, onPress }: {
         )}
       </View>
 
-      {ebay && (ebay.psa10Samples > 0 || ebay.psa9Samples > 0) && (
-        <Text style={cardStyles.samples}>
-          {ebay.psa10Samples > 0 ? `${ebay.psa10Samples} PSA10 ` : ""}
-          {ebay.psa9Samples  > 0 ? `${ebay.psa9Samples} PSA9` : ""} sales
-        </Text>
-      )}
 
       <Text style={cardStyles.hint}>Tap for full breakdown</Text>
     </Pressable>
@@ -460,7 +452,7 @@ export default function ValuesScreen() {
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
-              Raw: TCGPlayer market price · PSA 10/9: eBay sold listings (median) · GBP at ~£0.79/$
+              Raw: TCGPlayer market price · PSA 10/9: last eBay sold price (excl. Best Offer) · GBP at ~£0.79/$
             </Text>
           </View>
         )}

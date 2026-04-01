@@ -147,8 +147,7 @@ topGradingPicksLastFetch = 0; // bust on startup
 
 // ── eBay Graded Price Cache ────────────────────────────────────────────────
 const ebayPriceCache = new Map<string, {
-  psa10Median: number; psa9Median: number;
-  psa10Samples: number; psa9Samples: number;
+  psa10Last: number; psa9Last: number;
   fetchedAt: number;
 }>();
 const EBAY_PRICE_TTL = 24 * 60 * 60 * 1000; // 24 h
@@ -190,6 +189,8 @@ async function fetchEbayGradedPrices(cardName: string, setName: string) {
 
   const cleanSet = cleanSetForSearch(setName);
 
+  // Request ListingInfo so we can detect Best Offer listings and skip them.
+  // sortOrder=EndTimeSoonest returns the most recently sold item first.
   const buildUrl = (grade: number) => {
     const q = encodeURIComponent(`PSA ${grade} ${cardName} ${cleanSet} Pokemon`);
     return (
@@ -199,7 +200,8 @@ async function fetchEbayGradedPrices(cardName: string, setName: string) {
       `&RESPONSE-DATA-FORMAT=JSON` +
       `&keywords=${q}` +
       `&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true` +
-      `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=20`
+      `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=30` +
+      `&outputSelector(0)=ListingInfo`
     );
   };
 
@@ -212,34 +214,44 @@ async function fetchEbayGradedPrices(cardName: string, setName: string) {
     r9.ok  ? r9.json()  : {},
   ]);
 
-  const extract = (data: any, grade: number): number[] => {
-    const items = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
+  /**
+   * Walk the result list (most-recent-first) and return the price of the
+   * FIRST item that:
+   *  - Has the right PSA grade in the title
+   *  - Was NOT sold via Best Offer (bestOfferEnabled = false)
+   *  - Has a sensible price (> $5)
+   */
+  const extractLast = (data: any, grade: number): number => {
+    const items: any[] = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
     const g = String(grade);
-    return iqrFilter(
-      items
-        .filter((it: any) => {
-          const t = (it?.title?.[0] || "").toUpperCase();
-          return t.includes(`PSA ${g}`) || t.includes(`PSA-${g}`) || t.includes(`PSA${g}`);
-        })
-        .map((it: any) =>
-          parseFloat(it?.sellingStatus?.[0]?.currentPrice?.[0]?.["__value__"] || "0")
-        )
-        .filter((p: number) => p > 5)
-    );
-  };
+    for (const it of items) {
+      const title = (it?.title?.[0] || "").toUpperCase();
+      const hasGrade =
+        title.includes(`PSA ${g}`) ||
+        title.includes(`PSA-${g}`) ||
+        title.includes(`PSA${g}`);
+      if (!hasGrade) continue;
 
-  const p10 = extract(d10, 10);
-  const p9  = extract(d9,  9);
+      // Skip listings where Best Offer was enabled (price may be negotiated down)
+      const isBestOffer =
+        it?.listingInfo?.[0]?.bestOfferEnabled?.[0] === "true";
+      if (isBestOffer) continue;
+
+      const price = parseFloat(
+        it?.sellingStatus?.[0]?.currentPrice?.[0]?.["__value__"] || "0"
+      );
+      if (price > 5) return Math.round(price * 100) / 100;
+    }
+    return 0; // no qualifying sale found
+  };
 
   const result = {
-    psa10Median:  Math.round(medianOf(p10) * 100) / 100,
-    psa9Median:   Math.round(medianOf(p9)  * 100) / 100,
-    psa10Samples: p10.length,
-    psa9Samples:  p9.length,
-    fetchedAt:    Date.now(),
+    psa10Last: extractLast(d10, 10),
+    psa9Last:  extractLast(d9,  9),
+    fetchedAt: Date.now(),
   };
   ebayPriceCache.set(cacheKey, result);
-  console.log(`[ebay-price] ${cardName} | PSA10 $${result.psa10Median} (n=${result.psa10Samples}) | PSA9 $${result.psa9Median} (n=${result.psa9Samples})`);
+  console.log(`[ebay-price] ${cardName} | PSA10 last $${result.psa10Last} | PSA9 last $${result.psa9Last}`);
   return result;
 }
 
