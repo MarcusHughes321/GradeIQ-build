@@ -264,6 +264,19 @@ export default function ValuesScreen() {
   });
   const sets = useMemo(() => setsData?.sets || [], [setsData]);
 
+  const [setSearch, setSetSearch] = useState("");
+  const setSearchRef = useRef<TextInput>(null);
+
+  const filteredSets = useMemo(() => {
+    const q = setSearch.trim().toLowerCase();
+    if (!q) return sets;
+    return sets.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.nameEn && s.nameEn.toLowerCase().includes(q)) ||
+      (s.series && s.series.toLowerCase().includes(q))
+    );
+  }, [sets, setSearch]);
+
   // Global Top Grading Picks — explicit queryFn to avoid URL join issues
   const { data: picksData, isLoading: picksLoading, error: picksError, refetch: refetchPicks } = useQuery<{ cards: TopPick[] }>({
     queryKey: ["top-grading-picks"],
@@ -628,6 +641,38 @@ export default function ValuesScreen() {
         </View>
       </View>
 
+      {/* Set search bar */}
+      {!setsLoading && sets.length > 0 && (
+        <View style={styles.setSearchWrap}>
+          <Ionicons name="search" size={15} color={Colors.textMuted} style={{ marginRight: 6 }} />
+          <TextInput
+            ref={setSearchRef}
+            value={setSearch}
+            onChangeText={setSetSearch}
+            placeholder="Search sets or series…"
+            placeholderTextColor={Colors.textMuted}
+            style={styles.setSearchInput}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {setSearch.length > 0 && (
+            <Pressable onPress={() => { setSetSearch(""); setSearchRef.current?.focus(); }} hitSlop={10}>
+              <Ionicons name="close-circle" size={16} color={Colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* No results message */}
+      {!setsLoading && sets.length > 0 && filteredSets.length === 0 && (
+        <View style={styles.inlineFeedback}>
+          <Ionicons name="search-outline" size={16} color={Colors.textMuted} />
+          <Text style={styles.feedbackText}>No sets match "{setSearch}"</Text>
+        </View>
+      )}
+
       {setsLoading && (
         <View style={styles.inlineFeedback}>
           <ActivityIndicator color={Colors.primary} size="small" />
@@ -649,7 +694,7 @@ export default function ValuesScreen() {
   return (
     <FlatList
       style={styles.container}
-      data={sets}
+      data={filteredSets}
       keyExtractor={item => item.id}
       ListHeaderComponent={listHeader}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -918,6 +963,27 @@ const styles = StyleSheet.create({
     borderColor: Colors.surfaceBorder,
   },
   langPillText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textSecondary },
+
+  // Set search bar
+  setSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  setSearchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.text,
+    padding: 0,
+  },
 
   // Set row
   setRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
