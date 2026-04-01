@@ -201,11 +201,12 @@ async function fetchEbayGradedPrices(
   setName: string,
   cardNumber?: string
 ): Promise<EbayAllGrades> {
-  // Base card number e.g. "295" from "295/217" — commonly included in eBay titles
+  // Base card number e.g. "295" from "295/217" — sellers commonly include this in titles
   const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
-  const cleanSet = cleanSetForSearch(setName);
-  // Card identifier combines name + set (stripped) + base number; falsy parts excluded
-  const cardIdStr = [cardName, cleanSet, baseNum].filter(Boolean).join(" ");
+  // NOTE: Set name is intentionally excluded from the eBay query — sellers almost never
+  // include set names in titles (e.g. "Skyridge", "Arceus") and it kills all results.
+  // Card name + number is specific enough to differentiate between cards.
+  const cardIdStr = [cardName, baseNum].filter(Boolean).join(" ");
 
   const cacheKey = `${cardIdStr}`;
   const hit = ebayPriceCache.get(cacheKey);
