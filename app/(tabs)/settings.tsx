@@ -12,7 +12,7 @@ import CompanyLabel from "@/components/CompanyLabel";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { settings, toggleCompany, setCurrency } = useSettings();
+  const { settings, toggleCompany, setCurrency, setPreferredPicksCompany } = useSettings();
   const {
     isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades,
     currentTier, tierInfo, isAdminMode, toggleAdminMode, restorePurchases,
@@ -152,6 +152,46 @@ export default function SettingsScreen() {
         <Text style={styles.hint}>
           At least one grading company must remain enabled. More companies coming soon.
         </Text>
+
+        {settings.enabledCompanies.length > 0 && (
+          <>
+            <View style={[styles.section, { marginTop: 32 }]}>
+              <Text style={styles.sectionTitle}>Top Picks Company</Text>
+              <Text style={styles.sectionSubtitle}>
+                Which company's top grade profit should rank your Top Picks?
+              </Text>
+            </View>
+            <View style={styles.picksCompanyRow}>
+              {settings.enabledCompanies.map((id) => {
+                const co = ALL_COMPANIES.find(c => c.id === id);
+                if (!co) return null;
+                const selected = settings.preferredPicksCompany === id;
+                return (
+                  <Pressable
+                    key={id}
+                    onPress={() => setPreferredPicksCompany(id)}
+                    style={({ pressed }) => [
+                      styles.picksCompanyPill,
+                      selected && styles.picksCompanyPillSelected,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <View style={[styles.picksCompanyDot, { backgroundColor: co.color }]} />
+                    <Text style={[styles.picksCompanyText, selected && styles.picksCompanyTextSelected]}>
+                      {co.shortLabel}
+                    </Text>
+                    {selected && (
+                      <Ionicons name="checkmark" size={13} color={Colors.primary} style={{ marginLeft: 2 }} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.hint}>
+              Top Picks will be ranked by this company's best-grade profit. All companies still appear in card details.
+            </Text>
+          </>
+        )}
 
         {(isSubscribed || isAdminMode) && (
           <>
@@ -688,5 +728,39 @@ const styles = StyleSheet.create({
   currencySelected: {
     color: Colors.primary,
     fontFamily: "Inter_700Bold",
+  },
+  picksCompanyRow: {
+    flexDirection: "row" as const,
+    flexWrap: "wrap" as const,
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  picksCompanyPill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface,
+  },
+  picksCompanyPillSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: "rgba(255,60,49,0.08)",
+  },
+  picksCompanyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  picksCompanyText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  picksCompanyTextSelected: {
+    color: Colors.primary,
   },
 });

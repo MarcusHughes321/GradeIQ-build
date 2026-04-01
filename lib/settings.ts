@@ -18,6 +18,7 @@ export const CURRENCIES: { code: CurrencyCode; symbol: string; label: string }[]
 export interface AppSettings {
   enabledCompanies: CompanyId[];
   currency: CurrencyCode;
+  preferredPicksCompany: CompanyId;
 }
 
 export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; color: string }[] = [
@@ -31,6 +32,7 @@ export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; 
 export const DEFAULT_SETTINGS: AppSettings = {
   enabledCompanies: [],
   currency: "GBP",
+  preferredPicksCompany: "PSA",
 };
 
 export async function getSettings(): Promise<AppSettings> {
@@ -41,7 +43,10 @@ export async function getSettings(): Promise<AppSettings> {
     if (!parsed.enabledCompanies || !Array.isArray(parsed.enabledCompanies)) {
       return DEFAULT_SETTINGS;
     }
-    return parsed;
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }

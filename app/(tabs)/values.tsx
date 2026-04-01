@@ -19,6 +19,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
+import { useSettings } from "@/lib/settings-context";
+import { ALL_COMPANIES } from "@/lib/settings";
+import type { CompanyId } from "@/lib/settings";
 
 interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;
@@ -94,17 +97,30 @@ async function saveRecentSearches(searches: string[]): Promise<void> {
   await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
 }
 
-const PSA_FEE_GBP = 25;
-const PSA_GRADES_ASC = [7, 8, 9, 10] as const;
+// Per-company config for Top Picks ranking
+const PICKS_COMPANY_CONFIG: Record<CompanyId, {
+  topEbayKey: keyof EbayAllGrades;
+  topGradeLabel: string;
+  fee: number;
+  gradesAsc: { key: keyof EbayAllGrades; label: number }[];
+}> = {
+  PSA:     { topEbayKey: "psa10",  topGradeLabel: "PSA 10",  fee: 25, gradesAsc: [{ key: "psa7", label: 7 }, { key: "psa8", label: 8 }, { key: "psa9", label: 9 }, { key: "psa10", label: 10 }] },
+  Beckett: { topEbayKey: "bgs95",  topGradeLabel: "BGS 9.5", fee: 25, gradesAsc: [{ key: "bgs8", label: 8 }, { key: "bgs85", label: 8.5 }, { key: "bgs9", label: 9 }, { key: "bgs95", label: 9.5 }, { key: "bgs10", label: 10 }] },
+  Ace:     { topEbayKey: "ace10",  topGradeLabel: "ACE 10",  fee: 15, gradesAsc: [{ key: "ace8", label: 8 }, { key: "ace9", label: 9 }, { key: "ace10", label: 10 }] },
+  TAG:     { topEbayKey: "tag10",  topGradeLabel: "TAG 10",  fee: 20, gradesAsc: [{ key: "tag8", label: 8 }, { key: "tag9", label: 9 }, { key: "tag10", label: 10 }] },
+  CGC:     { topEbayKey: "cgc10",  topGradeLabel: "CGC 10",  fee: 22, gradesAsc: [{ key: "cgc8", label: 8 }, { key: "cgc9", label: 9 }, { key: "cgc95", label: 9.5 }, { key: "cgc10", label: 10 }] },
+};
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, psa10GBP, psa10Profit, minProfitGrade, ebayLoading }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeGBP, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading }: {
   item: TopPick;
   index: number;
   onPress: () => void;
-  psa10GBP: number | null;
-  psa10Profit: number | null;
+  topGradeGBP: number | null;
+  topGradeProfit: number | null;
+  topGradeLabel: string;
   minProfitGrade: number | null;
+  minProfitLabel: string | null;
   ebayLoading: boolean;
 }) => {
   const priceGBP = rawGBP(item.rawPriceUSD);
@@ -134,26 +150,26 @@ const TopPickCard = memo(({ item, index, onPress, psa10GBP, psa10Profit, minProf
         <Text style={cardStyles.value}>£{Math.round(priceGBP)}</Text>
       </View>
 
-      {/* PSA 10 eBay last sold */}
+      {/* Top grade eBay last sold */}
       <View style={cardStyles.row}>
-        <Text style={cardStyles.label}>PSA 10</Text>
+        <Text style={cardStyles.label}>{topGradeLabel}</Text>
         {ebayLoading ? (
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : psa10GBP !== null ? (
-          <Text style={[cardStyles.graded, { color: "#22c55e" }]}>£{psa10GBP}</Text>
+        ) : topGradeGBP !== null ? (
+          <Text style={[cardStyles.graded, { color: "#22c55e" }]}>£{topGradeGBP}</Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
         )}
       </View>
 
-      {/* PSA 10 net profit */}
+      {/* Top grade net profit */}
       <View style={cardStyles.row}>
         <Text style={cardStyles.label}>Profit</Text>
         {ebayLoading ? (
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : psa10Profit !== null ? (
-          <Text style={[cardStyles.graded, { color: psa10Profit >= 0 ? "#22c55e" : "#ef4444" }]}>
-            {psa10Profit >= 0 ? "+" : ""}£{psa10Profit}
+        ) : topGradeProfit !== null ? (
+          <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
+            {topGradeProfit >= 0 ? "+" : ""}£{topGradeProfit}
           </Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
@@ -164,8 +180,8 @@ const TopPickCard = memo(({ item, index, onPress, psa10GBP, psa10Profit, minProf
       {!ebayLoading && priceGBP > 0 && (
         <View style={[cardStyles.row, { marginTop: 2 }]}>
           <Text style={cardStyles.label}>Min grade</Text>
-          {minProfitGrade !== null ? (
-            <Text style={[cardStyles.graded, { color: "#f59e0b", fontSize: 11 }]}>PSA {minProfitGrade}</Text>
+          {minProfitLabel !== null ? (
+            <Text style={[cardStyles.graded, { color: "#f59e0b", fontSize: 11 }]}>{minProfitLabel}</Text>
           ) : (
             <Text style={cardStyles.muted}>None</Text>
           )}
@@ -199,6 +215,7 @@ export default function ValuesScreen() {
   const insets = useSafeAreaInsets();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
+  const { settings } = useSettings();
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -256,39 +273,53 @@ export default function ValuesScreen() {
     })),
   });
 
-  // Enrich each card with PSA10 profit and min-grade, then sort by profit and take top 10.
+  // Preferred picks company — fall back to first enabled if the saved preference isn't enabled
+  const effectivePicksCompany: CompanyId = useMemo(() => {
+    const preferred = settings.preferredPicksCompany;
+    if (settings.enabledCompanies.includes(preferred)) return preferred;
+    return (settings.enabledCompanies[0] as CompanyId) ?? "PSA";
+  }, [settings.preferredPicksCompany, settings.enabledCompanies]);
+
+  const picksConfig = PICKS_COMPANY_CONFIG[effectivePicksCompany];
+
+  // Enrich each card with the preferred company's top-grade profit and min break-even grade,
+  // then sort by that profit descending and take top 10.
   const enrichedTopPicks = useMemo(() => {
+    const cfg = picksConfig;
     const enriched = filteredTierPicks.map((pick, i) => {
       const ebay = tierEbayQueries[i]?.data as EbayAllGrades | undefined;
       const isLoading = tierEbayQueries[i]?.isLoading ?? true;
       const rawGBPVal = rawGBP(pick.rawPriceUSD);
-      const psa10GBP = ebay && ebay.psa10 > 0 ? Math.round(ebay.psa10 * GBP_RATE) : null;
-      const psa10Profit = psa10GBP !== null ? Math.round(psa10GBP - rawGBPVal - PSA_FEE_GBP) : null;
+      const topUSD = ebay ? (ebay[cfg.topEbayKey] as number) ?? 0 : 0;
+      const topGradeGBP = topUSD > 0 ? Math.round(topUSD * GBP_RATE) : null;
+      const topGradeProfit = topGradeGBP !== null ? Math.round(topGradeGBP - rawGBPVal - cfg.fee) : null;
 
-      // Min PSA grade to break even (>= 0): iterate from worst to best, first >= 0 wins
+      // Min break-even grade: iterate cfg.gradesAsc (worst → best), first >= 0 wins
       let minProfitGrade: number | null = null;
+      let minProfitLabel: string | null = null;
       if (ebay && rawGBPVal > 0) {
-        for (const g of PSA_GRADES_ASC) {
-          const usd = ebay[`psa${g}` as keyof EbayAllGrades] ?? 0;
-          if (usd > 0 && (usd * GBP_RATE - rawGBPVal - PSA_FEE_GBP) >= 0) {
-            minProfitGrade = g;
+        for (const g of cfg.gradesAsc) {
+          const usd = (ebay[g.key] as number) ?? 0;
+          if (usd > 0 && (usd * GBP_RATE - rawGBPVal - cfg.fee) >= 0) {
+            minProfitGrade = g.label;
+            minProfitLabel = `${effectivePicksCompany === "Beckett" ? "BGS" : effectivePicksCompany} ${g.label}`;
             break;
           }
         }
       }
 
-      return { pick, psa10GBP, psa10Profit, minProfitGrade, isLoading };
+      return { pick, topGradeGBP, topGradeProfit, minProfitGrade, minProfitLabel, isLoading };
     });
 
-    // Sort by PSA10 profit (cards where data isn't yet loaded go to the back)
+    // Sort by top-grade profit (cards without data go to the back)
     enriched.sort((a, b) => {
-      const pa = a.psa10Profit ?? -9999;
-      const pb = b.psa10Profit ?? -9999;
+      const pa = a.topGradeProfit ?? -9999;
+      const pb = b.topGradeProfit ?? -9999;
       return pb - pa;
     });
 
     return enriched.slice(0, 10);
-  }, [filteredTierPicks, tierEbayQueries]);
+  }, [filteredTierPicks, tierEbayQueries, picksConfig, effectivePicksCompany]);
 
   // Alias for template clarity
   const tieredPicks = enrichedTopPicks;
@@ -370,12 +401,14 @@ export default function ValuesScreen() {
       item={entry.pick}
       index={index}
       onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD)}
-      psa10GBP={entry.psa10GBP}
-      psa10Profit={entry.psa10Profit}
+      topGradeGBP={entry.topGradeGBP}
+      topGradeProfit={entry.topGradeProfit}
+      topGradeLabel={picksConfig.topGradeLabel}
       minProfitGrade={entry.minProfitGrade}
+      minProfitLabel={entry.minProfitLabel}
       ebayLoading={entry.isLoading}
     />
-  ), [handleTapCard, tieredPicks]);
+  ), [handleTapCard, tieredPicks, picksConfig]);
 
   const listHeader = (
     <View>
@@ -527,8 +560,8 @@ export default function ValuesScreen() {
             />
             <Text style={styles.rankingStatusText}>
               {tierEbayLoading
-                ? "Loading eBay prices to rank by profit…"
-                : "Ranked by estimated PSA 10 profit"}
+                ? `Loading eBay prices to rank by ${picksConfig.topGradeLabel} profit…`
+                : `Ranked by estimated ${picksConfig.topGradeLabel} profit`}
             </Text>
           </View>
         )}

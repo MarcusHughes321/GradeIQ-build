@@ -7,6 +7,7 @@ interface SettingsContextValue {
   toggleCompany: (company: CompanyId) => void;
   setEnabledCompanies: (companies: CompanyId[]) => void;
   setCurrency: (currency: CurrencyCode) => void;
+  setPreferredPicksCompany: (company: CompanyId) => void;
   loading: boolean;
 }
 
@@ -33,11 +34,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setSettings((prev) => {
         const enabled = prev.enabledCompanies.includes(company);
         if (enabled && prev.enabledCompanies.length <= 1) return prev;
+        const newEnabled = enabled
+          ? prev.enabledCompanies.filter((c) => c !== company)
+          : [...prev.enabledCompanies, company];
+        // If the preferred picks company was just disabled, reset to the first remaining enabled company
+        const preferred =
+          newEnabled.includes(prev.preferredPicksCompany)
+            ? prev.preferredPicksCompany
+            : (newEnabled[0] ?? prev.preferredPicksCompany);
         const next: AppSettings = {
           ...prev,
-          enabledCompanies: enabled
-            ? prev.enabledCompanies.filter((c) => c !== company)
-            : [...prev.enabledCompanies, company],
+          enabledCompanies: newEnabled,
+          preferredPicksCompany: preferred,
         };
         saveSettings(next);
         return next;
@@ -45,6 +53,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     []
   );
+
+  const setPreferredPicksCompany = useCallback((company: CompanyId) => {
+    setSettings((prev) => {
+      const next: AppSettings = { ...prev, preferredPicksCompany: company };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
 
   const setEnabledCompanies = useCallback((companies: CompanyId[]) => {
     if (companies.length === 0) return;
@@ -64,8 +80,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, loading }),
-    [settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, loading]
+    () => ({ settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, setPreferredPicksCompany, loading }),
+    [settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, setPreferredPicksCompany, loading]
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
