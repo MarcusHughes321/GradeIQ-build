@@ -139,10 +139,10 @@ export default function CardProfitScreen() {
         return { ...g, ebayGBP, profit };
       });
 
-      // Minimum grade = lowest grade number where profit > 0.
+      // Minimum grade = lowest grade number where profit >= 0 (breaks even or better).
       // Iterate from worst grade (highest index = lowest number) upward.
       const minProfitRow =
-        [...rows].reverse().find(r => r.profit !== null && r.profit > 0) ?? null;
+        [...rows].reverse().find(r => r.profit !== null && r.profit >= 0) ?? null;
 
       return { compId, config, rows, minProfitRow };
     }).filter((c): c is NonNullable<typeof c> => c !== null);
@@ -236,7 +236,7 @@ export default function CardProfitScreen() {
             {/* Grade rows */}
             {rows.map((gr, idx) => {
               const isMin = minProfitRow?.ebayKey === gr.ebayKey;
-              const isProfit = gr.profit !== null && gr.profit > 0;
+              const isProfit = gr.profit !== null && gr.profit >= 0;
               const isLast = idx === rows.length - 1;
 
               return (

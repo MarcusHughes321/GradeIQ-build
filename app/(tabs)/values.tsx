@@ -124,7 +124,7 @@ const TopPickCard = memo(({ item, index, onPress, onEbayLoaded }: {
   if (ebay && priceGBP > 0) {
     for (const g of PSA_GRADES) {
       const eGBP = ebay[`psa${g}` as keyof EbayAllGrades] ?? 0;
-      if (eGBP > 0 && (eGBP * 0.79 - priceGBP - PSA_FEE_GBP) > 0) {
+      if (eGBP > 0 && (eGBP * 0.79 - priceGBP - PSA_FEE_GBP) >= 0) {
         minProfitGrade = g;
         break;
       }
@@ -264,7 +264,8 @@ export default function ValuesScreen() {
   const allPicks = picksData?.cards || [];
 
   // Filter to cards in the selected price tier, initially sorted by raw price.
-  // Once eBay data loads, re-sorts by PSA 10 profit descending.
+  // Once eBay profit data loads, re-sort the FULL tier by profit, then take top 10
+  // (so high-profit cards that weren't in the initial top 10 can surface).
   const tieredPicks = useMemo(() => {
     if (allPicks.length === 0) return [];
     const tier = PRICE_TIERS.find(t => t.minGBP === priceTier);
@@ -272,15 +273,16 @@ export default function ValuesScreen() {
     const filtered = allPicks.filter(c => {
       const p = rawGBP(c.rawPriceUSD);
       return p >= tier.minGBP && p < tier.maxGBP;
-    }).slice(0, 10);
-    if (Object.keys(ebayProfitMap).length > 0) {
-      return [...filtered].sort((a, b) => {
-        const pa = ebayProfitMap[a.id] ?? -9999;
-        const pb = ebayProfitMap[b.id] ?? -9999;
-        return pb - pa;
-      });
-    }
-    return filtered.sort((a, b) => rawGBP(b.rawPriceUSD) - rawGBP(a.rawPriceUSD));
+    });
+    const sorted =
+      Object.keys(ebayProfitMap).length > 0
+        ? [...filtered].sort((a, b) => {
+            const pa = ebayProfitMap[a.id] ?? -9999;
+            const pb = ebayProfitMap[b.id] ?? -9999;
+            return pb - pa;
+          })
+        : [...filtered].sort((a, b) => rawGBP(b.rawPriceUSD) - rawGBP(a.rawPriceUSD));
+    return sorted.slice(0, 10);
   }, [allPicks, priceTier, ebayProfitMap]);
 
   const loadRecent = useCallback(async () => {
