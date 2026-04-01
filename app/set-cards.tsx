@@ -120,13 +120,15 @@ export default function SetCardsScreen() {
       .slice(0, 10);
   }, [allCards, hasAnyPrice]);
 
-  const handleCardPress = (card: SetCard, opts?: { fromTopPicks?: boolean }) => {
+  const handleCardPress = (card: SetCard) => {
     router.push({
       pathname: "/card-profit",
       params: {
         cardId: card.id,
         cardName: card.name,
         setName: setName || "",
+        imageUrl: card.imageUrl || "",
+        rawPriceUSD: card.price ? String(card.price) : "0",
       },
     });
   };
