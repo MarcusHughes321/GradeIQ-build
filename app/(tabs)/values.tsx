@@ -16,7 +16,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
 
@@ -95,49 +95,20 @@ async function saveRecentSearches(searches: string[]): Promise<void> {
 }
 
 const PSA_FEE_GBP = 25;
-const PSA_GRADES = [7, 8, 9, 10] as const;
+const PSA_GRADES_ASC = [7, 8, 9, 10] as const;
+const GBP_RATE = 0.79;
 
-const TopPickCard = memo(({ item, index, onPress, onEbayLoaded }: {
+// Presentational card — all eBay metrics precomputed by parent
+const TopPickCard = memo(({ item, index, onPress, psa10GBP, psa10Profit, minProfitGrade, ebayLoading }: {
   item: TopPick;
   index: number;
   onPress: () => void;
-  onEbayLoaded?: (id: string, psa10ProfitGBP: number) => void;
+  psa10GBP: number | null;
+  psa10Profit: number | null;
+  minProfitGrade: number | null;
+  ebayLoading: boolean;
 }) => {
   const priceGBP = rawGBP(item.rawPriceUSD);
-
-  const { data: ebay, isLoading: ebayLoading } = useQuery<EbayAllGrades>({
-    queryKey: ["ebay-all-grades", item.name, item.setName],
-    queryFn: () =>
-      apiRequest(
-        "GET",
-        `/api/ebay-all-grades?name=${encodeURIComponent(item.name)}&setName=${encodeURIComponent(item.setName)}`
-      ).then(r => r.json()),
-    staleTime: 24 * 60 * 60 * 1000,
-    retry: 1,
-  });
-
-  const psa10GBP = ebay && ebay.psa10 > 0 ? Math.round(ebay.psa10 * 0.79) : null;
-  const psa10Profit = psa10GBP !== null ? Math.round(psa10GBP - priceGBP - PSA_FEE_GBP) : null;
-
-  // Minimum PSA grade to profit: lowest grade number with positive net profit
-  let minProfitGrade: number | null = null;
-  if (ebay && priceGBP > 0) {
-    for (const g of PSA_GRADES) {
-      const eGBP = ebay[`psa${g}` as keyof EbayAllGrades] ?? 0;
-      if (eGBP > 0 && (eGBP * 0.79 - priceGBP - PSA_FEE_GBP) >= 0) {
-        minProfitGrade = g;
-        break;
-      }
-    }
-  }
-
-  // Report profit to parent for sorting
-  React.useEffect(() => {
-    if (ebay && onEbayLoaded) {
-      const profit = psa10GBP !== null ? Math.round(psa10GBP - priceGBP - PSA_FEE_GBP) : -9999;
-      onEbayLoaded(item.id, profit);
-    }
-  }, [ebay]);
 
   return (
     <Pressable
@@ -164,12 +135,12 @@ const TopPickCard = memo(({ item, index, onPress, onEbayLoaded }: {
         <Text style={cardStyles.value}>£{Math.round(priceGBP)}</Text>
       </View>
 
-      {/* PSA 10 eBay last sold + profit */}
+      {/* PSA 10 eBay last sold */}
       <View style={cardStyles.row}>
         <Text style={cardStyles.label}>PSA 10</Text>
         {ebayLoading ? (
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : psa10GBP ? (
+        ) : psa10GBP !== null ? (
           <Text style={[cardStyles.graded, { color: "#22c55e" }]}>£{psa10GBP}</Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
@@ -238,7 +209,6 @@ export default function ValuesScreen() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
   const [priceTier, setPriceTier] = useState<PriceTierMin>(50);
-  const [ebayProfitMap, setEbayProfitMap] = useState<Record<string, number>>({});
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -263,27 +233,66 @@ export default function ValuesScreen() {
   });
   const allPicks = picksData?.cards || [];
 
-  // Filter to cards in the selected price tier, initially sorted by raw price.
-  // Once eBay profit data loads, re-sort the FULL tier by profit, then take top 10
-  // (so high-profit cards that weren't in the initial top 10 can surface).
-  const tieredPicks = useMemo(() => {
-    if (allPicks.length === 0) return [];
+  // All cards in the selected price tier (full set, no slice yet).
+  const filteredTierPicks = useMemo(() => {
     const tier = PRICE_TIERS.find(t => t.minGBP === priceTier);
-    if (!tier) return [];
-    const filtered = allPicks.filter(c => {
+    if (!tier || allPicks.length === 0) return [];
+    return allPicks.filter(c => {
       const p = rawGBP(c.rawPriceUSD);
       return p >= tier.minGBP && p < tier.maxGBP;
     });
-    const sorted =
-      Object.keys(ebayProfitMap).length > 0
-        ? [...filtered].sort((a, b) => {
-            const pa = ebayProfitMap[a.id] ?? -9999;
-            const pb = ebayProfitMap[b.id] ?? -9999;
-            return pb - pa;
-          })
-        : [...filtered].sort((a, b) => rawGBP(b.rawPriceUSD) - rawGBP(a.rawPriceUSD));
-    return sorted.slice(0, 10);
-  }, [allPicks, priceTier, ebayProfitMap]);
+  }, [allPicks, priceTier]);
+
+  // Batch-fetch eBay data for ALL cards in the tier so the full tier can be ranked by profit.
+  const tierEbayQueries = useQueries({
+    queries: filteredTierPicks.map(pick => ({
+      queryKey: ["ebay-all-grades", pick.name, pick.setName],
+      queryFn: (): Promise<EbayAllGrades> =>
+        apiRequest(
+          "GET",
+          `/api/ebay-all-grades?name=${encodeURIComponent(pick.name)}&setName=${encodeURIComponent(pick.setName)}`
+        ).then(r => r.json()),
+      staleTime: 24 * 60 * 60 * 1000,
+      retry: 1,
+    })),
+  });
+
+  // Enrich each card with PSA10 profit and min-grade, then sort by profit and take top 10.
+  const enrichedTopPicks = useMemo(() => {
+    const enriched = filteredTierPicks.map((pick, i) => {
+      const ebay = tierEbayQueries[i]?.data as EbayAllGrades | undefined;
+      const isLoading = tierEbayQueries[i]?.isLoading ?? true;
+      const rawGBPVal = rawGBP(pick.rawPriceUSD);
+      const psa10GBP = ebay && ebay.psa10 > 0 ? Math.round(ebay.psa10 * GBP_RATE) : null;
+      const psa10Profit = psa10GBP !== null ? Math.round(psa10GBP - rawGBPVal - PSA_FEE_GBP) : null;
+
+      // Min PSA grade to break even (>= 0): iterate from worst to best, first >= 0 wins
+      let minProfitGrade: number | null = null;
+      if (ebay && rawGBPVal > 0) {
+        for (const g of PSA_GRADES_ASC) {
+          const usd = ebay[`psa${g}` as keyof EbayAllGrades] ?? 0;
+          if (usd > 0 && (usd * GBP_RATE - rawGBPVal - PSA_FEE_GBP) >= 0) {
+            minProfitGrade = g;
+            break;
+          }
+        }
+      }
+
+      return { pick, psa10GBP, psa10Profit, minProfitGrade, isLoading };
+    });
+
+    // Sort by PSA10 profit (cards where data isn't yet loaded go to the back)
+    enriched.sort((a, b) => {
+      const pa = a.psa10Profit ?? -9999;
+      const pb = b.psa10Profit ?? -9999;
+      return pb - pa;
+    });
+
+    return enriched.slice(0, 10);
+  }, [filteredTierPicks, tierEbayQueries]);
+
+  // Alias for template clarity
+  const tieredPicks = enrichedTopPicks;
 
   const loadRecent = useCallback(async () => {
     if (recentLoaded) return;
@@ -330,13 +339,6 @@ export default function ValuesScreen() {
     await saveRecentSearches(updated);
   }, [recentSearches]);
 
-  const handleEbayLoaded = useCallback((id: string, psa10ProfitGBP: number) => {
-    setEbayProfitMap(prev => {
-      if (prev[id] === psa10ProfitGBP) return prev;
-      return { ...prev, [id]: psa10ProfitGBP };
-    });
-  }, []);
-
   const handleTapCard = useCallback((
     cardId: string,
     cardName: string,
@@ -360,15 +362,18 @@ export default function ValuesScreen() {
     router.push({ pathname: "/set-cards", params: { lang: "english", setId: set.id, setName: set.name } });
   }, []);
 
-  const renderTopCard = useCallback((item: TopPick, index: number) => (
+  const renderTopCard = useCallback((entry: typeof tieredPicks[0], index: number) => (
     <TopPickCard
-      key={item.id}
-      item={item}
+      key={entry.pick.id}
+      item={entry.pick}
       index={index}
-      onPress={() => handleTapCard(item.id, item.name, item.setName, item.imageUrl, item.rawPriceUSD)}
-      onEbayLoaded={handleEbayLoaded}
+      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD)}
+      psa10GBP={entry.psa10GBP}
+      psa10Profit={entry.psa10Profit}
+      minProfitGrade={entry.minProfitGrade}
+      ebayLoading={entry.isLoading}
     />
-  ), [handleTapCard, handleEbayLoaded]);
+  ), [handleTapCard, tieredPicks]);
 
   const listHeader = (
     <View>
@@ -477,7 +482,7 @@ export default function ValuesScreen() {
             <Pressable
               key={tier.minGBP}
               style={[styles.tierTab, priceTier === tier.minGBP && styles.tierTabActive]}
-              onPress={() => { setPriceTier(tier.minGBP); setEbayProfitMap({}); }}
+              onPress={() => setPriceTier(tier.minGBP)}
             >
               <Text style={[styles.tierTabText, priceTier === tier.minGBP && styles.tierTabTextActive]}>
                 {tier.label}
