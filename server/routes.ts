@@ -6794,6 +6794,40 @@ RESPONSE FORMAT (JSON only, no markdown):
   const SET_CARDS_CACHE_TTL = 6 * 60 * 60 * 1000;
   // Tracks card/price availability per set — populated when cards are first fetched
   const setPriceStatusCache = new Map<string, { hasCards: boolean; hasPrices: boolean; checkedAt: number }>();
+  let priceStatusPrePopStarted = false;
+
+  // Background task: sample 1 card per English set to determine if it has TCGPlayer prices
+  async function backgroundPrePopulatePriceStatus(sets: CachedSet[]) {
+    const PRICE_TYPES = ["holofoil", "reverseHolofoil", "normal", "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"];
+    const unchecked = sets.filter(s => !setPriceStatusCache.has(s.id));
+    console.log(`[price-status] Pre-populating ${unchecked.length} sets in background...`);
+    for (const s of unchecked) {
+      // Skip if another code path already populated it while we waited
+      if (setPriceStatusCache.has(s.id)) continue;
+      try {
+        const resp = await fetch(
+          `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(s.id)}&pageSize=10&select=id,tcgplayer`,
+          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(8000) }
+        );
+        if (resp.ok) {
+          const data = await resp.json() as any;
+          const cards: any[] = data?.data ?? [];
+          const hasCards = (s.printedTotal || s.total) > 0;
+          const hasPrices = cards.some((c: any) => {
+            const prices = c.tcgplayer?.prices ?? {};
+            return PRICE_TYPES.some(pt => {
+              const t = prices[pt];
+              return t && (t.market ?? t.mid) != null;
+            });
+          });
+          setPriceStatusCache.set(s.id, { hasCards, hasPrices, checkedAt: Date.now() });
+        }
+      } catch { /* ignore individual set failures */ }
+      // Be polite to the Pokemon TCG API — 150ms between requests
+      await new Promise(r => setTimeout(r, 150));
+    }
+    console.log(`[price-status] Pre-population complete — ${setPriceStatusCache.size} sets tracked.`);
+  }
 
   // --- TCGdex series metadata cache (set → serie mapping for logo URLs & sort order) ---
   interface TcgdexSeriesInfo {
@@ -6961,12 +6995,18 @@ RESPONSE FORMAT (JSON only, no markdown):
             releaseDate: s.releaseDate,
             logo: s.logo || null,
             symbol: s.symbol || null,
-            // null = not yet browsed (status unknown); true/false = determined on first browse
-            hasCardData: status ? status.hasCards : null,
+            // All English sets from the Pokemon TCG API have card data
+            hasCardData: (s.printedTotal || s.total) > 0,
+            // null = price check not yet done; true/false once background task completes
             hasPrices: status ? status.hasPrices : null,
           };
         })
       });
+      // Kick off background price-status pre-population on first request
+      if (!priceStatusPrePopStarted) {
+        priceStatusPrePopStarted = true;
+        void backgroundPrePopulatePriceStatus(sets);
+      }
     } catch (err: any) {
       console.error("[sets/english] Error:", err.message);
       res.status(500).json({ error: err.message });

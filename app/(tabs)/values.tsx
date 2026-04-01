@@ -234,6 +234,12 @@ export default function ValuesScreen() {
     staleTime: 60 * 60 * 1000,
     retry: 2,
     retryDelay: 1500,
+    // Poll every 6s while the server is still computing price status in the background
+    refetchInterval: (query) => {
+      const sets = (query.state.data as any)?.sets as BrowseSet[] | undefined;
+      if (!sets) return false;
+      return sets.some(s => s.hasPrices === null) ? 6000 : false;
+    },
   });
   const sets = useMemo(() => setsData?.sets || [], [setsData]);
 
@@ -631,9 +637,9 @@ export default function ValuesScreen() {
 // ─── Set Row ──────────────────────────────────────────────────────────────────
 
 function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
-  // hasCardData: true/false if known, null if not yet browsed (assume available from API)
-  const cardDataKnown = set.hasCardData !== null && set.hasCardData !== undefined;
-  const hasCards = cardDataKnown ? set.hasCardData : true; // optimistic default
+  // hasCardData is always true for English sets (server confirms via Pokemon TCG API card count)
+  const hasCards = set.hasCardData !== false && set.cardCount > 0;
+  // hasPrices: null = background check still in progress; true/false = determined
   const pricesKnown = set.hasPrices !== null && set.hasPrices !== undefined;
 
   return (
@@ -654,26 +660,24 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
           <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
         </View>
         <View style={[styles.setMeta, { marginTop: 4, gap: 6 }]}>
-          {/* Card data badge — shown when status is known */}
-          {cardDataKnown && (
-            hasCards ? (
-              <View style={styles.statusBadgeGreen}>
-                <Ionicons name="checkmark-circle" size={10} color="#22c55e" />
-                <Text style={styles.statusBadgeGreenText}>Card data</Text>
-              </View>
-            ) : (
-              <View style={styles.statusBadgeAmber}>
-                <Ionicons name="time-outline" size={10} color="#f59e0b" />
-                <Text style={styles.statusBadgeAmberText}>No card data</Text>
-              </View>
-            )
+          {/* Card data badge — always shown for English sets */}
+          {hasCards ? (
+            <View style={styles.statusBadgeGreen}>
+              <Ionicons name="checkmark-circle" size={10} color="#22c55e" />
+              <Text style={styles.statusBadgeGreenText}>Card data</Text>
+            </View>
+          ) : (
+            <View style={styles.statusBadgeAmber}>
+              <Ionicons name="time-outline" size={10} color="#f59e0b" />
+              <Text style={styles.statusBadgeAmberText}>No card data</Text>
+            </View>
           )}
-          {/* Price data badge — shown when status is known */}
+          {/* Price data badge — appears once background check completes */}
           {pricesKnown ? (
             set.hasPrices ? (
               <View style={styles.statusBadgeGreen}>
                 <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
-                <Text style={styles.statusBadgeGreenText}>TCGplayer prices</Text>
+                <Text style={styles.statusBadgeGreenText}>Card Prices</Text>
               </View>
             ) : (
               <View style={styles.statusBadgeAmber}>
@@ -681,7 +685,12 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
                 <Text style={styles.statusBadgeAmberText}>No price data</Text>
               </View>
             )
-          ) : null}
+          ) : (
+            <View style={styles.statusBadgeAmber}>
+              <Ionicons name="ellipsis-horizontal" size={10} color="#f59e0b" />
+              <Text style={styles.statusBadgeAmberText}>Checking prices…</Text>
+            </View>
+          )}
         </View>
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
