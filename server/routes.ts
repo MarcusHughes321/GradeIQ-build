@@ -6932,12 +6932,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     return null;
   }
 
-  // Edition-aware price picker: "1st" → 1stEdition buckets, "unlimited" → unlimited/holofoil buckets
+  // Edition-aware price picker: "1st" → 1stEdition buckets (fallback to holofoil/normal),
+  // "unlimited" → unlimited/holofoil buckets
   function pickEditionTcgPrice(tcgplayer: any, edition: "1st" | "unlimited" | null): number | null {
     if (!edition) return pickBestTcgPrice(tcgplayer);
     const prices = tcgplayer?.prices ?? {};
+    // For 1st edition: prefer edition-specific buckets, but fall back to generic ones.
+    // Many WOTC cards on TCGPlayer only list "holofoil"/"normal" without separating editions.
     const types = edition === "1st"
-      ? ["1stEditionHolofoil", "1stEditionNormal"]
+      ? ["1stEditionHolofoil", "1stEditionNormal", "holofoil", "normal"]
       : ["unlimitedHolofoil", "unlimitedNormal", "holofoil", "normal"];
     for (const pt of types) {
       const t = prices[pt];
