@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Platform,
   Modal,
-  Dimensions,
 } from "react-native";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -99,17 +98,22 @@ export default function CardProfitScreen() {
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
-  const { cardName, setName, cardNumber, imageUrl, rawPriceUSD } = useLocalSearchParams<{
+  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD } = useLocalSearchParams<{
     cardId: string;
     cardName: string;
     setName: string;
     cardNumber?: string;
+    setTotal?: string;
     imageUrl?: string;
     rawPriceUSD?: string;
   }>();
 
+  // Format card number: "045" + setTotal → "045/143", otherwise just "045"
+  const displayCardNumber = cardNumber
+    ? (setTotal ? `${cardNumber}/${setTotal}` : cardNumber)
+    : null;
+
   const [imageFullscreen, setImageFullscreen] = useState(false);
-  const SCREEN = Dimensions.get("window");
 
   const currency = settings.currency || "GBP";
   const { data: ratesData } = useQuery<ExchangeRateData>({
@@ -192,28 +196,31 @@ export default function CardProfitScreen() {
       {!!imageUrl && (
         <Modal
           visible={imageFullscreen}
-          transparent
           animationType="fade"
           statusBarTranslucent
           onRequestClose={() => setImageFullscreen(false)}
         >
-          <Pressable
-            style={st.fullscreenOverlay}
-            onPress={() => setImageFullscreen(false)}
-          >
-            <Image
-              source={{ uri: imageUrl }}
-              style={{ width: SCREEN.width, height: SCREEN.height }}
-              contentFit="contain"
-            />
+          <View style={{ flex: 1, backgroundColor: "#000" }}>
+            {/* Tap anywhere to dismiss */}
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={() => setImageFullscreen(false)}
+            >
+              <Image
+                source={{ uri: imageUrl }}
+                style={{ flex: 1 }}
+                contentFit="contain"
+              />
+            </Pressable>
+            {/* Close button absolutely positioned over the image */}
             <Pressable
               style={st.fullscreenClose}
               onPress={() => setImageFullscreen(false)}
-              hitSlop={12}
+              hitSlop={16}
             >
-              <Ionicons name="close-circle" size={34} color="rgba(255,255,255,0.9)" />
+              <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
             </Pressable>
-          </Pressable>
+          </View>
         </Modal>
       )}
 
@@ -250,8 +257,8 @@ export default function CardProfitScreen() {
           {/* Card identity */}
           <Text style={st.heroName}>{cardName || "Unknown Card"}</Text>
           <Text style={st.heroSet}>{setName}</Text>
-          {!!cardNumber && (
-            <Text style={st.heroNumber}>#{cardNumber}</Text>
+          {!!displayCardNumber && (
+            <Text style={st.heroNumber}>#{displayCardNumber}</Text>
           )}
 
           {/* Raw price pill */}

@@ -424,7 +424,7 @@ export default function ValuesScreen() {
   }, []);
 
   const handleSetPress = useCallback((set: BrowseSet) => {
-    router.push({ pathname: "/set-cards", params: { lang: "english", setId: set.id, setName: set.name } });
+    router.push({ pathname: "/set-cards", params: { lang: "english", setId: set.id, setName: set.name, setTotal: String(set.cardCount) } });
   }, []);
 
   const renderTopCard = useCallback((entry: typeof tieredPicks[0], index: number) => (

@@ -92,10 +92,11 @@ export default function SetCardsScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const { lang, setId, setName } = useLocalSearchParams<{
+  const { lang, setId, setName, setTotal } = useLocalSearchParams<{
     lang: string;
     setId: string;
     setName: string;
+    setTotal?: string;
   }>();
 
   const [sortBy, setSortBy] = useState<SortBy>("number");
@@ -139,6 +140,9 @@ export default function SetCardsScreen() {
       .slice(0, 10);
   }, [allCards, hasAnyPrice]);
 
+  // Derive set total: prefer the param passed from the set list, fall back to card count
+  const resolvedSetTotal = setTotal || (allCards.length > 0 ? String(allCards.length) : "");
+
   const handleCardPress = (card: SetCard) => {
     router.push({
       pathname: "/card-profit",
@@ -147,6 +151,7 @@ export default function SetCardsScreen() {
         cardName: card.name,
         setName: setName || "",
         cardNumber: card.number || "",
+        setTotal: resolvedSetTotal,
         imageUrl: card.imageUrl || "",
         rawPriceUSD: card.price ? String(card.price) : "0",
       },
