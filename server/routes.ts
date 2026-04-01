@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import { parse as parseHtml } from "node-html-parser";
@@ -153,8 +155,67 @@ interface EbayAllGrades {
   raw: number;   // ungraded eBay last-sold price (USD) — 0 if none found
   fetchedAt: number;
 }
-const ebayPriceCache = new Map<string, EbayAllGrades>();
-const EBAY_PRICE_TTL = 24 * 60 * 60 * 1000; // 24 h
+// ── Persistent eBay Cache ─────────────────────────────────────────────────
+// Survives server restarts so we don't burn rate limits on every reload.
+const EBAY_CACHE_PATH = path.join(process.cwd(), "server/data/ebay-cache.json");
+const EBAY_PRICE_TTL  = 24 * 60 * 60 * 1000; // 24 h
+
+function loadEbayCacheFromDisk(): Map<string, EbayAllGrades> {
+  try {
+    if (fs.existsSync(EBAY_CACHE_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(EBAY_CACHE_PATH, "utf8"));
+      return new Map<string, EbayAllGrades>(Object.entries(raw));
+    }
+  } catch { /* corrupt file — start fresh */ }
+  return new Map<string, EbayAllGrades>();
+}
+
+function saveEbayCacheToDisk(cache: Map<string, EbayAllGrades>): void {
+  try {
+    fs.mkdirSync(path.dirname(EBAY_CACHE_PATH), { recursive: true });
+    fs.writeFileSync(EBAY_CACHE_PATH, JSON.stringify(Object.fromEntries(cache)));
+  } catch { /* disk write failure is non-fatal */ }
+}
+
+const ebayPriceCache = loadEbayCacheFromDisk();
+console.log(`[ebay-cache] Loaded ${ebayPriceCache.size} cached entries from disk`);
+
+// ── eBay API Request Throttle ─────────────────────────────────────────────
+// Caps concurrent eBay calls to 2 with a 300 ms gap to stay under rate limits.
+const EBAY_MAX_CONCURRENT = 2;
+const EBAY_CALL_GAP_MS    = 300;
+let ebayRunning = 0;
+const ebayQueue: Array<() => void> = [];
+
+function ebayThrottledFetch(url: string, signal: AbortSignal): Promise<Response> {
+  return new Promise<Response>((resolve, reject) => {
+    const run = () => {
+      ebayRunning++;
+      fetch(url, { signal })
+        .then(res => {
+          setTimeout(() => {
+            ebayRunning--;
+            const next = ebayQueue.shift();
+            if (next) next();
+          }, EBAY_CALL_GAP_MS);
+          resolve(res);
+        })
+        .catch(err => {
+          setTimeout(() => {
+            ebayRunning--;
+            const next = ebayQueue.shift();
+            if (next) next();
+          }, EBAY_CALL_GAP_MS);
+          reject(err);
+        });
+    };
+    if (ebayRunning < EBAY_MAX_CONCURRENT) {
+      run();
+    } else {
+      ebayQueue.push(run);
+    }
+  });
+}
 
 /** Strip verbose series prefixes so eBay search works better */
 function cleanSetForSearch(setName: string): string {
@@ -203,19 +264,18 @@ async function fetchEbayGradedPrices(
 ): Promise<EbayAllGrades> {
   // Base card number e.g. "295" from "295/217" — sellers commonly include this in titles
   const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
-  // NOTE: Set name is intentionally excluded from the eBay query — sellers almost never
-  // include set names in titles (e.g. "Skyridge", "Arceus") and it kills all results.
-  // Card name + number is specific enough to differentiate between cards.
+  // Set name intentionally excluded — sellers rarely include it in titles.
   const cardIdStr = [cardName, baseNum].filter(Boolean).join(" ");
 
-  const cacheKey = `${cardIdStr}`;
+  const cacheKey = cardIdStr;
   const hit = ebayPriceCache.get(cacheKey);
   if (hit && Date.now() - hit.fetchedAt < EBAY_PRICE_TTL) return hit;
 
   const appId = process.env.EBAY_APP_ID;
   if (!appId) throw new Error("EBAY_APP_ID not configured");
 
-  const buildEbayUrl = (q: string) => {
+  // Single URL builder — entriesPerPage controls result count
+  const buildEbayUrl = (q: string, count = 100) => {
     const encoded = encodeURIComponent(q);
     return (
       `https://svcs.ebay.com/services/search/FindingService/v1` +
@@ -224,47 +284,60 @@ async function fetchEbayGradedPrices(
       `&RESPONSE-DATA-FORMAT=JSON` +
       `&keywords=${encoded}` +
       `&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true` +
-      `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=30` +
+      `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=${count}` +
       `&outputSelector(0)=ListingInfo`
     );
   };
 
-  // Raw (ungraded) predicate — exclude any listing that mentions a grading label + number
+  // Raw (ungraded) predicate — no grading company label + number in title
   const rawMatch = (t: string) =>
     !/(PSA|BGS|CGC|ACE|TAG)\s+\d/.test(t) &&
     !/BECKETT\s+\d/.test(t) &&
     !t.includes("GRADED") &&
     !t.includes("SLABBED");
 
-  // 8 parallel calls: 7 grades + 1 raw
-  const [gradedResponses, rawResp] = await Promise.all([
-    Promise.all(
-      EBAY_GRADE_TARGETS.map(g =>
-        fetch(buildEbayUrl(`${g.q} ${cardIdStr} Pokemon`), { signal: AbortSignal.timeout(12000) })
-      )
-    ),
-    fetch(buildEbayUrl(`${cardIdStr} Pokemon`), { signal: AbortSignal.timeout(12000) }),
+  const parseEbayJson = async (r: Response): Promise<any> => {
+    if (!r.ok) return {};
+    try {
+      const data = await r.json();
+      if (data?.errorMessage?.[0]?.error?.[0]?.errorId?.[0] === "10001") {
+        console.warn(`[ebay] Rate limit hit for "${cardIdStr}"`);
+        return {};
+      }
+      return data;
+    } catch { return {}; }
+  };
+
+  // ── 2 API calls instead of 8 ─────────────────────────────────────────────
+  // 1. Fetch 100 most-recently-sold completed listings — covers all grade/company combos.
+  // 2. Fetch 30 raw listings from the same query (separate call so the result set
+  //    isn't crowded out by graded slabs, which dominate sold listings).
+  const signal = AbortSignal.timeout(15000);
+  const baseQuery = `${cardIdStr} Pokemon`;
+  const [gradedResp, rawResp] = await Promise.all([
+    ebayThrottledFetch(buildEbayUrl(baseQuery, 100), signal),
+    ebayThrottledFetch(buildEbayUrl(baseQuery, 30),  signal),
   ]);
 
-  const [gradedDatasets, rawData] = await Promise.all([
-    Promise.all(gradedResponses.map(r => r.ok ? r.json() : {})),
-    rawResp.ok ? rawResp.json() : {},
+  const [gradedData, rawData] = await Promise.all([
+    parseEbayJson(gradedResp),
+    parseEbayJson(rawResp),
   ]);
 
-  const [d_psa10, d_psa9, d_bgs95, d_bgs9, d_ace10, d_tag10, d_cgc10] = gradedDatasets;
-
+  // All seven grade predicates run against the same 100-result dataset
   const result: EbayAllGrades = {
-    psa10: extractLastEbay(d_psa10, EBAY_GRADE_TARGETS[0].match),
-    psa9:  extractLastEbay(d_psa9,  EBAY_GRADE_TARGETS[1].match),
-    bgs95: extractLastEbay(d_bgs95, EBAY_GRADE_TARGETS[2].match),
-    bgs9:  extractLastEbay(d_bgs9,  EBAY_GRADE_TARGETS[3].match),
-    ace10: extractLastEbay(d_ace10, EBAY_GRADE_TARGETS[4].match),
-    tag10: extractLastEbay(d_tag10, EBAY_GRADE_TARGETS[5].match),
-    cgc10: extractLastEbay(d_cgc10, EBAY_GRADE_TARGETS[6].match),
-    raw:   extractLastEbay(rawData,  rawMatch),
+    psa10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[0].match),
+    psa9:  extractLastEbay(gradedData, EBAY_GRADE_TARGETS[1].match),
+    bgs95: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[2].match),
+    bgs9:  extractLastEbay(gradedData, EBAY_GRADE_TARGETS[3].match),
+    ace10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[4].match),
+    tag10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[5].match),
+    cgc10: extractLastEbay(gradedData, EBAY_GRADE_TARGETS[6].match),
+    raw:   extractLastEbay(rawData,    rawMatch),
     fetchedAt: Date.now(),
   };
   ebayPriceCache.set(cacheKey, result);
+  saveEbayCacheToDisk(ebayPriceCache); // persist so restarts don't lose cached prices
   console.log(
     `[ebay-price] ${cardIdStr} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
     ` BGS9.5 $${result.bgs95} BGS9 $${result.bgs9}` +
