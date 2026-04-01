@@ -15,10 +15,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
+import { CURRENCIES } from "@/lib/settings";
 import { apiRequest } from "@/lib/query-client";
 import type { CompanyId } from "@/lib/settings";
 
-const GBP_RATE = 0.79;
+const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 };
+interface ExchangeRateData { rates: Record<string, number>; updatedAt: string; }
 
 interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;
@@ -103,9 +105,22 @@ export default function CardProfitScreen() {
     rawPriceUSD?: string;
   }>();
 
+  const currency = settings.currency || "GBP";
+  const { data: ratesData } = useQuery<ExchangeRateData>({
+    queryKey: ["/api/exchange-rates"],
+    staleTime: 22 * 60 * 60 * 1000,
+  });
+  const rates = ratesData?.rates || FALLBACK_RATES;
+  const currencyDef = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
+  const currencySymbol = currencyDef.symbol;
+  // eBay and TCGPlayer prices come in USD; fees are stored in GBP
+  const gbpRate = currency === "GBP" ? 1 : (rates["GBP"] ?? 0.79) / (rates["USD"] ?? 1);
+  const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
+  const fmtLocal = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${Math.round(v)}`;
+
   const rawUSD = rawPriceUSD ? parseFloat(rawPriceUSD) : 0;
-  const rawGBPVal = rawUSD > 0 ? rawUSD * GBP_RATE : 0;
-  const hasRawPrice = rawGBPVal > 0;
+  const rawLocalVal = rawUSD > 0 ? rawUSD * currencyRate : 0;
+  const hasRawPrice = rawLocalVal > 0;
 
   const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
     queryKey: ["ebay-all-grades", cardName, setName],
@@ -125,18 +140,20 @@ export default function CardProfitScreen() {
       : COMPANY_ORDER;
 
   const companies = useMemo(() => {
+    // fees are in GBP — convert to selected currency
     return COMPANY_ORDER.filter(id => enabledCompanies.includes(id)).map(compId => {
       const config = COMPANY_CONFIG[compId];
       if (!config) return null;
+      const feeLocal = config.fee * (currencyRate / gbpRate);
 
       const rows = config.grades.map(g => {
         const ebayUSD = ebay ? (ebay[g.ebayKey] ?? 0) : 0;
-        const ebayGBP = ebayUSD > 0 ? Math.round(ebayUSD * GBP_RATE) : null;
+        const ebayLocal = ebayUSD > 0 ? Math.round(ebayUSD * currencyRate) : null;
         const profit =
-          ebayGBP !== null && hasRawPrice
-            ? Math.round(ebayGBP - rawGBPVal - config.fee)
+          ebayLocal !== null && hasRawPrice
+            ? Math.round(ebayLocal - rawLocalVal - feeLocal)
             : null;
-        return { ...g, ebayGBP, profit };
+        return { ...g, ebayLocal, profit };
       });
 
       // Minimum grade = lowest grade number where profit >= 0 (breaks even or better).
@@ -144,9 +161,9 @@ export default function CardProfitScreen() {
       const minProfitRow =
         [...rows].reverse().find(r => r.profit !== null && r.profit >= 0) ?? null;
 
-      return { compId, config, rows, minProfitRow };
+      return { compId, config, rows, minProfitRow, feeLocal };
     }).filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [enabledCompanies, ebay, rawGBPVal, hasRawPrice]);
+  }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate, gbpRate]);
 
   return (
     <View style={[st.container, { paddingTop: insets.top + webTop }]}>
@@ -190,7 +207,7 @@ export default function CardProfitScreen() {
               <Ionicons name="pricetag-outline" size={12} color={Colors.textMuted} />
               <Text style={st.rawLabel}>Raw (TCGPlayer)</Text>
               <Text style={st.rawValue}>
-                {hasRawPrice ? `£${Math.round(rawGBPVal)}` : "—"}
+                {hasRawPrice ? fmtLocal(rawLocalVal) : "—"}
               </Text>
             </View>
             {!hasRawPrice && (
@@ -216,13 +233,13 @@ export default function CardProfitScreen() {
         )}
 
         {/* Per-company grade tables */}
-        {companies.map(({ compId, config, rows, minProfitRow }) => (
+        {companies.map(({ compId, config, rows, minProfitRow, feeLocal }) => (
           <View key={compId} style={st.companyCard}>
             {/* Company header */}
             <View style={st.companyHeader}>
               <View style={[st.dot, { backgroundColor: config.dotColor }]} />
               <Text style={st.companyLabel}>{config.label}</Text>
-              <Text style={st.companyFee}>~£{config.fee} fee</Text>
+              <Text style={st.companyFee}>~{fmtLocal(feeLocal)} fee</Text>
             </View>
 
             {/* Table column headers */}
@@ -262,7 +279,7 @@ export default function CardProfitScreen() {
                     />
                   ) : (
                     <Text style={[st.ebayPrice, { flex: 1 }]}>
-                      {gr.ebayGBP !== null ? `£${gr.ebayGBP}` : "—"}
+                      {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
                     </Text>
                   )}
 
@@ -275,13 +292,13 @@ export default function CardProfitScreen() {
                         { flex: 1, color: isProfit ? "#22c55e" : "#ef4444" },
                       ]}
                     >
-                      {isProfit ? "+" : ""}£{gr.profit}
+                      {isProfit ? "+" : "-"}{fmtLocal(Math.abs(gr.profit))}
                     </Text>
                   ) : (
                     <Text style={[st.mutedTxt, { flex: 1, textAlign: "right" }]}>—</Text>
                   )}
 
-                  {!isLoading && gr.ebayGBP !== null && hasRawPrice && gr.profit !== null ? (
+                  {!isLoading && gr.ebayLocal !== null && hasRawPrice && gr.profit !== null ? (
                     <View
                       style={[
                         st.badge,
@@ -337,8 +354,9 @@ export default function CardProfitScreen() {
         <View style={st.disclaimer}>
           <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
           <Text style={st.disclaimerTxt}>
-            eBay last sold prices exclude Best Offer sales · USD→GBP at £0.79/$
-            · Grading fees are estimates and may vary by tier and submission level
+            eBay last sold prices exclude Best Offer sales · All prices in {currency}
+            {ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}
+            {" · "}Grading fees are estimates and may vary by tier and submission level
           </Text>
         </View>
       </ScrollView>

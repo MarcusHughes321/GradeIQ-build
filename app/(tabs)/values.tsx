@@ -20,7 +20,7 @@ import { useQuery, useQueries } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings-context";
-import { ALL_COMPANIES } from "@/lib/settings";
+import { ALL_COMPANIES, CURRENCIES } from "@/lib/settings";
 import type { CompanyId } from "@/lib/settings";
 
 interface EbayAllGrades {
@@ -35,11 +35,18 @@ interface EbayAllGrades {
 const RECENT_SEARCHES_KEY = "gradeiq_values_recent_searches";
 const MAX_RECENT = 8;
 
-// GBP conversion from USD (approximate, for display only)
-const GBP_RATE = 0.79;
+// Fallback exchange rates (used if the live API hasn't loaded yet)
+const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 };
 
-function rawGBP(rawUSD: number): number {
-  return rawUSD * GBP_RATE;
+interface ExchangeRateData {
+  rates: Record<string, number>;
+  updatedAt: string;
+}
+
+function fmtPrice(usd: number, rate: number, symbol: string, round = true): string {
+  const v = usd * rate;
+  if (symbol === "¥") return `¥${Math.round(v)}`;
+  return round ? `${symbol}${Math.round(v)}` : `${symbol}${v.toFixed(2)}`;
 }
 
 // Price tiers based on actual TCGPlayer raw market price in GBP
@@ -113,18 +120,21 @@ const PICKS_COMPANY_CONFIG: Record<CompanyId, {
 };
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, topGradeGBP, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate }: {
   item: TopPick;
   index: number;
   onPress: () => void;
-  topGradeGBP: number | null;
+  topGradeLocal: number | null;
   topGradeProfit: number | null;
   topGradeLabel: string;
   minProfitGrade: number | null;
   minProfitLabel: string | null;
   ebayLoading: boolean;
+  currencySymbol: string;
+  currencyRate: number;
 }) => {
-  const priceGBP = rawGBP(item.rawPriceUSD);
+  const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
+  const sym = currencySymbol;
 
   return (
     <Pressable
@@ -148,7 +158,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeGBP, topGradeProfit, t
       {/* Raw TCGPlayer price */}
       <View style={cardStyles.row}>
         <Text style={cardStyles.label}>Raw</Text>
-        <Text style={cardStyles.value}>£{Math.round(priceGBP)}</Text>
+        <Text style={cardStyles.value}>{sym}{rawLocal}</Text>
       </View>
 
       {/* Top grade eBay last sold */}
@@ -156,8 +166,8 @@ const TopPickCard = memo(({ item, index, onPress, topGradeGBP, topGradeProfit, t
         <Text style={cardStyles.label}>{topGradeLabel}</Text>
         {ebayLoading ? (
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : topGradeGBP !== null ? (
-          <Text style={[cardStyles.graded, { color: "#22c55e" }]}>£{topGradeGBP}</Text>
+        ) : topGradeLocal !== null ? (
+          <Text style={[cardStyles.graded, { color: "#22c55e" }]}>{sym}{topGradeLocal}</Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
         )}
@@ -170,7 +180,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeGBP, topGradeProfit, t
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
         ) : topGradeProfit !== null ? (
           <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
-            {topGradeProfit >= 0 ? "+" : ""}£{topGradeProfit}
+            {topGradeProfit >= 0 ? "+" : ""}{sym}{Math.abs(topGradeProfit)}
           </Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
@@ -178,7 +188,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeGBP, topGradeProfit, t
       </View>
 
       {/* Min profitable grade */}
-      {!ebayLoading && priceGBP > 0 && (
+      {!ebayLoading && rawLocal > 0 && (
         <View style={[cardStyles.row, { marginTop: 2 }]}>
           <Text style={cardStyles.label}>Min grade</Text>
           {minProfitLabel !== null ? (
@@ -218,6 +228,17 @@ export default function ValuesScreen() {
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
+  // Live exchange rates — refreshed daily from server
+  const { data: ratesData } = useQuery<ExchangeRateData>({
+    queryKey: ["/api/exchange-rates"],
+    staleTime: 22 * 60 * 60 * 1000,
+  });
+  const currency = settings.currency ?? "GBP";
+  const currencyInfo = CURRENCIES.find(c => c.code === currency) ?? CURRENCIES[0];
+  const currencySymbol = currencyInfo.symbol;
+  const currencyRate = ratesData?.rates?.[currency] ?? FALLBACK_RATES[currency] ?? 1;
+  const gbpRate = ratesData?.rates?.GBP ?? FALLBACK_RATES.GBP;
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -256,15 +277,15 @@ export default function ValuesScreen() {
   });
   const allPicks = picksData?.cards || [];
 
-  // All cards in the selected price tier (full set, no slice yet).
+  // All cards in the selected price tier — tier labels are always GBP so filter uses GBP rate
   const filteredTierPicks = useMemo(() => {
     const tier = PRICE_TIERS.find(t => t.minGBP === priceTier);
     if (!tier || allPicks.length === 0) return [];
     return allPicks.filter(c => {
-      const p = rawGBP(c.rawPriceUSD);
-      return p >= tier.minGBP && p < tier.maxGBP;
+      const pGBP = c.rawPriceUSD * gbpRate;
+      return pGBP >= tier.minGBP && pGBP < tier.maxGBP;
     });
-  }, [allPicks, priceTier]);
+  }, [allPicks, priceTier, gbpRate]);
 
   // Batch-fetch eBay data for ALL cards in the tier so the full tier can be ranked by profit.
   const tierEbayQueries = useQueries({
@@ -290,24 +311,28 @@ export default function ValuesScreen() {
   const picksConfig = PICKS_COMPANY_CONFIG[effectivePicksCompany];
 
   // Enrich each card with the preferred company's top-grade profit and min break-even grade,
-  // then sort by that profit descending and take top 10.
+  // then sort by that profit descending and take top 10. All monetary values in selected currency.
   const enrichedTopPicks = useMemo(() => {
     const cfg = picksConfig;
+    // Convert GBP fee to selected currency: fee is stored in GBP
+    const feeLocal = cfg.fee * (currencyRate / gbpRate);
+
     const enriched = filteredTierPicks.map((pick, i) => {
       const ebay = tierEbayQueries[i]?.data as EbayAllGrades | undefined;
       const isLoading = tierEbayQueries[i]?.isLoading ?? true;
-      const rawGBPVal = rawGBP(pick.rawPriceUSD);
-      const topUSD = ebay ? (ebay[cfg.topEbayKey] as number) ?? 0 : 0;
-      const topGradeGBP = topUSD > 0 ? Math.round(topUSD * GBP_RATE) : null;
-      const topGradeProfit = topGradeGBP !== null ? Math.round(topGradeGBP - rawGBPVal - cfg.fee) : null;
+      const rawLocal = pick.rawPriceUSD * currencyRate;
+      const topEbayUSD = ebay ? (ebay[cfg.topEbayKey] as number) ?? 0 : 0;
+      // eBay prices are nominally in USD (the eBay Finding API currentPrice)
+      const topGradeLocal = topEbayUSD > 0 ? Math.round(topEbayUSD * currencyRate) : null;
+      const topGradeProfit = topGradeLocal !== null ? Math.round(topGradeLocal - rawLocal - feeLocal) : null;
 
       // Min break-even grade: iterate cfg.gradesAsc (worst → best), first >= 0 wins
       let minProfitGrade: number | null = null;
       let minProfitLabel: string | null = null;
-      if (ebay && rawGBPVal > 0) {
+      if (ebay && rawLocal > 0) {
         for (const g of cfg.gradesAsc) {
-          const usd = (ebay[g.key] as number) ?? 0;
-          if (usd > 0 && (usd * GBP_RATE - rawGBPVal - cfg.fee) >= 0) {
+          const ebayUSD = (ebay[g.key] as number) ?? 0;
+          if (ebayUSD > 0 && (ebayUSD * currencyRate - rawLocal - feeLocal) >= 0) {
             minProfitGrade = g.label;
             minProfitLabel = `${effectivePicksCompany === "Beckett" ? "BGS" : effectivePicksCompany} ${g.label}`;
             break;
@@ -315,7 +340,7 @@ export default function ValuesScreen() {
         }
       }
 
-      return { pick, topGradeGBP, topGradeProfit, minProfitGrade, minProfitLabel, isLoading };
+      return { pick, topGradeLocal, topGradeProfit, minProfitGrade, minProfitLabel, isLoading };
     });
 
     // Sort by top-grade profit (cards without data go to the back)
@@ -326,7 +351,7 @@ export default function ValuesScreen() {
     });
 
     return enriched.slice(0, 10);
-  }, [filteredTierPicks, tierEbayQueries, picksConfig, effectivePicksCompany]);
+  }, [filteredTierPicks, tierEbayQueries, picksConfig, effectivePicksCompany, currencyRate, gbpRate]);
 
   // Alias for template clarity
   const tieredPicks = enrichedTopPicks;
@@ -408,14 +433,16 @@ export default function ValuesScreen() {
       item={entry.pick}
       index={index}
       onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD)}
-      topGradeGBP={entry.topGradeGBP}
+      topGradeLocal={entry.topGradeLocal}
       topGradeProfit={entry.topGradeProfit}
       topGradeLabel={picksConfig.topGradeLabel}
       minProfitGrade={entry.minProfitGrade}
       minProfitLabel={entry.minProfitLabel}
       ebayLoading={entry.isLoading}
+      currencySymbol={currencySymbol}
+      currencyRate={currencyRate}
     />
-  ), [handleTapCard, tieredPicks, picksConfig]);
+  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate]);
 
   const listHeader = (
     <View>
@@ -587,7 +614,7 @@ export default function ValuesScreen() {
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
-              Raw: TCGPlayer market price · PSA 10/9: last eBay sold price (excl. Best Offer) · GBP at ~£0.79/$
+              Raw: TCGPlayer market price · eBay: last sold price (excl. Best Offer) · All prices in {currency}{ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}
             </Text>
           </View>
         )}

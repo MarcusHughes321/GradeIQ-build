@@ -186,6 +186,66 @@ async function initEbayPriceCacheTable(): Promise<void> {
   }
 }
 
+// ── Live Exchange Rates (frankfurter.app — free, no auth) ─────────────────
+interface ExchangeRateData {
+  rates: Record<string, number>; // USD-based (USD = 1.0)
+  updatedAt: string;             // YYYY-MM-DD
+  fetchedAt: number;             // epoch ms
+}
+let exchangeRatesCache: ExchangeRateData | null = null;
+const EXCHANGE_RATE_TTL = 22 * 60 * 60 * 1000; // 22h — refresh daily
+
+async function fetchExchangeRates(): Promise<ExchangeRateData> {
+  const resp = await fetch("https://api.frankfurter.app/latest?base=USD", {
+    headers: { "Accept": "application/json" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!resp.ok) throw new Error("Exchange rate API unavailable");
+  const data = await resp.json() as any;
+  return {
+    rates: { USD: 1.0, ...data.rates },
+    updatedAt: data.date ?? new Date().toISOString().slice(0, 10),
+    fetchedAt: Date.now(),
+  };
+}
+
+async function getExchangeRates(): Promise<ExchangeRateData> {
+  if (exchangeRatesCache && Date.now() - exchangeRatesCache.fetchedAt < EXCHANGE_RATE_TTL) {
+    return exchangeRatesCache;
+  }
+  try {
+    exchangeRatesCache = await fetchExchangeRates();
+    console.log(`[exchange-rates] Fetched for ${exchangeRatesCache.updatedAt}`);
+  } catch (err: any) {
+    console.warn("[exchange-rates] Fetch failed, using fallback:", err.message);
+    if (!exchangeRatesCache) {
+      exchangeRatesCache = {
+        rates: { USD: 1.0, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 },
+        updatedAt: new Date().toISOString().slice(0, 10),
+        fetchedAt: Date.now(),
+      };
+    }
+  }
+  return exchangeRatesCache!;
+}
+
+// ── Set Price Status — PostgreSQL persistence ─────────────────────────────
+async function initSetPriceStatusTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS set_price_status (
+        set_id     VARCHAR(60) PRIMARY KEY,
+        has_cards  BOOLEAN NOT NULL,
+        has_prices BOOLEAN NOT NULL,
+        checked_at BIGINT NOT NULL
+      )
+    `);
+    console.log("[price-status] DB table ready");
+  } catch (e: any) {
+    console.error("[price-status] Failed to create table:", e.message);
+  }
+}
+
 // ── eBay API Request Throttle ─────────────────────────────────────────────
 // Caps concurrent eBay calls to 2 with a 300 ms gap to stay under rate limits.
 const EBAY_MAX_CONCURRENT = 2;
@@ -3085,8 +3145,22 @@ function enforceGradingScales(result: any): any {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Ensure the shared eBay price cache table exists before any requests come in
+  // Ensure DB tables exist before any requests come in
   await initEbayPriceCacheTable();
+  await initSetPriceStatusTable();
+
+  // Pre-fetch today's exchange rates on startup (non-blocking)
+  void getExchangeRates();
+
+  // Expose live exchange rates to the frontend
+  app.get("/api/exchange-rates", async (_req, res) => {
+    try {
+      const data = await getExchangeRates();
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   interface GradingJob {
     id: string;
@@ -6792,18 +6866,58 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   const setCardsCache = new Map<string, { cards: any[]; fetchedAt: number }>();
   const SET_CARDS_CACHE_TTL = 6 * 60 * 60 * 1000;
-  // Tracks card/price availability per set — populated when cards are first fetched
+  // Tracks card/price availability per set — backed by PostgreSQL for persistence across restarts
   const setPriceStatusCache = new Map<string, { hasCards: boolean; hasPrices: boolean; checkedAt: number }>();
+  const PRICE_STATUS_TTL = 23 * 60 * 60 * 1000; // 23h — re-check after 1 day
   let priceStatusPrePopStarted = false;
 
-  // Background task: sample 1 card per English set to determine if it has TCGPlayer prices
+  // Write to both memory cache and DB atomically
+  function upsertSetPriceStatus(setId: string, hasCards: boolean, hasPrices: boolean) {
+    const checkedAt = Date.now();
+    setPriceStatusCache.set(setId, { hasCards, hasPrices, checkedAt });
+    db.query(
+      `INSERT INTO set_price_status (set_id, has_cards, has_prices, checked_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (set_id) DO UPDATE SET has_cards=$2, has_prices=$3, checked_at=$4`,
+      [setId, hasCards, hasPrices, checkedAt]
+    ).catch(err => console.error(`[price-status] DB write error for ${setId}:`, err.message));
+  }
+
+  // Load persisted statuses from DB into memory on first call to set browser
+  let dbStatusLoaded = false;
+  async function loadSetPriceStatusFromDB() {
+    if (dbStatusLoaded) return;
+    dbStatusLoaded = true;
+    try {
+      const { rows } = await db.query<{ set_id: string; has_cards: boolean; has_prices: boolean; checked_at: string }>(
+        `SELECT set_id, has_cards, has_prices, checked_at FROM set_price_status`
+      );
+      for (const row of rows) {
+        if (!setPriceStatusCache.has(row.set_id)) {
+          setPriceStatusCache.set(row.set_id, {
+            hasCards: row.has_cards,
+            hasPrices: row.has_prices,
+            checkedAt: Number(row.checked_at),
+          });
+        }
+      }
+      console.log(`[price-status] Loaded ${rows.length} set statuses from DB`);
+    } catch (err: any) {
+      console.error("[price-status] Failed to load from DB:", err.message);
+    }
+  }
+
+  // Background task: sample cards per English set to determine TCGPlayer price availability
+  // Processes sets that haven't been checked yet OR whose status is older than PRICE_STATUS_TTL
   async function backgroundPrePopulatePriceStatus(sets: CachedSet[]) {
     const PRICE_TYPES = ["holofoil", "reverseHolofoil", "normal", "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"];
-    const unchecked = sets.filter(s => !setPriceStatusCache.has(s.id));
-    console.log(`[price-status] Pre-populating ${unchecked.length} sets in background...`);
-    for (const s of unchecked) {
-      // Skip if another code path already populated it while we waited
-      if (setPriceStatusCache.has(s.id)) continue;
+    const stale = sets.filter(s => {
+      const status = setPriceStatusCache.get(s.id);
+      return !status || Date.now() - status.checkedAt > PRICE_STATUS_TTL;
+    });
+    if (stale.length === 0) { console.log("[price-status] All sets up-to-date — no refresh needed"); return; }
+    console.log(`[price-status] Pre-populating ${stale.length} sets in background...`);
+    for (const s of stale) {
       try {
         const resp = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(s.id)}&pageSize=10&select=id,tcgplayer`,
@@ -6815,18 +6929,32 @@ RESPONSE FORMAT (JSON only, no markdown):
           const hasCards = (s.printedTotal || s.total) > 0;
           const hasPrices = cards.some((c: any) => {
             const prices = c.tcgplayer?.prices ?? {};
-            return PRICE_TYPES.some(pt => {
-              const t = prices[pt];
-              return t && (t.market ?? t.mid) != null;
-            });
+            return PRICE_TYPES.some(pt => { const t = prices[pt]; return t && (t.market ?? t.mid) != null; });
           });
-          setPriceStatusCache.set(s.id, { hasCards, hasPrices, checkedAt: Date.now() });
+          upsertSetPriceStatus(s.id, hasCards, hasPrices);
         }
       } catch { /* ignore individual set failures */ }
-      // Be polite to the Pokemon TCG API — 150ms between requests
-      await new Promise(r => setTimeout(r, 150));
+      // Be polite to the Pokemon TCG API — 200ms between requests
+      await new Promise(r => setTimeout(r, 200));
     }
     console.log(`[price-status] Pre-population complete — ${setPriceStatusCache.size} sets tracked.`);
+  }
+
+  // Schedule a daily full refresh so price status stays current (2 AM UTC)
+  function scheduleDailySetStatusRefresh() {
+    const now = new Date();
+    const next = new Date();
+    next.setUTCHours(2, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const delay = next.getTime() - now.getTime();
+    console.log(`[price-status] Daily refresh scheduled in ${Math.round(delay / 60000)} min`);
+    setTimeout(async () => {
+      console.log("[price-status] Daily refresh starting...");
+      priceStatusPrePopStarted = false;
+      const sets = await ensureSetsCached().catch(() => [] as CachedSet[]);
+      if (sets.length > 0) await backgroundPrePopulatePriceStatus(sets);
+      scheduleDailySetStatusRefresh();
+    }, delay);
   }
 
   // --- TCGdex series metadata cache (set → serie mapping for logo URLs & sort order) ---
@@ -6980,8 +7108,13 @@ RESPONSE FORMAT (JSON only, no markdown):
   void fetchTcgdexSeriesInfo("ko");
   void getTcgdexEnNames();
 
+  // Start the daily refresh scheduler once (outside the request handler so it doesn't re-schedule on every request)
+  scheduleDailySetStatusRefresh();
+
   app.get("/api/sets/english", async (req, res) => {
     try {
+      // Load persisted statuses from DB (no-op after first call)
+      await loadSetPriceStatusFromDB();
       const sets = await ensureSetsCached();
       const sorted = [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
       res.json({
@@ -6997,12 +7130,12 @@ RESPONSE FORMAT (JSON only, no markdown):
             symbol: s.symbol || null,
             // All English sets from the Pokemon TCG API have card data
             hasCardData: (s.printedTotal || s.total) > 0,
-            // null = price check not yet done; true/false once background task completes
+            // null = not yet determined; true/false = checked (from DB or background task)
             hasPrices: status ? status.hasPrices : null,
           };
         })
       });
-      // Kick off background price-status pre-population on first request
+      // Kick off background price-status pre-population on first request (or if stale)
       if (!priceStatusPrePopStarted) {
         priceStatusPrePopStarted = true;
         void backgroundPrePopulatePriceStatus(sets);
@@ -7143,11 +7276,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       console.log(`[sets/cards] Cache hit: ${cacheKey}`);
       // Ensure price status is reflected even on cache hits
       if (lang === "english" && !setPriceStatusCache.has(setId)) {
-        setPriceStatusCache.set(setId, {
-          hasCards: cached.cards.length > 0,
-          hasPrices: cached.cards.some((c: any) => c.price != null),
-          checkedAt: cached.fetchedAt,
-        });
+        upsertSetPriceStatus(setId, cached.cards.length > 0, cached.cards.some((c: any) => c.price != null));
       }
       return res.json({ cards: cached.cards });
     }
@@ -7205,11 +7334,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       setCardsCache.set(cacheKey, { cards, fetchedAt: Date.now() });
       // Record card/price availability for the set list to surface before clicking in
       if (lang === "english") {
-        setPriceStatusCache.set(setId, {
-          hasCards: cards.length > 0,
-          hasPrices: cards.some((c: any) => c.price != null),
-          checkedAt: Date.now(),
-        });
+        upsertSetPriceStatus(setId, cards.length > 0, cards.some((c: any) => c.price != null));
       }
       res.json({ cards });
     } catch (err: any) {

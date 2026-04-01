@@ -16,6 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
+import { useSettings } from "@/lib/settings-context";
+import { CURRENCIES } from "@/lib/settings";
 
 const COLUMNS = 3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -23,8 +25,9 @@ const GUTTER = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - GUTTER * (COLUMNS + 1)) / COLUMNS;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
-const GBP_RATE = 0.79;
-const rawGBP = (usd: number) => usd * GBP_RATE;
+const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 };
+
+interface ExchangeRateData { rates: Record<string, number>; updatedAt: string; }
 
 type SortBy = "number" | "value";
 
@@ -36,13 +39,17 @@ interface SetCard {
   price?: number | null;
 }
 
-const SetPickCard = memo(({ item, index, onPress }: {
+const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate }: {
   item: SetCard;
   index: number;
   setName: string;
   onPress: () => void;
+  currencySymbol: string;
+  currencyRate: number;
 }) => {
-  const rawGBPVal = item.price != null && item.price > 0 ? rawGBP(item.price) : null;
+  const rawLocal = item.price != null && item.price > 0
+    ? (currencySymbol === "¥" ? Math.round(item.price * currencyRate) : Math.round(item.price * currencyRate))
+    : null;
 
   return (
     <Pressable
@@ -64,8 +71,8 @@ const SetPickCard = memo(({ item, index, onPress }: {
       <View style={styles.topCardDivider} />
       <View style={styles.topCardRow}>
         <Text style={styles.topCardLabel}>Raw (TCG)</Text>
-        {rawGBPVal != null ? (
-          <Text style={styles.topCardValue}>£{Math.round(rawGBPVal)}</Text>
+        {rawLocal != null ? (
+          <Text style={styles.topCardValue}>{currencySymbol}{rawLocal}</Text>
         ) : (
           <Text style={styles.topCardMuted}>—</Text>
         )}
@@ -92,6 +99,18 @@ export default function SetCardsScreen() {
   }>();
 
   const [sortBy, setSortBy] = useState<SortBy>("number");
+
+  const { settings } = useSettings();
+  const currency = settings.currency || "GBP";
+  const { data: ratesData } = useQuery<ExchangeRateData>({
+    queryKey: ["/api/exchange-rates"],
+    staleTime: 22 * 60 * 60 * 1000,
+  });
+  const rates = ratesData?.rates || FALLBACK_RATES;
+  const currencyDef = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
+  const currencySymbol = currencyDef.symbol;
+  // All TCGPlayer prices are in USD; eBay prices are nominally in USD too
+  const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
 
   const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
     queryKey: ["/api/sets", lang, setId, "cards"],
@@ -154,7 +173,7 @@ export default function SetCardsScreen() {
         <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
       ) : null}
       {item.price != null ? (
-        <Text style={styles.cardPrice} numberOfLines={1}>${item.price.toFixed(2)}</Text>
+        <Text style={styles.cardPrice} numberOfLines={1}>{currencySymbol}{currencySymbol === "¥" ? Math.round(item.price * currencyRate) : (item.price * currencyRate).toFixed(2)}</Text>
       ) : null}
     </Pressable>
   );
@@ -217,13 +236,15 @@ export default function SetCardsScreen() {
                 index={i}
                 setName={setName || ""}
                 onPress={() => handleCardPress(card)}
+                currencySymbol={currencySymbol}
+                currencyRate={currencyRate}
               />
             ))}
           </ScrollView>
           <View style={styles.topPicksDisclaimer}>
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
-              eBay last sold prices for PSA graded cards · excl. Best Offer sales · USD→GBP at ~£0.79/$
+              Raw: TCGPlayer market price · eBay: last sold price (excl. Best Offer) · All prices in {currency}
             </Text>
           </View>
         </View>
