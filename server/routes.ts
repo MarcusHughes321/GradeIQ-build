@@ -6792,6 +6792,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   const setCardsCache = new Map<string, { cards: any[]; fetchedAt: number }>();
   const SET_CARDS_CACHE_TTL = 6 * 60 * 60 * 1000;
+  // Tracks card/price availability per set — populated when cards are first fetched
+  const setPriceStatusCache = new Map<string, { hasCards: boolean; hasPrices: boolean; checkedAt: number }>();
 
   // --- TCGdex series metadata cache (set → serie mapping for logo URLs & sort order) ---
   interface TcgdexSeriesInfo {
@@ -6949,16 +6951,21 @@ RESPONSE FORMAT (JSON only, no markdown):
       const sets = await ensureSetsCached();
       const sorted = [...sets].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
       res.json({
-        sets: sorted.map(s => ({
-          id: s.id,
-          name: s.name,
-          series: s.series,
-          cardCount: s.printedTotal || s.total,
-          releaseDate: s.releaseDate,
-          logo: s.logo || null,
-          symbol: s.symbol || null,
-          hasPrices: true,
-        }))
+        sets: sorted.map(s => {
+          const status = setPriceStatusCache.get(s.id);
+          return {
+            id: s.id,
+            name: s.name,
+            series: s.series,
+            cardCount: s.printedTotal || s.total,
+            releaseDate: s.releaseDate,
+            logo: s.logo || null,
+            symbol: s.symbol || null,
+            // null = not yet browsed (status unknown); true/false = determined on first browse
+            hasCardData: status ? status.hasCards : null,
+            hasPrices: status ? status.hasPrices : null,
+          };
+        })
       });
     } catch (err: any) {
       console.error("[sets/english] Error:", err.message);
@@ -7094,6 +7101,14 @@ RESPONSE FORMAT (JSON only, no markdown):
     const cached = setCardsCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < SET_CARDS_CACHE_TTL) {
       console.log(`[sets/cards] Cache hit: ${cacheKey}`);
+      // Ensure price status is reflected even on cache hits
+      if (lang === "english" && !setPriceStatusCache.has(setId)) {
+        setPriceStatusCache.set(setId, {
+          hasCards: cached.cards.length > 0,
+          hasPrices: cached.cards.some((c: any) => c.price != null),
+          checkedAt: cached.fetchedAt,
+        });
+      }
       return res.json({ cards: cached.cards });
     }
 
@@ -7148,6 +7163,14 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       console.log(`[sets/cards] Fetched ${cards.length} cards for ${cacheKey}`);
       setCardsCache.set(cacheKey, { cards, fetchedAt: Date.now() });
+      // Record card/price availability for the set list to surface before clicking in
+      if (lang === "english") {
+        setPriceStatusCache.set(setId, {
+          hasCards: cards.length > 0,
+          hasPrices: cards.some((c: any) => c.price != null),
+          checkedAt: Date.now(),
+        });
+      }
       res.json({ cards });
     } catch (err: any) {
       console.error(`[sets/cards] Error for ${lang}/${setId}:`, err.message);

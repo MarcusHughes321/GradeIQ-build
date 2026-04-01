@@ -70,7 +70,8 @@ interface BrowseSet {
   releaseDate?: string;
   logo: string | null;
   symbol?: string | null;
-  hasPrices?: boolean;
+  hasCardData?: boolean | null;  // null = not yet browsed
+  hasPrices?: boolean | null;    // null = not yet browsed
 }
 
 interface TopPick {
@@ -630,7 +631,11 @@ export default function ValuesScreen() {
 // ─── Set Row ──────────────────────────────────────────────────────────────────
 
 function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
-  const hasPrices = set.hasPrices !== false;
+  // hasCardData: true/false if known, null if not yet browsed (assume available from API)
+  const cardDataKnown = set.hasCardData !== null && set.hasCardData !== undefined;
+  const hasCards = cardDataKnown ? set.hasCardData : true; // optimistic default
+  const pricesKnown = set.hasPrices !== null && set.hasPrices !== undefined;
+
   return (
     <Pressable style={({ pressed }) => [styles.setRow, { opacity: pressed ? 0.8 : 1 }]} onPress={onPress}>
       <View style={styles.setLogoContainer}>
@@ -647,17 +652,36 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
         {set.series ? <Text style={styles.setSeries} numberOfLines={1}>{set.series}</Text> : null}
         <View style={styles.setMeta}>
           <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
-          {hasPrices ? (
-            <View style={styles.pricesBadge}>
-              <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
-              <Text style={styles.pricesBadgeText}>TCGplayer prices</Text>
-            </View>
-          ) : (
-            <View style={styles.noPriceBadge}>
-              <Ionicons name="time-outline" size={10} color="#f59e0b" />
-              <Text style={styles.noPriceBadgeText}>No price data yet</Text>
-            </View>
+        </View>
+        <View style={[styles.setMeta, { marginTop: 4, gap: 6 }]}>
+          {/* Card data badge — shown when status is known */}
+          {cardDataKnown && (
+            hasCards ? (
+              <View style={styles.statusBadgeGreen}>
+                <Ionicons name="checkmark-circle" size={10} color="#22c55e" />
+                <Text style={styles.statusBadgeGreenText}>Card data</Text>
+              </View>
+            ) : (
+              <View style={styles.statusBadgeAmber}>
+                <Ionicons name="time-outline" size={10} color="#f59e0b" />
+                <Text style={styles.statusBadgeAmberText}>No card data</Text>
+              </View>
+            )
           )}
+          {/* Price data badge — shown when status is known */}
+          {pricesKnown ? (
+            set.hasPrices ? (
+              <View style={styles.statusBadgeGreen}>
+                <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
+                <Text style={styles.statusBadgeGreenText}>TCGplayer prices</Text>
+              </View>
+            ) : (
+              <View style={styles.statusBadgeAmber}>
+                <Ionicons name="time-outline" size={10} color="#f59e0b" />
+                <Text style={styles.statusBadgeAmberText}>No price data</Text>
+              </View>
+            )
+          ) : null}
         </View>
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
@@ -878,17 +902,17 @@ const styles = StyleSheet.create({
   setSeries: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textSecondary },
   setMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
   setCardCount: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
-  pricesBadge: {
-    flexDirection: "row",
-    alignItems: "center",
+  statusBadgeGreen: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
     gap: 3,
     backgroundColor: "rgba(34,197,94,0.1)",
     borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  pricesBadgeText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#22c55e" },
-  noPriceBadge: {
+  statusBadgeGreenText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#22c55e" },
+  statusBadgeAmber: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
     gap: 3,
@@ -897,7 +921,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  noPriceBadgeText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#f59e0b" },
+  statusBadgeAmberText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#f59e0b" },
 
   // Card result row
   cardRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
