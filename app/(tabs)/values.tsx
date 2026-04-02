@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   Keyboard,
+  Linking,
 } from "react-native";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -138,7 +139,7 @@ const PICKS_COMPANY_CONFIG: Record<CompanyId, {
 };
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, ebaySearchUrl }: {
   item: TopPick;
   index: number;
   onPress: () => void;
@@ -150,6 +151,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
   ebayLoading: boolean;
   currencySymbol: string;
   currencyRate: number;
+  ebaySearchUrl: string;
 }) => {
   const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
   const sym = currencySymbol;
@@ -217,6 +219,18 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         </View>
       )}
 
+      {/* eBay sold listings link — only shown when we have real eBay data */}
+      {!ebayLoading && topGradeLocal !== null && (
+        <Pressable
+          style={({ pressed }) => [cardStyles.ebayLink, { opacity: pressed ? 0.7 : 1 }]}
+          onPress={(e) => { e.stopPropagation?.(); Linking.openURL(ebaySearchUrl); }}
+          hitSlop={8}
+        >
+          <Ionicons name="open-outline" size={11} color="#3b82f6" />
+          <Text style={cardStyles.ebayLinkText}>View on eBay</Text>
+        </Pressable>
+      )}
+
       <Text style={cardStyles.hint}>Tap for full breakdown</Text>
     </Pressable>
   );
@@ -238,6 +252,8 @@ const cardStyles = StyleSheet.create({
   muted:        { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
   samples:      { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted, marginTop: 2, textAlign: "right" },
   hint:         { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.primary, marginTop: 6, textAlign: "center" },
+  ebayLink:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 6, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: "rgba(59,130,246,0.1)", borderRadius: 6, borderWidth: 1, borderColor: "rgba(59,130,246,0.25)" },
+  ebayLinkText: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#3b82f6" },
 });
 
 export default function ValuesScreen() {
@@ -385,17 +401,24 @@ export default function ValuesScreen() {
         }
       }
 
-      return { pick, topGradeLocal, topGradeProfit, minProfitGrade, minProfitLabel, isLoading };
+      // Build eBay sold-listings search URL for this card + grade
+      const q = encodeURIComponent(`pokemon ${cfg.topGradeLabel} ${pick.name}`);
+      const ebaySearchUrl = `https://www.ebay.co.uk/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1&_sop=13`;
+
+      return { pick, topGradeLocal, topGradeProfit, minProfitGrade, minProfitLabel, isLoading, ebaySearchUrl };
     });
 
-    // Sort by top-grade profit (cards without data go to the back)
-    enriched.sort((a, b) => {
+    // Remove cards where eBay data has finished loading but came back empty
+    const withData = enriched.filter(e => e.isLoading || e.topGradeLocal !== null);
+
+    // Sort by top-grade profit (cards still loading go to the back)
+    withData.sort((a, b) => {
       const pa = a.topGradeProfit ?? -9999;
       const pb = b.topGradeProfit ?? -9999;
       return pb - pa;
     });
 
-    return enriched.slice(0, 10);
+    return withData.slice(0, 10);
   }, [filteredTierPicks, tierEbayQueries, picksConfig, effectivePicksCompany, currencyRate, gbpRate]);
 
   // Alias for template clarity
@@ -495,6 +518,7 @@ export default function ValuesScreen() {
       ebayLoading={entry.isLoading}
       currencySymbol={currencySymbol}
       currencyRate={currencyRate}
+      ebaySearchUrl={entry.ebaySearchUrl}
     />
   ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate]);
 
