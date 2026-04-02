@@ -7518,10 +7518,27 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   })();
 
-  // Run an initial top picks job 90 seconds after startup so the table
-  // is populated on first use (card catalog must be ready first)
-  setTimeout(() => {
-    runTopPicksJob().catch(e => console.error("[top-picks] Initial job error:", e.message));
+  // Run an initial top picks job 90 seconds after startup ONLY if the table
+  // has no data or data is older than 12 hours. This prevents burning eBay
+  // API quota on every server restart during development.
+  setTimeout(async () => {
+    try {
+      const row = await db.query<{ latest_ms: string }>(
+        `SELECT EXTRACT(EPOCH FROM MAX(ebay_fetched_at)) * 1000 AS latest_ms
+           FROM top_picks_precomputed WHERE is_stale = FALSE`
+      );
+      const latestMs = parseFloat(row.rows[0]?.latest_ms || "0");
+      const ageMs = Date.now() - (latestMs || 0);
+      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+      if (!latestMs || ageMs > TWELVE_HOURS) {
+        console.log(`[top-picks] Startup run triggered (data age: ${Math.round(ageMs / 60000)} min)`);
+        await runTopPicksJob();
+      } else {
+        console.log(`[top-picks] Skipping startup run — data is fresh (${Math.round(ageMs / 60000)} min old)`);
+      }
+    } catch (e: any) {
+      console.error("[top-picks] Initial job error:", e.message);
+    }
   }, 90_000);
 
   app.get("/api/sets/english", async (req, res) => {
