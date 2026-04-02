@@ -17,7 +17,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings-context";
@@ -110,6 +110,25 @@ interface TopPick {
   rawPriceUSD: number;
 }
 
+// Server-side pre-computed pick returned by /api/top-picks-precomputed
+interface PrecomputedPick {
+  cardId: string;
+  cardName: string;
+  setName: string;
+  setId: string;
+  number: string;
+  imageUrl: string | null;
+  rawPriceUSD: number;
+  ebay: {
+    psa10: number; psa9: number;
+    bgs95: number; bgs9: number;
+    ace10: number; tag10: number; cgc10: number;
+    raw: number;
+    fetchedAt: string | null;
+    isStale: boolean;
+  };
+}
+
 async function loadRecentSearches(): Promise<string[]> {
   try {
     const raw = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
@@ -139,7 +158,7 @@ const PICKS_COMPANY_CONFIG: Record<CompanyId, {
 };
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, ebaySearchUrl }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, ebaySearchUrl, isStale }: {
   item: TopPick;
   index: number;
   onPress: () => void;
@@ -152,6 +171,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
   currencySymbol: string;
   currencyRate: number;
   ebaySearchUrl: string;
+  isStale?: boolean;
 }) => {
   const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
   const sym = currencySymbol;
@@ -231,6 +251,9 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         </Pressable>
       )}
 
+      {isStale && (
+        <Text style={[cardStyles.hint, { color: Colors.textMuted, fontSize: 9 }]}>⏱ Prices may be 1–2 days old</Text>
+      )}
       <Text style={cardStyles.hint}>Tap for full breakdown</Text>
     </Pressable>
   );
@@ -325,42 +348,22 @@ export default function ValuesScreen() {
     );
   }, [expandedSets, setSearch]);
 
-  // Global Top Grading Picks — explicit queryFn to avoid URL join issues
-  const { data: picksData, isLoading: picksLoading, error: picksError, refetch: refetchPicks } = useQuery<{ cards: TopPick[] }>({
-    queryKey: ["top-grading-picks"],
+  // Pre-computed top grading picks — single fast DB read per tier, no live eBay calls
+  const { data: precomputedData, isLoading: picksLoading, error: picksError, refetch: refetchPicks } = useQuery<{
+    picks: PrecomputedPick[];
+    hasData: boolean;
+    lastJobRun: string | null;
+  }>({
+    queryKey: ["top-picks-precomputed", priceTier],
     queryFn: async () => {
-      const resp = await apiRequest("GET", "/api/cards/top-grading-picks");
+      const resp = await apiRequest("GET", `/api/top-picks-precomputed?tierMaxGbp=${priceTier}`);
       return resp.json();
     },
-    staleTime: 2 * 60 * 60 * 1000,
+    staleTime: 30 * 60 * 1000, // 30 min — re-check mid-day but not on every mount
     retry: 1,
     retryDelay: 2000,
   });
-  const allPicks = picksData?.cards || [];
-
-  // All cards in the selected price tier — filter by raw price < maxGBP threshold
-  const filteredTierPicks = useMemo(() => {
-    const tier = PRICE_TIERS.find(t => t.maxGBP === priceTier);
-    if (!tier || allPicks.length === 0) return [];
-    return allPicks.filter(c => {
-      const pGBP = c.rawPriceUSD * gbpRate;
-      return pGBP > 0 && pGBP < tier.maxGBP;
-    });
-  }, [allPicks, priceTier, gbpRate]);
-
-  // Batch-fetch eBay data for ALL cards in the tier so the full tier can be ranked by profit.
-  const tierEbayQueries = useQueries({
-    queries: filteredTierPicks.map(pick => ({
-      queryKey: ["ebay-all-grades", pick.name, pick.setName],
-      queryFn: (): Promise<EbayAllGrades> =>
-        apiRequest(
-          "GET",
-          `/api/ebay-all-grades?name=${encodeURIComponent(pick.name)}&setName=${encodeURIComponent(pick.setName)}`
-        ).then(r => r.json()),
-      staleTime: 24 * 60 * 60 * 1000,
-      retry: 1,
-    })),
-  });
+  const precomputedPicks: PrecomputedPick[] = precomputedData?.picks ?? [];
 
   // Preferred picks company — fall back to first enabled if the saved preference isn't enabled
   const effectivePicksCompany: CompanyId = useMemo(() => {
@@ -371,26 +374,23 @@ export default function ValuesScreen() {
 
   const picksConfig = PICKS_COMPANY_CONFIG[effectivePicksCompany];
 
-  // Enrich each card with the preferred company's top-grade profit and min break-even grade,
-  // then sort by that profit descending and take top 10. All monetary values in selected currency.
+  // Enrich each pre-computed pick with the preferred company's profit.
+  // All monetary values are in the user's selected currency.
   const enrichedTopPicks = useMemo(() => {
     const cfg = picksConfig;
-    // Convert GBP fee to selected currency: fee is stored in GBP
     const feeLocal = cfg.fee * (currencyRate / gbpRate);
 
-    const enriched = filteredTierPicks.map((pick, i) => {
-      const ebay = tierEbayQueries[i]?.data as EbayAllGrades | undefined;
-      const isLoading = tierEbayQueries[i]?.isLoading ?? true;
-      const rawLocal = pick.rawPriceUSD * currencyRate;
-      const topEbayUSD = ebay ? (ebay[cfg.topEbayKey] as number) ?? 0 : 0;
-      // eBay prices are nominally in USD (the eBay Finding API currentPrice)
-      const topGradeLocal = topEbayUSD > 0 ? Math.round(topEbayUSD * currencyRate) : null;
+    const enriched = precomputedPicks.map(pick => {
+      const ebay = pick.ebay as any as EbayAllGrades;
+      const rawLocal  = pick.rawPriceUSD * currencyRate;
+      const topEbayUSD = (ebay[cfg.topEbayKey] as number) ?? 0;
+      const topGradeLocal  = topEbayUSD > 0 ? Math.round(topEbayUSD * currencyRate) : null;
       const topGradeProfit = topGradeLocal !== null ? Math.round(topGradeLocal - rawLocal - feeLocal) : null;
 
-      // Min break-even grade: iterate cfg.gradesAsc (worst → best), first >= 0 wins
+      // Min break-even grade (uses full JSONB grades stored by the job)
       let minProfitGrade: number | null = null;
       let minProfitLabel: string | null = null;
-      if (ebay && rawLocal > 0) {
+      if (rawLocal > 0) {
         for (const g of cfg.gradesAsc) {
           const ebayUSD = (ebay[g.key] as number) ?? 0;
           if (ebayUSD > 0 && (ebayUSD * currencyRate - rawLocal - feeLocal) >= 0) {
@@ -401,31 +401,37 @@ export default function ValuesScreen() {
         }
       }
 
-      // Build eBay sold-listings search URL for this card + grade
-      const q = encodeURIComponent(`pokemon ${cfg.topGradeLabel} ${pick.name}`);
+      // Build eBay sold-listings search URL
+      const q = encodeURIComponent(`pokemon ${cfg.topGradeLabel} ${pick.cardName}`);
       const ebaySearchUrl = `https://www.ebay.co.uk/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1&_sop=13`;
 
-      return { pick, topGradeLocal, topGradeProfit, minProfitGrade, minProfitLabel, isLoading, ebaySearchUrl };
+      // Adapt PrecomputedPick to the shape TopPickCard expects
+      const pickAsTopPick: TopPick = {
+        id: pick.cardId, name: pick.cardName, setName: pick.setName,
+        setId: pick.setId, number: pick.number, imageUrl: pick.imageUrl,
+        rawPriceUSD: pick.rawPriceUSD,
+      };
+
+      return {
+        pick: pickAsTopPick,
+        topGradeLocal, topGradeProfit, minProfitGrade, minProfitLabel,
+        isLoading: false,
+        isStale: pick.ebay.isStale,
+        ebayFetchedAt: pick.ebay.fetchedAt,
+        ebaySearchUrl,
+      };
     });
 
-    // Remove cards where eBay data has finished loading but came back empty
-    const withData = enriched.filter(e => e.isLoading || e.topGradeLocal !== null);
-
-    // Sort by top-grade profit (cards still loading go to the back)
-    withData.sort((a, b) => {
-      const pa = a.topGradeProfit ?? -9999;
-      const pb = b.topGradeProfit ?? -9999;
-      return pb - pa;
-    });
-
-    return withData.slice(0, 10);
-  }, [filteredTierPicks, tierEbayQueries, picksConfig, effectivePicksCompany, currencyRate, gbpRate]);
+    // Sort by top-grade profit descending
+    enriched.sort((a, b) => (b.topGradeProfit ?? -9999) - (a.topGradeProfit ?? -9999));
+    return enriched.slice(0, 10);
+  }, [precomputedPicks, picksConfig, effectivePicksCompany, currencyRate, gbpRate]);
 
   // Alias for template clarity
   const tieredPicks = enrichedTopPicks;
 
-  // True while any eBay query for the current tier is still loading
-  const tierEbayLoading = tierEbayQueries.some(q => q.isLoading || q.isFetching);
+  // Loading state — just the single query
+  const tierEbayLoading = picksLoading;
 
   const loadRecent = useCallback(async () => {
     if (recentLoaded) return;
@@ -519,6 +525,7 @@ export default function ValuesScreen() {
       currencySymbol={currencySymbol}
       currencyRate={currencyRate}
       ebaySearchUrl={entry.ebaySearchUrl}
+      isStale={entry.isStale}
     />
   ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate]);
 
@@ -657,23 +664,19 @@ export default function ValuesScreen() {
           </View>
         )}
 
-        {!picksLoading && !picksError && tieredPicks.length === 0 && allPicks.length > 0 && (
+        {!picksLoading && !picksError && tieredPicks.length === 0 && (
           <View style={styles.inlineFeedback}>
-            <Text style={styles.feedbackText}>No cards found at this price range</Text>
+            <Text style={styles.feedbackText}>
+              Preparing picks — check back shortly after 9am UK time
+            </Text>
           </View>
         )}
 
         {!picksLoading && !picksError && tieredPicks.length > 0 && (
           <View style={styles.rankingStatus}>
-            <Ionicons
-              name={tierEbayLoading ? "sync-outline" : "trending-up-outline"}
-              size={11}
-              color={Colors.textMuted}
-            />
+            <Ionicons name="trending-up-outline" size={11} color={Colors.textMuted} />
             <Text style={styles.rankingStatusText}>
-              {tierEbayLoading
-                ? `Loading eBay prices to rank by ${picksConfig.topGradeLabel} profit…`
-                : `Ranked by estimated ${picksConfig.topGradeLabel} profit`}
+              Ranked by estimated {picksConfig.topGradeLabel} profit
             </Text>
           </View>
         )}

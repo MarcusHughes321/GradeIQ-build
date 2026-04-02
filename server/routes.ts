@@ -246,6 +246,46 @@ async function initSetPriceStatusTable(): Promise<void> {
   }
 }
 
+// ── Top Picks Precomputed — PostgreSQL persistence ────────────────────────
+// Stores server-side pre-computed grading picks per price tier, with eBay
+// last-sold data refreshed daily. Historic values are never deleted — if eBay
+// returns no data (e.g. API limit hit), the existing prices are kept and
+// marked stale so the app can still show something useful.
+async function initTopPicksPrecomputedTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS top_picks_precomputed (
+        card_id         VARCHAR(120) NOT NULL,
+        tier_max_gbp    INTEGER NOT NULL,
+        card_name       VARCHAR(200) NOT NULL,
+        set_name        VARCHAR(200) NOT NULL,
+        set_id          VARCHAR(60),
+        number          VARCHAR(30),
+        image_url       TEXT,
+        raw_price_usd   NUMERIC(10,2),
+        ebay_psa10      NUMERIC(10,2),
+        ebay_psa9       NUMERIC(10,2),
+        ebay_bgs95      NUMERIC(10,2),
+        ebay_bgs9       NUMERIC(10,2),
+        ebay_ace10      NUMERIC(10,2),
+        ebay_tag10      NUMERIC(10,2),
+        ebay_cgc10      NUMERIC(10,2),
+        ebay_raw        NUMERIC(10,2),
+        ebay_all_grades JSONB,
+        ebay_fetched_at TIMESTAMPTZ,
+        is_stale        BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (card_id, tier_max_gbp)
+      )
+    `);
+    // Add ebay_all_grades column to existing tables created before this migration
+    await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS ebay_all_grades JSONB`);
+    console.log("[top-picks] DB table ready");
+  } catch (e: any) {
+    console.error("[top-picks] Failed to create table:", e.message);
+  }
+}
+
 // ── Card Catalog — PostgreSQL persistence ─────────────────────────────────
 // Stores all English card data (name, number, image, TCGPlayer price) so the
 // set browser loads instantly from the DB rather than hitting external APIs.
@@ -3178,6 +3218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await initEbayPriceCacheTable();
   await initSetPriceStatusTable();
   await initCardCatalogTable();
+  await initTopPicksPrecomputedTable();
 
   // Pre-fetch today's exchange rates on startup (non-blocking)
   void getExchangeRates();
@@ -7085,6 +7126,128 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // ── Top Grading Picks — server-side pre-computation ──────────────────────
+  // Runs once daily after the eBay limit resets (9 AM UTC). Queries card_catalog
+  // for the top 20 holofoil candidates per price tier, fetches their eBay
+  // last-sold prices, and upserts results into top_picks_precomputed.
+  // Historic prices are NEVER overwritten with zeros — if eBay returns nothing,
+  // the existing row is marked stale so users still see something useful.
+
+  const TOP_PICKS_TIERS = [
+    { maxGBP: 5,    minGBP: 3 },
+    { maxGBP: 10,   minGBP: 5 },
+    { maxGBP: 20,   minGBP: 10 },
+    { maxGBP: 50,   minGBP: 20 },
+    { maxGBP: 100,  minGBP: 50 },
+    { maxGBP: 200,  minGBP: 100 },
+    { maxGBP: 500,  minGBP: 200 },
+    { maxGBP: 1000, minGBP: 500 },
+  ] as const;
+
+  let topPicksJobRunning = false;
+  let topPicksLastRun: Date | null = null;
+
+  async function runTopPicksJob(): Promise<void> {
+    if (topPicksJobRunning) {
+      console.log("[top-picks] Job already running, skipping");
+      return;
+    }
+    topPicksJobRunning = true;
+    console.log("[top-picks] Starting precomputed picks job...");
+    try {
+      const rates = await getExchangeRates();
+      const gbpRate = rates.rates.GBP ?? 0.79;
+
+      for (const tier of TOP_PICKS_TIERS) {
+        const minUSD = tier.minGBP / gbpRate;
+        const maxUSD = tier.maxGBP / gbpRate;
+
+        // Top 20 candidates from card_catalog — holofoil-first, highest price first
+        const { rows: candidates } = await db.query<{
+          card_id: string; set_id: string; set_name: string; name: string;
+          number: string; rarity: string | null; image_url: string | null; price_usd: string;
+        }>(
+          `SELECT card_id, set_id, set_name, name, number, rarity, image_url, price_usd
+             FROM card_catalog
+            WHERE price_usd >= $1 AND price_usd < $2
+            ORDER BY
+              CASE WHEN rarity ILIKE '%holo%' THEN 0 ELSE 1 END,
+              price_usd DESC
+            LIMIT 20`,
+          [minUSD, maxUSD]
+        );
+        console.log(`[top-picks] Tier £${tier.maxGBP}: ${candidates.length} candidates (USD $${minUSD.toFixed(2)}–$${maxUSD.toFixed(2)})`);
+
+        // Process in batches of 4 to be gentle on the eBay throttle
+        for (let i = 0; i < candidates.length; i += 4) {
+          const batch = candidates.slice(i, i + 4);
+          await Promise.allSettled(batch.map(async card => {
+            try {
+              const ebay = await fetchEbayGradedPrices(card.name, card.set_name, card.number || undefined);
+              const hasData = [
+                ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
+                ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
+              ].some(v => v > 0);
+
+              if (hasData) {
+                const { fetchedAt: _fa, ...gradesOnly } = ebay;
+                await db.query(
+                  `INSERT INTO top_picks_precomputed
+                     (card_id, tier_max_gbp, card_name, set_name, set_id, number, image_url, raw_price_usd,
+                      ebay_psa10, ebay_psa9, ebay_bgs95, ebay_bgs9, ebay_ace10, ebay_tag10, ebay_cgc10, ebay_raw,
+                      ebay_all_grades, ebay_fetched_at, is_stale, updated_at)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),FALSE,NOW())
+                   ON CONFLICT (card_id, tier_max_gbp) DO UPDATE SET
+                     card_name=$3, set_name=$4, image_url=$7, raw_price_usd=$8,
+                     ebay_psa10=$9, ebay_psa9=$10, ebay_bgs95=$11, ebay_bgs9=$12,
+                     ebay_ace10=$13, ebay_tag10=$14, ebay_cgc10=$15, ebay_raw=$16,
+                     ebay_all_grades=$17, ebay_fetched_at=NOW(), is_stale=FALSE, updated_at=NOW()`,
+                  [
+                    card.card_id, tier.maxGBP, card.name, card.set_name, card.set_id,
+                    card.number || "", card.image_url, parseFloat(card.price_usd),
+                    ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
+                    ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
+                    JSON.stringify(gradesOnly),
+                  ]
+                );
+                console.log(`[top-picks] ✓ ${card.name} (£${tier.maxGBP}) PSA10=$${ebay.psa10}`);
+              } else {
+                // No eBay data — mark existing row as stale but keep historic prices
+                await db.query(
+                  `UPDATE top_picks_precomputed
+                      SET is_stale=TRUE, updated_at=NOW()
+                    WHERE card_id=$1 AND tier_max_gbp=$2`,
+                  [card.card_id, tier.maxGBP]
+                );
+                console.log(`[top-picks] – ${card.name} (£${tier.maxGBP}) no eBay data (stale preserved)`);
+              }
+            } catch (err: any) {
+              console.error(`[top-picks] Error processing ${card.name}:`, err.message);
+            }
+          }));
+        }
+      }
+
+      topPicksLastRun = new Date();
+      console.log("[top-picks] Precomputed picks job complete");
+    } finally {
+      topPicksJobRunning = false;
+    }
+  }
+
+  function scheduleDailyTopPicksJob() {
+    const now = new Date();
+    const next = new Date();
+    next.setUTCHours(9, 0, 0, 0); // 9 AM UTC — after eBay API resets at ~8 AM UK
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const delay = next.getTime() - now.getTime();
+    console.log(`[top-picks] Daily job scheduled in ${Math.round(delay / 60000)} min`);
+    setTimeout(async () => {
+      await runTopPicksJob().catch(e => console.error("[top-picks] Job error:", e.message));
+      scheduleDailyTopPicksJob();
+    }, delay);
+  }
+
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
   function scheduleDailyCardCatalogSync() {
     const now = new Date();
@@ -7342,6 +7505,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   // Start the daily refresh schedulers
   scheduleDailySetStatusRefresh();
   scheduleDailyCardCatalogSync();
+  scheduleDailyTopPicksJob();
 
   // Kick off first-run catalog population if the DB is empty (non-blocking)
   void (async () => {
@@ -7353,6 +7517,12 @@ RESPONSE FORMAT (JSON only, no markdown):
       console.log(`[card-catalog] Catalog ready with ${count} cards`);
     }
   })();
+
+  // Run an initial top picks job 90 seconds after startup so the table
+  // is populated on first use (card catalog must be ready first)
+  setTimeout(() => {
+    runTopPicksJob().catch(e => console.error("[top-picks] Initial job error:", e.message));
+  }, 90_000);
 
   app.get("/api/sets/english", async (req, res) => {
     try {
@@ -7455,6 +7625,63 @@ RESPONSE FORMAT (JSON only, no markdown):
     } catch (err: any) {
       console.error("[top-grading-picks] Error:", err.message);
       if (topGradingPicksCache) return res.json({ cards: topGradingPicksCache });
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Top Picks Precomputed — reads from server-side daily job results ────────
+  // Returns pre-computed grading picks for the requested price tier, including
+  // all eBay grade prices so the frontend can compute profit per company.
+  // is_stale=true means prices are from a previous day (eBay API was unavailable
+  // during the last refresh) — show as-is with an "updated X ago" note.
+  app.get("/api/top-picks-precomputed", async (req, res) => {
+    const VALID_TIERS = [5, 10, 20, 50, 100, 200, 500, 1000];
+    const tierMaxGbp = parseInt(req.query.tierMaxGbp as string);
+    if (!VALID_TIERS.includes(tierMaxGbp)) {
+      return res.status(400).json({ error: `tierMaxGbp must be one of: ${VALID_TIERS.join(", ")}` });
+    }
+    try {
+      const { rows } = await db.query(
+        `SELECT card_id, card_name, set_name, set_id, number, image_url, raw_price_usd,
+                ebay_psa10, ebay_psa9, ebay_bgs95, ebay_bgs9,
+                ebay_ace10, ebay_tag10, ebay_cgc10, ebay_raw,
+                ebay_all_grades, ebay_fetched_at, is_stale, updated_at
+           FROM top_picks_precomputed
+          WHERE tier_max_gbp = $1
+          ORDER BY COALESCE(ebay_psa10, 0) DESC
+          LIMIT 20`,
+        [tierMaxGbp]
+      );
+      res.json({
+        picks: rows.map(r => ({
+          cardId:       r.card_id,
+          cardName:     r.card_name,
+          setName:      r.set_name,
+          setId:        r.set_id,
+          number:       r.number,
+          imageUrl:     r.image_url,
+          rawPriceUSD:  parseFloat(r.raw_price_usd) || 0,
+          ebay: {
+            // Full grade set from JSONB — used for min profit calculations
+            ...(r.ebay_all_grades ?? {}),
+            // Ensure key grades are numeric (fallback if JSONB is missing)
+            psa10:     parseFloat(r.ebay_psa10)  || 0,
+            psa9:      parseFloat(r.ebay_psa9)   || 0,
+            bgs95:     parseFloat(r.ebay_bgs95)  || 0,
+            bgs9:      parseFloat(r.ebay_bgs9)   || 0,
+            ace10:     parseFloat(r.ebay_ace10)  || 0,
+            tag10:     parseFloat(r.ebay_tag10)  || 0,
+            cgc10:     parseFloat(r.ebay_cgc10)  || 0,
+            raw:       parseFloat(r.ebay_raw)    || 0,
+            fetchedAt: r.ebay_fetched_at ?? null,
+            isStale:   r.is_stale ?? false,
+          },
+        })),
+        lastJobRun: topPicksLastRun?.toISOString() ?? null,
+        hasData:    rows.length > 0,
+      });
+    } catch (err: any) {
+      console.error("[top-picks-precomputed]", err.message);
       res.status(500).json({ error: err.message });
     }
   });
