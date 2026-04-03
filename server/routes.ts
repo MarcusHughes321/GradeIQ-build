@@ -468,12 +468,14 @@ async function fetchEbayGradedPrices(
     !t.includes("GRADED") &&
     !t.includes("SLABBED");
 
+  let rateLimitHit = false;
   const parseEbayJson = async (r: Response): Promise<any> => {
     if (!r.ok) return {};
     try {
       const data = await r.json();
       if (data?.errorMessage?.[0]?.error?.[0]?.errorId?.[0] === "10001") {
         console.warn(`[ebay] Rate limit hit for "${cardIdStr}"`);
+        rateLimitHit = true;
         return {};
       }
       return data;
@@ -506,6 +508,14 @@ async function fetchEbayGradedPrices(
     raw:       extractLastEbay(rawData, rawMatch),
     fetchedAt: Date.now(),
   };
+
+  // Never cache rate-limited responses — they are all-zero garbage that would
+  // poison the L1/L2 cache for 3 days and prevent real lookups after reset.
+  if (rateLimitHit) {
+    console.warn(`[ebay] Skipping cache write for "${cardIdStr}" — rate limited`);
+    return result;
+  }
+
   // Store in L1
   ebayPriceCache.set(cacheKey, result);
   // Store in L2 (PostgreSQL — shared across all users, 3-day TTL)
