@@ -667,7 +667,20 @@ export default function ValuesScreen() {
         {!picksLoading && !picksError && tieredPicks.length === 0 && (
           <View style={styles.inlineFeedback}>
             <Text style={styles.feedbackText}>
-              Preparing picks — check back shortly after 9am UK time
+              {(() => {
+                const now = new Date();
+                const next = new Date();
+                next.setUTCHours(9, 0, 0, 0);
+                if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+                const localTime = next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const minsUntil = (next.getTime() - now.getTime()) / 60000;
+                const when = minsUntil < 60
+                  ? `in ${Math.round(minsUntil)} min`
+                  : minsUntil < 1440
+                  ? `today at ${localTime}`
+                  : `tomorrow at ${localTime}`;
+                return `Picks refresh daily — next update ${when}`;
+              })()}
             </Text>
           </View>
         )}
