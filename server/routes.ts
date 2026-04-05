@@ -7245,17 +7245,44 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
-  function scheduleDailyTopPicksJob() {
+  async function scheduleDailyTopPicksJob() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(9, 0, 0, 0); // 9 AM UTC — after eBay API resets at ~8 AM UK
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    console.log(`[top-picks] Daily job scheduled in ${Math.round(delay / 60000)} min`);
-    setTimeout(async () => {
-      await runTopPicksJob().catch(e => console.error("[top-picks] Job error:", e.message));
-      scheduleDailyTopPicksJob();
-    }, delay);
+
+    // Work out when today's 9am UTC window was
+    const todayAt9 = new Date();
+    todayAt9.setUTCHours(9, 0, 0, 0);
+
+    // Work out the next 9am UTC (always tomorrow if we're past today's 9am)
+    const nextAt9 = new Date(todayAt9);
+    if (nextAt9 <= now) nextAt9.setUTCDate(nextAt9.getUTCDate() + 1);
+
+    // Check DB for when the job last ran
+    let lastRanAt: Date | null = null;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(ebay_fetched_at) AS latest FROM top_picks_precomputed`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) lastRanAt = new Date(ts);
+    } catch { /* ignore */ }
+
+    const missedToday = now >= todayAt9 && (!lastRanAt || lastRanAt < todayAt9);
+
+    if (missedToday) {
+      // Server restarted after 9am and job hasn't run today — catch up in 2 min
+      console.log(`[top-picks] Missed today's 9am run — catching up in 2 min`);
+      setTimeout(async () => {
+        await runTopPicksJob().catch(e => console.error("[top-picks] Job error:", e.message));
+        scheduleDailyTopPicksJob();
+      }, 2 * 60 * 1000);
+    } else {
+      const delay = nextAt9.getTime() - now.getTime();
+      console.log(`[top-picks] Daily job scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(async () => {
+        await runTopPicksJob().catch(e => console.error("[top-picks] Job error:", e.message));
+        scheduleDailyTopPicksJob();
+      }, delay);
+    }
   }
 
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
