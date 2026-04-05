@@ -216,7 +216,7 @@ export default function CardProfitScreen() {
   const currencyDef = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
   const currencySymbol = currencyDef.symbol;
   const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
-  const fmtLocal = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${Math.round(v)}`;
+  const fmtLocal = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${v.toFixed(2)}`;
   const profitDisplay = settings.profitDisplay ?? "value";
   const fmtProfit = (profitAbs: number, rawVal: number): string => {
     const pct = rawVal > 0 ? `${Math.round((profitAbs / rawVal) * 100)}%` : null;
