@@ -1071,7 +1071,9 @@ export default function ResultsScreen() {
                   </View>
                   {marketRows.map(co => (
                     <View key={co.key} style={styles.ebayGradeRow}>
-                      <Text style={[styles.ebayGradeRowLabel, { color: co.color }]}>{co.label}</Text>
+                      <View style={{ width: 36 }}>
+                        <CompanyLabel company={co.label} fontSize={13} fontFamily="Inter_700Bold" />
+                      </View>
                       <View style={styles.ebayGradeRowCell}>
                         <View style={styles.ebayGradePill}><Text style={styles.ebayGradePillText}>{co.grade}</Text></View>
                         <Text style={[styles.ebayGradePrice, { color: co.color }]}>£---</Text>
@@ -1130,7 +1132,9 @@ export default function ResultsScreen() {
                     : null;
                   return (
                     <View key={co.key} style={styles.ebayGradeRow}>
-                      <Text style={[styles.ebayGradeRowLabel, { color: co.color }]}>{co.label}</Text>
+                      <View style={{ width: 36 }}>
+                        <CompanyLabel company={co.label} fontSize={13} fontFamily="Inter_700Bold" />
+                      </View>
                       {/* Your grade column */}
                       <View style={styles.ebayGradeRowCell}>
                         <View style={styles.ebayGradePill}>
