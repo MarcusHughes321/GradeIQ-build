@@ -148,6 +148,16 @@ const TOP_PICKS_TTL = 2 * 60 * 60 * 1000;
 topGradingPicksLastFetch = 0; // bust on startup
 
 // ── eBay Graded Price Cache ────────────────────────────────────────────────
+interface GradeDetail {
+  avg7d?: number | null;
+  avg30d?: number | null;
+  avg1d?: number | null;
+  low?: number | null;
+  high?: number | null;
+  saleCount?: number | null;
+  lastUpdated?: string | null;
+}
+
 interface EbayAllGrades {
   // PSA (whole grades)
   psa10: number; psa9: number; psa8: number; psa7: number;
@@ -161,6 +171,8 @@ interface EbayAllGrades {
   cgc10: number; cgc95: number; cgc9: number; cgc8: number;
   // Ungraded eBay last-sold price (USD) — 0 if none found
   raw: number;
+  // Richer per-grade detail (avg7d, avg30d, low, high, saleCount)
+  gradeDetails?: Record<string, GradeDetail>;
   fetchedAt: number;
   // true when cache is expired but we are serving archived data (e.g. API limit hit)
   isStale?: boolean;
@@ -405,9 +417,22 @@ async function fetchEbayGradedPrices(
   // Build result from PokeTrace price data
   const ebayPrices = ptCard?.prices?.ebay || {};
   const graded: Partial<EbayAllGrades> = {};
+  const gradeDetails: Record<string, GradeDetail> = {};
   for (const [ptKey, ourKey] of Object.entries(PT_GRADE_MAP)) {
-    const avg = ebayPrices[ptKey]?.avg;
+    const gd = ebayPrices[ptKey];
+    const avg = gd?.avg;
     (graded as any)[ourKey] = avg && avg > 0 ? Math.round(avg * 100) / 100 : 0;
+    if (gd) {
+      gradeDetails[ourKey as string] = {
+        avg1d: gd.avg1d ?? null,
+        avg7d: gd.avg7d ?? null,
+        avg30d: gd.avg30d ?? null,
+        low: gd.low ?? null,
+        high: gd.high ?? null,
+        saleCount: gd.saleCount ?? null,
+        lastUpdated: gd.lastUpdated ?? null,
+      };
+    }
   }
 
   // Raw price — use eBay NEAR_MINT if available
@@ -419,6 +444,7 @@ async function fetchEbayGradedPrices(
     tag10: 0, tag9: 0, tag8: 0,
     cgc10: 0, cgc95: 0, cgc9: 0, cgc8: 0,
     raw: rawAvg && rawAvg > 0 ? Math.round(rawAvg * 100) / 100 : 0,
+    gradeDetails,
     fetchedAt: Date.now(),
     ...graded,
   };

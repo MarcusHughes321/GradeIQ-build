@@ -45,8 +45,9 @@ The app features a dark-themed interface using red (#FF3C31), black (#000000), w
 - **Detailed Results**: Displays comprehensive grading results including sub-grades, card name, set name, and set number.
 - **Market Value Estimation**:
     - **Raw/TCGPlayer prices**: From pokemontcg.io and TCGCSV API, for set browsing.
-    - **eBay Graded Prices**: Real last-sold prices (PSA10/9, BGS9.5/9, ACE10, TAG10, CGC10, raw eBay) fetched on demand. Utilizes a two-tier cache (in-memory and PostgreSQL `ebay_price_cache` table).
+    - **eBay Graded Prices**: Real last-sold prices (PSA10/9, BGS9.5/9, ACE10, TAG10, CGC10, raw eBay) fetched on demand. Utilizes a two-tier cache (in-memory and PostgreSQL `ebay_price_cache` table). Also captures richer per-grade stats: `avg1d`, `avg7d`, `avg30d`, `low`, `high`, `saleCount`, stored in `gradeDetails`.
     - **Card Catalog DB**: `card_catalog` PostgreSQL table stores English card data, updated daily.
+    - **Profit Screen UI**: Company pills (PSA/BGS/ACE/TAG/CGC) — tap to switch; grade rows show sale count, avg7d/avg30d/range hints inline; rolling-average trend sparkline (SVG) for the top grade; eBay completed-listings deep-link per grade row.
 - **Card Variant Detection**: AI grading identifies whether a card is **Holo**, **Reverse Holo**, or **Non-Holo** from the photo; results screen shows a coloured badge. Set browsing shows per-variant TCGPlayer prices (Holo/RH/Normal) for each card when multiple variants exist. `card_catalog` DB stores `prices_json` JSONB for variant prices.
 - **Set Browser**: Displays TCGPlayer raw prices with per-variant breakdown (Holo / Reverse Holo / Non-Holo) where available.
 - **Grading History**: Stored locally via AsyncStorage.

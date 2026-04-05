@@ -8,7 +8,10 @@ import {
   StyleSheet,
   Platform,
   Modal,
+  Linking,
+  Dimensions,
 } from "react-native";
+import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Image } from "expo-image";
 import Animated, {
   useSharedValue,
@@ -30,6 +33,16 @@ import type { CompanyId } from "@/lib/settings";
 const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 };
 interface ExchangeRateData { rates: Record<string, number>; updatedAt: string; }
 
+interface GradeDetail {
+  avg7d?: number | null;
+  avg30d?: number | null;
+  avg1d?: number | null;
+  low?: number | null;
+  high?: number | null;
+  saleCount?: number | null;
+  lastUpdated?: string | null;
+}
+
 interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;
   bgs10: number; bgs95: number; bgs9: number; bgs85: number; bgs8: number;
@@ -37,6 +50,7 @@ interface EbayAllGrades {
   tag10: number; tag9: number; tag8: number;
   cgc10: number; cgc95: number; cgc9: number; cgc8: number;
   raw: number;
+  gradeDetails?: Record<string, GradeDetail>;
   fetchedAt?: number;
   isStale?: boolean;
 }
@@ -99,6 +113,86 @@ const COMPANY_CONFIG: Record<string, {
 };
 
 const COMPANY_ORDER: CompanyId[] = ["PSA", "Beckett", "Ace", "TAG", "CGC"];
+
+// ── Trend chart — sparkline using avg30d → avg7d → avg1d ─────────────────
+function TrendChart({ detail, currencySymbol }: { detail: GradeDetail | undefined; currencySymbol: string }) {
+  if (!detail) return null;
+  const rawPoints = [
+    { label: "30d", value: detail.avg30d },
+    { label: "7d",  value: detail.avg7d  },
+    { label: "1d",  value: detail.avg1d  },
+  ].filter((p): p is { label: string; value: number } => typeof p.value === "number" && p.value > 0);
+
+  if (rawPoints.length < 2) {
+    return (
+      <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center" }}>
+          Not enough recent sales for a trend
+        </Text>
+      </View>
+    );
+  }
+
+  const W = Dimensions.get("window").width - 48;
+  const H = 80;
+  const PAD = { top: 12, bottom: 24, left: 10, right: 10 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const vals = rawPoints.map(p => p.value);
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+
+  const toX = (i: number) => PAD.left + (i / (rawPoints.length - 1)) * chartW;
+  const toY = (v: number) => PAD.top + (1 - (v - minV) / range) * chartH;
+
+  const points = rawPoints.map((p, i) => ({ x: toX(i), y: toY(p.value), ...p }));
+  const polylineStr = points.map(p => `${p.x},${p.y}`).join(" ");
+
+  const fmt = (v: number) => {
+    if (currencySymbol === "¥") return `${currencySymbol}${Math.round(v)}`;
+    if (v >= 1000) return `${currencySymbol}${(v / 1000).toFixed(1)}k`;
+    return `${currencySymbol}${v.toFixed(0)}`;
+  };
+
+  const trendUp = points[points.length - 1].value >= points[0].value;
+
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+      <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>
+        Rolling average trend
+      </Text>
+      <Svg width={W} height={H}>
+        {/* Grid line */}
+        <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
+          stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
+        {/* Trend line */}
+        <Polyline points={polylineStr} fill="none"
+          stroke={trendUp ? "#22c55e" : "#ef4444"} strokeWidth="2" strokeLinejoin="round" />
+        {/* Dots + labels */}
+        {points.map((p, i) => (
+          <React.Fragment key={i}>
+            <Circle cx={p.x} cy={p.y} r={3} fill={trendUp ? "#22c55e" : "#ef4444"} />
+            <SvgText x={p.x} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="middle"
+              fontFamily="Inter_400Regular">{p.label}</SvgText>
+          </React.Fragment>
+        ))}
+        {/* Min/max labels */}
+        <SvgText x={PAD.left + chartW} y={PAD.top + 8} fontSize="9" fill={Colors.textMuted}
+          textAnchor="end" fontFamily="Inter_400Regular">{fmt(maxV)}</SvgText>
+        <SvgText x={PAD.left + chartW} y={PAD.top + chartH} fontSize="9" fill={Colors.textMuted}
+          textAnchor="end" fontFamily="Inter_400Regular">{fmt(minV)}</SvgText>
+      </Svg>
+      {detail.saleCount != null && (
+        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+          {detail.saleCount.toLocaleString()} recorded sales
+          {detail.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+        </Text>
+      )}
+    </View>
+  );
+}
 
 export default function CardProfitScreen() {
   const insets = useSafeAreaInsets();
@@ -252,6 +346,14 @@ export default function CardProfitScreen() {
     settings.enabledCompanies.length > 0
       ? settings.enabledCompanies
       : COMPANY_ORDER;
+
+  const defaultCompany: CompanyId = enabledCompanies[0] ?? "PSA";
+  const [selectedCompany, setSelectedCompany] = useState<CompanyId>(defaultCompany);
+
+  const buildEbayUrl = (gradeLabel: string) => {
+    const q = [gradeLabel, cardName, setName, "pokemon"].filter(Boolean).join(" ");
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`;
+  };
 
   const companies = useMemo(() => {
     return COMPANY_ORDER.filter(id => enabledCompanies.includes(id)).map(compId => {
@@ -452,112 +554,141 @@ export default function CardProfitScreen() {
           </View>
         )}
 
-        {/* Per-company grade tables */}
-        {companies.map(({ compId, config, rows, minProfitRow }) => (
-          <View key={compId} style={st.companyCard}>
-            {/* Company header */}
-            <View style={st.companyHeader}>
-              <CompanyLabel company={compId} fontSize={16} />
-            </View>
-
-            {/* Table column headers */}
-            <View style={st.tblHead}>
-              <Text style={[st.tblHeadTxt, { width: 76 }]}>Grade</Text>
-              <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Last Sold</Text>
-              <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Profit</Text>
-              <View style={{ width: 58 }} />
-            </View>
-
-            {/* Grade rows */}
-            {rows.map((gr, idx) => {
-              const isMin = minProfitRow?.ebayKey === gr.ebayKey;
-              const isProfit = gr.profit !== null && gr.profit >= 0;
-              const isLast = idx === rows.length - 1;
-
+        {/* Company pill tabs */}
+        {companies.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={st.companyPillRow}
+          >
+            {companies.map(({ compId, config }) => {
+              const isActive = selectedCompany === compId;
               return (
-                <View
-                  key={gr.ebayKey}
-                  style={[
-                    st.tblRow,
-                    isMin && st.tblRowGreen,
-                    isLast && { borderBottomWidth: 0 },
-                  ]}
+                <Pressable
+                  key={compId}
+                  onPress={() => setSelectedCompany(compId)}
+                  style={[st.companyPill, isActive && { borderColor: config.dotColor, backgroundColor: config.dotColor + "22" }]}
                 >
-                  <View style={[st.accent, isMin && st.accentGreen]} />
-
-                  <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
-                    {gr.label}{isMin ? " ★" : ""}
+                  <View style={[st.companyPillDot, { backgroundColor: config.dotColor }]} />
+                  <Text style={[st.companyPillLabel, isActive && { color: Colors.text }]}>
+                    {config.label}
                   </Text>
-
-                  {isLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={Colors.textMuted}
-                      style={{ flex: 1, transform: [{ scale: 0.6 }] }}
-                    />
-                  ) : (
-                    <Text style={[st.ebayPrice, { flex: 1 }]}>
-                      {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
-                    </Text>
-                  )}
-
-                  {isLoading ? (
-                    <View style={{ flex: 1 }} />
-                  ) : hasRawPrice && gr.profit !== null ? (
-                    <Text
-                      style={[
-                        st.profitVal,
-                        { flex: 1, color: isProfit ? "#22c55e" : "#ef4444" },
-                      ]}
-                    >
-                      {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), rawLocalVal)}
-                    </Text>
-                  ) : (
-                    <Text style={[st.mutedTxt, { flex: 1, textAlign: "right" }]}>—</Text>
-                  )}
-
-                  {!isLoading && gr.ebayLocal !== null && hasRawPrice && gr.profit !== null ? (
-                    <View
-                      style={[
-                        st.badge,
-                        {
-                          width: 58,
-                          backgroundColor: isProfit
-                            ? "rgba(34,197,94,0.15)"
-                            : "rgba(239,68,68,0.12)",
-                        },
-                      ]}
-                    >
-                      <Text style={[st.badgeTxt, { color: isProfit ? "#22c55e" : "#ef4444" }]}>
-                        {isProfit ? "Profit" : "Loss"}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={{ width: 58 }} />
-                  )}
-                </View>
+                </Pressable>
               );
             })}
+          </ScrollView>
+        )}
 
-            {/* Company summary */}
-            {!isLoading && ebay && hasRawPrice && (
-              <View style={st.summaryRow}>
-                {minProfitRow ? (
-                  <Text style={st.summaryTxt}>
-                    Min grade to profit:{" "}
-                    <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>
-                      {minProfitRow.label}
-                    </Text>
-                  </Text>
-                ) : (
-                  <Text style={[st.summaryTxt, { color: "#ef4444" }]}>
-                    No profitable grade at this raw price
-                  </Text>
-                )}
+        {/* Expanded company section */}
+        {companies.filter(c => c.compId === selectedCompany).map(({ compId, config, rows, minProfitRow }) => {
+          const topGradeKey = config.grades[0]?.ebayKey as string | undefined;
+          const topDetail = topGradeKey ? ebay?.gradeDetails?.[topGradeKey] : undefined;
+
+          return (
+            <View key={compId} style={st.companyCard}>
+              {/* Column headers */}
+              <View style={st.tblHead}>
+                <Text style={[st.tblHeadTxt, { flex: 2 }]}>Grade</Text>
+                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>Last Sold</Text>
+                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>Profit</Text>
+                <View style={{ width: 32 }} />
               </View>
-            )}
-          </View>
-        ))}
+
+              {/* Grade rows */}
+              {rows.map((gr, idx) => {
+                const isMin = minProfitRow?.ebayKey === gr.ebayKey;
+                const isProfit = gr.profit !== null && gr.profit >= 0;
+                const isLast = idx === rows.length - 1;
+                const detail = ebay?.gradeDetails?.[gr.ebayKey as string];
+                const hasTrend = detail && (detail.avg7d != null || detail.avg30d != null);
+
+                return (
+                  <View key={gr.ebayKey}>
+                    <View style={[st.tblRow, isMin && st.tblRowGreen, isLast && !hasTrend && { borderBottomWidth: 0 }]}>
+                      <View style={[st.accent, isMin && st.accentGreen]} />
+
+                      <View style={{ flex: 2 }}>
+                        <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
+                          {gr.label}{isMin ? " ★" : ""}
+                        </Text>
+                        {detail?.saleCount != null && (
+                          <Text style={st.saleCountTxt}>{detail.saleCount} sales</Text>
+                        )}
+                      </View>
+
+                      {isLoading ? (
+                        <ActivityIndicator size="small" color={Colors.textMuted} style={{ flex: 2 }} />
+                      ) : (
+                        <Text style={[st.ebayPrice, { flex: 2 }]}>
+                          {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
+                        </Text>
+                      )}
+
+                      {isLoading ? (
+                        <View style={{ flex: 2 }} />
+                      ) : hasRawPrice && gr.profit !== null ? (
+                        <Text style={[st.profitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
+                          {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), rawLocalVal)}
+                        </Text>
+                      ) : (
+                        <Text style={[st.mutedTxt, { flex: 2, textAlign: "right" }]}>—</Text>
+                      )}
+
+                      {/* eBay link */}
+                      <Pressable
+                        onPress={() => Linking.openURL(buildEbayUrl(gr.label))}
+                        hitSlop={8}
+                        style={({ pressed }) => [st.ebayLinkBtn, { opacity: pressed ? 0.5 : 1 }]}
+                      >
+                        <Ionicons name="open-outline" size={14} color={Colors.textMuted} />
+                      </Pressable>
+                    </View>
+
+                    {/* Inline avg7d/avg30d hint */}
+                    {!isLoading && hasTrend && (
+                      <View style={[st.trendHintRow, isLast && { borderBottomWidth: 0 }]}>
+                        {detail?.avg7d != null && (
+                          <Text style={st.trendHintTxt}>7d avg {fmtLocal(detail.avg7d * currencyRate)}</Text>
+                        )}
+                        {detail?.avg30d != null && (
+                          <Text style={st.trendHintTxt}>30d avg {fmtLocal(detail.avg30d * currencyRate)}</Text>
+                        )}
+                        {detail?.low != null && detail?.high != null && (
+                          <Text style={st.trendHintTxt}>Range {fmtLocal(detail.low * currencyRate)}–{fmtLocal(detail.high * currencyRate)}</Text>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* Trend chart for top grade */}
+              {!isLoading && topDetail && (
+                <View style={st.chartContainer}>
+                  <TrendChart detail={topDetail} currencySymbol={currencySymbol} />
+                </View>
+              )}
+
+              {/* Company summary */}
+              {!isLoading && ebay && hasRawPrice && (
+                <View style={st.summaryRow}>
+                  {minProfitRow ? (
+                    <Text style={st.summaryTxt}>
+                      Min grade to profit:{" "}
+                      <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>
+                        {minProfitRow.label}
+                      </Text>
+                    </Text>
+                  ) : (
+                    <Text style={[st.summaryTxt, { color: "#ef4444" }]}>
+                      No profitable grade at this raw price
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
 
         {/* Grade this card CTA */}
         <Pressable
@@ -819,14 +950,76 @@ const st = StyleSheet.create({
     color: Colors.textSecondary,
   },
 
+  // ── Company pill tabs ────────────────────────────────────────────────────
+  companyPillRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  companyPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface,
+  },
+  companyPillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  companyPillLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  // ── Expanded company card ────────────────────────────────────────────────
   companyCard: {
-    marginTop: 12,
+    marginBottom: 12,
     marginHorizontal: 12,
     backgroundColor: Colors.surface,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     overflow: "hidden",
+  },
+  saleCountTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  ebayLinkBtn: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trendHintRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+    paddingLeft: 18,
+  },
+  trendHintTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  chartContainer: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    paddingTop: 12,
+    paddingBottom: 4,
   },
   companyHeader: {
     flexDirection: "row",
