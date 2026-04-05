@@ -42,12 +42,19 @@ interface ExchangeRateData { rates: Record<string, number>; updatedAt: string; }
 
 type SortBy = "number" | "value";
 
+interface CardPrices {
+  holofoil?: number | null;
+  reverseHolofoil?: number | null;
+  normal?: number | null;
+}
+
 interface SetCard {
   id: string;
   name: string;
   number: string;
   imageUrl: string | null;
   price?: number | null;
+  prices?: CardPrices | null;
 }
 
 const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay }: {
@@ -283,31 +290,62 @@ export default function SetCardsScreen() {
     });
   };
 
-  const renderGridCard = ({ item }: { item: SetCard }) => (
-    <Pressable
-      style={({ pressed }) => [styles.gridItem, { opacity: pressed ? 0.75 : 1 }]}
-      onPress={() => handleCardPress(item)}
-    >
-      {item.imageUrl ? (
-        <Image
-          source={{ uri: item.imageUrl }}
-          style={styles.cardImage}
-          contentFit="contain"
-          transition={150}
-        />
-      ) : (
-        <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
-          <Ionicons name="image-outline" size={24} color={Colors.textMuted} />
-        </View>
-      )}
-      {item.number ? (
-        <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
-      ) : null}
-      {item.price != null ? (
-        <Text style={styles.cardPrice} numberOfLines={1}>{currencySymbol}{currencySymbol === "¥" ? Math.round(item.price * currencyRate) : (item.price * currencyRate).toFixed(2)}</Text>
-      ) : null}
-    </Pressable>
-  );
+  const fmtPrice = (usd: number) => {
+    const local = usd * currencyRate;
+    return currencySymbol === "¥" ? `${currencySymbol}${Math.round(local)}` : `${currencySymbol}${local.toFixed(2)}`;
+  };
+
+  const VARIANT_ROWS: { key: keyof CardPrices; label: string; dot: string }[] = [
+    { key: "holofoil",       label: "Holo",  dot: "#FFD700" },
+    { key: "reverseHolofoil",label: "Rev",   dot: "#8B5CF6" },
+    { key: "normal",         label: "Non",   dot: "#6B7280" },
+  ];
+
+  const renderGridCard = ({ item }: { item: SetCard }) => {
+    const p = item.prices;
+    const variantCount = p ? VARIANT_ROWS.filter(r => p[r.key] != null).length : 0;
+    const showVariants = variantCount > 1 && isEnglish;
+
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.gridItem, { opacity: pressed ? 0.75 : 1 }]}
+        onPress={() => handleCardPress(item)}
+      >
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={styles.cardImage}
+            contentFit="contain"
+            transition={150}
+          />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+            <Ionicons name="image-outline" size={24} color={Colors.textMuted} />
+          </View>
+        )}
+        {item.number ? (
+          <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
+        ) : null}
+        {showVariants ? (
+          <View style={styles.variantPrices}>
+            {VARIANT_ROWS.map(r => {
+              const val = p![r.key];
+              if (val == null) return null;
+              return (
+                <View key={r.key} style={styles.variantRow}>
+                  <View style={[styles.variantDot, { backgroundColor: r.dot }]} />
+                  <Text style={styles.variantLabel}>{r.label}</Text>
+                  <Text style={styles.variantPrice}>{fmtPrice(val)}</Text>
+                </View>
+              );
+            })}
+          </View>
+        ) : item.price != null ? (
+          <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
+        ) : null}
+      </Pressable>
+    );
+  };
 
   const showTopPicks = isEnglish && hasAnyPrice && top15.length > 0 && !isLoading && !error;
 
@@ -809,6 +847,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary,
     textAlign: "center",
+  },
+  variantPrices: {
+    alignSelf: "stretch",
+    marginTop: 4,
+    gap: 2,
+  },
+  variantRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  variantDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  variantLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 9,
+    color: Colors.textMuted,
+    width: 22,
+  },
+  variantPrice: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    color: Colors.text,
+    flex: 1,
   },
   separator: {
     height: 1,

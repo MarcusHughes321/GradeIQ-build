@@ -864,6 +864,23 @@ export default function ResultsScreen() {
                 <Text style={styles.setNumberText}>{displaySetNumber}</Text>
               </View>
             ) : null}
+            {result.cardVariant === "holo" && (
+              <View style={styles.variantBadgeHolo}>
+                <Ionicons name="sparkles" size={11} color="#92400e" />
+                <Text style={styles.variantBadgeHoloText}>Holo</Text>
+              </View>
+            )}
+            {result.cardVariant === "reverseHolo" && (
+              <View style={styles.variantBadgeRH}>
+                <Ionicons name="color-wand-outline" size={11} color="#ede9fe" />
+                <Text style={styles.variantBadgeRHText}>Reverse Holo</Text>
+              </View>
+            )}
+            {result.cardVariant === "normal" && (
+              <View style={styles.variantBadgeNormal}>
+                <Text style={styles.variantBadgeNormalText}>Non-Holo</Text>
+              </View>
+            )}
             <Pressable
               onPress={openCorrectionModal}
               style={({ pressed }) => [styles.wrongCardBtn, { opacity: pressed ? 0.6 : 1 }]}
@@ -1813,6 +1830,54 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  variantBadgeHolo: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#fef3c7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+  },
+  variantBadgeHoloText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: "#92400e",
+  },
+  variantBadgeRH: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(139,92,246,0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.4)",
+  },
+  variantBadgeRHText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: "#ede9fe",
+  },
+  variantBadgeNormal: {
+    alignSelf: "flex-start",
+    backgroundColor: Colors.surfaceLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  variantBadgeNormalText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
   },
   currentGradeBanner: {
     backgroundColor: "rgba(139, 92, 246, 0.08)",

@@ -303,10 +303,12 @@ async function initCardCatalogTable(): Promise<void> {
         rarity           VARCHAR(100),
         image_url        TEXT,
         price_usd        NUMERIC(10,2),
+        prices_json      JSONB,
         price_updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
         card_updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       )
     `);
+    await db.query(`ALTER TABLE card_catalog ADD COLUMN IF NOT EXISTS prices_json JSONB`);
     await db.query(`CREATE INDEX IF NOT EXISTS card_catalog_set_id_idx ON card_catalog (set_id)`);
     console.log("[card-catalog] DB table ready");
   } catch (e: any) {
@@ -1097,6 +1099,13 @@ Step 5: FINAL DETERMINATION
 - Combine: Pokemon name (from text + artwork) + card number (as read) + set code (as read)
 - Report the verified cardName, setName, and setNumber in the JSON response.
 
+Step 5b: IDENTIFY CARD VARIANT
+Look at the FRONT of the card and determine which areas have holographic foil (rainbow shimmer):
+- "holo": The ARTWORK/ILLUSTRATION inside the card frame shines with rainbow foil. The outer border is plain. Includes: standard Holo Rare, Full Art Trainer, Illustration Rare, Special Illustration Rare, Secret Rare, Rainbow Rare, Gold card.
+- "reverseHolo": ONLY the BORDER, FRAME, or BACKGROUND of the card has rainbow foil — the artwork area itself is flat/plain. Any common, uncommon, or rare can come as a Reverse Holo.
+- "normal": No holographic foil anywhere on the card. Fully flat finish with no rainbow shimmer.
+NOTE: Foil appears in photos as bright iridescent or rainbow-colored areas. If the card is inside a graded slab and difficult to read, use "holo" for any card with Rare rarity, and "normal" for Common/Uncommon.
+
 Step 6: CARD BOUNDS MEASUREMENT
 Estimate the card boundary in BOTH the outer edges (physical card edge) AND the inner artwork boundary (where the printed border ends and the artwork begins). Report these for both front and back images.
 - OUTER bounds (leftPercent/topPercent/rightPercent/bottomPercent): the physical card edge (white/colored card border). If the card fills most of the image, leftPercent ≈ 3-8% and rightPercent ≈ 92-97%.
@@ -1112,6 +1121,7 @@ Respond ONLY with valid JSON in this exact format:
   "setCode": "The set code EXACTLY as printed on the card (e.g. 'PFLen', 's8b', 'sv2a', 'OBF'). READ THIS FROM THE CARD.",
   "setName": "ENGLISH name of the set derived from the set code (e.g. PFLen = 'Phantasmal Flames', s8b = 'VMAX Climax')",
   "setNumber": "Card number exactly as printed at the bottom of the card (e.g. '012/220')",
+  "cardVariant": "holo | reverseHolo | normal — holo if the illustration/artwork shines with rainbow foil; reverseHolo if ONLY the border/frame has rainbow foil (artwork is plain); normal if no foil anywhere",
   "overallCondition": "Brief 1-2 sentence summary of the card's overall condition",
   "frontCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97, "innerLeftPercent": 9, "innerTopPercent": 9, "innerRightPercent": 91, "innerBottomPercent": 91 },
   "backCardBounds": { "leftPercent": 5, "topPercent": 3, "rightPercent": 95, "bottomPercent": 97, "innerLeftPercent": 9, "innerTopPercent": 9, "innerRightPercent": 91, "innerBottomPercent": 91 },
@@ -6924,16 +6934,24 @@ RESPONSE FORMAT (JSON only, no markdown):
     );
     if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
     const data = await resp.json() as any;
-    return (data?.data || []).map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      number: c.number || "",
-      rarity: c.rarity || null,
-      imageUrl: c.images?.small || c.images?.large || null,
-      price: pickBestTcgPrice(c.tcgplayer),
-      setId,
-      setName,
-    }));
+    return (data?.data || []).map((c: any) => {
+      const tcgPrices = c.tcgplayer?.prices || {};
+      return {
+        id: c.id,
+        name: c.name,
+        number: c.number || "",
+        rarity: c.rarity || null,
+        imageUrl: c.images?.small || c.images?.large || null,
+        price: pickBestTcgPrice(c.tcgplayer),
+        prices: {
+          holofoil: tcgPrices.holofoil?.market ?? null,
+          reverseHolofoil: tcgPrices.reverseHolofoil?.market ?? null,
+          normal: tcgPrices.normal?.market ?? null,
+        },
+        setId,
+        setName,
+      };
+    });
   }
 
   // Bulk-upsert an array of shaped card rows into card_catalog
@@ -6945,15 +6963,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     for (let i = 0; i < cards.length; i += CHUNK) {
       const chunk = cards.slice(i, i + CHUNK);
       const placeholders = chunk.map((_, j) => {
-        const base = j * 9;
-        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9})`;
+        const base = j * 10;
+        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10})`;
       }).join(",");
       const values: any[] = [];
       for (const c of chunk) {
-        values.push(c.id, c.setId, c.setName, c.name, c.number, c.rarity ?? null, c.imageUrl ?? null, c.price ?? null, now);
+        values.push(c.id, c.setId, c.setName, c.name, c.number, c.rarity ?? null, c.imageUrl ?? null, c.price ?? null, c.prices ? JSON.stringify(c.prices) : null, now);
       }
       await db.query(
-        `INSERT INTO card_catalog (card_id, set_id, set_name, name, number, rarity, image_url, price_usd, price_updated_at)
+        `INSERT INTO card_catalog (card_id, set_id, set_name, name, number, rarity, image_url, price_usd, prices_json, price_updated_at)
          VALUES ${placeholders}
          ON CONFLICT (card_id) DO UPDATE SET
            name             = EXCLUDED.name,
@@ -6961,6 +6979,7 @@ RESPONSE FORMAT (JSON only, no markdown):
            rarity           = EXCLUDED.rarity,
            image_url        = EXCLUDED.image_url,
            price_usd        = EXCLUDED.price_usd,
+           prices_json      = EXCLUDED.prices_json,
            price_updated_at = EXCLUDED.price_updated_at`,
         values
       );
@@ -6971,7 +6990,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   async function getCardsFromCatalog(setId: string): Promise<any[] | null> {
     try {
       const { rows } = await db.query(
-        `SELECT card_id as id, name, number, rarity, image_url as "imageUrl", price_usd::float as price
+        `SELECT card_id as id, name, number, rarity, image_url as "imageUrl", price_usd::float as price, prices_json as prices
          FROM card_catalog WHERE set_id = $1 ORDER BY number`,
         [setId]
       );
@@ -6982,6 +7001,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         number: r.number || "",
         imageUrl: r.imageUrl || null,
         price: r.price != null ? Math.round(r.price * 100) / 100 : null,
+        prices: r.prices ?? null,
       }));
     } catch (err: any) {
       console.error(`[card-catalog] DB read error for ${setId}:`, err.message);
@@ -7033,7 +7053,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           upsertSetPriceStatus(s.id, cards.length > 0, hasPrices);
 
           // Warm the in-memory cache too so the next request is instant
-          setCardsCache.set(`english:${s.id}`, { cards: cards.map(c => ({ id: c.id, name: c.name, number: c.number, imageUrl: c.imageUrl, price: c.price })), fetchedAt: Date.now() });
+          setCardsCache.set(`english:${s.id}`, { cards: cards.map(c => ({ id: c.id, name: c.name, number: c.number, imageUrl: c.imageUrl, price: c.price, prices: c.prices ?? null })), fetchedAt: Date.now() });
 
           synced++;
           if (synced % 20 === 0) console.log(`[card-catalog] Synced ${synced}/${allSets.length} sets...`);
@@ -7763,15 +7783,23 @@ RESPONSE FORMAT (JSON only, no markdown):
           );
           if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
           const data = await resp.json() as any;
-          cards = (data?.data || []).map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            number: c.number || "",
-            rarity: c.rarity || null,
-            imageUrl: c.images?.small || c.images?.large || null,
-            price: pickEditionTcgPrice(c.tcgplayer, edition),
-            setId,
-          }));
+          cards = (data?.data || []).map((c: any) => {
+            const tcgPrices = c.tcgplayer?.prices || {};
+            return {
+              id: c.id,
+              name: c.name,
+              number: c.number || "",
+              rarity: c.rarity || null,
+              imageUrl: c.images?.small || c.images?.large || null,
+              price: pickEditionTcgPrice(c.tcgplayer, edition),
+              prices: {
+                holofoil: tcgPrices.holofoil?.market ?? null,
+                reverseHolofoil: tcgPrices.reverseHolofoil?.market ?? null,
+                normal: tcgPrices.normal?.market ?? null,
+              },
+              setId,
+            };
+          });
         } else {
           console.log(`[sets/cards] L3 API fetch: ${setId} (not yet in catalog)`);
           cards = await fetchSetCardsFromApi(setId, "");
@@ -7800,6 +7828,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         number: c.number || "",
         imageUrl: c.imageUrl || null,
         price: c.price ?? null,
+        prices: c.prices ?? null,
       }));
 
       console.log(`[sets/cards] Fetched ${shaped.length} cards for ${cacheKey}`);

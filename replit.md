@@ -47,7 +47,8 @@ The app features a dark-themed interface using red (#FF3C31), black (#000000), w
     - **Raw/TCGPlayer prices**: From pokemontcg.io and TCGCSV API, for set browsing.
     - **eBay Graded Prices**: Real last-sold prices (PSA10/9, BGS9.5/9, ACE10, TAG10, CGC10, raw eBay) fetched on demand. Utilizes a two-tier cache (in-memory and PostgreSQL `ebay_price_cache` table).
     - **Card Catalog DB**: `card_catalog` PostgreSQL table stores English card data, updated daily.
-- **Set Browser**: Displays TCGPlayer raw prices.
+- **Card Variant Detection**: AI grading identifies whether a card is **Holo**, **Reverse Holo**, or **Non-Holo** from the photo; results screen shows a coloured badge. Set browsing shows per-variant TCGPlayer prices (Holo/RH/Normal) for each card when multiple variants exist. `card_catalog` DB stores `prices_json` JSONB for variant prices.
+- **Set Browser**: Displays TCGPlayer raw prices with per-variant breakdown (Holo / Reverse Holo / Non-Holo) where available.
 - **Grading History**: Stored locally via AsyncStorage.
 - **Customization**: Users can toggle grading companies.
 - **Share Results**: Branded shareable cards with Grade.IQ logo and grading details, supporting multiple social media formats via `react-native-view-shot` and `expo-sharing`.

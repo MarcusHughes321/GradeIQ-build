@@ -118,6 +118,7 @@ export interface GradingResult {
   setName?: string;
   setNumber?: string;
   setInfo?: string;
+  cardVariant?: "holo" | "reverseHolo" | "normal";
   overallCondition: string;
   centering: CenteringMeasurement;
   frontCardBounds?: CardBounds;
