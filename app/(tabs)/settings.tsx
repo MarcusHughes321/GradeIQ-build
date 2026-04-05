@@ -203,7 +203,8 @@ export default function SettingsScreen() {
         <View style={styles.segmentRow}>
           {([
             { key: "value" as ProfitDisplay, icon: "cash-outline", label: "Value" },
-            { key: "percentage" as ProfitDisplay, icon: "trending-up-outline", label: "Percentage" },
+            { key: "percentage" as ProfitDisplay, icon: "trending-up-outline", label: "%" },
+            { key: "both" as ProfitDisplay, icon: "layers-outline", label: "Both" },
           ]).map(opt => {
             const active = (settings.profitDisplay ?? "value") === opt.key;
             return (
@@ -227,7 +228,9 @@ export default function SettingsScreen() {
         <Text style={styles.hint}>
           {(settings.profitDisplay ?? "value") === "value"
             ? `Profit shown as a currency amount, e.g. +£150`
-            : `Profit shown as a percentage of the raw price, e.g. +200%`}
+            : (settings.profitDisplay ?? "value") === "percentage"
+            ? `Profit shown as a percentage of the raw price, e.g. +200%`
+            : `Profit shown as both, e.g. +£150 (200%)`}
         </Text>
 
         {(isSubscribed || isAdminMode) && (

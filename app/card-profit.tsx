@@ -206,9 +206,9 @@ export default function CardProfitScreen() {
   const fmtLocal = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${Math.round(v)}`;
   const profitDisplay = settings.profitDisplay ?? "value";
   const fmtProfit = (profitAbs: number, rawVal: number): string => {
-    if (profitDisplay === "percentage" && rawVal > 0) {
-      return `${Math.round((profitAbs / rawVal) * 100)}%`;
-    }
+    const pct = rawVal > 0 ? `${Math.round((profitAbs / rawVal) * 100)}%` : null;
+    if (profitDisplay === "percentage" && pct) return pct;
+    if (profitDisplay === "both" && pct) return `${fmtLocal(profitAbs)} (${pct})`;
     return fmtLocal(profitAbs);
   };
 

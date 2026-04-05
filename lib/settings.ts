@@ -6,7 +6,7 @@ export type CompanyId = "PSA" | "Beckett" | "Ace" | "TAG" | "CGC";
 
 export type CurrencyCode = "GBP" | "USD" | "EUR" | "AUD" | "CAD" | "JPY";
 
-export type ProfitDisplay = "value" | "percentage";
+export type ProfitDisplay = "value" | "percentage" | "both";
 
 export const CURRENCIES: { code: CurrencyCode; symbol: string; label: string }[] = [
   { code: "GBP", symbol: "£", label: "GBP (£)" },

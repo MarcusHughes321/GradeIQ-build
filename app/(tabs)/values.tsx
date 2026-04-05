@@ -171,15 +171,16 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
   currencySymbol: string;
   currencyRate: number;
   isStale?: boolean;
-  profitDisplay?: "value" | "percentage";
+  profitDisplay?: "value" | "percentage" | "both";
 }) => {
   const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
   const sym = currencySymbol;
   const fmtProfit = (abs: number): string => {
-    if (profitDisplay === "percentage" && rawLocal > 0) {
-      return `${Math.round((abs / rawLocal) * 100)}%`;
-    }
-    return `${sym}${abs}`;
+    const val = `${sym}${abs}`;
+    const pct = rawLocal > 0 ? `${Math.round((abs / rawLocal) * 100)}%` : null;
+    if (profitDisplay === "percentage" && pct) return pct;
+    if (profitDisplay === "both" && pct) return `${val} (${pct})`;
+    return val;
   };
 
   return (

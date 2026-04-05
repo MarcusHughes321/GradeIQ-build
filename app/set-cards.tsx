@@ -62,7 +62,7 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
   topEbayKey: string;
   topGradeLabel: string;
   picksCompany: CompanyId;
-  profitDisplay: "value" | "percentage";
+  profitDisplay: "value" | "percentage" | "both";
 }) => {
   const rawLocal = item.price != null && item.price > 0
     ? Math.round(item.price * currencyRate)
@@ -71,10 +71,11 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
   const topLocal = topUSD != null && topUSD > 0 ? Math.round(topUSD * currencyRate) : null;
   const profitLocal = topLocal != null && rawLocal != null ? topLocal - rawLocal : null;
   const fmtProfit = (abs: number): string => {
-    if (profitDisplay === "percentage" && rawLocal != null && rawLocal > 0) {
-      return `${Math.round((abs / rawLocal) * 100)}%`;
-    }
-    return `${currencySymbol}${abs}`;
+    const val = `${currencySymbol}${abs}`;
+    const pct = rawLocal != null && rawLocal > 0 ? `${Math.round((abs / rawLocal) * 100)}%` : null;
+    if (profitDisplay === "percentage" && pct) return pct;
+    if (profitDisplay === "both" && pct) return `${val} (${pct})`;
+    return val;
   };
 
   return (
