@@ -23,6 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
+import CompanyLabel from "@/components/CompanyLabel";
 import { apiRequest } from "@/lib/query-client";
 import type { CompanyId } from "@/lib/settings";
 
@@ -386,8 +387,7 @@ export default function CardProfitScreen() {
           <View key={compId} style={st.companyCard}>
             {/* Company header */}
             <View style={st.companyHeader}>
-              <View style={[st.dot, { backgroundColor: config.dotColor }]} />
-              <Text style={st.companyLabel}>{config.label}</Text>
+              <CompanyLabel company={compId} fontSize={16} />
             </View>
 
             {/* Table column headers */}
