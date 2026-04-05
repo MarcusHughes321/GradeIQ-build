@@ -7,12 +7,12 @@ import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
-import { ALL_COMPANIES, CURRENCIES, type CompanyId, type CurrencyCode } from "@/lib/settings";
+import { ALL_COMPANIES, CURRENCIES, type CompanyId, type CurrencyCode, type ProfitDisplay } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { settings, toggleCompany, setCurrency, setPreferredPicksCompany } = useSettings();
+  const { settings, toggleCompany, setCurrency, setPreferredPicksCompany, setProfitDisplay } = useSettings();
   const {
     isGateEnabled, isSubscribed, monthlyUsageCount, monthlyLimit, remainingGrades,
     currentTier, tierInfo, isAdminMode, toggleAdminMode, restorePurchases,
@@ -192,6 +192,43 @@ export default function SettingsScreen() {
             </Text>
           </>
         )}
+
+        {/* ── Profit Display ── */}
+        <View style={[styles.section, { marginTop: 32 }]}>
+          <Text style={styles.sectionTitle}>Profit Display</Text>
+          <Text style={styles.sectionSubtitle}>
+            Show profit as a currency amount or as a percentage of the raw card price
+          </Text>
+        </View>
+        <View style={styles.segmentRow}>
+          {([
+            { key: "value" as ProfitDisplay, icon: "cash-outline", label: "Value" },
+            { key: "percentage" as ProfitDisplay, icon: "trending-up-outline", label: "Percentage" },
+          ]).map(opt => {
+            const active = (settings.profitDisplay ?? "value") === opt.key;
+            return (
+              <Pressable
+                key={opt.key}
+                onPress={() => setProfitDisplay(opt.key)}
+                style={({ pressed }) => [
+                  styles.segmentBtn,
+                  active && styles.segmentBtnActive,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Ionicons name={opt.icon as any} size={16} color={active ? Colors.text : Colors.textMuted} />
+                <Text style={[styles.segmentBtnText, active && styles.segmentBtnTextActive]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.hint}>
+          {(settings.profitDisplay ?? "value") === "value"
+            ? `Profit shown as a currency amount, e.g. +£150`
+            : `Profit shown as a percentage of the raw price, e.g. +200%`}
+        </Text>
 
         {(isSubscribed || isAdminMode) && (
           <>
@@ -762,5 +799,34 @@ const styles = StyleSheet.create({
   },
   picksCompanyTextSelected: {
     color: Colors.primary,
+  },
+  segmentRow: {
+    flexDirection: "row" as const,
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  segmentBtn: {
+    flex: 1,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 7,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface,
+  },
+  segmentBtnActive: {
+    borderColor: Colors.primary,
+    backgroundColor: "rgba(255,60,49,0.08)",
+  },
+  segmentBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  segmentBtnTextActive: {
+    color: Colors.text,
   },
 });

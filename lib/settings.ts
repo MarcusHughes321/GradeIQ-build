@@ -6,6 +6,8 @@ export type CompanyId = "PSA" | "Beckett" | "Ace" | "TAG" | "CGC";
 
 export type CurrencyCode = "GBP" | "USD" | "EUR" | "AUD" | "CAD" | "JPY";
 
+export type ProfitDisplay = "value" | "percentage";
+
 export const CURRENCIES: { code: CurrencyCode; symbol: string; label: string }[] = [
   { code: "GBP", symbol: "£", label: "GBP (£)" },
   { code: "USD", symbol: "$", label: "USD ($)" },
@@ -19,6 +21,7 @@ export interface AppSettings {
   enabledCompanies: CompanyId[];
   currency: CurrencyCode;
   preferredPicksCompany: CompanyId;
+  profitDisplay: ProfitDisplay;
 }
 
 export const ALL_COMPANIES: { id: CompanyId; label: string; shortLabel: string; color: string }[] = [
@@ -33,6 +36,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   enabledCompanies: [],
   currency: "GBP",
   preferredPicksCompany: "PSA",
+  profitDisplay: "value",
 };
 
 export async function getSettings(): Promise<AppSettings> {

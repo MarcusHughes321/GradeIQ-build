@@ -158,7 +158,7 @@ const PICKS_COMPANY_CONFIG: Record<CompanyId, {
 };
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, isStale }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, isStale, profitDisplay }: {
   item: TopPick;
   index: number;
   onPress: () => void;
@@ -171,9 +171,16 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
   currencySymbol: string;
   currencyRate: number;
   isStale?: boolean;
+  profitDisplay?: "value" | "percentage";
 }) => {
   const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
   const sym = currencySymbol;
+  const fmtProfit = (abs: number): string => {
+    if (profitDisplay === "percentage" && rawLocal > 0) {
+      return `${Math.round((abs / rawLocal) * 100)}%`;
+    }
+    return `${sym}${abs}`;
+  };
 
   return (
     <Pressable
@@ -219,7 +226,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
         ) : topGradeProfit !== null ? (
           <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
-            {topGradeProfit >= 0 ? "+" : ""}{sym}{Math.abs(topGradeProfit)}
+            {topGradeProfit >= 0 ? "+" : "-"}{fmtProfit(Math.abs(topGradeProfit))}
           </Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
@@ -493,8 +500,9 @@ export default function ValuesScreen() {
       currencySymbol={currencySymbol}
       currencyRate={currencyRate}
       isStale={entry.isStale}
+      profitDisplay={settings.profitDisplay ?? "value"}
     />
-  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate]);
+  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate, settings.profitDisplay]);
 
   const listHeader = (
     <View>

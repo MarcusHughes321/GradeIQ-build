@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
-import { getSettings, saveSettings, DEFAULT_SETTINGS, type AppSettings, type CompanyId, type CurrencyCode } from "./settings";
+import { getSettings, saveSettings, DEFAULT_SETTINGS, type AppSettings, type CompanyId, type CurrencyCode, type ProfitDisplay } from "./settings";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -8,6 +8,7 @@ interface SettingsContextValue {
   setEnabledCompanies: (companies: CompanyId[]) => void;
   setCurrency: (currency: CurrencyCode) => void;
   setPreferredPicksCompany: (company: CompanyId) => void;
+  setProfitDisplay: (display: ProfitDisplay) => void;
   loading: boolean;
 }
 
@@ -79,9 +80,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setProfitDisplay = useCallback((display: ProfitDisplay) => {
+    setSettings((prev) => {
+      const next: AppSettings = { ...prev, profitDisplay: display };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
   const value = useMemo(
-    () => ({ settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, setPreferredPicksCompany, loading }),
-    [settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, setPreferredPicksCompany, loading]
+    () => ({ settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, setPreferredPicksCompany, setProfitDisplay, loading }),
+    [settings, isCompanyEnabled, toggleCompany, setEnabledCompanies, setCurrency, setPreferredPicksCompany, setProfitDisplay, loading]
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

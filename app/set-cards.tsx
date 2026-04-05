@@ -50,7 +50,7 @@ interface SetCard {
   price?: number | null;
 }
 
-const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany }: {
+const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay }: {
   item: SetCard;
   index: number;
   setName: string;
@@ -62,6 +62,7 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
   topEbayKey: string;
   topGradeLabel: string;
   picksCompany: CompanyId;
+  profitDisplay: "value" | "percentage";
 }) => {
   const rawLocal = item.price != null && item.price > 0
     ? Math.round(item.price * currencyRate)
@@ -69,6 +70,12 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
   const topUSD = ebayPrices ? (ebayPrices as Record<string, number>)[topEbayKey] : undefined;
   const topLocal = topUSD != null && topUSD > 0 ? Math.round(topUSD * currencyRate) : null;
   const profitLocal = topLocal != null && rawLocal != null ? topLocal - rawLocal : null;
+  const fmtProfit = (abs: number): string => {
+    if (profitDisplay === "percentage" && rawLocal != null && rawLocal > 0) {
+      return `${Math.round((abs / rawLocal) * 100)}%`;
+    }
+    return `${currencySymbol}${abs}`;
+  };
 
   return (
     <Pressable
@@ -112,7 +119,7 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
             <Text style={styles.topCardLabel}>Profit</Text>
             {profitLocal != null ? (
               <Text style={[styles.topCardProfit, { color: profitLocal >= 0 ? "#22c55e" : Colors.error }]}>
-                {profitLocal >= 0 ? "+" : ""}{currencySymbol}{profitLocal}
+                {profitLocal >= 0 ? "+" : "-"}{fmtProfit(Math.abs(profitLocal))}
               </Text>
             ) : (
               <Text style={styles.topCardMuted}>—</Text>
@@ -386,6 +393,7 @@ export default function SetCardsScreen() {
                 topEbayKey={picksConfig.topEbayKey}
                 topGradeLabel={picksConfig.topGradeLabel}
                 picksCompany={effectivePicksCompany}
+                profitDisplay={settings.profitDisplay ?? "value"}
               />
             ))}
           </ScrollView>

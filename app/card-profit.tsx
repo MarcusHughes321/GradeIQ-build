@@ -204,6 +204,13 @@ export default function CardProfitScreen() {
   const currencySymbol = currencyDef.symbol;
   const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
   const fmtLocal = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${Math.round(v)}`;
+  const profitDisplay = settings.profitDisplay ?? "value";
+  const fmtProfit = (profitAbs: number, rawVal: number): string => {
+    if (profitDisplay === "percentage" && rawVal > 0) {
+      return `${Math.round((profitAbs / rawVal) * 100)}%`;
+    }
+    return fmtLocal(profitAbs);
+  };
 
   const rawUSD = rawPriceUSD ? parseFloat(rawPriceUSD) : 0;
   const rawLocalVal = rawUSD > 0 ? rawUSD * currencyRate : 0;
@@ -440,7 +447,7 @@ export default function CardProfitScreen() {
                         { flex: 1, color: isProfit ? "#22c55e" : "#ef4444" },
                       ]}
                     >
-                      {isProfit ? "+" : "-"}{fmtLocal(Math.abs(gr.profit))}
+                      {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), rawLocalVal)}
                     </Text>
                   ) : (
                     <Text style={[st.mutedTxt, { flex: 1, textAlign: "right" }]}>—</Text>
