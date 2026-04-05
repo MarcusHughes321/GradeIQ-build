@@ -200,6 +200,64 @@ async function initEbayPriceCacheTable(): Promise<void> {
   }
 }
 
+// ── Price History ─────────────────────────────────────────────────────────
+// Logs a price snapshot each time fresh PokeTrace data is fetched.
+// Over time this builds a real time-series for charting.
+async function initPriceHistoryTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS price_history (
+        id          SERIAL PRIMARY KEY,
+        cache_key   TEXT NOT NULL,
+        grade       TEXT NOT NULL,
+        price_usd   NUMERIC(12,2) NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_price_history_lookup
+        ON price_history (cache_key, grade, recorded_at DESC);
+    `);
+    console.log("[price-history] DB table ready");
+  } catch (e: any) {
+    console.error("[price-history] Failed to create table:", e.message);
+  }
+}
+
+async function writePriceHistorySnapshot(
+  cacheKey: string,
+  grades: Record<string, number>   // { psa10: 150, psa9: 80, … } — zeroes excluded
+): Promise<void> {
+  try {
+    // Only write grades with a real price
+    const entries = Object.entries(grades).filter(([, v]) => v > 0);
+    if (entries.length === 0) return;
+
+    // Dedup: skip any grade whose last snapshot is < 12 h old
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    const { rows: recent } = await db.query<{ grade: string }>(
+      `SELECT DISTINCT grade FROM price_history
+        WHERE cache_key = $1 AND recorded_at > $2`,
+      [cacheKey, twelveHoursAgo]
+    );
+    const recentGrades = new Set(recent.map(r => r.grade));
+
+    const fresh = entries.filter(([g]) => !recentGrades.has(g));
+    if (fresh.length === 0) return;
+
+    // Bulk insert
+    const valPlaceholders = fresh.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3}, NOW())`).join(", ");
+    const valParams: (string | number)[] = [cacheKey];
+    for (const [grade, price] of fresh) valParams.push(grade, price);
+
+    await db.query(
+      `INSERT INTO price_history (cache_key, grade, price_usd, recorded_at) VALUES ${valPlaceholders}`,
+      valParams
+    );
+    console.log(`[price-history] Wrote ${fresh.length} snapshot(s) for "${cacheKey}"`);
+  } catch (e: any) {
+    console.error("[price-history] Snapshot write failed:", e.message);
+  }
+}
+
 // ── Live Exchange Rates (frankfurter.app — free, no auth) ─────────────────
 interface ExchangeRateData {
   rates: Record<string, number>; // USD-based (USD = 1.0)
@@ -464,13 +522,22 @@ async function fetchEbayGradedPrices(
 
   if (hasData) {
     ebayPriceCache.set(cacheKey, result);
-    const { fetchedAt: _fa, isStale: _is, ...dbData } = result;
+    const { fetchedAt: _fa, isStale: _is, gradeDetails: _gd, ...dbData } = result;
     db.query(
       `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
          VALUES ($1, $2, NOW())
          ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
-      [cacheKey, JSON.stringify(dbData)]
+      [cacheKey, JSON.stringify({ ...dbData, gradeDetails: result.gradeDetails })]
     ).catch(e => console.error("[poketrace-cache] DB write failed:", e.message));
+
+    // Write price history snapshot (fire-and-forget, deduped to once per 12h)
+    const gradeSnapshot: Record<string, number> = {};
+    for (const [ptKey, ourKey] of Object.entries(PT_GRADE_MAP)) {
+      const price = (result as any)[ourKey];
+      if (price > 0) gradeSnapshot[ourKey as string] = price;
+    }
+    if (result.raw > 0) gradeSnapshot["raw"] = result.raw;
+    void writePriceHistorySnapshot(cacheKey, gradeSnapshot);
   }
 
   return result;
@@ -3176,6 +3243,7 @@ function enforceGradingScales(result: any): any {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure DB tables exist before any requests come in
   await initEbayPriceCacheTable();
+  await initPriceHistoryTable();
   await initSetPriceStatusTable();
   await initCardCatalogTable();
   await initTopPicksPrecomputedTable();
@@ -7730,6 +7798,36 @@ RESPONSE FORMAT (JSON only, no markdown):
       res.json({ ...grades, fetchedAt, isStale: isStale ?? false });
     } catch (err: any) {
       console.error("[ebay-all-grades]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Price History ────────────────────────────────────────────────────────
+  // Returns time-series price snapshots for a specific card + grade.
+  // ?cacheKey=Charizard+4&grade=psa10&days=90
+  app.get("/api/price-history", async (req, res) => {
+    const { cacheKey, grade, days } = req.query;
+    if (!cacheKey || !grade) {
+      return res.status(400).json({ error: "cacheKey and grade are required" });
+    }
+    const lookbackDays = Math.min(parseInt(String(days || "365"), 10), 365);
+    try {
+      const { rows } = await db.query<{ price_usd: string; recorded_at: string }>(
+        `SELECT price_usd, recorded_at
+           FROM price_history
+          WHERE cache_key = $1
+            AND grade = $2
+            AND recorded_at > NOW() - ($3 || ' days')::interval
+          ORDER BY recorded_at ASC`,
+        [String(cacheKey), String(grade), lookbackDays]
+      );
+      const history = rows.map(r => ({
+        price_usd: parseFloat(r.price_usd),
+        recorded_at: r.recorded_at,
+      }));
+      res.json({ history, cacheKey, grade });
+    } catch (err: any) {
+      console.error("[price-history]", err.message);
       res.status(500).json({ error: err.message });
     }
   });

@@ -114,8 +114,88 @@ const COMPANY_CONFIG: Record<string, {
 
 const COMPANY_ORDER: CompanyId[] = ["PSA", "Beckett", "Ace", "TAG", "CGC"];
 
-// ── Trend chart — sparkline using avg30d → avg7d → avg1d ─────────────────
-function TrendChart({ detail, currencySymbol }: { detail: GradeDetail | undefined; currencySymbol: string }) {
+interface PricePoint { price_usd: number; recorded_at: string; }
+
+// ── Trend chart ────────────────────────────────────────────────────────────
+// Uses real time-series history when ≥3 snapshots exist, otherwise falls
+// back to rolling avg points (avg30d → avg7d → avg1d) from gradeDetails.
+function TrendChart({
+  detail,
+  history,
+  currencySymbol,
+  currencyRate,
+}: {
+  detail: GradeDetail | undefined;
+  history: PricePoint[];
+  currencySymbol: string;
+  currencyRate: number;
+}) {
+  const W = Dimensions.get("window").width - 48;
+  const H = 90;
+  const PAD = { top: 12, bottom: 28, left: 10, right: 10 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const fmt = (v: number) => {
+    const local = v * currencyRate;
+    if (currencySymbol === "¥") return `${currencySymbol}${Math.round(local)}`;
+    if (local >= 1000) return `${currencySymbol}${(local / 1000).toFixed(1)}k`;
+    return `${currencySymbol}${local.toFixed(0)}`;
+  };
+
+  // ── Real time-series path ──────────────────────────────────────────────
+  if (history.length >= 3) {
+    const vals = history.map(p => p.price_usd);
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const range = maxV - minV || 1;
+
+    const toX = (i: number) => PAD.left + (i / (history.length - 1)) * chartW;
+    const toY = (v: number) => PAD.top + (1 - (v - minV) / range) * chartH;
+
+    const points = history.map((p, i) => ({ x: toX(i), y: toY(p.price_usd), price: p.price_usd, ts: p.recorded_at }));
+    const polylineStr = points.map(p => `${p.x},${p.y}`).join(" ");
+    const trendUp = points[points.length - 1].price >= points[0].price;
+    const lineColor = trendUp ? "#22c55e" : "#ef4444";
+
+    // Show first + last date label
+    const fmtDate = (iso: string) => {
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    };
+
+    return (
+      <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+        <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>
+          Price history · {history.length} snapshots
+        </Text>
+        <Svg width={W} height={H}>
+          <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
+            stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
+          <Polyline points={polylineStr} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" />
+          {points.map((p, i) => (
+            <Circle key={i} cx={p.x} cy={p.y} r={2.5} fill={lineColor} />
+          ))}
+          <SvgText x={PAD.left} y={H - 4} fontSize="9" fill={Colors.textMuted}
+            textAnchor="start" fontFamily="Inter_400Regular">{fmtDate(points[0].ts)}</SvgText>
+          <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted}
+            textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
+          <SvgText x={PAD.left + chartW} y={PAD.top + 8} fontSize="9" fill={Colors.textMuted}
+            textAnchor="end" fontFamily="Inter_400Regular">{fmt(maxV)}</SvgText>
+          <SvgText x={PAD.left + chartW} y={PAD.top + chartH} fontSize="9" fill={Colors.textMuted}
+            textAnchor="end" fontFamily="Inter_400Regular">{fmt(minV)}</SvgText>
+        </Svg>
+        {detail?.saleCount != null && (
+          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+            {detail.saleCount.toLocaleString()} recorded sales
+            {detail?.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  // ── Fallback: rolling avg sparkline (avg30d → avg7d → avg1d) ─────────
   if (!detail) return null;
   const rawPoints = [
     { label: "30d", value: detail.avg30d },
@@ -133,56 +213,39 @@ function TrendChart({ detail, currencySymbol }: { detail: GradeDetail | undefine
     );
   }
 
-  const W = Dimensions.get("window").width - 48;
-  const H = 80;
-  const PAD = { top: 12, bottom: 24, left: 10, right: 10 };
-  const chartW = W - PAD.left - PAD.right;
-  const chartH = H - PAD.top - PAD.bottom;
+  const vals2 = rawPoints.map(p => p.value);
+  const minV2 = Math.min(...vals2);
+  const maxV2 = Math.max(...vals2);
+  const range2 = maxV2 - minV2 || 1;
 
-  const vals = rawPoints.map(p => p.value);
-  const minV = Math.min(...vals);
-  const maxV = Math.max(...vals);
-  const range = maxV - minV || 1;
+  const toX2 = (i: number) => PAD.left + (i / (rawPoints.length - 1)) * chartW;
+  const toY2 = (v: number) => PAD.top + (1 - (v - minV2) / range2) * chartH;
 
-  const toX = (i: number) => PAD.left + (i / (rawPoints.length - 1)) * chartW;
-  const toY = (v: number) => PAD.top + (1 - (v - minV) / range) * chartH;
-
-  const points = rawPoints.map((p, i) => ({ x: toX(i), y: toY(p.value), ...p }));
-  const polylineStr = points.map(p => `${p.x},${p.y}`).join(" ");
-
-  const fmt = (v: number) => {
-    if (currencySymbol === "¥") return `${currencySymbol}${Math.round(v)}`;
-    if (v >= 1000) return `${currencySymbol}${(v / 1000).toFixed(1)}k`;
-    return `${currencySymbol}${v.toFixed(0)}`;
-  };
-
-  const trendUp = points[points.length - 1].value >= points[0].value;
+  const points2 = rawPoints.map((p, i) => ({ x: toX2(i), y: toY2(p.value), ...p }));
+  const polylineStr2 = points2.map(p => `${p.x},${p.y}`).join(" ");
+  const trendUp2 = points2[points2.length - 1].value >= points2[0].value;
 
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
       <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>
-        Rolling average trend
+        Rolling average trend · building history…
       </Text>
       <Svg width={W} height={H}>
-        {/* Grid line */}
         <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
           stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
-        {/* Trend line */}
-        <Polyline points={polylineStr} fill="none"
-          stroke={trendUp ? "#22c55e" : "#ef4444"} strokeWidth="2" strokeLinejoin="round" />
-        {/* Dots + labels */}
-        {points.map((p, i) => (
+        <Polyline points={polylineStr2} fill="none"
+          stroke={trendUp2 ? "#22c55e" : "#ef4444"} strokeWidth="2" strokeLinejoin="round" />
+        {points2.map((p, i) => (
           <React.Fragment key={i}>
-            <Circle cx={p.x} cy={p.y} r={3} fill={trendUp ? "#22c55e" : "#ef4444"} />
+            <Circle cx={p.x} cy={p.y} r={3} fill={trendUp2 ? "#22c55e" : "#ef4444"} />
             <SvgText x={p.x} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="middle"
               fontFamily="Inter_400Regular">{p.label}</SvgText>
           </React.Fragment>
         ))}
-        {/* Min/max labels */}
         <SvgText x={PAD.left + chartW} y={PAD.top + 8} fontSize="9" fill={Colors.textMuted}
-          textAnchor="end" fontFamily="Inter_400Regular">{fmt(maxV)}</SvgText>
+          textAnchor="end" fontFamily="Inter_400Regular">{fmt(maxV2)}</SvgText>
         <SvgText x={PAD.left + chartW} y={PAD.top + chartH} fontSize="9" fill={Colors.textMuted}
-          textAnchor="end" fontFamily="Inter_400Regular">{fmt(minV)}</SvgText>
+          textAnchor="end" fontFamily="Inter_400Regular">{fmt(minV2)}</SvgText>
       </Svg>
       {detail.saleCount != null && (
         <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
@@ -349,6 +412,28 @@ export default function CardProfitScreen() {
 
   const defaultCompany: CompanyId = enabledCompanies[0] ?? "PSA";
   const [selectedCompany, setSelectedCompany] = useState<CompanyId>(defaultCompany);
+
+  // Cache key mirrors server logic: "CardName BaseNum [1st]"
+  const historyCacheKey = useMemo(() => {
+    const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
+    const editionTag = editionParam === "1st" ? "1st" : "";
+    return [cardName, baseNum, editionTag].filter(Boolean).join(" ");
+  }, [cardName, cardNumber, editionParam]);
+
+  // Top grade key for the selected company (e.g. "psa10", "bgs95")
+  const topGradeKey = COMPANY_CONFIG[selectedCompany]?.grades[0]?.ebayKey as string | undefined;
+
+  const { data: historyData } = useQuery<{ history: PricePoint[] }>({
+    queryKey: ["price-history", historyCacheKey, topGradeKey],
+    queryFn: () =>
+      apiRequest(
+        "GET",
+        `/api/price-history?cacheKey=${encodeURIComponent(historyCacheKey)}&grade=${encodeURIComponent(topGradeKey ?? "")}`
+      ).then(r => r.json()),
+    enabled: !!(historyCacheKey && topGradeKey),
+    staleTime: 60 * 60 * 1000,
+    retry: 1,
+  });
 
   const buildEbayUrl = (gradeLabel: string) => {
     const q = [gradeLabel, cardName, setName, "pokemon"].filter(Boolean).join(" ");
@@ -663,9 +748,14 @@ export default function CardProfitScreen() {
               })}
 
               {/* Trend chart for top grade */}
-              {!isLoading && topDetail && (
+              {!isLoading && (topDetail || (historyData?.history?.length ?? 0) >= 3) && (
                 <View style={st.chartContainer}>
-                  <TrendChart detail={topDetail} currencySymbol={currencySymbol} />
+                  <TrendChart
+                    detail={topDetail}
+                    history={historyData?.history ?? []}
+                    currencySymbol={currencySymbol}
+                    currencyRate={currencyRate}
+                  />
                 </View>
               )}
 
