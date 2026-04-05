@@ -465,6 +465,7 @@ export default function ValuesScreen() {
     setName: string,
     imageUrl?: string | null,
     rawPriceUSD?: number,
+    cardNumber?: string | null,
   ) => {
     router.push({
       pathname: "/card-profit",
@@ -474,6 +475,7 @@ export default function ValuesScreen() {
         setName,
         imageUrl: imageUrl || "",
         rawPriceUSD: rawPriceUSD ? String(rawPriceUSD) : "0",
+        ...(cardNumber ? { cardNumber } : {}),
       },
     });
   }, []);
@@ -496,7 +498,7 @@ export default function ValuesScreen() {
       key={entry.pick.id}
       item={entry.pick}
       index={index}
-      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD)}
+      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD, entry.pick.number)}
       topGradeLocal={entry.topGradeLocal}
       topGradeProfit={entry.topGradeProfit}
       topGradeLabel={picksConfig.topGradeLabel}
@@ -572,7 +574,7 @@ export default function ValuesScreen() {
           <Text style={styles.sectionLabel}>Search Results</Text>
           {results.map(card => (
             <View key={card.id}>
-              <CardResultRow card={card} onPress={() => handleTapCard(card.id, card.name, card.setName, card.imageUrl)} />
+              <CardResultRow card={card} onPress={() => handleTapCard(card.id, card.name, card.setName, card.imageUrl, undefined, card.number)} />
               <View style={styles.separator} />
             </View>
           ))}

@@ -212,12 +212,13 @@ export default function CardProfitScreen() {
   const hasRawPrice = rawLocalVal > 0;
 
   const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
-    queryKey: ["ebay-all-grades", cardName, setName, editionParam],
+    queryKey: ["ebay-all-grades", cardName, setName, cardNumber ?? "", editionParam],
     queryFn: () => {
       const editionQ = editionParam ? `&edition=${editionParam}` : "";
+      const numberQ  = cardNumber  ? `&cardNumber=${encodeURIComponent(cardNumber)}` : "";
       return apiRequest(
         "GET",
-        `/api/ebay-all-grades?name=${encodeURIComponent(cardName || "")}&setName=${encodeURIComponent(setName || "")}${editionQ}`
+        `/api/ebay-all-grades?name=${encodeURIComponent(cardName || "")}&setName=${encodeURIComponent(setName || "")}${numberQ}${editionQ}`
       ).then(r => r.json());
     },
     enabled: !!(cardName && setName),
