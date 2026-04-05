@@ -36,6 +36,8 @@ interface EbayAllGrades {
   tag10: number; tag9: number; tag8: number;
   cgc10: number; cgc95: number; cgc9: number; cgc8: number;
   raw: number;
+  fetchedAt?: number;
+  isStale?: boolean;
 }
 
 interface GradeEntry {
@@ -369,18 +371,18 @@ export default function CardProfitScreen() {
           )}
         </View>
 
-        {/* eBay fetch status */}
+        {/* Price fetch status */}
         {isLoading && (
           <View style={st.feedbackRow}>
             <ActivityIndicator color={Colors.primary} size="small" />
-            <Text style={st.feedbackText}>Fetching eBay last sold prices…</Text>
+            <Text style={st.feedbackText}>Fetching last sold prices…</Text>
           </View>
         )}
         {!isLoading && !!error && (
           <View style={st.feedbackRow}>
             <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
             <Text style={[st.feedbackText, { color: Colors.error, flex: 1 }]}>
-              Couldn't load eBay prices — try again later
+              Couldn't load sold prices — try again later
             </Text>
           </View>
         )}
@@ -398,7 +400,7 @@ export default function CardProfitScreen() {
             {/* Table column headers */}
             <View style={st.tblHead}>
               <Text style={[st.tblHeadTxt, { width: 76 }]}>Grade</Text>
-              <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>eBay Last</Text>
+              <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Last Sold</Text>
               <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Net Profit</Text>
               <View style={{ width: 58 }} />
             </View>
@@ -503,13 +505,24 @@ export default function CardProfitScreen() {
           <Text style={st.gradeCtaTxt}>Grade This Card</Text>
         </Pressable>
 
+        {/* Stale data warning */}
+        {!isLoading && ebay?.isStale && ebay.fetchedAt && (
+          <View style={[st.feedbackRow, { backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 8, marginTop: 4 }]}>
+            <Ionicons name="time-outline" size={14} color="#f59e0b" />
+            <Text style={[st.feedbackText, { color: "#f59e0b", flex: 1 }]}>
+              Showing archived prices from {Math.round((Date.now() - ebay.fetchedAt) / 86400000)} day{Math.round((Date.now() - ebay.fetchedAt) / 86400000) !== 1 ? "s" : ""} ago — live data temporarily unavailable
+            </Text>
+          </View>
+        )}
+
         {/* Disclaimer */}
         <View style={st.disclaimer}>
           <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
           <Text style={st.disclaimerTxt}>
-            eBay last sold prices exclude Best Offer sales · All prices in {currency}
+            Last sold prices sourced from eBay · All prices in {currency}
             {ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}
-            {" · "}Grading fees are estimates and may vary by tier and submission level
+            {!isLoading && ebay?.fetchedAt && !ebay.isStale ? ` · Updated ${Math.round((Date.now() - ebay.fetchedAt) / 3600000)}h ago` : ""}
+            {" · "}Grading fees are estimates and may vary
           </Text>
         </View>
       </ScrollView>

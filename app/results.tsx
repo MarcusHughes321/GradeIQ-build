@@ -1090,7 +1090,7 @@ export default function ResultsScreen() {
                       <View style={styles.proBlurContent}>
                         <Ionicons name="lock-closed" size={20} color="#F59E0B" />
                         <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                        <Text style={styles.proBlurSubtitle}>Upgrade to see eBay market prices</Text>
+                        <Text style={styles.proBlurSubtitle}>Upgrade to see last sold prices</Text>
                       </View>
                     </BlurView>
                   </Pressable>
@@ -1101,7 +1101,7 @@ export default function ResultsScreen() {
             if (ebayLoading && !ebayPrices) {
               return (
                 <View style={styles.ebayLoadingRow}>
-                  <Text style={styles.ebayLoadingText}>Fetching eBay sold prices…</Text>
+                  <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
                 </View>
               );
             }

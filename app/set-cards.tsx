@@ -77,7 +77,7 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate }
           <Text style={styles.topCardMuted}>—</Text>
         )}
       </View>
-      <Text style={styles.topCardHint}>Tap for eBay grades</Text>
+      <Text style={styles.topCardHint}>Tap for grades</Text>
     </Pressable>
   );
 });
@@ -213,8 +213,8 @@ export default function SetCardsScreen() {
           />
           <Text style={editionParam === "1st" ? styles.editionBanner1stText : styles.editionBannerUnlimitedText}>
             {editionParam === "1st"
-              ? "1st Edition · TCGPlayer doesn't separate editions — tap any card for real eBay 1st edition prices"
-              : "Unlimited · TCGPlayer doesn't separate editions — tap any card for real eBay unlimited prices"}
+              ? "1st Edition · TCGPlayer doesn't separate editions — tap any card for real 1st Edition last-sold prices"
+              : "Unlimited · TCGPlayer doesn't separate editions — tap any card for real Unlimited last-sold prices"}
           </Text>
         </View>
       )}
@@ -260,7 +260,7 @@ export default function SetCardsScreen() {
           <View style={styles.topPicksHeader}>
             <View>
               <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-              <Text style={styles.topPicksSubtitle}>eBay last sold · PSA 10 &amp; 9 · excl. Best Offer</Text>
+              <Text style={styles.topPicksSubtitle}>Last sold · PSA 10 &amp; 9</Text>
             </View>
           </View>
           <ScrollView
@@ -284,8 +284,8 @@ export default function SetCardsScreen() {
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
               {editionParam
-                ? `Raw: TCGPlayer reference price (same for both editions) · Tap a card for real eBay ${editionParam === "1st" ? "1st Edition" : "Unlimited"} last-sold prices`
-                : `Raw: TCGPlayer market price · Tap a card for eBay last-sold prices · All prices in ${currency}`}
+                ? `Raw: TCGPlayer reference price (same for both editions) · Tap a card for real ${editionParam === "1st" ? "1st Edition" : "Unlimited"} last-sold prices`
+                : `Raw: TCGPlayer market price · Tap a card for last-sold prices · All prices in ${currency}`}
             </Text>
           </View>
         </View>

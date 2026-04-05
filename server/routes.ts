@@ -162,6 +162,8 @@ interface EbayAllGrades {
   // Ungraded eBay last-sold price (USD) — 0 if none found
   raw: number;
   fetchedAt: number;
+  // true when cache is expired but we are serving archived data (e.g. API limit hit)
+  isStale?: boolean;
 }
 // ── Persistent eBay Cache ─────────────────────────────────────────────────
 // Survives server restarts so we don't burn rate limits on every reload.
@@ -332,11 +334,12 @@ async function fetchEbayGradedPrices(
   const cardIdStr  = [cardName, baseNum, editionTag].filter(Boolean).join(" ");
   const cacheKey   = cardIdStr;
 
-  // L1: in-memory
+  // L1: in-memory (fresh only)
   const memHit = ebayPriceCache.get(cacheKey);
   if (memHit && Date.now() - memHit.fetchedAt < EBAY_PRICE_TTL) return memHit;
 
-  // L2: PostgreSQL (shared across restarts)
+  // L2: PostgreSQL — return if fresh, or save as stale fallback for later
+  let staleDbData: EbayAllGrades | null = null;
   try {
     const dbRes = await db.query<{ data: EbayAllGrades; fetched_ms: string }>(
       `SELECT data, EXTRACT(EPOCH FROM fetched_at) * 1000 AS fetched_ms
@@ -350,6 +353,8 @@ async function fetchEbayGradedPrices(
         ebayPriceCache.set(cacheKey, result);
         return result;
       }
+      // Expired but worth keeping as a fallback
+      staleDbData = { ...dbRes.rows[0].data, fetchedAt };
     }
   } catch { /* fall through */ }
 
@@ -410,11 +415,16 @@ async function fetchEbayGradedPrices(
     ` BGS9.5 $${result.bgs95} ACE10 $${result.ace10} TAG10 $${result.tag10} Raw $${result.raw}`
   );
 
-  // Only cache if we got at least some real data
+  // If PokeTrace returned no useful data, serve the archived cache with an isStale flag
   const hasData = result.psa10 > 0 || result.psa9 > 0 || result.raw > 0;
+  if (!hasData && staleDbData) {
+    console.log(`[poketrace] No fresh data for "${cardIdStr}" — serving archived cache from ${new Date(staleDbData.fetchedAt).toISOString()}`);
+    return { ...staleDbData, isStale: true };
+  }
+
   if (hasData) {
     ebayPriceCache.set(cacheKey, result);
-    const { fetchedAt: _fa, ...dbData } = result;
+    const { fetchedAt: _fa, isStale: _is, ...dbData } = result;
     db.query(
       `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
          VALUES ($1, $2, NOW())
@@ -7634,13 +7644,13 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
     const editionVal = edition === "1st" || edition === "unlimited" ? edition : null;
     try {
-      const { fetchedAt, ...grades } = await fetchEbayGradedPrices(
+      const { fetchedAt, isStale, ...grades } = await fetchEbayGradedPrices(
         String(name),
         String(setName),
         cardNumber ? String(cardNumber) : undefined,
         editionVal
       );
-      res.json(grades);
+      res.json({ ...grades, fetchedAt, isStale: isStale ?? false });
     } catch (err: any) {
       console.error("[ebay-all-grades]", err.message);
       res.status(500).json({ error: err.message });

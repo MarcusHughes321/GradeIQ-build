@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Platform,
   Keyboard,
-  Linking,
 } from "react-native";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -28,6 +27,8 @@ interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;
   bgs10: number; bgs95: number; bgs9: number; bgs85: number; bgs8: number;
   ace10: number; ace9: number; ace8: number;
+  fetchedAt?: number;
+  isStale?: boolean;
   tag10: number; tag9: number; tag8: number;
   cgc10: number; cgc95: number; cgc9: number; cgc8: number;
   raw: number;
@@ -158,7 +159,7 @@ const PICKS_COMPANY_CONFIG: Record<CompanyId, {
 };
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, ebaySearchUrl, isStale }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, isStale }: {
   item: TopPick;
   index: number;
   onPress: () => void;
@@ -170,7 +171,6 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
   ebayLoading: boolean;
   currencySymbol: string;
   currencyRate: number;
-  ebaySearchUrl: string;
   isStale?: boolean;
 }) => {
   const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
@@ -239,20 +239,8 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         </View>
       )}
 
-      {/* eBay sold listings link — only shown when we have real eBay data */}
-      {!ebayLoading && topGradeLocal !== null && (
-        <Pressable
-          style={({ pressed }) => [cardStyles.ebayLink, { opacity: pressed ? 0.7 : 1 }]}
-          onPress={(e) => { e.stopPropagation?.(); Linking.openURL(ebaySearchUrl); }}
-          hitSlop={8}
-        >
-          <Ionicons name="open-outline" size={11} color="#3b82f6" />
-          <Text style={cardStyles.ebayLinkText}>View on eBay</Text>
-        </Pressable>
-      )}
-
       {isStale && (
-        <Text style={[cardStyles.hint, { color: Colors.textMuted, fontSize: 9 }]}>⏱ Prices may be 1–2 days old</Text>
+        <Text style={[cardStyles.hint, { color: "#f59e0b", fontSize: 9 }]}>⏱ Archived prices</Text>
       )}
       <Text style={cardStyles.hint}>Tap for full breakdown</Text>
     </Pressable>
@@ -275,8 +263,6 @@ const cardStyles = StyleSheet.create({
   muted:        { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
   samples:      { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted, marginTop: 2, textAlign: "right" },
   hint:         { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.primary, marginTop: 6, textAlign: "center" },
-  ebayLink:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 6, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: "rgba(59,130,246,0.1)", borderRadius: 6, borderWidth: 1, borderColor: "rgba(59,130,246,0.25)" },
-  ebayLinkText: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#3b82f6" },
 });
 
 export default function ValuesScreen() {
@@ -401,10 +387,6 @@ export default function ValuesScreen() {
         }
       }
 
-      // Build eBay sold-listings search URL
-      const q = encodeURIComponent(`pokemon ${cfg.topGradeLabel} ${pick.cardName}`);
-      const ebaySearchUrl = `https://www.ebay.co.uk/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1&_sop=13`;
-
       // Adapt PrecomputedPick to the shape TopPickCard expects
       const pickAsTopPick: TopPick = {
         id: pick.cardId, name: pick.cardName, setName: pick.setName,
@@ -418,7 +400,6 @@ export default function ValuesScreen() {
         isLoading: false,
         isStale: pick.ebay.isStale,
         ebayFetchedAt: pick.ebay.fetchedAt,
-        ebaySearchUrl,
       };
     });
 
@@ -524,7 +505,6 @@ export default function ValuesScreen() {
       ebayLoading={entry.isLoading}
       currencySymbol={currencySymbol}
       currencyRate={currencyRate}
-      ebaySearchUrl={entry.ebaySearchUrl}
       isStale={entry.isStale}
     />
   ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate]);
