@@ -359,9 +359,20 @@ export default function ResultsScreen() {
       setName,
       ...(cardNumber ? { cardNumber } : {}),
     });
+    const gradingId = grading?.id;
+    const gradingResult = grading?.result;
     apiRequest("GET", `/api/ebay-all-grades?${params}`)
       .then(r => r.json())
-      .then(data => { setEbayPrices(data); setEbayLoading(false); })
+      .then(data => {
+        setEbayPrices(data);
+        setEbayLoading(false);
+        if (gradingId && gradingResult && data && !data.error) {
+          const { fetchedAt, isStale, ...priceData } = data;
+          updateGrading(gradingId, {
+            result: { ...gradingResult, savedEbayPrices: priceData },
+          }).catch(() => {});
+        }
+      })
       .catch(() => { setEbayLoading(false); });
   }, [grading?.result?.cardName, grading?.result?.setName, grading?.result?.setInfo, grading?.result?.setNumber, isSubscribed, isAdminMode]);
 

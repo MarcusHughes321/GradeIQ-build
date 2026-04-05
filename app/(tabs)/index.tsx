@@ -125,6 +125,13 @@ function parseValue(val: string): number | null {
   return parseFloat(m[1].replace(/,/g, ""));
 }
 
+// Extract the price (USD→GBP) for a specific company/grade from savedEbayPrices
+function getGradePrice(prices: Record<string, number>, company: string, grade: number): number | null {
+  const key = company.toLowerCase() + grade.toString().replace(".", "");
+  const val = prices[key];
+  return typeof val === "number" && val > 0 ? Math.round(val * 0.79) : null;
+}
+
 function getCurrencySymbol(code: CurrencyCode): string {
   return CURRENCIES.find((c) => c.code === code)?.symbol || "£";
 }
@@ -157,20 +164,19 @@ function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
     sumACE += g.result.ace.overallGrade;
     if (g.result.tag) { sumTAG += g.result.tag.overallGrade; countTAG++; }
     if (g.result.cgc) { sumCGC += g.result.cgc.grade; countCGC++; }
+    const ep = g.result.savedEbayPrices;
     const cv = g.result.cardValue;
-    if (cv) {
-      const p = parseValue(cv.psaValue);
-      const b = parseValue(cv.bgsValue);
-      const a = parseValue(cv.aceValue);
-      const t = parseValue(cv.tagValue);
-      const c = parseValue(cv.cgcValue);
-      if (p !== null || b !== null || a !== null || t !== null || c !== null) cardsWithValues++;
-      if (p !== null) totalPSA += p;
-      if (b !== null) totalBGS += b;
-      if (a !== null) totalACE += a;
-      if (t !== null) totalTAG += t;
-      if (c !== null) totalCGC += c;
-    }
+    const p = ep ? getGradePrice(ep, "psa", g.result.psa.grade) : (cv ? parseValue(cv.psaValue) : null);
+    const b = ep ? getGradePrice(ep, "bgs", g.result.beckett.overallGrade) : (cv ? parseValue(cv.bgsValue) : null);
+    const a = ep ? getGradePrice(ep, "ace", g.result.ace.overallGrade) : (cv ? parseValue(cv.aceValue) : null);
+    const t = ep && g.result.tag ? getGradePrice(ep, "tag", g.result.tag.overallGrade) : (cv ? parseValue(cv.tagValue) : null);
+    const c = ep && g.result.cgc ? getGradePrice(ep, "cgc", g.result.cgc.grade) : (cv ? parseValue(cv.cgcValue) : null);
+    if (p !== null || b !== null || a !== null || t !== null || c !== null) cardsWithValues++;
+    if (p !== null) totalPSA += p;
+    if (b !== null) totalBGS += b;
+    if (a !== null) totalACE += a;
+    if (t !== null) totalTAG += t;
+    if (c !== null) totalCGC += c;
   }
   const n = gradings.length;
   return {
@@ -220,14 +226,22 @@ export default function HomeScreen() {
   const stats = computeStats(gradings);
 
   const getCardAvgValue = useCallback((g: SavedGrading): number => {
+    const ep = g.result.savedEbayPrices;
     const cv = g.result.cardValue;
-    if (!cv) return 0;
     const vals: number[] = [];
-    if (enabledCompanies.includes("PSA")) { const v = parseValue(cv.psaValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("Beckett")) { const v = parseValue(cv.bgsValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("Ace")) { const v = parseValue(cv.aceValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("TAG")) { const v = parseValue(cv.tagValue); if (v !== null) vals.push(v); }
-    if (enabledCompanies.includes("CGC")) { const v = parseValue(cv.cgcValue); if (v !== null) vals.push(v); }
+    if (ep) {
+      if (enabledCompanies.includes("PSA")) { const v = getGradePrice(ep, "psa", g.result.psa.grade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("Beckett")) { const v = getGradePrice(ep, "bgs", g.result.beckett.overallGrade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("Ace")) { const v = getGradePrice(ep, "ace", g.result.ace.overallGrade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("TAG") && g.result.tag) { const v = getGradePrice(ep, "tag", g.result.tag.overallGrade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("CGC") && g.result.cgc) { const v = getGradePrice(ep, "cgc", g.result.cgc.grade); if (v !== null) vals.push(v); }
+    } else if (cv) {
+      if (enabledCompanies.includes("PSA")) { const v = parseValue(cv.psaValue); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("Beckett")) { const v = parseValue(cv.bgsValue); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("Ace")) { const v = parseValue(cv.aceValue); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("TAG")) { const v = parseValue(cv.tagValue); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("CGC")) { const v = parseValue(cv.cgcValue); if (v !== null) vals.push(v); }
+    }
     if (vals.length === 0) return 0;
     return vals.reduce((a, b) => a + b, 0) / vals.length;
   }, [enabledCompanies]);

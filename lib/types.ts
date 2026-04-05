@@ -129,6 +129,7 @@ export interface GradingResult {
   tag: TAGGrade;
   cgc: CGCGrade;
   cardValue?: CardValueEstimate;
+  savedEbayPrices?: Record<string, number>;
   currentGrade?: CurrentGrade;
   isCrossover?: boolean;
 }
