@@ -286,6 +286,9 @@ export default function SetCardsScreen() {
         imageUrl: card.imageUrl || "",
         rawPriceUSD: card.price ? String(card.price) : "0",
         ...(editionParam ? { edition: editionParam } : {}),
+        ...(card.prices?.holofoil != null ? { holoPrice: String(card.prices.holofoil) } : {}),
+        ...(card.prices?.reverseHolofoil != null ? { reverseHoloPrice: String(card.prices.reverseHolofoil) } : {}),
+        ...(card.prices?.normal != null ? { normalPrice: String(card.prices.normal) } : {}),
       },
     });
   };
@@ -295,16 +298,9 @@ export default function SetCardsScreen() {
     return currencySymbol === "¥" ? `${currencySymbol}${Math.round(local)}` : `${currencySymbol}${local.toFixed(2)}`;
   };
 
-  const VARIANT_ROWS: { key: keyof CardPrices; label: string; dot: string }[] = [
-    { key: "holofoil",       label: "Holo",  dot: "#FFD700" },
-    { key: "reverseHolofoil",label: "Rev",   dot: "#8B5CF6" },
-    { key: "normal",         label: "Non",   dot: "#6B7280" },
-  ];
-
   const renderGridCard = ({ item }: { item: SetCard }) => {
-    const p = item.prices;
-    const variantCount = p ? VARIANT_ROWS.filter(r => p[r.key] != null).length : 0;
-    const showVariants = variantCount > 1 && isEnglish;
+    const hasMultipleVariants = item.prices != null &&
+      [item.prices.holofoil, item.prices.reverseHolofoil, item.prices.normal].filter(v => v != null).length > 1;
 
     return (
       <Pressable
@@ -326,22 +322,15 @@ export default function SetCardsScreen() {
         {item.number ? (
           <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
         ) : null}
-        {showVariants ? (
-          <View style={styles.variantPrices}>
-            {VARIANT_ROWS.map(r => {
-              const val = p![r.key];
-              if (val == null) return null;
-              return (
-                <View key={r.key} style={styles.variantRow}>
-                  <View style={[styles.variantDot, { backgroundColor: r.dot }]} />
-                  <Text style={styles.variantLabel}>{r.label}</Text>
-                  <Text style={styles.variantPrice}>{fmtPrice(val)}</Text>
-                </View>
-              );
-            })}
+        {item.price != null ? (
+          <View style={styles.gridPriceRow}>
+            <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
+            {hasMultipleVariants && isEnglish && (
+              <View style={styles.variantHint}>
+                <Ionicons name="layers-outline" size={10} color={Colors.textMuted} />
+              </View>
+            )}
           </View>
-        ) : item.price != null ? (
-          <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
         ) : null}
       </Pressable>
     );
@@ -848,32 +837,14 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     textAlign: "center",
   },
-  variantPrices: {
-    alignSelf: "stretch",
-    marginTop: 4,
-    gap: 2,
-  },
-  variantRow: {
+  gridPriceRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
+    justifyContent: "center",
   },
-  variantDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  variantLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 9,
-    color: Colors.textMuted,
-    width: 22,
-  },
-  variantPrice: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 10,
-    color: Colors.text,
-    flex: 1,
+  variantHint: {
+    opacity: 0.6,
   },
   separator: {
     height: 1,

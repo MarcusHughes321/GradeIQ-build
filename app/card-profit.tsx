@@ -106,7 +106,7 @@ export default function CardProfitScreen() {
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
-  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, edition } = useLocalSearchParams<{
+  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, edition, holoPrice, reverseHoloPrice, normalPrice } = useLocalSearchParams<{
     cardId: string;
     cardName: string;
     setName: string;
@@ -115,10 +115,23 @@ export default function CardProfitScreen() {
     imageUrl?: string;
     rawPriceUSD?: string;
     edition?: string;
+    holoPrice?: string;
+    reverseHoloPrice?: string;
+    normalPrice?: string;
   }>();
 
   const editionParam: "1st" | "unlimited" | null =
     edition === "1st" ? "1st" : edition === "unlimited" ? "unlimited" : null;
+
+  type Variant = "holo" | "reverseHolo" | "normal";
+  const variantPrices: { key: Variant; label: string; price: number }[] = [
+    ...(holoPrice && parseFloat(holoPrice) > 0 ? [{ key: "holo" as Variant, label: "Holo", price: parseFloat(holoPrice) }] : []),
+    ...(reverseHoloPrice && parseFloat(reverseHoloPrice) > 0 ? [{ key: "reverseHolo" as Variant, label: "Rev Holo", price: parseFloat(reverseHoloPrice) }] : []),
+    ...(normalPrice && parseFloat(normalPrice) > 0 ? [{ key: "normal" as Variant, label: "Normal", price: parseFloat(normalPrice) }] : []),
+  ];
+  const hasVariantTabs = variantPrices.length > 1;
+  const defaultVariant: Variant | null = variantPrices.length > 0 ? variantPrices[0].key : null;
+  const [selectedVariant, setSelectedVariant] = useState<Variant | null>(defaultVariant);
 
   // Format card number: "045" + setTotal → "045/143", otherwise just "045"
   const displayCardNumber = cardNumber
@@ -212,7 +225,11 @@ export default function CardProfitScreen() {
     return fmtLocal(profitAbs);
   };
 
-  const rawUSD = rawPriceUSD ? parseFloat(rawPriceUSD) : 0;
+  const baseRawUSD = rawPriceUSD ? parseFloat(rawPriceUSD) : 0;
+  const selectedVariantPrice = selectedVariant
+    ? (variantPrices.find(v => v.key === selectedVariant)?.price ?? null)
+    : null;
+  const rawUSD = (hasVariantTabs && selectedVariantPrice != null) ? selectedVariantPrice : baseRawUSD;
   const rawLocalVal = rawUSD > 0 ? rawUSD * currencyRate : 0;
   const hasRawPrice = rawLocalVal > 0;
 
@@ -357,6 +374,52 @@ export default function CardProfitScreen() {
               <Text style={editionParam === "1st" ? st.editionBadge1stText : st.editionBadgeUnlimitedText}>
                 {editionParam === "1st" ? "1st Edition" : "Unlimited"}
               </Text>
+            </View>
+          )}
+
+          {/* Variant tabs */}
+          {hasVariantTabs && (
+            <View style={st.variantTabRow}>
+              {variantPrices.map(v => {
+                const isSelected = selectedVariant === v.key;
+                const isHolo = v.key === "holo";
+                const isRH = v.key === "reverseHolo";
+                return (
+                  <Pressable
+                    key={v.key}
+                    onPress={() => setSelectedVariant(v.key)}
+                    style={[
+                      st.variantTab,
+                      isSelected && isHolo && st.variantTabHoloActive,
+                      isSelected && isRH && st.variantTabRHActive,
+                      isSelected && !isHolo && !isRH && st.variantTabNormalActive,
+                    ]}
+                  >
+                    {isHolo && (
+                      <Ionicons
+                        name="sparkles"
+                        size={11}
+                        color={isSelected ? "#92400e" : Colors.textMuted}
+                      />
+                    )}
+                    {isRH && (
+                      <Ionicons
+                        name="color-wand-outline"
+                        size={11}
+                        color={isSelected ? "#c4b5fd" : Colors.textMuted}
+                      />
+                    )}
+                    <Text style={[
+                      st.variantTabText,
+                      isSelected && isHolo && st.variantTabTextHolo,
+                      isSelected && isRH && st.variantTabTextRH,
+                      isSelected && !isHolo && !isRH && st.variantTabTextNormal,
+                    ]}>
+                      {v.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           )}
 
@@ -640,6 +703,52 @@ const st = StyleSheet.create({
     fontSize: 11,
     color: Colors.textSecondary,
     letterSpacing: 0.3,
+  },
+  variantTabRow: {
+    flexDirection: "row",
+    gap: 6,
+    alignSelf: "center",
+    marginBottom: 10,
+  },
+  variantTab: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  variantTabHoloActive: {
+    backgroundColor: "#fef3c7",
+    borderColor: "#f59e0b",
+  },
+  variantTabRHActive: {
+    backgroundColor: "rgba(139,92,246,0.15)",
+    borderColor: "rgba(139,92,246,0.4)",
+  },
+  variantTabNormalActive: {
+    backgroundColor: Colors.surfaceLight,
+    borderColor: Colors.textMuted,
+  },
+  variantTabText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  variantTabTextHolo: {
+    color: "#92400e",
+    fontFamily: "Inter_600SemiBold",
+  },
+  variantTabTextRH: {
+    color: "#c4b5fd",
+    fontFamily: "Inter_600SemiBold",
+  },
+  variantTabTextNormal: {
+    color: Colors.text,
+    fontFamily: "Inter_600SemiBold",
   },
   heroPriceRow: {
     flexDirection: "row",
