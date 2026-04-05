@@ -366,26 +366,38 @@ async function fetchEbayGradedPrices(
   const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(searchQuery)}&market=US&limit=10`;
 
   let ptCard: any = null;
-  try {
-    const resp = await fetch(url, {
-      headers: { "X-API-Key": apiKey },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!resp.ok) throw new Error(`PokeTrace HTTP ${resp.status}`);
-    const data = await resp.json() as any;
-    const cards: any[] = data?.data || [];
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normSet   = normalize(setName);
 
-    // Prefer exact card number match, then set name match, then first with graded prices
-    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const normSet   = normalize(setName);
+  // Retry up to 3 times with backoff on 429
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        headers: { "X-API-Key": apiKey },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (resp.status === 429) {
+        const retryAfterSec = parseInt(resp.headers.get("retry-after") || "10", 10);
+        const waitMs = Math.min(retryAfterSec * 1000, 30_000);
+        console.warn(`[poketrace] 429 for "${cardIdStr}" — waiting ${waitMs}ms before retry ${attempt}/3`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      if (!resp.ok) throw new Error(`PokeTrace HTTP ${resp.status}`);
+      const data = await resp.json() as any;
+      const cards: any[] = data?.data || [];
 
-    ptCard =
-      (baseNum && cards.find(c => c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum)) ||
-      cards.find(c => normalize(c.set?.name || "") === normSet) ||
-      cards.find(c => c.hasGraded) ||
-      cards[0] || null;
-  } catch (e: any) {
-    console.warn(`[poketrace] Fetch failed for "${cardIdStr}":`, e.message);
+      // Prefer exact card number match, then set name match, then first with graded prices
+      ptCard =
+        (baseNum && cards.find(c => c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum)) ||
+        cards.find(c => normalize(c.set?.name || "") === normSet) ||
+        cards.find(c => c.hasGraded) ||
+        cards[0] || null;
+      break;
+    } catch (e: any) {
+      console.warn(`[poketrace] Fetch failed for "${cardIdStr}" (attempt ${attempt}/3):`, e.message);
+      if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
   }
 
   // Build result from PokeTrace price data
@@ -7090,53 +7102,52 @@ RESPONSE FORMAT (JSON only, no markdown):
         );
         console.log(`[top-picks] Tier £${tier.maxGBP}: ${candidates.length} candidates (USD $${minUSD.toFixed(2)}–$${maxUSD.toFixed(2)})`);
 
-        // Process in batches of 4 to be gentle on the eBay throttle
-        for (let i = 0; i < candidates.length; i += 4) {
-          const batch = candidates.slice(i, i + 4);
-          await Promise.allSettled(batch.map(async card => {
-            try {
-              const ebay = await fetchEbayGradedPrices(card.name, card.set_name, card.number || undefined);
-              const hasData = [
-                ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
-                ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
-              ].some(v => v > 0);
+        // Process cards serially with a gap to respect PokeTrace burst limit (30 req/10s)
+        for (const card of candidates) {
+          try {
+            const ebay = await fetchEbayGradedPrices(card.name, card.set_name, card.number || undefined);
+            const hasData = [
+              ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
+              ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
+            ].some(v => v > 0);
 
-              if (hasData) {
-                const { fetchedAt: _fa, ...gradesOnly } = ebay;
-                await db.query(
-                  `INSERT INTO top_picks_precomputed
-                     (card_id, tier_max_gbp, card_name, set_name, set_id, number, image_url, raw_price_usd,
-                      ebay_psa10, ebay_psa9, ebay_bgs95, ebay_bgs9, ebay_ace10, ebay_tag10, ebay_cgc10, ebay_raw,
-                      ebay_all_grades, ebay_fetched_at, is_stale, updated_at)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),FALSE,NOW())
-                   ON CONFLICT (card_id, tier_max_gbp) DO UPDATE SET
-                     card_name=$3, set_name=$4, image_url=$7, raw_price_usd=$8,
-                     ebay_psa10=$9, ebay_psa9=$10, ebay_bgs95=$11, ebay_bgs9=$12,
-                     ebay_ace10=$13, ebay_tag10=$14, ebay_cgc10=$15, ebay_raw=$16,
-                     ebay_all_grades=$17, ebay_fetched_at=NOW(), is_stale=FALSE, updated_at=NOW()`,
-                  [
-                    card.card_id, tier.maxGBP, card.name, card.set_name, card.set_id,
-                    card.number || "", card.image_url, parseFloat(card.price_usd),
-                    ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
-                    ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
-                    JSON.stringify(gradesOnly),
-                  ]
-                );
-                console.log(`[top-picks] ✓ ${card.name} (£${tier.maxGBP}) PSA10=$${ebay.psa10}`);
-              } else {
-                // No eBay data — mark existing row as stale but keep historic prices
-                await db.query(
-                  `UPDATE top_picks_precomputed
-                      SET is_stale=TRUE, updated_at=NOW()
-                    WHERE card_id=$1 AND tier_max_gbp=$2`,
-                  [card.card_id, tier.maxGBP]
-                );
-                console.log(`[top-picks] – ${card.name} (£${tier.maxGBP}) no eBay data (stale preserved)`);
-              }
-            } catch (err: any) {
-              console.error(`[top-picks] Error processing ${card.name}:`, err.message);
+            if (hasData) {
+              const { fetchedAt: _fa, ...gradesOnly } = ebay;
+              await db.query(
+                `INSERT INTO top_picks_precomputed
+                   (card_id, tier_max_gbp, card_name, set_name, set_id, number, image_url, raw_price_usd,
+                    ebay_psa10, ebay_psa9, ebay_bgs95, ebay_bgs9, ebay_ace10, ebay_tag10, ebay_cgc10, ebay_raw,
+                    ebay_all_grades, ebay_fetched_at, is_stale, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),FALSE,NOW())
+                 ON CONFLICT (card_id, tier_max_gbp) DO UPDATE SET
+                   card_name=$3, set_name=$4, image_url=$7, raw_price_usd=$8,
+                   ebay_psa10=$9, ebay_psa9=$10, ebay_bgs95=$11, ebay_bgs9=$12,
+                   ebay_ace10=$13, ebay_tag10=$14, ebay_cgc10=$15, ebay_raw=$16,
+                   ebay_all_grades=$17, ebay_fetched_at=NOW(), is_stale=FALSE, updated_at=NOW()`,
+                [
+                  card.card_id, tier.maxGBP, card.name, card.set_name, card.set_id,
+                  card.number || "", card.image_url, parseFloat(card.price_usd),
+                  ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
+                  ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
+                  JSON.stringify(gradesOnly),
+                ]
+              );
+              console.log(`[top-picks] ✓ ${card.name} (£${tier.maxGBP}) PSA10=$${ebay.psa10}`);
+            } else {
+              // No eBay data — mark existing row as stale but keep historic prices
+              await db.query(
+                `UPDATE top_picks_precomputed
+                    SET is_stale=TRUE, updated_at=NOW()
+                  WHERE card_id=$1 AND tier_max_gbp=$2`,
+                [card.card_id, tier.maxGBP]
+              );
+              console.log(`[top-picks] – ${card.name} (£${tier.maxGBP}) no eBay data (stale preserved)`);
             }
-          }));
+          } catch (err: any) {
+            console.error(`[top-picks] Error processing ${card.name}:`, err.message);
+          }
+          // 350ms gap → ~2.8 req/sec, well under the 30 req/10s burst limit
+          await new Promise(r => setTimeout(r, 350));
         }
       }
 
@@ -7168,7 +7179,11 @@ RESPONSE FORMAT (JSON only, no markdown):
       if (ts) lastRanAt = new Date(ts);
     } catch { /* ignore */ }
 
-    const missedToday = now >= todayAt9 && (!lastRanAt || lastRanAt < todayAt9);
+    // Also honour the in-memory timestamp so a no-data run doesn't re-trigger every 2 min
+    const hasRunToday =
+      (topPicksLastRun && topPicksLastRun >= todayAt9) ||
+      (lastRanAt     && lastRanAt     >= todayAt9);
+    const missedToday = now >= todayAt9 && !hasRunToday;
 
     if (missedToday) {
       // Server restarted after 9am and job hasn't run today — catch up in 2 min
@@ -7618,6 +7633,22 @@ RESPONSE FORMAT (JSON only, no markdown):
       console.error("[top-picks-precomputed]", err.message);
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // ── Admin: manually trigger picks job ─────────────────────────────────────
+  app.post("/api/admin/trigger-picks", async (req, res) => {
+    const secret = req.headers["x-admin-secret"] || req.query.secret;
+    if (secret !== "@dm!nM@rceus2026") {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (topPicksJobRunning) {
+      return res.json({ status: "already_running" });
+    }
+    topPicksLastRun = null; // allow re-run today
+    runTopPicksJob()
+      .then(() => console.log("[top-picks] Manual trigger complete"))
+      .catch(e => console.error("[top-picks] Manual trigger error:", e.message));
+    res.json({ status: "started" });
   });
 
   // ── eBay Graded Price Lookup (PSA 10 / PSA 9 — backward compat) ──────────
