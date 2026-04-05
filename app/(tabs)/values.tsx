@@ -227,18 +227,6 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         )}
       </View>
 
-      {/* Min profitable grade */}
-      {!ebayLoading && rawLocal > 0 && (
-        <View style={[cardStyles.row, { marginTop: 2 }]}>
-          <Text style={cardStyles.label}>Min grade</Text>
-          {minProfitLabel !== null ? (
-            <Text style={[cardStyles.graded, { color: "#f59e0b", fontSize: 11 }]}>{minProfitLabel}</Text>
-          ) : (
-            <Text style={cardStyles.muted}>None</Text>
-          )}
-        </View>
-      )}
-
       {isStale && (
         <Text style={[cardStyles.hint, { color: "#f59e0b", fontSize: 9 }]}>⏱ Archived prices</Text>
       )}
