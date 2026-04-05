@@ -312,100 +312,14 @@ async function initCardCatalogTable(): Promise<void> {
   }
 }
 
-// ── eBay API Request Throttle ─────────────────────────────────────────────
-// Caps concurrent eBay calls to 2 with a 300 ms gap to stay under rate limits.
-const EBAY_MAX_CONCURRENT = 2;
-const EBAY_CALL_GAP_MS    = 300;
-let ebayRunning = 0;
-const ebayQueue: Array<() => void> = [];
-
-function ebayThrottledFetch(url: string, signal: AbortSignal): Promise<Response> {
-  return new Promise<Response>((resolve, reject) => {
-    const run = () => {
-      ebayRunning++;
-      fetch(url, { signal })
-        .then(res => {
-          setTimeout(() => {
-            ebayRunning--;
-            const next = ebayQueue.shift();
-            if (next) next();
-          }, EBAY_CALL_GAP_MS);
-          resolve(res);
-        })
-        .catch(err => {
-          setTimeout(() => {
-            ebayRunning--;
-            const next = ebayQueue.shift();
-            if (next) next();
-          }, EBAY_CALL_GAP_MS);
-          reject(err);
-        });
-    };
-    if (ebayRunning < EBAY_MAX_CONCURRENT) {
-      run();
-    } else {
-      ebayQueue.push(run);
-    }
-  });
-}
-
-/** Strip verbose series prefixes so eBay search works better */
-function cleanSetForSearch(setName: string): string {
-  return setName
-    .replace(/^scarlet\s*[&]\s*violet\s*[-–:]\s*/i, "")
-    .replace(/^sword\s*[&]\s*shield\s*[-–:]\s*/i, "")
-    .replace(/^sun\s*[&]\s*moon\s*[-–:]\s*/i, "")
-    .replace(/^black\s*[&]\s*white\s*[-–:]\s*/i, "")
-    .replace(/^x\s*y\s*[-–:]\s*/i, "")
-    .trim();
-}
-
-// Grade targets — predicates applied to the same 100-result broad search.
-// sortOrder=EndTimeSoonest → most-recently-sold first.
-// All run against the single 100-result graded dataset — zero extra API calls.
-const EBAY_GRADE_TARGETS: { key: keyof EbayAllGrades; match: (t: string) => boolean }[] = [
-  // PSA (whole grades)
-  { key: "psa10", match: t => t.includes("PSA 10")  || t.includes("PSA-10") },
-  { key: "psa9",  match: t => (t.includes("PSA 9")  || t.includes("PSA-9"))  && !/PSA[\s-]9[.\-]/.test(t) },
-  { key: "psa8",  match: t => (t.includes("PSA 8")  || t.includes("PSA-8"))  && !/PSA[\s-]8[.\-]/.test(t) && !t.includes("PSA 10") },
-  { key: "psa7",  match: t => (t.includes("PSA 7")  || t.includes("PSA-7"))  && !/PSA[\s-]7[.\-]/.test(t) && !t.includes("PSA 10") },
-  // BGS/Beckett (half-step grades)
-  { key: "bgs10", match: t => t.includes("BGS 10") || t.includes("BECKETT 10") || t.includes("BGS PRISTINE") || t.includes("BECKETT PRISTINE") },
-  { key: "bgs95", match: t => t.includes("BGS 9.5") || t.includes("BECKETT 9.5") },
-  { key: "bgs9",  match: t => (t.includes("BGS 9") || t.includes("BECKETT 9")) && !t.includes("9.5") && !t.includes("BGS 10") && !t.includes("BECKETT 10") },
-  { key: "bgs85", match: t => t.includes("BGS 8.5") || t.includes("BECKETT 8.5") },
-  { key: "bgs8",  match: t => (t.includes("BGS 8") || t.includes("BECKETT 8")) && !t.includes("8.5") && !t.includes("BGS 10") },
-  // ACE
-  { key: "ace10", match: t => t.includes("ACE 10") },
-  { key: "ace9",  match: t => t.includes("ACE 9")  && !/ACE\s9\./.test(t) && !t.includes("ACE 10") },
-  { key: "ace8",  match: t => t.includes("ACE 8")  && !/ACE\s8\./.test(t) && !t.includes("ACE 10") },
-  // TAG
-  { key: "tag10", match: t => t.includes("TAG 10") },
-  { key: "tag9",  match: t => t.includes("TAG 9")  && !/TAG\s9\./.test(t) && !t.includes("TAG 10") },
-  { key: "tag8",  match: t => t.includes("TAG 8")  && !/TAG\s8\./.test(t) && !t.includes("TAG 10") },
-  // CGC
-  { key: "cgc10", match: t => t.includes("CGC 10") },
-  { key: "cgc95", match: t => t.includes("CGC 9.5") },
-  { key: "cgc9",  match: t => t.includes("CGC 9") && !t.includes("9.5") && !t.includes("CGC 10") },
-  { key: "cgc8",  match: t => t.includes("CGC 8") && !t.includes("8.5") && !t.includes("CGC 10") },
-];
-
-/**
- * Walk eBay result list (most-recent-first) and return the price of the FIRST
- * item whose title matches, was NOT a Best Offer sale, and has a plausible price.
- */
-function extractLastEbay(data: any, titleMatch: (t: string) => boolean): number {
-  const items: any[] = data?.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item || [];
-  for (const it of items) {
-    const title = (it?.title?.[0] || "").toUpperCase();
-    if (!titleMatch(title)) continue;
-    const isBestOffer = it?.listingInfo?.[0]?.bestOfferEnabled?.[0] === "true";
-    if (isBestOffer) continue;
-    const price = parseFloat(it?.sellingStatus?.[0]?.currentPrice?.[0]?.["__value__"] || "0");
-    if (price > 5) return Math.round(price * 100) / 100;
-  }
-  return 0;
-}
+// ── PokeTrace Grade Key → EbayAllGrades field mapping ────────────────────
+const PT_GRADE_MAP: Record<string, keyof EbayAllGrades> = {
+  PSA_10:  "psa10", PSA_9:   "psa9",  PSA_8:   "psa8",  PSA_7:   "psa7",
+  BGS_10:  "bgs10", BGS_9_5: "bgs95", BGS_9:   "bgs9",  BGS_8_5: "bgs85", BGS_8: "bgs8",
+  ACE_10:  "ace10", ACE_9:   "ace9",  ACE_8:   "ace8",
+  TAG_10:  "tag10", TAG_9:   "tag9",  TAG_8:   "tag8",
+  CGC_10:  "cgc10", CGC_9_5: "cgc95", CGC_9:   "cgc9",  CGC_8:   "cgc8",
+};
 
 async function fetchEbayGradedPrices(
   cardName: string,
@@ -413,20 +327,16 @@ async function fetchEbayGradedPrices(
   cardNumber?: string,
   edition?: "1st" | "unlimited" | null
 ): Promise<EbayAllGrades> {
-  // Base card number e.g. "295" from "295/217" — sellers commonly include this in titles
-  const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
-  // Append "1st edition" for 1st edition cards so eBay results match that print run
-  const editionTag = edition === "1st" ? "1st edition" : "";
-  // Set name intentionally excluded — sellers rarely include it in titles.
-  const cardIdStr = [cardName, baseNum, editionTag].filter(Boolean).join(" ");
+  const baseNum    = cardNumber ? cardNumber.split("/")[0].trim() : "";
+  const editionTag = edition === "1st" ? "1st" : "";
+  const cardIdStr  = [cardName, baseNum, editionTag].filter(Boolean).join(" ");
+  const cacheKey   = cardIdStr;
 
-  const cacheKey = cardIdStr;
-
-  // L1: in-memory (fast, same server process)
+  // L1: in-memory
   const memHit = ebayPriceCache.get(cacheKey);
   if (memHit && Date.now() - memHit.fetchedAt < EBAY_PRICE_TTL) return memHit;
 
-  // L2: PostgreSQL (shared across all users, survives restarts)
+  // L2: PostgreSQL (shared across restarts)
   try {
     const dbRes = await db.query<{ data: EbayAllGrades; fetched_ms: string }>(
       `SELECT data, EXTRACT(EPOCH FROM fetched_at) * 1000 AS fetched_ms
@@ -437,100 +347,82 @@ async function fetchEbayGradedPrices(
       const fetchedAt = parseFloat(dbRes.rows[0].fetched_ms);
       if (Date.now() - fetchedAt < EBAY_PRICE_TTL) {
         const result: EbayAllGrades = { ...dbRes.rows[0].data, fetchedAt };
-        ebayPriceCache.set(cacheKey, result); // warm L1
+        ebayPriceCache.set(cacheKey, result);
         return result;
       }
     }
-  } catch { /* DB unavailable — fall through to live fetch */ }
+  } catch { /* fall through */ }
 
-  const appId = process.env.EBAY_APP_ID;
-  if (!appId) throw new Error("EBAY_APP_ID not configured");
+  const apiKey = process.env.POKETRACE_API_KEY;
+  if (!apiKey) throw new Error("POKETRACE_API_KEY not configured");
 
-  // Single URL builder — entriesPerPage controls result count
-  const buildEbayUrl = (q: string, count = 100) => {
-    const encoded = encodeURIComponent(q);
-    return (
-      `https://svcs.ebay.com/services/search/FindingService/v1` +
-      `?OPERATION-NAME=findCompletedItems&SERVICE-VERSION=1.0.0` +
-      `&SECURITY-APPNAME=${encodeURIComponent(appId)}` +
-      `&RESPONSE-DATA-FORMAT=JSON` +
-      `&keywords=${encoded}` +
-      `&itemFilter(0).name=SoldItemsOnly&itemFilter(0).value=true` +
-      `&sortOrder=EndTimeSoonest&paginationInput.entriesPerPage=${count}` +
-      `&outputSelector(0)=ListingInfo`
-    );
-  };
+  // Search PokeTrace — include card number for better matching
+  const searchQuery = [cardName, baseNum].filter(Boolean).join(" ");
+  const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(searchQuery)}&market=US&limit=10`;
 
-  // Raw (ungraded) predicate — no grading company label + number in title
-  const rawMatch = (t: string) =>
-    !/(PSA|BGS|CGC|ACE|TAG)\s+\d/.test(t) &&
-    !/BECKETT\s+\d/.test(t) &&
-    !t.includes("GRADED") &&
-    !t.includes("SLABBED");
+  let ptCard: any = null;
+  try {
+    const resp = await fetch(url, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`PokeTrace HTTP ${resp.status}`);
+    const data = await resp.json() as any;
+    const cards: any[] = data?.data || [];
 
-  let rateLimitHit = false;
-  const parseEbayJson = async (r: Response): Promise<any> => {
-    if (!r.ok) return {};
-    try {
-      const data = await r.json();
-      if (data?.errorMessage?.[0]?.error?.[0]?.errorId?.[0] === "10001") {
-        console.warn(`[ebay] Rate limit hit for "${cardIdStr}"`);
-        rateLimitHit = true;
-        return {};
-      }
-      return data;
-    } catch { return {}; }
-  };
+    // Prefer exact card number match, then set name match, then first with graded prices
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normSet   = normalize(setName);
 
-  // ── 2 API calls instead of 8 ─────────────────────────────────────────────
-  // 1. Fetch 100 most-recently-sold completed listings — covers all grade/company combos.
-  // 2. Fetch 30 raw listings from the same query (separate call so the result set
-  //    isn't crowded out by graded slabs, which dominate sold listings).
-  const signal = AbortSignal.timeout(15000);
-  const baseQuery = `${cardIdStr} Pokemon`;
-  const [gradedResp, rawResp] = await Promise.all([
-    ebayThrottledFetch(buildEbayUrl(baseQuery, 100), signal),
-    ebayThrottledFetch(buildEbayUrl(baseQuery, 30),  signal),
-  ]);
-
-  const [gradedData, rawData] = await Promise.all([
-    parseEbayJson(gradedResp),
-    parseEbayJson(rawResp),
-  ]);
-
-  // All grade predicates run against the same 100-result dataset — no extra API calls
-  const extracted = Object.fromEntries(
-    EBAY_GRADE_TARGETS.map(g => [g.key, extractLastEbay(gradedData, g.match)])
-  ) as Omit<EbayAllGrades, "raw" | "fetchedAt">;
-
-  const result: EbayAllGrades = {
-    ...extracted,
-    raw:       extractLastEbay(rawData, rawMatch),
-    fetchedAt: Date.now(),
-  };
-
-  // Never cache rate-limited responses — they are all-zero garbage that would
-  // poison the L1/L2 cache for 3 days and prevent real lookups after reset.
-  if (rateLimitHit) {
-    console.warn(`[ebay] Skipping cache write for "${cardIdStr}" — rate limited`);
-    return result;
+    ptCard =
+      (baseNum && cards.find(c => c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum)) ||
+      cards.find(c => normalize(c.set?.name || "") === normSet) ||
+      cards.find(c => c.hasGraded) ||
+      cards[0] || null;
+  } catch (e: any) {
+    console.warn(`[poketrace] Fetch failed for "${cardIdStr}":`, e.message);
   }
 
-  // Store in L1
-  ebayPriceCache.set(cacheKey, result);
-  // Store in L2 (PostgreSQL — shared across all users, 3-day TTL)
-  const { fetchedAt: _fa, ...dbData } = result;
-  db.query(
-    `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
-    [cacheKey, JSON.stringify(dbData)]
-  ).catch(e => console.error("[ebay-cache] DB write failed:", e.message));
+  // Build result from PokeTrace price data
+  const ebayPrices = ptCard?.prices?.ebay || {};
+  const graded: Partial<EbayAllGrades> = {};
+  for (const [ptKey, ourKey] of Object.entries(PT_GRADE_MAP)) {
+    const avg = ebayPrices[ptKey]?.avg;
+    (graded as any)[ourKey] = avg && avg > 0 ? Math.round(avg * 100) / 100 : 0;
+  }
+
+  // Raw price — use eBay NEAR_MINT if available
+  const rawAvg = ebayPrices["NEAR_MINT"]?.avg;
+  const result: EbayAllGrades = {
+    psa10: 0, psa9: 0, psa8: 0, psa7: 0,
+    bgs10: 0, bgs95: 0, bgs9: 0, bgs85: 0, bgs8: 0,
+    ace10: 0, ace9: 0, ace8: 0,
+    tag10: 0, tag9: 0, tag8: 0,
+    cgc10: 0, cgc95: 0, cgc9: 0, cgc8: 0,
+    raw: rawAvg && rawAvg > 0 ? Math.round(rawAvg * 100) / 100 : 0,
+    fetchedAt: Date.now(),
+    ...graded,
+  };
+
+  const matched = ptCard ? `${ptCard.name} ${ptCard.cardNumber} (${ptCard.set?.name})` : "no match";
   console.log(
-    `[ebay-price] ${cardIdStr} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
-    ` BGS9.5 $${result.bgs95} BGS9 $${result.bgs9}` +
-    ` ACE10 $${result.ace10} TAG10 $${result.tag10} CGC10 $${result.cgc10} Raw $${result.raw}`
+    `[poketrace] ${cardIdStr} → ${matched} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
+    ` BGS9.5 $${result.bgs95} ACE10 $${result.ace10} TAG10 $${result.tag10} Raw $${result.raw}`
   );
+
+  // Only cache if we got at least some real data
+  const hasData = result.psa10 > 0 || result.psa9 > 0 || result.raw > 0;
+  if (hasData) {
+    ebayPriceCache.set(cacheKey, result);
+    const { fetchedAt: _fa, ...dbData } = result;
+    db.query(
+      `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
+      [cacheKey, JSON.stringify(dbData)]
+    ).catch(e => console.error("[poketrace-cache] DB write failed:", e.message));
+  }
+
   return result;
 }
 
