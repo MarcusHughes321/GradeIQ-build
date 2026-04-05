@@ -415,7 +415,7 @@ export default function CardProfitScreen() {
                 >
                   <View style={[st.accent, isMin && st.accentGreen]} />
 
-                  <Text style={[st.gradeLabel, isMin && { color: "#22c55e" }]}>
+                  <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
                     {gr.label}{isMin ? " ★" : ""}
                   </Text>
 
@@ -475,7 +475,7 @@ export default function CardProfitScreen() {
                 {minProfitRow ? (
                   <Text style={st.summaryTxt}>
                     Min grade to profit:{" "}
-                    <Text style={{ color: "#22c55e", fontFamily: "Inter_700Bold" }}>
+                    <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>
                       {minProfitRow.label}
                     </Text>
                   </Text>
@@ -754,10 +754,10 @@ const st = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.05)",
     gap: 4,
   },
-  tblRowGreen: { backgroundColor: "rgba(34,197,94,0.05)" },
+  tblRowGreen: { backgroundColor: "rgba(245,158,11,0.05)" },
 
   accent: { width: 3, alignSelf: "stretch", backgroundColor: "transparent", borderRadius: 2, marginRight: 11 },
-  accentGreen: { backgroundColor: "#22c55e" },
+  accentGreen: { backgroundColor: "#f59e0b" },
 
   gradeLabel: {
     fontFamily: "Inter_600SemiBold",
