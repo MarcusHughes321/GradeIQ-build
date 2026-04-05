@@ -47,13 +47,12 @@ interface GradeEntry {
 }
 
 const COMPANY_CONFIG: Record<string, {
-  fee: number;
   label: string;
   dotColor: string;
   grades: GradeEntry[];
 }> = {
   PSA: {
-    fee: 25, label: "PSA", dotColor: "#1E56A0",
+    label: "PSA", dotColor: "#1E56A0",
     grades: [
       { grade: 10, ebayKey: "psa10", label: "PSA 10" },
       { grade: 9,  ebayKey: "psa9",  label: "PSA 9"  },
@@ -62,7 +61,7 @@ const COMPANY_CONFIG: Record<string, {
     ],
   },
   Beckett: {
-    fee: 25, label: "BGS", dotColor: "#C0C0C0",
+    label: "BGS", dotColor: "#C0C0C0",
     grades: [
       { grade: 10,  ebayKey: "bgs10", label: "BGS 10"  },
       { grade: 9.5, ebayKey: "bgs95", label: "BGS 9.5" },
@@ -72,7 +71,7 @@ const COMPANY_CONFIG: Record<string, {
     ],
   },
   Ace: {
-    fee: 15, label: "ACE", dotColor: "#FFD700",
+    label: "ACE", dotColor: "#FFD700",
     grades: [
       { grade: 10, ebayKey: "ace10", label: "ACE 10" },
       { grade: 9,  ebayKey: "ace9",  label: "ACE 9"  },
@@ -80,7 +79,7 @@ const COMPANY_CONFIG: Record<string, {
     ],
   },
   TAG: {
-    fee: 20, label: "TAG", dotColor: "#9CA3AF",
+    label: "TAG", dotColor: "#9CA3AF",
     grades: [
       { grade: 10, ebayKey: "tag10", label: "TAG 10" },
       { grade: 9,  ebayKey: "tag9",  label: "TAG 9"  },
@@ -88,7 +87,7 @@ const COMPANY_CONFIG: Record<string, {
     ],
   },
   CGC: {
-    fee: 22, label: "CGC", dotColor: "#E63946",
+    label: "CGC", dotColor: "#E63946",
     grades: [
       { grade: 10,  ebayKey: "cgc10", label: "CGC 10"  },
       { grade: 9.5, ebayKey: "cgc95", label: "CGC 9.5" },
@@ -202,8 +201,6 @@ export default function CardProfitScreen() {
   const rates = ratesData?.rates || FALLBACK_RATES;
   const currencyDef = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
   const currencySymbol = currencyDef.symbol;
-  // eBay and TCGPlayer prices come in USD; fees are stored in GBP
-  const gbpRate = currency === "GBP" ? 1 : (rates["GBP"] ?? 0.79) / (rates["USD"] ?? 1);
   const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
   const fmtLocal = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${Math.round(v)}`;
 
@@ -232,30 +229,26 @@ export default function CardProfitScreen() {
       : COMPANY_ORDER;
 
   const companies = useMemo(() => {
-    // fees are in GBP — convert to selected currency
     return COMPANY_ORDER.filter(id => enabledCompanies.includes(id)).map(compId => {
       const config = COMPANY_CONFIG[compId];
       if (!config) return null;
-      const feeLocal = config.fee * (currencyRate / gbpRate);
 
       const rows = config.grades.map(g => {
         const ebayUSD = ebay ? (ebay[g.ebayKey] ?? 0) : 0;
         const ebayLocal = ebayUSD > 0 ? Math.round(ebayUSD * currencyRate) : null;
         const profit =
           ebayLocal !== null && hasRawPrice
-            ? Math.round(ebayLocal - rawLocalVal - feeLocal)
+            ? Math.round(ebayLocal - rawLocalVal)
             : null;
         return { ...g, ebayLocal, profit };
       });
 
-      // Minimum grade = lowest grade number where profit >= 0 (breaks even or better).
-      // Iterate from worst grade (highest index = lowest number) upward.
       const minProfitRow =
         [...rows].reverse().find(r => r.profit !== null && r.profit >= 0) ?? null;
 
-      return { compId, config, rows, minProfitRow, feeLocal };
+      return { compId, config, rows, minProfitRow };
     }).filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate, gbpRate]);
+  }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate]);
 
   return (
     <View style={[st.container, { paddingTop: insets.top + webTop }]}>
@@ -389,20 +382,19 @@ export default function CardProfitScreen() {
         )}
 
         {/* Per-company grade tables */}
-        {companies.map(({ compId, config, rows, minProfitRow, feeLocal }) => (
+        {companies.map(({ compId, config, rows, minProfitRow }) => (
           <View key={compId} style={st.companyCard}>
             {/* Company header */}
             <View style={st.companyHeader}>
               <View style={[st.dot, { backgroundColor: config.dotColor }]} />
               <Text style={st.companyLabel}>{config.label}</Text>
-              <Text style={st.companyFee}>~{fmtLocal(feeLocal)} fee</Text>
             </View>
 
             {/* Table column headers */}
             <View style={st.tblHead}>
               <Text style={[st.tblHeadTxt, { width: 76 }]}>Grade</Text>
               <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Last Sold</Text>
-              <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Net Profit</Text>
+              <Text style={[st.tblHeadTxt, { flex: 1, textAlign: "right" }]}>Profit</Text>
               <View style={{ width: 58 }} />
             </View>
 
@@ -523,7 +515,6 @@ export default function CardProfitScreen() {
             Last sold prices sourced from eBay · All prices in {currency}
             {ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}
             {!isLoading && ebay?.fetchedAt && !ebay.isStale ? ` · Updated ${Math.round((Date.now() - ebay.fetchedAt) / 3600000)}h ago` : ""}
-            {" · "}Grading fees are estimates and may vary
           </Text>
         </View>
       </ScrollView>
@@ -737,12 +728,6 @@ const st = StyleSheet.create({
     color: Colors.text,
     flex: 1,
   },
-  companyFee: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-
   tblHead: {
     flexDirection: "row",
     alignItems: "center",

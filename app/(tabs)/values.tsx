@@ -148,14 +148,13 @@ async function saveRecentSearches(searches: string[]): Promise<void> {
 const PICKS_COMPANY_CONFIG: Record<CompanyId, {
   topEbayKey: keyof EbayAllGrades;
   topGradeLabel: string;
-  fee: number;
   gradesAsc: { key: keyof EbayAllGrades; label: number }[];
 }> = {
-  PSA:     { topEbayKey: "psa10",  topGradeLabel: "PSA 10",  fee: 25, gradesAsc: [{ key: "psa7", label: 7 }, { key: "psa8", label: 8 }, { key: "psa9", label: 9 }, { key: "psa10", label: 10 }] },
-  Beckett: { topEbayKey: "bgs95",  topGradeLabel: "BGS 9.5", fee: 25, gradesAsc: [{ key: "bgs8", label: 8 }, { key: "bgs85", label: 8.5 }, { key: "bgs9", label: 9 }, { key: "bgs95", label: 9.5 }, { key: "bgs10", label: 10 }] },
-  Ace:     { topEbayKey: "ace10",  topGradeLabel: "ACE 10",  fee: 15, gradesAsc: [{ key: "ace8", label: 8 }, { key: "ace9", label: 9 }, { key: "ace10", label: 10 }] },
-  TAG:     { topEbayKey: "tag10",  topGradeLabel: "TAG 10",  fee: 20, gradesAsc: [{ key: "tag8", label: 8 }, { key: "tag9", label: 9 }, { key: "tag10", label: 10 }] },
-  CGC:     { topEbayKey: "cgc10",  topGradeLabel: "CGC 10",  fee: 22, gradesAsc: [{ key: "cgc8", label: 8 }, { key: "cgc9", label: 9 }, { key: "cgc95", label: 9.5 }, { key: "cgc10", label: 10 }] },
+  PSA:     { topEbayKey: "psa10",  topGradeLabel: "PSA 10",  gradesAsc: [{ key: "psa7", label: 7 }, { key: "psa8", label: 8 }, { key: "psa9", label: 9 }, { key: "psa10", label: 10 }] },
+  Beckett: { topEbayKey: "bgs95",  topGradeLabel: "BGS 9.5", gradesAsc: [{ key: "bgs8", label: 8 }, { key: "bgs85", label: 8.5 }, { key: "bgs9", label: 9 }, { key: "bgs95", label: 9.5 }, { key: "bgs10", label: 10 }] },
+  Ace:     { topEbayKey: "ace10",  topGradeLabel: "ACE 10",  gradesAsc: [{ key: "ace8", label: 8 }, { key: "ace9", label: 9 }, { key: "ace10", label: 10 }] },
+  TAG:     { topEbayKey: "tag10",  topGradeLabel: "TAG 10",  gradesAsc: [{ key: "tag8", label: 8 }, { key: "tag9", label: 9 }, { key: "tag10", label: 10 }] },
+  CGC:     { topEbayKey: "cgc10",  topGradeLabel: "CGC 10",  gradesAsc: [{ key: "cgc8", label: 8 }, { key: "cgc9", label: 9 }, { key: "cgc95", label: 9.5 }, { key: "cgc10", label: 10 }] },
 };
 
 // Presentational card — all eBay metrics precomputed by parent
@@ -268,7 +267,6 @@ export default function ValuesScreen() {
   const currencyInfo = CURRENCIES.find(c => c.code === currency) ?? CURRENCIES[0];
   const currencySymbol = currencyInfo.symbol;
   const currencyRate = ratesData?.rates?.[currency] ?? FALLBACK_RATES[currency] ?? 1;
-  const gbpRate = ratesData?.rates?.GBP ?? FALLBACK_RATES.GBP;
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -352,14 +350,13 @@ export default function ValuesScreen() {
   // All monetary values are in the user's selected currency.
   const enrichedTopPicks = useMemo(() => {
     const cfg = picksConfig;
-    const feeLocal = cfg.fee * (currencyRate / gbpRate);
 
     const enriched = precomputedPicks.map(pick => {
       const ebay = pick.ebay as any as EbayAllGrades;
       const rawLocal  = pick.rawPriceUSD * currencyRate;
       const topEbayUSD = (ebay[cfg.topEbayKey] as number) ?? 0;
       const topGradeLocal  = topEbayUSD > 0 ? Math.round(topEbayUSD * currencyRate) : null;
-      const topGradeProfit = topGradeLocal !== null ? Math.round(topGradeLocal - rawLocal - feeLocal) : null;
+      const topGradeProfit = topGradeLocal !== null ? Math.round(topGradeLocal - rawLocal) : null;
 
       // Min break-even grade (uses full JSONB grades stored by the job)
       let minProfitGrade: number | null = null;
@@ -367,7 +364,7 @@ export default function ValuesScreen() {
       if (rawLocal > 0) {
         for (const g of cfg.gradesAsc) {
           const ebayUSD = (ebay[g.key] as number) ?? 0;
-          if (ebayUSD > 0 && (ebayUSD * currencyRate - rawLocal - feeLocal) >= 0) {
+          if (ebayUSD > 0 && (ebayUSD * currencyRate - rawLocal) >= 0) {
             minProfitGrade = g.label;
             minProfitLabel = `${effectivePicksCompany === "Beckett" ? "BGS" : effectivePicksCompany} ${g.label}`;
             break;
@@ -394,7 +391,7 @@ export default function ValuesScreen() {
     // Sort by top-grade profit descending
     enriched.sort((a, b) => (b.topGradeProfit ?? -9999) - (a.topGradeProfit ?? -9999));
     return enriched.slice(0, 10);
-  }, [precomputedPicks, picksConfig, effectivePicksCompany, currencyRate, gbpRate]);
+  }, [precomputedPicks, picksConfig, effectivePicksCompany, currencyRate]);
 
   // Alias for template clarity
   const tieredPicks = enrichedTopPicks;
