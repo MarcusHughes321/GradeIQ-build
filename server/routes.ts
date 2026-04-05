@@ -7759,10 +7759,16 @@ RESPONSE FORMAT (JSON only, no markdown):
       try {
         const dbCards = await getCardsFromCatalog(setId);
         if (dbCards !== null) {
-          console.log(`[sets/cards] L2 DB hit: ${setId} (${dbCards.length} cards)`);
-          setCardsCache.set(cacheKey, { cards: dbCards, fetchedAt: Date.now() });
-          upsertSetPriceStatus(setId, dbCards.length > 0, dbCards.some(c => c.price != null));
-          return res.json({ cards: dbCards });
+          // If prices_json is missing for all cards (old cache rows before column was added),
+          // fall through to L3 to get fresh variant prices and update the DB
+          const missingVariantPrices = dbCards.length > 0 && dbCards.every((c: any) => c.prices == null);
+          if (!missingVariantPrices) {
+            console.log(`[sets/cards] L2 DB hit: ${setId} (${dbCards.length} cards)`);
+            setCardsCache.set(cacheKey, { cards: dbCards, fetchedAt: Date.now() });
+            upsertSetPriceStatus(setId, dbCards.length > 0, dbCards.some(c => c.price != null));
+            return res.json({ cards: dbCards });
+          }
+          console.log(`[sets/cards] L2 DB hit but prices_json missing — refreshing from API: ${setId}`);
         }
       } catch (err: any) {
         console.warn(`[sets/cards] DB read failed for ${setId}, falling back to API:`, err.message);
