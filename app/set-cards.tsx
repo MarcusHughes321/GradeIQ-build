@@ -18,6 +18,17 @@ import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
+import type { CompanyId } from "@/lib/settings";
+import CompanyLabel from "@/components/CompanyLabel";
+
+// Mirrors the config in values.tsx — top grade key and display label per company
+const PICKS_COMPANY_CONFIG: Record<CompanyId, { topEbayKey: string; topGradeLabel: string }> = {
+  PSA:     { topEbayKey: "psa10",  topGradeLabel: "PSA 10"  },
+  Beckett: { topEbayKey: "bgs95",  topGradeLabel: "BGS 9.5" },
+  Ace:     { topEbayKey: "ace10",  topGradeLabel: "ACE 10"  },
+  TAG:     { topEbayKey: "tag10",  topGradeLabel: "TAG 10"  },
+  CGC:     { topEbayKey: "cgc10",  topGradeLabel: "CGC 10"  },
+};
 
 const COLUMNS = 3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -39,7 +50,7 @@ interface SetCard {
   price?: number | null;
 }
 
-const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading }: {
+const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany }: {
   item: SetCard;
   index: number;
   setName: string;
@@ -48,13 +59,16 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
   currencyRate: number;
   ebayPrices?: Record<string, number>;
   ebayLoading?: boolean;
+  topEbayKey: string;
+  topGradeLabel: string;
+  picksCompany: CompanyId;
 }) => {
   const rawLocal = item.price != null && item.price > 0
     ? Math.round(item.price * currencyRate)
     : null;
-  const psa10USD = ebayPrices?.psa10;
-  const psa10Local = psa10USD != null && psa10USD > 0 ? Math.round(psa10USD * currencyRate) : null;
-  const profitLocal = psa10Local != null && rawLocal != null ? psa10Local - rawLocal : null;
+  const topUSD = ebayPrices ? (ebayPrices as Record<string, number>)[topEbayKey] : undefined;
+  const topLocal = topUSD != null && topUSD > 0 ? Math.round(topUSD * currencyRate) : null;
+  const profitLocal = topLocal != null && rawLocal != null ? topLocal - rawLocal : null;
 
   return (
     <Pressable
@@ -78,9 +92,9 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
       ) : (
         <>
           <View style={styles.topCardRow}>
-            <Text style={styles.topCardLabel}>PSA 10</Text>
-            {psa10Local != null ? (
-              <Text style={styles.topCardValue}>{currencySymbol}{psa10Local}</Text>
+            <CompanyLabel company={picksCompany} fontSize={11} />
+            {topLocal != null ? (
+              <Text style={styles.topCardValue}>{currencySymbol}{topLocal}</Text>
             ) : (
               <Text style={styles.topCardMuted}>—</Text>
             )}
@@ -164,6 +178,14 @@ export default function SetCardsScreen() {
 
   const isEnglish = lang === "english";
 
+  // Preferred picks company — mirrors the logic in values.tsx
+  const effectivePicksCompany: CompanyId = useMemo(() => {
+    const preferred = settings.preferredPicksCompany;
+    if (settings.enabledCompanies.includes(preferred)) return preferred as CompanyId;
+    return (settings.enabledCompanies[0] as CompanyId) ?? "PSA";
+  }, [settings.preferredPicksCompany, settings.enabledCompanies]);
+  const picksConfig = PICKS_COMPANY_CONFIG[effectivePicksCompany];
+
   const allCards = data?.cards ?? [];
   const hasAnyPrice = isEnglish && allCards.some(c => c.price != null);
 
@@ -219,19 +241,20 @@ export default function SetCardsScreen() {
     return () => { cancelled = true; };
   }, [top15Key, setName]);
 
-  // Sort top15 by PSA 10 profit (eBay PSA10 USD - raw USD), take top 10
+  // Sort top15 by preferred company's top grade profit, take top 10
   const topByProfit = useMemo(() => {
     if (top15.length === 0) return [];
+    const key = picksConfig.topEbayKey;
     return [...top15]
       .sort((a, b) => {
-        const aP10 = ebayPricesMap[a.id]?.psa10 ?? 0;
-        const bP10 = ebayPricesMap[b.id]?.psa10 ?? 0;
-        const aProfit = aP10 > 0 ? aP10 - (a.price ?? 0) : -999999;
-        const bProfit = bP10 > 0 ? bP10 - (b.price ?? 0) : -999999;
+        const aTop = (ebayPricesMap[a.id] as Record<string, number> | undefined)?.[key] ?? 0;
+        const bTop = (ebayPricesMap[b.id] as Record<string, number> | undefined)?.[key] ?? 0;
+        const aProfit = aTop > 0 ? aTop - (a.price ?? 0) : -999999;
+        const bProfit = bTop > 0 ? bTop - (b.price ?? 0) : -999999;
         return bProfit - aProfit;
       })
       .slice(0, 10);
-  }, [top15, ebayPricesMap]);
+  }, [top15, ebayPricesMap, picksConfig.topEbayKey]);
 
   // Derive set total: prefer the param passed from the set list, fall back to card count
   const resolvedSetTotal = setTotal || (allCards.length > 0 ? String(allCards.length) : "");
@@ -340,7 +363,7 @@ export default function SetCardsScreen() {
             <View>
               <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
               <Text style={styles.topPicksSubtitle}>
-                {ebayPricesLoading ? "Loading graded prices…" : "Highest PSA 10 profit first"}
+                {ebayPricesLoading ? "Loading graded prices…" : `Highest ${picksConfig.topGradeLabel} profit first`}
               </Text>
             </View>
           </View>
@@ -360,6 +383,9 @@ export default function SetCardsScreen() {
                 currencyRate={currencyRate}
                 ebayPrices={ebayPricesMap[card.id]}
                 ebayLoading={ebayPricesLoading && !ebayPricesMap[card.id]}
+                topEbayKey={picksConfig.topEbayKey}
+                topGradeLabel={picksConfig.topGradeLabel}
+                picksCompany={effectivePicksCompany}
               />
             ))}
           </ScrollView>
@@ -367,8 +393,8 @@ export default function SetCardsScreen() {
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
               {editionParam
-                ? `PSA 10: eBay last sold · Raw: TCGPlayer reference · Tap a card for full grade breakdown`
-                : `PSA 10: eBay last sold · Raw: TCGPlayer market price · All prices in ${currency}`}
+                ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer reference · Tap a card for full grade breakdown`
+                : `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer market price · All prices in ${currency}`}
             </Text>
           </View>
         </View>
