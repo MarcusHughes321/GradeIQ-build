@@ -870,11 +870,11 @@ export default function CardProfitScreen() {
                 }
               </View>
 
-              {/* Footer */}
+              {/* Footer — reflects the tapped grade */}
               <Text style={st.snapshotFooter}>
-                {marketSnapshot.totalSales > 0
-                  ? `${marketSnapshot.totalSales} total graded sales in the last month`
-                  : `No recent sales data available`}
+                {activeSaleCount > 0
+                  ? `${activeSaleCount} recorded ${activeGradeLabel} sales in the last month`
+                  : `No recent sales data for ${activeGradeLabel}`}
               </Text>
             </View>
           );
