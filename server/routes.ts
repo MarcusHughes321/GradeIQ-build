@@ -7545,6 +7545,84 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SM11b": "Dream League",
     "SM12":  "Alter Genesis",
     "SM12a": "Tag All Stars",
+    // SM era subsets (lowercase TCGdex IDs)
+    "sm2+":  "Facing a New Trial",
+    "sn10a": "GG End",
+    "sn11":  "Miracle Twin",
+    // ── Sword & Shield era (additional) ─────────────────────────────────────
+    "S2a":   "Explosive Walker",
+    // ── Scarlet & Violet era (additional / deck products) ────────────────────
+    "sv1a":  "Triplet Beat",
+    "CS1a":  "Triplet Beat CS (1A)",
+    "CS1b":  "Triplet Beat CS (1B)",
+    "CS1.5": "Triplet Beat CS 1.5",
+    "CS2a":  "Triplet Beat CS (2A)",
+    "CS2b":  "Triplet Beat CS (2B)",
+    "CS2.5": "Triplet Beat CS 2.5",
+    "CS3.5": "Triplet Beat CS 3.5",
+    "SVK":   "Stellar Miracle Deck Build Box",
+    "SVLN":  "Stellar Nymphia ex Starter Set",
+    "SVLS":  "Stellar Soublade ex Starter Set",
+    // ── XY era ───────────────────────────────────────────────────────────────
+    "XY1a":  "Collection X",
+    "XY1b":  "Collection Y",
+    "XY2":   "Flashfire",
+    "XY3":   "Furious Fists",
+    "XY4":   "Phantom Forces",
+    "XY5a":  "Gaia Volcano",
+    "XY6":   "Roaring Skies",
+    "XY7":   "Ancient Origins",
+    "XY8a":  "Blue Shock",
+    "XY8b":  "Red Flash",
+    "XY9":   "BREAKpoint",
+    "XY10":  "Fates Collide",
+    "XY11a": "Fever-Burst Fighter",
+    // ── XY Concept Packs ─────────────────────────────────────────────────────
+    "CP1":   "Double Crisis",
+    "CP2":   "Legendary Shine Collection",
+    "CP3":   "Pokémon ♥ Pikachu Collection",
+    "CP4":   "Premium Champion Pack",
+    "CP5":   "Cruel Traitor",
+    "CP6":   "20th Anniversary",
+    // ── LEGEND era (HeartGold / SoulSilver) ──────────────────────────────────
+    "L1a":   "HeartGold Collection",
+    "L1b":   "SoulSilver Collection",
+    "L2":    "Revived Legends",
+    "L3":    "Clash at the Summit",
+    "LL":    "Lost Link",
+    // ── ADV era (EX Ruby & Sapphire era) ─────────────────────────────────────
+    "ADV1":  "EX Ruby & Sapphire",
+    "ADV2":  "EX Sandstorm",
+    "ADV3":  "EX Dragon",
+    "ADV4":  "Team Magma vs. Team Aqua",
+    "ADV5":  "EX Hidden Legends",
+    // ── PCG era (EX FireRed & LeafGreen era) ─────────────────────────────────
+    "PCG1":  "EX FireRed & LeafGreen",
+    "PCG2":  "EX Team Rocket Returns",
+    "PCG3":  "EX Deoxys",
+    "PCG4":  "EX Unseen Forces",
+    "PCG5":  "EX Delta Species",
+    "PCG6":  "EX Legend Maker",
+    "PCG7":  "EX Holon Phantoms",
+    "PCG8":  "EX Crystal Guardians",
+    "PCG9":  "EX Dragon Frontiers",
+    "PCG10": "World Champions Pack",
+    // ── e-Card era ────────────────────────────────────────────────────────────
+    "E1":    "Base Expansion Pack",
+    "E2":    "The Town on No Map",
+    "E3":    "Wind from the Sea",
+    "E4":    "Split Earth",
+    "E5":    "Mysterious Mountains",
+    // ── VS / web era ─────────────────────────────────────────────────────────
+    "VS1":   "Pokémon VS",
+    "web1":  "Pokémon Web",
+    // ── Original era (Base Set era) ──────────────────────────────────────────
+    "PMCG1": "Base Set",
+    "PMCG2": "Jungle",
+    "PMCG3": "Fossil",
+    "PMCG4": "Team Rocket",
+    "PMCG5": "Gym Heroes",
+    "PMCG6": "Gym Challenge",
   };
 
   // Derives a PokeTrace-compatible slug from an English set name.
@@ -7912,11 +7990,9 @@ RESPONSE FORMAT (JSON only, no markdown):
         seriesOrder.push(detail.id as string);
         const serieReleaseDate: string | null = (detail.releaseDate as string | undefined) ?? null;
         (detail.sets as any[]).forEach((set: any, setIdx: number) => {
-          // Use the logo URL provided by the API; append .png for explicit format
+          // Use the logo URL as-is — TCGdex serves extension-less URLs (adding .png returns 404)
           const rawLogo: string | null = set.logo || null;
-          const logoUrl = rawLogo
-            ? (rawLogo.endsWith(".png") || rawLogo.endsWith(".webp") ? rawLogo : `${rawLogo}.png`)
-            : null;
+          const logoUrl = rawLogo || null;
           setsMap.set(set.id, {
             serieId: detail.id as string,
             serieReleaseDate,
@@ -7960,10 +8036,10 @@ RESPONSE FORMAT (JSON only, no markdown):
       })
       .map((s: any) => {
         const info = seriesInfo.sets.get(s.id);
-        // Use the logo URL from the series detail API (includes .png extension for reliability)
+        // Use the logo URL from the series detail API (no extension — TCGdex serves extension-less URLs)
         // Fall back to constructed URL if not in cache
         const logo = info?.logoUrl
-          ?? (info ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo.png` : null);
+          ?? (info ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo` : null);
         const serieReleaseDate = info?.serieReleaseDate ?? null;
         const serieIdx = info ? (seriesOrderMap.get(info.serieId) ?? 0) : 0;
         // English name: static map first (most reliable), then TCGdex English flat-list
