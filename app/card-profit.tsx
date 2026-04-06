@@ -583,7 +583,7 @@ export default function CardProfitScreen() {
 
   // ── Market snapshot — liquidity across all enabled companies ────────────
   const marketSnapshot = useMemo(() => {
-    if (!ebay?.gradeDetails) return null;
+    if (!ebay) return null; // hide only when prices haven't loaded at all
 
     const rows = COMPANY_ORDER
       .filter(id => enabledCompanies.includes(id))
@@ -600,16 +600,14 @@ export default function CardProfitScreen() {
         };
       });
 
-    const anyData = rows.some(r => r.score > 0);
-    if (!anyData) return null;
-
+    const hasData     = rows.some(r => r.saleCount > 0);
     const totalSales  = rows.reduce((s, r) => s + r.saleCount, 0);
     const best        = rows.reduce((a, b) => b.score > a.score ? b : a, rows[0]);
     const maxScore    = Math.max(...rows.map(r => r.score), 1);
     const overallScore = Math.max(...rows.map(r => r.score), 0);
     const overallBand  = liquidityBand(overallScore, best.saleCount);
 
-    return { rows, totalSales, best, maxScore, overallScore, overallBand };
+    return { rows, totalSales, best, maxScore, overallScore, overallBand, hasData };
   }, [ebay, enabledCompanies]);
 
   return (
@@ -802,6 +800,23 @@ export default function CardProfitScreen() {
 
         {/* ── Market Snapshot ─────────────────────────────────────── */}
         {!isLoading && !error && !!marketSnapshot && (() => {
+          // No-data state: prices loaded but PokeTrace has no saleCount stats
+          if (!marketSnapshot.hasData) {
+            return (
+              <View style={st.snapshotCard}>
+                <View style={st.snapshotTopRow}>
+                  <Text style={st.snapshotLabel}>Liquidity</Text>
+                  <View style={[st.snapshotBandChip, { backgroundColor: "#6b728022", borderColor: "#6b728055" }]}>
+                    <View style={[st.snapshotBandDot, { backgroundColor: "#6b7280" }]} />
+                    <Text style={[st.snapshotBandText, { color: "#6b7280" }]}>No data</Text>
+                  </View>
+                </View>
+                <LiquidityBar score={0} color="#6b7280" />
+                <Text style={st.snapshotFooter}>Not enough sales history to assess liquidity</Text>
+              </View>
+            );
+          }
+
           // Drive bar from the currently selected company pill
           const activeRow = marketSnapshot.rows.find(r => r.compId === selectedCompany)
             ?? marketSnapshot.best;
