@@ -214,7 +214,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         {ebayLoading ? (
           <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
         ) : topGradeLocal !== null ? (
-          <Text style={[cardStyles.graded, { color: "#22c55e" }]}>{sym}{topGradeLocal}</Text>
+          <Text style={[cardStyles.graded, { color: Colors.text }]}>{sym}{topGradeLocal}</Text>
         ) : (
           <Text style={cardStyles.muted}>—</Text>
         )}
