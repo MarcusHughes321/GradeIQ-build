@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.0.7";
 
 const RELEASES: {
   version: string;
@@ -21,7 +21,7 @@ const RELEASES: {
   items: { icon: keyof typeof Ionicons.glyphMap; color: string; title: string; desc: string }[];
 }[] = [
   {
-    version: "1.1.1",
+    version: "1.0.7",
     date: "April 2026",
     items: [
       {
