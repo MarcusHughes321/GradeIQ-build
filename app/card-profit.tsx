@@ -863,14 +863,9 @@ export default function CardProfitScreen() {
 
               {/* Footer */}
               <Text style={st.snapshotFooter}>
-                {activeRow.saleCount > 0
-                  ? `${activeRow.saleCount} ${activeRow.label} sales in the last month`
-                  : `No recent ${activeRow.label} sales · most liquid: `}
-                {activeRow.saleCount === 0 && (
-                  <Text style={{ color: marketSnapshot.best.color, fontFamily: "Inter_600SemiBold" }}>
-                    {marketSnapshot.best.label}
-                  </Text>
-                )}
+                {marketSnapshot.totalSales > 0
+                  ? `${marketSnapshot.totalSales} total graded sales in the last month`
+                  : `No recent sales data available`}
               </Text>
             </View>
           );
