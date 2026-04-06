@@ -459,12 +459,22 @@ async function fetchEbayGradedPrices(
       const data = await resp.json() as any;
       const cards: any[] = data?.data || [];
 
-      // Prefer exact card number match, then set name match, then first with graded prices
+      // Set-name substring check: "SV: Black Bolt" should match when we look for "Black Bolt"
+      const setMatches = (c: any) => {
+        const ptNorm = normalize(c.set?.name || "");
+        return ptNorm === normSet || ptNorm.includes(normSet) || normSet.includes(ptNorm);
+      };
+      const numMatches = (c: any) =>
+        baseNum && (c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum);
+
+      // Priority: (number AND set) > number-only > set-only > hasGraded.
+      // Never fall back to cards[0] — a random wrong card is worse than no data.
       ptCard =
-        (baseNum && cards.find(c => c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum)) ||
-        cards.find(c => normalize(c.set?.name || "") === normSet) ||
+        cards.find(c => numMatches(c) && setMatches(c)) ||
+        cards.find(c => numMatches(c)) ||
+        cards.find(c => setMatches(c)) ||
         cards.find(c => c.hasGraded) ||
-        cards[0] || null;
+        null;
       break;
     } catch (e: any) {
       console.warn(`[poketrace] Fetch failed for "${cardIdStr}" (attempt ${attempt}/3):`, e.message);
