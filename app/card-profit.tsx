@@ -907,7 +907,6 @@ export default function CardProfitScreen() {
                 const isProfit = gr.profit !== null && gr.profit >= 0;
                 const isLast = idx === rows.length - 1;
                 const detail = ebay?.gradeDetails?.[gr.ebayKey as string];
-                const hasTrend = detail && (detail.avg7d != null || detail.avg30d != null);
                 const isCharted = gr.ebayKey === effectiveChartKey;
 
                 return (
@@ -919,7 +918,7 @@ export default function CardProfitScreen() {
                       st.tblRow,
                       isMin && st.tblRowGreen,
                       isCharted && st.tblRowCharted,
-                      isLast && !hasTrend && { borderBottomWidth: 0 },
+                      isLast && { borderBottomWidth: 0 },
                     ]}>
                       <View style={[st.accent, isMin && st.accentGreen, isCharted && !isMin && st.accentCharted]} />
 
@@ -966,20 +965,6 @@ export default function CardProfitScreen() {
                       </Pressable>
                     </View>
 
-                    {/* Inline avg7d/avg30d hint */}
-                    {!isLoading && hasTrend && (
-                      <View style={[st.trendHintRow, isLast && { borderBottomWidth: 0 }]}>
-                        {detail?.avg7d != null && (
-                          <Text style={st.trendHintTxt}>7d avg {fmtLocal(detail.avg7d * currencyRate)}</Text>
-                        )}
-                        {detail?.avg30d != null && (
-                          <Text style={st.trendHintTxt}>30d avg {fmtLocal(detail.avg30d * currencyRate)}</Text>
-                        )}
-                        {detail?.low != null && detail?.high != null && (
-                          <Text style={st.trendHintTxt}>Range {fmtLocal(detail.low * currencyRate)}–{fmtLocal(detail.high * currencyRate)}</Text>
-                        )}
-                      </View>
-                    )}
                   </Pressable>
                 );
               })}
