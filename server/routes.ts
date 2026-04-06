@@ -7444,17 +7444,143 @@ RESPONSE FORMAT (JSON only, no markdown):
   let jpTopPicksJobRunning = false;
   let jpTopPicksLastRun: Date | null = null;
 
+  // Maps Japanese TCGdex set IDs → English display names.
+  // These are used in the browse list and to derive PokeTrace EU slugs.
+  // TCGdex JP IDs are uppercase (e.g. "SV8a", "SV2D"); PokeTrace slugs are derived
+  // by lowercasing, stripping accents, and replacing spaces with hyphens.
+  const JP_TCGDEX_EN_NAMES: Record<string, string> = {
+    // ── Scarlet & Violet era ─────────────────────────────────────────────────
+    "SV1S":  "Scarlet ex",
+    "SV1V":  "Violet ex",
+    "SV1a":  "Triplet Beat",
+    "SV2P":  "Snow Hazard",
+    "SV2D":  "Clay Burst",
+    "SV2a":  "151",                        // Pokémon Card 151 — PokeTrace slug: "151"
+    "SV3":   "Ruler of the Black Flame",
+    "SV3a":  "Raging Surf",
+    "SV4K":  "Ancient Roar",
+    "SV4M":  "Future Flash",
+    "SV4a":  "Shiny Treasure ex",
+    "SV5a":  "Crimson Haze",
+    "SV5K":  "Wild Force",
+    "SV5M":  "Cyber Judge",
+    "SV6":   "Mask of Change",
+    "SV6a":  "Night Wanderer",
+    "SV7":   "Stellar Miracle",
+    "SV7a":  "Paradise Dragona",
+    "SV8":   "Surging Sparks",
+    "SV8a":  "Terastal Festival ex",
+    "SV9":   "Battle Partners",
+    "SV9a":  "Hot Wind Arena",
+    "SV10":  "Team Rocket's Glory",
+    "SV11W": "White Flare",
+    "SV11B": "Black Bolt",
+    // ── M series (new 2025/2026 Japanese sets) ────────────────────────────────
+    "M1S":   "Mega Symphony",
+    "M1":    "Mega Symphony",
+    "M2":    "Mega Symphony II",
+    "M3":    "Munki's Zero",
+    // ── Sword & Shield era ───────────────────────────────────────────────────
+    "S1W":   "Sword",
+    "S1H":   "Shield",
+    "S1a":   "VMAX Rising",
+    "S2":    "Rebellion Crash",
+    "S3":    "Infinity Zone",
+    "S3a":   "Legendary Heartbeat",
+    "S4":    "Vivid Voltage",
+    "S4a":   "Shiny Star V",
+    "S5I":   "Single Strike Master",
+    "S5R":   "Rapid Strike Master",
+    "S5a":   "Peerless Fighters",
+    "S6H":   "Silver Lance",
+    "S6K":   "Jet Black Spirit",
+    "S6a":   "Eevee Heroes",
+    "S7R":   "Blue Sky Stream",
+    "S7D":   "Towering Perfection",
+    "S8":    "Fusion Arts",
+    "S8a":   "25th Anniversary Collection",
+    "S8b":   "VMAX Climax",
+    "S9":    "Star Birth",
+    "S9a":   "Battle Region",
+    "S10b":  "Pokemon GO",
+    "S10D":  "Time Gazer",
+    "S10P":  "Space Juggler",
+    "S10a":  "Dark Phantasma",
+    "S11":   "Lost Abyss",
+    "S11a":  "Incandescent Arcana",
+    "S12":   "Paradigm Trigger",
+    "S12a":  "VSTAR Universe",
+    "SMP2":  "Detective Pikachu",
+    // ── Sun & Moon era ────────────────────────────────────────────────────────
+    "SM0":   "Pikachu and New Friends",
+    "SM1S":  "Collection Sun",
+    "SM1M":  "Collection Moon",
+    "SM1+":  "Sun & Moon",
+    "SM2K":  "Islands Waiting for You",
+    "SM2L":  "Moonlight of Alola",
+    "SM3N":  "Darkness that Consumes Light",
+    "SM3H":  "To Have Seen the Battle Rainbow",
+    "SM3+":  "Shining Legends",
+    "SM4A":  "Ultradimensional Beasts",
+    "SM4S":  "Awakened Heroes",
+    "SM4+":  "GX Battle Boost",
+    "SM5M":  "Ultra Moon",
+    "SM5S":  "Ultra Sun",
+    "SM5+":  "Ultra Force",
+    "SM6":   "Forbidden Light",
+    "SM6a":  "Dragon Storm",
+    "SM6b":  "Champion Road",
+    "SM7":   "Celestial Storm",
+    "SM7a":  "Sky-Splitting Charisma",
+    "SM7b":  "Fairy Rise",
+    "SM8":   "Lost Thunder",
+    "SM8a":  "Dark Order",
+    "SM8b":  "GX Ultra Shiny",
+    "SM9":   "Tag Bolt",
+    "SM9a":  "Night Unison",
+    "SM9b":  "Full Metal Wall",
+    "SM10":  "Double Blaze",
+    "SM10b": "Sky Legend",
+    "SM11a": "Remix Bout",
+    "SM11b": "Dream League",
+    "SM12":  "Alter Genesis",
+    "SM12a": "Tag All Stars",
+  };
+
+  // Derives a PokeTrace-compatible slug from an English set name.
+  // Normalises accents (é→e) so "Pokémon GO" → "pokemon-go" etc.
+  function toPokeTraceSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // strip accents
+      .replace(/['\u2019]/g, "")                          // remove apostrophes
+      .replace(/[&]/g, "and")                             // & → and
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  }
+
   // Popular modern Japanese sets — slugs that PokeTrace EU recognises
   const JP_SET_SLUGS = [
-    "151", "crimson-haze", "mask-of-change", "night-wanderer",
-    "stellar-miracle", "paradise-dragona", "ancient-roar", "future-flash",
-    "snow-hazard", "clay-burst", "scarlet-ex", "violet-ex",
+    // SV era
+    "triplet-beat", "snow-hazard", "clay-burst", "scarlet-ex", "violet-ex",
+    "151", "raging-surf", "ruler-of-the-black-flame",
+    "ancient-roar", "future-flash", "shiny-treasure-ex",
+    "crimson-haze", "wild-force", "cyber-judge",
+    "mask-of-change", "night-wanderer",
+    "stellar-miracle", "paradise-dragona",
+    "surging-sparks", "terastal-festival-ex",
+    "battle-partners", "hot-wind-arena",
+    "team-rockets-glory",
+    "white-flare", "black-bolt",
+    "mega-symphony", "munkis-zero",
+    // SwSh era
     "vstar-universe", "lost-abyss", "incandescent-arcana",
     "dark-phantasma", "pokemon-go", "battle-region",
     "brilliant-stars", "astral-radiance", "fusion-arts",
     "eevee-heroes", "peerless-fighters", "matchless-fighters",
     "blue-sky-stream", "towering-perfection",
     "s-p-promotional-cards",
+    "star-birth", "vmax-climax", "shiny-star-v",
   ];
 
   async function runJapaneseTopPicksJob(): Promise<void> {
@@ -7840,9 +7966,12 @@ RESPONSE FORMAT (JSON only, no markdown):
           ?? (info ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo.png` : null);
         const serieReleaseDate = info?.serieReleaseDate ?? null;
         const serieIdx = info ? (seriesOrderMap.get(info.serieId) ?? 0) : 0;
-        // English name: prefer cross-ref from English TCGdex list, then the nameEn field
-        // TCGdex embeds in non-English responses (Japanese API includes English names)
-        const nameEn = enNames.get(s.id) || (s.nameEn as string | undefined) || null;
+        // English name: static map first (most reliable), then TCGdex English flat-list
+        // cross-ref (works for sets shared between EN and JP), then TCGdex-provided nameEn
+        const nameEn = JP_TCGDEX_EN_NAMES[s.id as string]
+          || enNames.get(s.id)
+          || (s.nameEn as string | undefined)
+          || null;
         return {
           id: s.id as string,
           name: s.name as string,
@@ -8329,14 +8458,18 @@ RESPONSE FORMAT (JSON only, no markdown):
         if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
         const data = await resp.json() as any;
 
-        // nameEn: English name for this Japanese set (used for PokeTrace slug + display)
-        // Prefer TCGdex-provided nameEn, then cross-ref English flat list (same set IDs),
-        // then fall back to the local-language name (won't match PokeTrace but at least shows something)
+        // English name for this Japanese set — used for PokeTrace slug + display.
+        // Static map wins (handles JP-exclusive sets with no EN TCGdex entry),
+        // then fall back to TCGdex-provided nameEn/name.
         const enNamesMap = await getTcgdexEnNames();
-        const setNameEn: string = data.nameEn || enNamesMap.get(setId) || data.name || setId;
+        const setNameEn: string = JP_TCGDEX_EN_NAMES[setId]
+          || enNamesMap.get(setId)
+          || data.nameEn
+          || data.name
+          || setId;
 
-        // Build a PokeTrace EU set slug from the English set name
-        const ptSlug = setNameEn.toLowerCase().replace(/['\u2019]/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        // Build a PokeTrace EU set slug using the normalised helper (handles é → e, etc.)
+        const ptSlug = toPokeTraceSlug(setNameEn);
 
         // Best-effort: fetch PokeTrace EU card list for this set to get NM EUR prices + images
         const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
