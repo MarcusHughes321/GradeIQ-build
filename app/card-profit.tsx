@@ -625,7 +625,7 @@ export default function CardProfitScreen() {
               hitSlop={8}
               style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 })}
             >
-              <Text style={st.rawEbayLink}>Raw eBay</Text>
+              <Text style={st.rawEbayLink}>Find on eBay</Text>
               <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
             </Pressable>
           </View>

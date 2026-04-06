@@ -147,7 +147,7 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
           hitSlop={6}
           style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 2 })}
         >
-          <Text style={styles.topCardEbayLink}>Raw eBay</Text>
+          <Text style={styles.topCardEbayLink}>Find on eBay</Text>
           <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
         </Pressable>
       </View>
