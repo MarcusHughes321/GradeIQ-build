@@ -8472,15 +8472,24 @@ RESPONSE FORMAT (JSON only, no markdown):
         const ptSlug = toPokeTraceSlug(setNameEn);
 
         // Best-effort: fetch PokeTrace EU card list for this set to get NM EUR prices + images
+        // PokeTrace uses cursor-based pagination with max 20 cards per page (limit ≤ 100 required)
         const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
         if (lang === "japanese" && ptSlug) {
           try {
-            const ptUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(ptSlug)}&market=EU&limit=250`;
-            const ptResp = await fetch(ptUrl, {
-              headers: { "X-API-Key": process.env.POKETRACE_API_KEY || "" },
-              signal: AbortSignal.timeout(10000),
-            });
-            if (ptResp.ok) {
+            let cursor: string | null = null;
+            let pageCount = 0;
+            const PT_MAX_PAGES = 15; // safety cap (15 × 20 = 300 cards max)
+            do {
+              const ptUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(ptSlug)}&market=EU&limit=100`
+                + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+              const ptResp = await fetch(ptUrl, {
+                headers: { "X-API-Key": process.env.POKETRACE_API_KEY || "" },
+                signal: AbortSignal.timeout(10000),
+              });
+              if (!ptResp.ok) {
+                console.warn(`[sets/cards] PokeTrace EU page ${pageCount + 1} returned ${ptResp.status} for ${ptSlug}`);
+                break;
+              }
               const ptData = await ptResp.json() as any;
               for (const c of (ptData?.data || [])) {
                 const baseNum = (c.cardNumber || "").split("/")[0].trim();
@@ -8493,8 +8502,10 @@ RESPONSE FORMAT (JSON only, no markdown):
                   });
                 }
               }
-              console.log(`[sets/cards] PokeTrace EU enrichment: ${ptCardsByNumber.size} cards for ${ptSlug}`);
-            }
+              pageCount++;
+              cursor = ptData?.pagination?.hasMore ? (ptData.pagination.nextCursor ?? null) : null;
+            } while (cursor && pageCount < PT_MAX_PAGES);
+            console.log(`[sets/cards] PokeTrace EU enrichment: ${ptCardsByNumber.size} cards in ${pageCount} pages for ${ptSlug}`);
           } catch (e: any) {
             console.warn(`[sets/cards] PokeTrace EU enrichment failed for ${ptSlug}:`, e.message);
           }
