@@ -328,7 +328,8 @@ export default function ValuesScreen() {
   const [priceTier, setPriceTier] = useState<PriceTierMax>(50);
   const [explainerDismissed, setExplainerDismissed] = useState(true); // default true = hidden until loaded
   const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
-  const { isSubscribed } = useSubscription();
+  const { isSubscribed, isAdminMode } = useSubscription();
+  const hasAccess = isSubscribed || isAdminMode;
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -518,7 +519,7 @@ export default function ValuesScreen() {
     cardNumber?: string | null,
     setTotal?: string | null,
   ) => {
-    if (!isSubscribed) { setShowUpgradeSheet(true); return; }
+    if (!hasAccess) { setShowUpgradeSheet(true); return; }
     router.push({
       pathname: "/card-profit",
       params: {
@@ -531,7 +532,7 @@ export default function ValuesScreen() {
         ...(setTotal ? { setTotal } : {}),
       },
     });
-  }, [isSubscribed]);
+  }, [hasAccess]);
 
   const handleSetPress = useCallback((set: BrowseSet) => {
     router.push({
@@ -562,9 +563,9 @@ export default function ValuesScreen() {
       currencyRate={currencyRate}
       isStale={entry.isStale}
       profitDisplay={settings.profitDisplay ?? "value"}
-      isSubscribed={isSubscribed}
+      isSubscribed={hasAccess}
     />
-  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate, settings.profitDisplay, isSubscribed]);
+  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate, settings.profitDisplay, hasAccess]);
 
   const listHeader = (
     <View>
@@ -714,7 +715,7 @@ export default function ValuesScreen() {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-              {!isSubscribed && (
+              {!hasAccess && (
                 <View style={styles.proBadge}>
                   <Ionicons name="lock-closed" size={9} color="#fff" />
                   <Text style={styles.proBadgeText}>PRO</Text>
@@ -722,7 +723,7 @@ export default function ValuesScreen() {
               )}
             </View>
             <Text style={styles.topPicksSubtitle}>
-              {isSubscribed ? "Live raw market prices from TCGPlayer" : "Subscribe to unlock graded prices & profit data"}
+              {hasAccess ? "Live raw market prices from TCGPlayer" : "Subscribe to unlock graded prices & profit data"}
             </Text>
           </View>
         </View>

@@ -283,7 +283,8 @@ export default function SetCardsScreen() {
   const [ebayPricesMap, setEbayPricesMap] = useState<Record<string, Record<string, number>>>({});
   const [ebayPricesLoading, setEbayPricesLoading] = useState(false);
   const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
-  const { isSubscribed } = useSubscription();
+  const { isSubscribed, isAdminMode } = useSubscription();
+  const hasAccess = isSubscribed || isAdminMode;
 
   const top15Key = top15.map(c => c.id).join(",");
 
@@ -337,7 +338,7 @@ export default function SetCardsScreen() {
   const resolvedSetTotal = setTotal || (allCards.length > 0 ? String(allCards.length) : "");
 
   const handleCardPress = (card: SetCard) => {
-    if (!isSubscribed) { setShowUpgradeSheet(true); return; }
+    if (!hasAccess) { setShowUpgradeSheet(true); return; }
     router.push({
       pathname: "/card-profit",
       params: {
@@ -461,7 +462,7 @@ export default function SetCardsScreen() {
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-                {!isSubscribed && (
+                {!hasAccess && (
                   <View style={styles.proBadge}>
                     <Ionicons name="lock-closed" size={9} color="#fff" />
                     <Text style={styles.proBadgeText}>PRO</Text>
@@ -469,7 +470,7 @@ export default function SetCardsScreen() {
                 )}
               </View>
               <Text style={styles.topPicksSubtitle}>
-                {!isSubscribed
+                {!hasAccess
                   ? "Subscribe to unlock graded prices & profit data"
                   : ebayPricesLoading ? "Loading graded prices…" : `Highest ${picksConfig.topGradeLabel} profit first`}
               </Text>
@@ -495,7 +496,7 @@ export default function SetCardsScreen() {
                 topGradeLabel={picksConfig.topGradeLabel}
                 picksCompany={effectivePicksCompany}
                 profitDisplay={settings.profitDisplay ?? "value"}
-                isSubscribed={isSubscribed}
+                isSubscribed={hasAccess}
               />
             ))}
           </ScrollView>
