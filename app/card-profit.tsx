@@ -114,6 +114,39 @@ const COMPANY_CONFIG: Record<string, {
 
 const COMPANY_ORDER: CompanyId[] = ["PSA", "Beckett", "Ace", "TAG", "CGC"];
 
+// Top-grade eBay key per company — used for market snapshot
+const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
+  PSA: "psa10", Beckett: "bgs10", Ace: "ace10", TAG: "tag10", CGC: "cgc10",
+};
+
+// Liquidity score 0–100 for a single grade's detail data.
+// Weights: sale velocity 50% | price stability 30% | data freshness 20%
+function calcLiquidityScore(detail: GradeDetail | undefined): number {
+  if (!detail || !detail.saleCount) return 0;
+  // Signal 1 — sale velocity (0–50 pts): 20+ sales = full score
+  const velocity = Math.min(detail.saleCount / 20, 1) * 50;
+  // Signal 2 — price stability (0–30 pts): how close avg7d is to avg30d
+  let stability = 15;
+  if (detail.avg7d != null && detail.avg30d != null && detail.avg30d > 0) {
+    const drift = Math.abs(detail.avg7d - detail.avg30d) / detail.avg30d;
+    stability = Math.max(0, 1 - Math.min(drift * 2, 1)) * 30;
+  }
+  // Signal 3 — data freshness (0–20 pts): decays linearly over 90 days
+  let freshness = 10;
+  if (detail.lastUpdated) {
+    const days = (Date.now() - new Date(detail.lastUpdated).getTime()) / 86_400_000;
+    freshness = Math.max(0, 1 - days / 90) * 20;
+  }
+  return Math.round(velocity + stability + freshness);
+}
+
+function liquidityBand(score: number): { label: string; color: string } {
+  if (score >= 60) return { label: "High",   color: "#22c55e" };
+  if (score >= 35) return { label: "Medium", color: "#f59e0b" };
+  if (score >   0) return { label: "Low",    color: "#ef4444" };
+  return               { label: "No data", color: "#6b7280" };
+}
+
 interface PricePoint { price_usd: number; recorded_at: string; }
 
 // ── Trend chart ────────────────────────────────────────────────────────────
@@ -462,6 +495,35 @@ export default function CardProfitScreen() {
     }).filter((c): c is NonNullable<typeof c> => c !== null);
   }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate]);
 
+  // ── Market snapshot — liquidity across all enabled companies ────────────
+  const marketSnapshot = useMemo(() => {
+    if (!ebay?.gradeDetails) return null;
+
+    const rows = COMPANY_ORDER
+      .filter(id => enabledCompanies.includes(id))
+      .map(compId => {
+        const topKey = COMPANY_TOP_KEY[compId];
+        const detail = topKey ? ebay.gradeDetails?.[topKey as string] : undefined;
+        const score = calcLiquidityScore(detail);
+        return {
+          compId,
+          label: COMPANY_CONFIG[compId]?.label ?? compId,
+          color: COMPANY_CONFIG[compId]?.dotColor ?? "#6b7280",
+          score,
+          saleCount: detail?.saleCount ?? 0,
+        };
+      });
+
+    const anyData = rows.some(r => r.score > 0);
+    if (!anyData) return null;
+
+    const totalSales = rows.reduce((s, r) => s + r.saleCount, 0);
+    const best = rows.reduce((a, b) => b.score > a.score ? b : a, rows[0]);
+    const maxScore = Math.max(...rows.map(r => r.score), 1);
+
+    return { rows, totalSales, best, maxScore };
+  }, [ebay, enabledCompanies]);
+
   return (
     <View style={[st.container, { paddingTop: insets.top + webTop }]}>
       {/* Navbar */}
@@ -646,6 +708,63 @@ export default function CardProfitScreen() {
             <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
             <Text style={[st.feedbackText, { color: Colors.error, flex: 1 }]}>
               Couldn't load sold prices — try again later
+            </Text>
+          </View>
+        )}
+
+        {/* ── Market Snapshot ─────────────────────────────────────── */}
+        {!isLoading && !error && !!marketSnapshot && (
+          <View style={st.snapshotCard}>
+            {/* Header */}
+            <View style={st.snapshotHeader}>
+              <View style={st.snapshotHeaderLeft}>
+                <Ionicons name="pulse" size={14} color={Colors.primary} />
+                <Text style={st.snapshotTitle}>Market Activity</Text>
+              </View>
+              <View style={st.snapshotBestBadge}>
+                <Text style={st.snapshotBestPre}>Most liquid</Text>
+                <View style={[st.snapshotBestChip, { borderColor: marketSnapshot.best.color + "55", backgroundColor: marketSnapshot.best.color + "18" }]}>
+                  <View style={[st.snapshotBestDot, { backgroundColor: marketSnapshot.best.color }]} />
+                  <Text style={[st.snapshotBestLabel, { color: marketSnapshot.best.color }]}>
+                    {marketSnapshot.best.label}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Total sales summary */}
+            <View style={st.snapshotSummaryRow}>
+              <Text style={st.snapshotSalesNum}>{marketSnapshot.totalSales}</Text>
+              <Text style={st.snapshotSalesSuffix}> recent top-grade sales combined</Text>
+            </View>
+
+            {/* Per-company liquidity bars */}
+            <View style={st.snapshotBarsWrap}>
+              {marketSnapshot.rows.map(row => {
+                const band = liquidityBand(row.score);
+                const fillPct = marketSnapshot.maxScore > 0 ? (row.score / marketSnapshot.maxScore) * 100 : 0;
+                const isBest = row.compId === marketSnapshot.best.compId;
+                return (
+                  <View key={row.compId} style={st.snapshotBarRow}>
+                    <Text style={[st.snapshotBarName, isBest && { color: Colors.text, fontFamily: "Inter_600SemiBold" }]}>
+                      {row.label}
+                    </Text>
+                    <View style={st.snapshotBarTrack}>
+                      <View style={[
+                        st.snapshotBarFill,
+                        { width: `${Math.max(fillPct, row.score > 0 ? 4 : 0)}%` as any, backgroundColor: row.score > 0 ? row.color : Colors.border },
+                      ]} />
+                    </View>
+                    <Text style={[st.snapshotBarBand, { color: band.color }]}>
+                      {row.score > 0 ? band.label : "—"}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            <Text style={st.snapshotCaption}>
+              Based on eBay sold listings, price stability & data freshness
             </Text>
           </View>
         )}
@@ -1257,5 +1376,113 @@ const st = StyleSheet.create({
     color: Colors.textMuted,
     flex: 1,
     lineHeight: 16,
+  },
+
+  // ── Market Snapshot ────────────────────────────────────────────────────
+  snapshotCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+  },
+  snapshotHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  snapshotHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  snapshotTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.text,
+  },
+  snapshotBestBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  snapshotBestPre: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  snapshotBestChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  snapshotBestDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  snapshotBestLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+  },
+  snapshotSummaryRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginBottom: 12,
+  },
+  snapshotSalesNum: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    color: Colors.text,
+  },
+  snapshotSalesSuffix: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  snapshotBarsWrap: {
+    gap: 7,
+    marginBottom: 10,
+  },
+  snapshotBarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  snapshotBarName: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    width: 30,
+  },
+  snapshotBarTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: Colors.border,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  snapshotBarFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  snapshotBarBand: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    width: 46,
+    textAlign: "right",
+  },
+  snapshotCaption: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: "center",
   },
 });
