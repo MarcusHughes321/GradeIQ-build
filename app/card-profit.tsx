@@ -279,7 +279,6 @@ function TrendChart({
           Price history · {history.length} snapshots
         </Text>
         <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-          <PriceAxis high={fmt(maxV)} low={fmt(minV)} />
           <Svg width={svgW} height={H}>
             <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
               stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
@@ -292,6 +291,7 @@ function TrendChart({
             <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted}
               textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
           </Svg>
+          <PriceAxis high={fmt(maxV)} low={fmt(minV)} />
         </View>
         {detail?.saleCount != null && (
           <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
@@ -339,7 +339,6 @@ function TrendChart({
         Rolling average trend · building history…
       </Text>
       <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-        <PriceAxis high={fmt(maxV2)} low={fmt(minV2)} />
         <Svg width={svgW} height={H}>
           <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
             stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
@@ -353,6 +352,7 @@ function TrendChart({
             </React.Fragment>
           ))}
         </Svg>
+        <PriceAxis high={fmt(maxV2)} low={fmt(minV2)} />
       </View>
       {detail.saleCount != null && (
         <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
