@@ -617,6 +617,17 @@ export default function CardProfitScreen() {
             <Text style={st.heroPriceValue}>
               {hasRawPrice ? fmtLocal(rawLocalVal) : "No price data"}
             </Text>
+            <Pressable
+              onPress={() => {
+                const q = [cardName, setName, "Pokemon", "raw"].filter(Boolean).join(" ");
+                Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`);
+              }}
+              hitSlop={8}
+              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 })}
+            >
+              <Text style={st.rawEbayLink}>Raw eBay</Text>
+              <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
+            </Pressable>
           </View>
           {!hasRawPrice && (
             <Text style={st.noRawNote}>Profit figures are unavailable without a raw price</Text>
@@ -992,6 +1003,11 @@ const st = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.text,
+  },
+  rawEbayLink: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
   },
   noRawNote: {
     fontFamily: "Inter_400Regular",
