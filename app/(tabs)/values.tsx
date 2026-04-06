@@ -163,7 +163,7 @@ const PICKS_COMPANY_CONFIG: Record<CompanyId, {
 };
 
 // Presentational card — all eBay metrics precomputed by parent
-const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, isStale, profitDisplay }: {
+const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit, topGradeLabel, minProfitGrade, minProfitLabel, ebayLoading, currencySymbol, currencyRate, isStale, profitDisplay, isSubscribed }: {
   item: TopPick;
   index: number;
   onPress: () => void;
@@ -177,6 +177,7 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
   currencyRate: number;
   isStale?: boolean;
   profitDisplay?: "value" | "percentage" | "both";
+  isSubscribed: boolean;
 }) => {
   const rawLocal = Math.round(item.rawPriceUSD * currencyRate);
   const sym = currencySymbol;
@@ -196,53 +197,82 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
       <View style={cardStyles.rank}>
         <Text style={cardStyles.rankText}>#{index + 1}</Text>
       </View>
-      {item.imageUrl ? (
-        <Image source={{ uri: item.imageUrl }} style={cardStyles.img} contentFit="contain" />
-      ) : (
-        <View style={[cardStyles.img, cardStyles.imgPlaceholder]}>
-          <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
-        </View>
-      )}
+
+      {/* Card image — blurred for free users */}
+      <View style={{ position: "relative" }}>
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={cardStyles.img}
+            contentFit="contain"
+            blurRadius={isSubscribed ? 0 : 18}
+          />
+        ) : (
+          <View style={[cardStyles.img, cardStyles.imgPlaceholder]}>
+            <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
+          </View>
+        )}
+        {!isSubscribed && (
+          <View style={cardStyles.imgLockOverlay}>
+            <Ionicons name="lock-closed" size={18} color="#fff" />
+          </View>
+        )}
+      </View>
+
       <Text style={cardStyles.name} numberOfLines={2}>{item.name}</Text>
       <Text style={cardStyles.set}  numberOfLines={1}>{item.setName}</Text>
       <View style={cardStyles.divider} />
 
-      {/* Raw TCGPlayer price */}
+      {/* Raw TCGPlayer price — always visible */}
       <View style={cardStyles.row}>
         <Text style={cardStyles.label}>Raw</Text>
         <Text style={cardStyles.value}>{sym}{rawLocal}</Text>
       </View>
 
-      {/* Top grade eBay last sold */}
-      <View style={cardStyles.row}>
-        <Text style={cardStyles.label}>{topGradeLabel}</Text>
-        {ebayLoading ? (
-          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : topGradeLocal !== null ? (
-          <Text style={[cardStyles.graded, { color: Colors.text }]}>{sym}{topGradeLocal}</Text>
-        ) : (
-          <Text style={cardStyles.muted}>—</Text>
-        )}
-      </View>
+      {isSubscribed ? (
+        <>
+          {/* Top grade eBay last sold */}
+          <View style={cardStyles.row}>
+            <Text style={cardStyles.label}>{topGradeLabel}</Text>
+            {ebayLoading ? (
+              <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+            ) : topGradeLocal !== null ? (
+              <Text style={[cardStyles.graded, { color: Colors.text }]}>{sym}{topGradeLocal}</Text>
+            ) : (
+              <Text style={cardStyles.muted}>—</Text>
+            )}
+          </View>
 
-      {/* Top grade net profit */}
-      <View style={cardStyles.row}>
-        <Text style={cardStyles.label}>Profit</Text>
-        {ebayLoading ? (
-          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-        ) : topGradeProfit !== null ? (
-          <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
-            {topGradeProfit >= 0 ? "+" : "-"}{fmtProfit(Math.abs(topGradeProfit))}
-          </Text>
-        ) : (
-          <Text style={cardStyles.muted}>—</Text>
-        )}
-      </View>
+          {/* Top grade net profit */}
+          <View style={cardStyles.row}>
+            <Text style={cardStyles.label}>Profit</Text>
+            {ebayLoading ? (
+              <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+            ) : topGradeProfit !== null ? (
+              <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
+                {topGradeProfit >= 0 ? "+" : "-"}{fmtProfit(Math.abs(topGradeProfit))}
+              </Text>
+            ) : (
+              <Text style={cardStyles.muted}>—</Text>
+            )}
+          </View>
 
-      {isStale && (
-        <Text style={[cardStyles.hint, { color: "#f59e0b", fontSize: 9 }]}>⏱ Archived prices</Text>
+          {isStale && (
+            <Text style={[cardStyles.hint, { color: "#f59e0b", fontSize: 9 }]}>⏱ Archived prices</Text>
+          )}
+          <Text style={cardStyles.hint}>Tap for full breakdown</Text>
+        </>
+      ) : (
+        /* Free user — lock graded & profit */
+        <>
+          <View style={cardStyles.divider} />
+          <View style={[cardStyles.row, { justifyContent: "center" }]}>
+            <Ionicons name="lock-closed-outline" size={12} color={Colors.textMuted} />
+            <Text style={[cardStyles.muted, { marginLeft: 4, fontSize: 11 }]}>Pro only</Text>
+          </View>
+          <Text style={cardStyles.hint}>Tap to unlock</Text>
+        </>
       )}
-      <Text style={cardStyles.hint}>Tap for full breakdown</Text>
     </Pressable>
   );
 });
@@ -253,6 +283,7 @@ const cardStyles = StyleSheet.create({
   rankText:     { fontFamily: "Inter_700Bold", fontSize: 10, color: "#fff" },
   img:          { width: "100%", height: 100, marginBottom: 8, borderRadius: 6 },
   imgPlaceholder: { backgroundColor: Colors.background, alignItems: "center", justifyContent: "center" },
+  imgLockOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 8, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
   name:         { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.text, marginBottom: 2 },
   set:          { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, marginBottom: 8 },
   divider:      { height: 1, backgroundColor: Colors.surfaceBorder, marginBottom: 8 },
@@ -525,8 +556,9 @@ export default function ValuesScreen() {
       currencyRate={currencyRate}
       isStale={entry.isStale}
       profitDisplay={settings.profitDisplay ?? "value"}
+      isSubscribed={isSubscribed}
     />
-  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate, settings.profitDisplay]);
+  ), [handleTapCard, tieredPicks, picksConfig, currencySymbol, currencyRate, settings.profitDisplay, isSubscribed]);
 
   const listHeader = (
     <View>
@@ -674,8 +706,18 @@ export default function ValuesScreen() {
       <View style={styles.topPicksSection}>
         <View style={styles.topPicksHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
-            <Text style={styles.topPicksSubtitle}>Live raw market prices from TCGPlayer</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
+              {!isSubscribed && (
+                <View style={styles.proBadge}>
+                  <Ionicons name="lock-closed" size={9} color="#fff" />
+                  <Text style={styles.proBadgeText}>PRO</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.topPicksSubtitle}>
+              {isSubscribed ? "Live raw market prices from TCGPlayer" : "Subscribe to unlock graded prices & profit data"}
+            </Text>
           </View>
         </View>
 
@@ -1075,6 +1117,8 @@ const styles = StyleSheet.create({
   },
   topPicksTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.text },
   topPicksSubtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  proBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: Colors.primary, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  proBadgeText: { fontFamily: "Inter_700Bold", fontSize: 9, color: "#fff", letterSpacing: 0.5 },
   tierTabsScroll: {
     paddingHorizontal: 16,
     paddingBottom: 12,
