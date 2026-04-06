@@ -9,6 +9,7 @@ import {
   Platform,
   Dimensions,
   ScrollView,
+  Linking,
 } from "react-native";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -57,7 +58,7 @@ interface SetCard {
   prices?: CardPrices | null;
 }
 
-const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay }: {
+const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay }: {
   item: SetCard;
   index: number;
   setName: string;
@@ -135,7 +136,21 @@ const SetPickCard = memo(({ item, index, onPress, currencySymbol, currencyRate, 
           </View>
         </>
       )}
-      <Text style={styles.topCardHint}>Tap for full breakdown</Text>
+      <View style={styles.topCardFooter}>
+        <Text style={styles.topCardHint}>Tap for breakdown</Text>
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation?.();
+            const q = [item.name, setName, "Pokemon", "raw"].filter(Boolean).join(" ");
+            Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`);
+          }}
+          hitSlop={6}
+          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 2 })}
+        >
+          <Text style={styles.topCardEbayLink}>Raw eBay</Text>
+          <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
+        </Pressable>
+      </View>
     </Pressable>
   );
 });
@@ -678,12 +693,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
   },
+  topCardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
   topCardHint: {
     fontFamily: "Inter_400Regular",
     fontSize: 10,
     color: Colors.textMuted,
-    textAlign: "center",
-    marginTop: 6,
+  },
+  topCardEbayLink: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
   },
   topPicksDisclaimer: {
     flexDirection: "row",

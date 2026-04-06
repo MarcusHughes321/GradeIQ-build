@@ -674,9 +674,9 @@ export default function CardProfitScreen() {
               {/* Column headers */}
               <View style={st.tblHead}>
                 <Text style={[st.tblHeadTxt, { flex: 2 }]}>Grade</Text>
-                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>Last Sold</Text>
+                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>eBay Sold</Text>
                 <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>Profit</Text>
-                <View style={{ width: 32 }} />
+                <View style={{ width: 48 }} />
               </View>
 
               {/* Grade rows */}
@@ -719,13 +719,14 @@ export default function CardProfitScreen() {
                         <Text style={[st.mutedTxt, { flex: 2, textAlign: "right" }]}>—</Text>
                       )}
 
-                      {/* eBay link */}
+                      {/* eBay sold link */}
                       <Pressable
                         onPress={() => Linking.openURL(buildEbayUrl(gr.label))}
                         hitSlop={8}
                         style={({ pressed }) => [st.ebayLinkBtn, { opacity: pressed ? 0.5 : 1 }]}
                       >
-                        <Ionicons name="open-outline" size={14} color={Colors.textMuted} />
+                        <Text style={st.ebayLinkTxt}>eBay</Text>
+                        <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
                       </Pressable>
                     </View>
 
@@ -1085,10 +1086,17 @@ const st = StyleSheet.create({
     marginTop: 1,
   },
   ebayLinkBtn: {
-    width: 32,
+    width: 48,
     height: 32,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
+    gap: 2,
+  },
+  ebayLinkTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
   },
   trendHintRow: {
     flexDirection: "row",
