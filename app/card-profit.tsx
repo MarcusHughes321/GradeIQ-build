@@ -620,7 +620,7 @@ export default function CardProfitScreen() {
             <Pressable
               onPress={() => {
                 const q = [cardName, setName, "Pokemon", "raw"].filter(Boolean).join(" ");
-                Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`);
+                Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
               }}
               hitSlop={8}
               style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 })}
