@@ -60,7 +60,7 @@ interface SetCard {
   prices?: CardPrices | null;
 }
 
-const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay }: {
+const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay, isSubscribed }: {
   item: SetCard;
   index: number;
   setName: string;
@@ -73,6 +73,7 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
   topGradeLabel: string;
   picksCompany: CompanyId;
   profitDisplay: "value" | "percentage" | "both";
+  isSubscribed: boolean;
 }) => {
   const rawLocal = item.price != null && item.price > 0
     ? Math.round(item.price * currencyRate)
@@ -96,27 +97,69 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
       <View style={styles.topCardRank}>
         <Text style={styles.topCardRankText}>#{index + 1}</Text>
       </View>
-      {item.imageUrl ? (
-        <Image source={{ uri: item.imageUrl }} style={styles.topCardImg} contentFit="contain" />
-      ) : (
-        <View style={[styles.topCardImg, styles.cardImagePlaceholder]}>
-          <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
-        </View>
-      )}
+
+      {/* Card image — blurred for free users */}
+      <View style={{ position: "relative" }}>
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={styles.topCardImg}
+            contentFit="contain"
+            blurRadius={isSubscribed ? 0 : 18}
+          />
+        ) : (
+          <View style={[styles.topCardImg, styles.cardImagePlaceholder]}>
+            <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
+          </View>
+        )}
+        {!isSubscribed && (
+          <View style={styles.topCardLockOverlay}>
+            <Ionicons name="lock-closed" size={18} color="#fff" />
+          </View>
+        )}
+      </View>
+
       <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
       <View style={styles.topCardDivider} />
-      {ebayLoading ? (
-        <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 10 }} />
+
+      {/* Graded price + profit — locked for free users */}
+      {isSubscribed ? (
+        ebayLoading ? (
+          <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 10 }} />
+        ) : (
+          <>
+            <View style={styles.topCardRow}>
+              <CompanyLabel company={picksCompany} fontSize={11} />
+              {topLocal != null ? (
+                <Text style={styles.topCardValue}>{currencySymbol}{topLocal}</Text>
+              ) : (
+                <Text style={styles.topCardMuted}>—</Text>
+              )}
+            </View>
+            <View style={styles.topCardRow}>
+              <Text style={styles.topCardLabel}>Raw</Text>
+              {rawLocal != null ? (
+                <Text style={styles.topCardMuted}>{currencySymbol}{rawLocal}</Text>
+              ) : (
+                <Text style={styles.topCardMuted}>—</Text>
+              )}
+            </View>
+            <View style={styles.topCardDivider} />
+            <View style={styles.topCardRow}>
+              <Text style={styles.topCardLabel}>Profit</Text>
+              {profitLocal != null ? (
+                <Text style={[styles.topCardProfit, { color: profitLocal >= 0 ? "#22c55e" : Colors.error }]}>
+                  {profitLocal >= 0 ? "+" : "-"}{fmtProfit(Math.abs(profitLocal))}
+                </Text>
+              ) : (
+                <Text style={styles.topCardMuted}>—</Text>
+              )}
+            </View>
+          </>
+        )
       ) : (
+        /* Free user: show raw price only, lock graded/profit */
         <>
-          <View style={styles.topCardRow}>
-            <CompanyLabel company={picksCompany} fontSize={11} />
-            {topLocal != null ? (
-              <Text style={styles.topCardValue}>{currencySymbol}{topLocal}</Text>
-            ) : (
-              <Text style={styles.topCardMuted}>—</Text>
-            )}
-          </View>
           <View style={styles.topCardRow}>
             <Text style={styles.topCardLabel}>Raw</Text>
             {rawLocal != null ? (
@@ -126,15 +169,9 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
             )}
           </View>
           <View style={styles.topCardDivider} />
-          <View style={styles.topCardRow}>
-            <Text style={styles.topCardLabel}>Profit</Text>
-            {profitLocal != null ? (
-              <Text style={[styles.topCardProfit, { color: profitLocal >= 0 ? "#22c55e" : Colors.error }]}>
-                {profitLocal >= 0 ? "+" : "-"}{fmtProfit(Math.abs(profitLocal))}
-              </Text>
-            ) : (
-              <Text style={styles.topCardMuted}>—</Text>
-            )}
+          <View style={[styles.topCardRow, { justifyContent: "center" }]}>
+            <Ionicons name="lock-closed-outline" size={12} color={Colors.textMuted} />
+            <Text style={[styles.topCardMuted, { marginLeft: 4, fontSize: 11 }]}>Pro only</Text>
           </View>
         </>
       )}
@@ -415,10 +452,20 @@ export default function SetCardsScreen() {
       {showTopPicks && (
         <View style={styles.topPicksSection}>
           <View style={styles.topPicksHeader}>
-            <View>
-              <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={styles.topPicksTitle}>Top Grading Picks</Text>
+                {!isSubscribed && (
+                  <View style={styles.proBadge}>
+                    <Ionicons name="lock-closed" size={9} color="#fff" />
+                    <Text style={styles.proBadgeText}>PRO</Text>
+                  </View>
+                )}
+              </View>
               <Text style={styles.topPicksSubtitle}>
-                {ebayPricesLoading ? "Loading graded prices…" : `Highest ${picksConfig.topGradeLabel} profit first`}
+                {!isSubscribed
+                  ? "Subscribe to unlock graded prices & profit data"
+                  : ebayPricesLoading ? "Loading graded prices…" : `Highest ${picksConfig.topGradeLabel} profit first`}
               </Text>
             </View>
           </View>
@@ -442,6 +489,7 @@ export default function SetCardsScreen() {
                 topGradeLabel={picksConfig.topGradeLabel}
                 picksCompany={effectivePicksCompany}
                 profitDisplay={settings.profitDisplay ?? "value"}
+                isSubscribed={isSubscribed}
               />
             ))}
           </ScrollView>
@@ -603,6 +651,21 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 2,
   },
+  proBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  proBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 9,
+    color: "#fff",
+    letterSpacing: 0.5,
+  },
   gradeSelector: {
     flexDirection: "row",
     backgroundColor: Colors.background,
@@ -660,6 +723,17 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: Colors.surface,
     marginBottom: 6,
+  },
+  topCardLockOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 6,
+    borderRadius: 6,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   topCardName: {
     fontFamily: "Inter_600SemiBold",
