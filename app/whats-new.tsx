@@ -13,13 +13,31 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 
-const APP_VERSION = "1.0.6";
+const APP_VERSION = "1.1.1";
 
 const RELEASES: {
   version: string;
   date: string;
   items: { icon: keyof typeof Ionicons.glyphMap; color: string; title: string; desc: string }[];
 }[] = [
+  {
+    version: "1.1.1",
+    date: "April 2026",
+    items: [
+      {
+        icon: "bar-chart-outline",
+        color: "#10B981",
+        title: "Liquidity Follows Your Grade",
+        desc: "Tap any grade row in Profit Analysis and the Liquidity card instantly updates — score, rating band, sale count and footer all reflect that specific grade.",
+      },
+      {
+        icon: "lock-closed-outline",
+        color: "#FF3C31",
+        title: "Values Pro Preview",
+        desc: "Free users can now see what's available in Top Grading Picks, with a subtle preview before upgrading to Pro for full access.",
+      },
+    ],
+  },
   {
     version: "1.0.6",
     date: "March 2026",
