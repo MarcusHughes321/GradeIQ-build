@@ -812,7 +812,7 @@ export default function CardProfitScreen() {
 
             {/* Footer */}
             <Text style={st.snapshotFooter}>
-              {marketSnapshot.totalSales} recent sales · most liquid:{" "}
+              {marketSnapshot.totalSales} sales in the last month · most liquid:{" "}
               <Text style={{ color: marketSnapshot.best.color, fontFamily: "Inter_600SemiBold" }}>
                 {marketSnapshot.best.label}
               </Text>
