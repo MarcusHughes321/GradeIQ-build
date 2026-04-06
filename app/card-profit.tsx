@@ -817,10 +817,18 @@ export default function CardProfitScreen() {
             );
           }
 
-          // Drive bar from the currently selected company pill
-          const activeRow = marketSnapshot.rows.find(r => r.compId === selectedCompany)
-            ?? marketSnapshot.best;
-          const activeBand = liquidityBand(activeRow.score, activeRow.saleCount);
+          // Drive bar from the tapped grade row (effectiveChartKey), not just the top grade
+          const tappedDetail = effectiveChartKey ? ebay?.gradeDetails?.[effectiveChartKey] : undefined;
+          const activeScore = calcLiquidityScore(tappedDetail);
+          const activeSaleCount = tappedDetail?.saleCount ?? 0;
+          const activeBand = liquidityBand(activeScore, activeSaleCount);
+          // Grade label for the highlighted pill, e.g. "PSA 9"
+          const activeGradeLabel =
+            COMPANY_CONFIG[selectedCompany]?.grades.find(g => g.ebayKey === effectiveChartKey)?.label
+            ?? COMPANY_CONFIG[selectedCompany]?.label
+            ?? selectedCompany;
+          const companyColor = COMPANY_CONFIG[selectedCompany]?.dotColor ?? "#6b7280";
+
           return (
             <View style={st.snapshotCard}>
               {/* Top row: label + band chip */}
@@ -837,27 +845,28 @@ export default function CardProfitScreen() {
                 </View>
               </View>
 
-              {/* Animated liquid bar — reflects selected company */}
-              <LiquidityBar score={activeRow.score} color={activeBand.color} />
+              {/* Animated liquid bar — reflects tapped grade */}
+              <LiquidityBar score={activeScore} color={activeBand.color} />
 
-              {/* Per-company sales count pills — selected company highlighted */}
+              {/* Active grade pill + other-company pills */}
               <View style={st.snapshotSalesPills}>
+                {/* Always show active company's tapped grade */}
+                <View style={[
+                  st.snapshotSalesPill,
+                  { borderColor: companyColor + "99", backgroundColor: companyColor + "1A" },
+                ]}>
+                  <Text style={[st.snapshotSalesCo, { color: companyColor }]}>{activeGradeLabel}</Text>
+                  <Text style={[st.snapshotSalesCt, { color: Colors.text }]}>{activeSaleCount}</Text>
+                </View>
+                {/* Other companies — top grade saleCount */}
                 {marketSnapshot.rows
-                  .filter(r => r.saleCount > 0)
-                  .map(r => {
-                    const isActive = r.compId === selectedCompany;
-                    return (
-                      <View key={r.compId} style={[
-                        st.snapshotSalesPill,
-                        isActive && { borderColor: r.color + "99", backgroundColor: r.color + "1A" },
-                      ]}>
-                        <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
-                        <Text style={[st.snapshotSalesCt, isActive && { color: Colors.text }]}>
-                          {r.saleCount}
-                        </Text>
-                      </View>
-                    );
-                  })
+                  .filter(r => r.compId !== selectedCompany && r.saleCount > 0)
+                  .map(r => (
+                    <View key={r.compId} style={st.snapshotSalesPill}>
+                      <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
+                      <Text style={st.snapshotSalesCt}>{r.saleCount}</Text>
+                    </View>
+                  ))
                 }
               </View>
 
