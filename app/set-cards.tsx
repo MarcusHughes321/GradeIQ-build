@@ -12,6 +12,7 @@ import {
   Linking,
 } from "react-native";
 import { Image } from "expo-image";
+import { BlurView } from "expo-blur";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -119,7 +120,12 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
         )}
       </View>
 
-      <Text style={[styles.topCardName, !isSubscribed && { opacity: 0.1 }]} numberOfLines={2}>{item.name}</Text>
+      <View style={{ position: "relative" }}>
+        <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
+        {!isSubscribed && (
+          <BlurView intensity={28} tint="dark" style={[StyleSheet.absoluteFill, { borderRadius: 4 }]} />
+        )}
+      </View>
       <View style={styles.topCardDivider} />
 
       {/* Graded price + profit — locked for free users */}

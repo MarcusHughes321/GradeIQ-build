@@ -12,6 +12,7 @@ import {
   Keyboard,
 } from "react-native";
 import { Image } from "expo-image";
+import { BlurView } from "expo-blur";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -219,8 +220,13 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         )}
       </View>
 
-      <Text style={[cardStyles.name, !isSubscribed && { opacity: 0.1 }]} numberOfLines={2}>{item.name}</Text>
-      <Text style={[cardStyles.set,  !isSubscribed && { opacity: 0.1 }]} numberOfLines={1}>{item.setName}</Text>
+      <View style={{ position: "relative" }}>
+        <Text style={cardStyles.name} numberOfLines={2}>{item.name}</Text>
+        <Text style={cardStyles.set} numberOfLines={1}>{item.setName}</Text>
+        {!isSubscribed && (
+          <BlurView intensity={28} tint="dark" style={[StyleSheet.absoluteFill, { borderRadius: 4 }]} />
+        )}
+      </View>
       <View style={cardStyles.divider} />
 
       {/* Raw TCGPlayer price — always visible */}
