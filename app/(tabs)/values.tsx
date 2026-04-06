@@ -35,6 +35,7 @@ interface EbayAllGrades {
 }
 
 const RECENT_SEARCHES_KEY = "gradeiq_values_recent_searches";
+const EXPLAINER_DISMISSED_KEY = "gradeiq_values_explainer_v1";
 const MAX_RECENT = 8;
 
 // Fallback exchange rates (used if the live API hasn't loaded yet)
@@ -286,6 +287,7 @@ export default function ValuesScreen() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
   const [priceTier, setPriceTier] = useState<PriceTierMax>(50);
+  const [explainerDismissed, setExplainerDismissed] = useState(true); // default true = hidden until loaded
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -418,6 +420,18 @@ export default function ValuesScreen() {
 
   React.useEffect(() => { loadRecent(); }, [loadRecent]);
 
+  // Load explainer dismissed state
+  React.useEffect(() => {
+    AsyncStorage.getItem(EXPLAINER_DISMISSED_KEY).then(val => {
+      setExplainerDismissed(val === "1");
+    });
+  }, []);
+
+  const dismissExplainer = useCallback(() => {
+    setExplainerDismissed(true);
+    AsyncStorage.setItem(EXPLAINER_DISMISSED_KEY, "1");
+  }, []);
+
   const doSearch = useCallback(async (q: string) => {
     const trimmed = q.trim();
     if (!trimmed) return;
@@ -546,6 +560,60 @@ export default function ValuesScreen() {
           <Text style={styles.searchBtnText}>Search</Text>
         </Pressable>
       </View>
+
+      {/* ── Explainer card (first-time only) ─────────────────────── */}
+      {!explainerDismissed && (
+        <View style={styles.explainerCard}>
+          <View style={styles.explainerHeader}>
+            <View style={styles.explainerTitleRow}>
+              <Ionicons name="sparkles" size={15} color={Colors.primary} />
+              <Text style={styles.explainerTitle}>How Values works</Text>
+            </View>
+            <Pressable onPress={dismissExplainer} hitSlop={12}>
+              <Ionicons name="close" size={18} color={Colors.textMuted} />
+            </Pressable>
+          </View>
+
+          <View style={styles.explainerRows}>
+            <View style={styles.explainerRow}>
+              <View style={styles.explainerIconWrap}>
+                <Ionicons name="search-outline" size={16} color={Colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.explainerRowTitle}>Search any card</Text>
+                <Text style={styles.explainerRowBody}>Find real eBay last-sold prices for graded copies — PSA, BGS, ACE, TAG & CGC.</Text>
+              </View>
+            </View>
+
+            <View style={styles.explainerRow}>
+              <View style={styles.explainerIconWrap}>
+                <Ionicons name="albums-outline" size={16} color={Colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.explainerRowTitle}>Browse sets</Text>
+                <Text style={styles.explainerRowBody}>Scroll through every English set to compare cards and spot hidden value.</Text>
+              </View>
+            </View>
+
+            <View style={styles.explainerRow}>
+              <View style={styles.explainerIconWrap}>
+                <Ionicons name="trending-up-outline" size={16} color={Colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.explainerRowTitle}>Profit Analysis</Text>
+                <Text style={styles.explainerRowBody}>Tap any card to see exactly how much profit each grade would make after fees, plus a Liquidity score so you know how quickly it sells.</Text>
+              </View>
+            </View>
+          </View>
+
+          <Pressable
+            style={({ pressed }) => [styles.explainerBtn, { opacity: pressed ? 0.8 : 1 }]}
+            onPress={dismissExplainer}
+          >
+            <Text style={styles.explainerBtnText}>Got it</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Search feedback */}
       {loading && (
@@ -893,6 +961,51 @@ const styles = StyleSheet.create({
   },
   searchIcon: { flexShrink: 0 },
   searchInput: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.text, paddingVertical: 0 },
+  // Explainer card
+  explainerCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#FF3C3130",
+    overflow: "hidden",
+  },
+  explainerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  explainerTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  explainerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text },
+  explainerRows: { paddingHorizontal: 16, paddingTop: 12, gap: 14 },
+  explainerRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  explainerIconWrap: {
+    width: 30, height: 30,
+    borderRadius: 8,
+    backgroundColor: "#FF3C3115",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  explainerRowTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text, marginBottom: 2 },
+  explainerRowBody: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted, lineHeight: 17 },
+  explainerBtn: {
+    margin: 16,
+    marginTop: 14,
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  explainerBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#fff" },
+
   searchBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 12,
