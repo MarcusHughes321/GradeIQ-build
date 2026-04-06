@@ -7455,7 +7455,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SV1a":  "Triplet Beat",
     "SV2P":  "Snow Hazard",
     "SV2D":  "Clay Burst",
-    "SV2a":  "151",                        // Pokémon Card 151 — PokeTrace slug: "151"
+    "SV2a":  "Pokémon Card 151",
     "SV3":   "Ruler of the Black Flame",
     "SV3a":  "Raging Surf",
     "SV4K":  "Ancient Roar",
@@ -7464,34 +7464,34 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SV5a":  "Crimson Haze",
     "SV5K":  "Wild Force",
     "SV5M":  "Cyber Judge",
-    "SV6":   "Transformation Mask",
+    "SV6":   "Mask of Change",
     "SV6a":  "Night Wanderer",
     "SV7":   "Stellar Miracle",
     "SV7a":  "Paradise Dragona",
-    "SV8":   "Surging Sparks",
+    "SV8":   "Super Electric Breaker",
     "SV8a":  "Terastal Fest ex",
     "SV9":   "Battle Partners",
-    "SV9a":  "Hot Wind Arena",
-    "SV10":  "Glory of the Rocket Gang",
+    "SV9a":  "Heat Wave Arena",
+    "SV10":  "Glory of Team Rocket",
     "SV11W": "White Flare",
     "SV11B": "Black Bolt",
     // ── M series (new 2025/2026 Japanese sets) ────────────────────────────────
-    "M1S":   "Mega Symphony",
-    "M1":    "Mega Symphony",
-    "M2":    "Mega Symphony II",
-    "M3":    "Munki's Zero",
+    "M1S":   "Mega Symphonia",
+    "M1":    "Mega Symphonia",
+    "M2":    "Inferno X",
+    "M3":    "Nihil Zero",
     // ── Sword & Shield era ───────────────────────────────────────────────────
     "S1W":   "Sword",
     "S1H":   "Shield",
     "S1a":   "VMAX Rising",
-    "S2":    "Rebellion Crash",
+    "S2":    "Rebel Clash",
     "S3":    "Infinity Zone",
     "S3a":   "Legendary Heartbeat",
-    "S4":    "Vivid Voltage",
+    "S4":    "Amazing Volt Tackle",
     "S4a":   "Shiny Star V",
     "S5I":   "Single Strike Master",
     "S5R":   "Rapid Strike Master",
-    "S5a":   "Peerless Fighters",
+    "S5a":   "Matchless Fighters",
     "S6H":   "Silver Lance",
     "S6K":   "Jet-Black Spirit",
     "S6a":   "Eevee Heroes",
@@ -7518,10 +7518,10 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SM1+":  "Sun & Moon",
     "SM2K":  "Islands Await You",
     "SM2L":  "Alolan Moonlight",
-    "SM3N":  "Darkness that Consumes Light",
-    "SM3H":  "To Have Seen the Battle Rainbow",
+    "SM3N":  "Light Consuming Darkness",
+    "SM3H":  "Did You See The Fighting Rainbow",
     "SM3+":  "Shining Legends",
-    "SM4A":  "Ultradimensional Beasts",
+    "SM4A":  "Beasts from the Ultradimension",
     "SM4S":  "Awakened Heroes",
     "SM4+":  "GX Battle Boost",
     "SM5M":  "Ultra Moon",
@@ -7529,16 +7529,16 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SM5+":  "Ultra Force",
     "SM6":   "Forbidden Light",
     "SM6a":  "Dragon Storm",
-    "SM6b":  "Champion Road",
-    "SM7":   "Celestial Storm",
-    "SM7a":  "Sky-Splitting Charisma",
+    "SM6b":  "Champion's Road",
+    "SM7":   "Charisma of the Ripped Sky",
+    "SM7a":  "Thunderclap Spark",
     "SM7b":  "Fairy Rise",
-    "SM8":   "Lost Thunder",
+    "SM8":   "Super Burst Impact",
     "SM8a":  "Dark Order",
     "SM8b":  "GX Ultra Shiny",
     "SM9":   "Tag Bolt",
     "SM9a":  "Night Unison",
-    "SM9b":  "Full Metal Wall",
+    "SM9b":  "Full Metal Force",
     "SM10":  "Double Blaze",
     "SM10b": "Sky Legend",
     "SM11a": "Remix Bout",
@@ -7546,7 +7546,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SM12":  "Alter Genesis",
     "SM12a": "Tag All Stars",
     // SM era subsets (lowercase TCGdex IDs)
-    "sm2+":  "Facing a New Trial",
+    "sm2+":  "Let's Face New Trials",
     "sn10a": "GG End",
     "sn11":  "Miracle Twin",
     // ── Sword & Shield era (additional) ─────────────────────────────────────
@@ -8026,12 +8026,14 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     const seriesOrderMap = new Map(seriesInfo.seriesOrder.map((id, i) => [id, i]));
 
-    // Deduplicate by set ID — TCGdex sometimes returns the same set in multiple series
+    // Deduplicate by set ID — TCGdex sometimes returns the same set ID multiple times
+    // (e.g. sv1a × 8, SV1a × 1) — use case-insensitive comparison to catch all variants
     const seenSetIds = new Set<string>();
     const enriched = list
       .filter((s: any) => {
-        if (seenSetIds.has(s.id)) return false;
-        seenSetIds.add(s.id);
+        const normalizedId = (s.id as string).toLowerCase();
+        if (seenSetIds.has(normalizedId)) return false;
+        seenSetIds.add(normalizedId);
         return true;
       })
       .map((s: any) => {
