@@ -369,7 +369,15 @@ export default function ValuesScreen() {
 
   // Expand WOTC sets into two entries (1st Edition + Unlimited) — English only
   const expandedSets = useMemo<BrowseSet[]>(() => {
-    if (selectedLang === "ja") return sets;
+    if (selectedLang === "ja") {
+      // Deduplicate by ID — TCGdex sometimes returns the same set ID in multiple series
+      const seen = new Set<string>();
+      return sets.filter(s => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
+    }
     const result: BrowseSet[] = [];
     for (const s of sets) {
       if (WOTC_1ST_EDITION_SETS[s.id]) {
@@ -923,7 +931,7 @@ export default function ValuesScreen() {
     <FlatList
       style={styles.container}
       data={filteredSets}
-      keyExtractor={item => item.edition ? `${item.id}_${item.edition}` : item.id}
+      keyExtractor={item => item.edition ? `${selectedLang}_${item.id}_${item.edition}` : `${selectedLang}_${item.id}`}
       ListHeaderComponent={listHeader}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}

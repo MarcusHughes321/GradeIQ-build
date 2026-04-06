@@ -7824,26 +7824,36 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     const seriesOrderMap = new Map(seriesInfo.seriesOrder.map((id, i) => [id, i]));
 
-    const enriched = list.map((s: any) => {
-      const info = seriesInfo.sets.get(s.id);
-      // Use the logo URL from the series detail API (includes .png extension for reliability)
-      // Fall back to constructed URL if not in cache
-      const logo = info?.logoUrl
-        ?? (info ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo.png` : null);
-      const serieReleaseDate = info?.serieReleaseDate ?? null;
-      const serieIdx = info ? (seriesOrderMap.get(info.serieId) ?? 0) : 0;
-      const nameEn = enNames.get(s.id) || null;
-      return {
-        id: s.id as string,
-        name: s.name as string,
-        nameEn,
-        cardCount: (s.cardCount?.official || s.cardCount?.total || 0) as number,
-        releaseDate: serieReleaseDate,
-        logo,
-        _serieIdx: serieIdx,
-        _setIdx: info?.setIndex ?? 0,
-      };
-    });
+    // Deduplicate by set ID — TCGdex sometimes returns the same set in multiple series
+    const seenSetIds = new Set<string>();
+    const enriched = list
+      .filter((s: any) => {
+        if (seenSetIds.has(s.id)) return false;
+        seenSetIds.add(s.id);
+        return true;
+      })
+      .map((s: any) => {
+        const info = seriesInfo.sets.get(s.id);
+        // Use the logo URL from the series detail API (includes .png extension for reliability)
+        // Fall back to constructed URL if not in cache
+        const logo = info?.logoUrl
+          ?? (info ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo.png` : null);
+        const serieReleaseDate = info?.serieReleaseDate ?? null;
+        const serieIdx = info ? (seriesOrderMap.get(info.serieId) ?? 0) : 0;
+        // English name: prefer cross-ref from English TCGdex list, then the nameEn field
+        // TCGdex embeds in non-English responses (Japanese API includes English names)
+        const nameEn = enNames.get(s.id) || (s.nameEn as string | undefined) || null;
+        return {
+          id: s.id as string,
+          name: s.name as string,
+          nameEn,
+          cardCount: (s.cardCount?.official || s.cardCount?.total || 0) as number,
+          releaseDate: serieReleaseDate,
+          logo,
+          _serieIdx: serieIdx,
+          _setIdx: info?.setIndex ?? 0,
+        };
+      });
 
     // Sort newest first: by serie release date desc, then serie list-order desc, then set index desc
     // Null dates treated as newest (9999-99-99) so undated sets float to top
@@ -8320,7 +8330,10 @@ RESPONSE FORMAT (JSON only, no markdown):
         const data = await resp.json() as any;
 
         // nameEn: English name for this Japanese set (used for PokeTrace slug + display)
-        const setNameEn: string = data.nameEn || data.name || setId;
+        // Prefer TCGdex-provided nameEn, then cross-ref English flat list (same set IDs),
+        // then fall back to the local-language name (won't match PokeTrace but at least shows something)
+        const enNamesMap = await getTcgdexEnNames();
+        const setNameEn: string = data.nameEn || enNamesMap.get(setId) || data.name || setId;
 
         // Build a PokeTrace EU set slug from the English set name
         const ptSlug = setNameEn.toLowerCase().replace(/['\u2019]/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
@@ -8357,12 +8370,21 @@ RESPONSE FORMAT (JSON only, no markdown):
         cards = (data?.cards || []).map((c: any) => {
           const localId = c.localId || "";
           const pt = ptCardsByNumber.get(localId) ?? null;
+          // TCGdex CDN pattern: assets.tcgdex.net/{lang}/{setId}/{cardId}/high.jpg
+          // c.image may be a base URL (without /high.jpg) or null — always build a fallback
+          const cardId = c.id || "";
+          const tcgdexImageFallback = cardId
+            ? `https://assets.tcgdex.net/${langCode}/${setId}/${cardId}/high.jpg`
+            : null;
+          const imageUrl = pt?.imageUrl
+            || (c.image ? (c.image.endsWith(".jpg") || c.image.endsWith(".png") || c.image.endsWith(".webp") ? c.image : `${c.image}/high.jpg`) : null)
+            || tcgdexImageFallback;
           return {
             id: c.id,
             name: c.name,          // Japanese/local name
             nameEn: pt?.nameEn || c.nameEn || null, // English name (for PokeTrace matching)
             number: localId,
-            imageUrl: pt?.imageUrl || (c.image ? `${c.image}/high.jpg` : null),
+            imageUrl,
             priceEUR: pt?.priceEUR ?? null,
             setNameEn,             // Pass the English set name so frontend can use for PokeTrace
           };
