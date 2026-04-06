@@ -7716,7 +7716,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         [tierMaxGbp]
       );
       // Look up printedTotal for each pick's set so the frontend can show "8/147"
-      const allSets = await fetchAndCacheSets();
+      const allSets = await ensureSetsCached();
       const setTotalMap = new Map(allSets.map(s => [s.id, s.printedTotal || s.total || 0]));
 
       res.json({
