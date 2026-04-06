@@ -119,7 +119,7 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
         )}
       </View>
 
-      <Text style={styles.topCardName} numberOfLines={2}>{item.name}</Text>
+      <Text style={[styles.topCardName, !isSubscribed && { opacity: 0.1 }]} numberOfLines={2}>{item.name}</Text>
       <View style={styles.topCardDivider} />
 
       {/* Graded price + profit — locked for free users */}

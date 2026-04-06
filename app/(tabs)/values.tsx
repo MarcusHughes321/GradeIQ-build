@@ -219,8 +219,8 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
         )}
       </View>
 
-      <Text style={cardStyles.name} numberOfLines={2}>{item.name}</Text>
-      <Text style={cardStyles.set}  numberOfLines={1}>{item.setName}</Text>
+      <Text style={[cardStyles.name, !isSubscribed && { opacity: 0.1 }]} numberOfLines={2}>{item.name}</Text>
+      <Text style={[cardStyles.set,  !isSubscribed && { opacity: 0.1 }]} numberOfLines={1}>{item.setName}</Text>
       <View style={cardStyles.divider} />
 
       {/* Raw TCGPlayer price — always visible */}
