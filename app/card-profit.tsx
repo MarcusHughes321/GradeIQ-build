@@ -798,50 +798,65 @@ export default function CardProfitScreen() {
         )}
 
         {/* ── Market Snapshot ─────────────────────────────────────── */}
-        {!isLoading && !error && !!marketSnapshot && (
-          <View style={st.snapshotCard}>
-            {/* Top row: label + band chip */}
-            <View style={st.snapshotTopRow}>
-              <Text style={st.snapshotLabel}>Liquidity</Text>
-              <View style={[
-                st.snapshotBandChip,
-                { backgroundColor: marketSnapshot.overallBand.color + "1A", borderColor: marketSnapshot.overallBand.color + "55" },
-              ]}>
-                <View style={[st.snapshotBandDot, { backgroundColor: marketSnapshot.overallBand.color }]} />
-                <Text style={[st.snapshotBandText, { color: marketSnapshot.overallBand.color }]}>
-                  {marketSnapshot.overallBand.label}
-                </Text>
+        {!isLoading && !error && !!marketSnapshot && (() => {
+          // Drive bar from the currently selected company pill
+          const activeRow = marketSnapshot.rows.find(r => r.compId === selectedCompany)
+            ?? marketSnapshot.best;
+          const activeBand = liquidityBand(activeRow.score);
+          return (
+            <View style={st.snapshotCard}>
+              {/* Top row: label + band chip */}
+              <View style={st.snapshotTopRow}>
+                <Text style={st.snapshotLabel}>Liquidity</Text>
+                <View style={[
+                  st.snapshotBandChip,
+                  { backgroundColor: activeBand.color + "1A", borderColor: activeBand.color + "55" },
+                ]}>
+                  <View style={[st.snapshotBandDot, { backgroundColor: activeBand.color }]} />
+                  <Text style={[st.snapshotBandText, { color: activeBand.color }]}>
+                    {activeBand.label}
+                  </Text>
+                </View>
               </View>
-            </View>
 
-            {/* Animated liquid bar */}
-            <LiquidityBar score={marketSnapshot.overallScore} color={marketSnapshot.overallBand.color} />
+              {/* Animated liquid bar — reflects selected company */}
+              <LiquidityBar score={activeRow.score} color={activeBand.color} />
 
-            {/* Per-company sales count pills */}
-            <View style={st.snapshotSalesPills}>
-              {marketSnapshot.rows
-                .filter(r => r.saleCount > 0)
-                .map(r => (
-                  <View key={r.compId} style={[
-                    st.snapshotSalesPill,
-                    r.compId === marketSnapshot.best.compId && { borderColor: r.color + "88", backgroundColor: r.color + "14" },
-                  ]}>
-                    <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
-                    <Text style={st.snapshotSalesCt}>{r.saleCount}</Text>
-                  </View>
-                ))
-              }
-            </View>
+              {/* Per-company sales count pills — selected company highlighted */}
+              <View style={st.snapshotSalesPills}>
+                {marketSnapshot.rows
+                  .filter(r => r.saleCount > 0)
+                  .map(r => {
+                    const isActive = r.compId === selectedCompany;
+                    return (
+                      <View key={r.compId} style={[
+                        st.snapshotSalesPill,
+                        isActive && { borderColor: r.color + "99", backgroundColor: r.color + "1A" },
+                      ]}>
+                        <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
+                        <Text style={[st.snapshotSalesCt, isActive && { color: Colors.text }]}>
+                          {r.saleCount}
+                        </Text>
+                      </View>
+                    );
+                  })
+                }
+              </View>
 
-            {/* Footer */}
-            <Text style={st.snapshotFooter}>
-              {marketSnapshot.totalSales} sales in the last month · most liquid:{" "}
-              <Text style={{ color: marketSnapshot.best.color, fontFamily: "Inter_600SemiBold" }}>
-                {marketSnapshot.best.label}
+              {/* Footer */}
+              <Text style={st.snapshotFooter}>
+                {activeRow.saleCount > 0
+                  ? `${activeRow.saleCount} ${activeRow.label} sales in the last month`
+                  : `No recent ${activeRow.label} sales · most liquid: `}
+                {activeRow.saleCount === 0 && (
+                  <Text style={{ color: marketSnapshot.best.color, fontFamily: "Inter_600SemiBold" }}>
+                    {marketSnapshot.best.label}
+                  </Text>
+                )}
               </Text>
-            </Text>
-          </View>
-        )}
+            </View>
+          );
+        })()}
 
         {/* Company pill tabs */}
         {companies.length > 0 && (
