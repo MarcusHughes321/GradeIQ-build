@@ -506,6 +506,12 @@ export default function CardProfitScreen() {
   const defaultCompany: CompanyId = enabledCompanies[0] ?? "PSA";
   const [selectedCompany, setSelectedCompany] = useState<CompanyId>(defaultCompany);
 
+  // Which grade row the user has tapped to chart (undefined = top grade default)
+  const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
+
+  // Reset to top grade whenever the company tab switches
+  useEffect(() => { setChartGradeKey(undefined); }, [selectedCompany]);
+
   // Cache key mirrors server logic: "CardName BaseNum [1st]"
   const historyCacheKey = useMemo(() => {
     const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
@@ -516,14 +522,17 @@ export default function CardProfitScreen() {
   // Top grade key for the selected company (e.g. "psa10", "bgs95")
   const topGradeKey = COMPANY_CONFIG[selectedCompany]?.grades[0]?.ebayKey as string | undefined;
 
+  // The chart always shows the tapped grade; falls back to top grade
+  const effectiveChartKey = chartGradeKey ?? topGradeKey;
+
   const { data: historyData } = useQuery<{ history: PricePoint[] }>({
-    queryKey: ["price-history", historyCacheKey, topGradeKey],
+    queryKey: ["price-history", historyCacheKey, effectiveChartKey],
     queryFn: () =>
       apiRequest(
         "GET",
-        `/api/price-history?cacheKey=${encodeURIComponent(historyCacheKey)}&grade=${encodeURIComponent(topGradeKey ?? "")}`
+        `/api/price-history?cacheKey=${encodeURIComponent(historyCacheKey)}&grade=${encodeURIComponent(effectiveChartKey ?? "")}`
       ).then(r => r.json()),
-    enabled: !!(historyCacheKey && topGradeKey),
+    enabled: !!(historyCacheKey && effectiveChartKey),
     staleTime: 60 * 60 * 1000,
     retry: 1,
   });
@@ -847,8 +856,8 @@ export default function CardProfitScreen() {
 
         {/* Expanded company section */}
         {companies.filter(c => c.compId === selectedCompany).map(({ compId, config, rows, minProfitRow }) => {
-          const topGradeKey = config.grades[0]?.ebayKey as string | undefined;
-          const topDetail = topGradeKey ? ebay?.gradeDetails?.[topGradeKey] : undefined;
+          // Use the tapped grade's detail for the chart (falls back to top grade)
+          const chartDetail = effectiveChartKey ? ebay?.gradeDetails?.[effectiveChartKey] : undefined;
 
           return (
             <View key={compId} style={st.companyCard}>
@@ -867,18 +876,32 @@ export default function CardProfitScreen() {
                 const isLast = idx === rows.length - 1;
                 const detail = ebay?.gradeDetails?.[gr.ebayKey as string];
                 const hasTrend = detail && (detail.avg7d != null || detail.avg30d != null);
+                const isCharted = gr.ebayKey === effectiveChartKey;
 
                 return (
-                  <View key={gr.ebayKey}>
-                    <View style={[st.tblRow, isMin && st.tblRowGreen, isLast && !hasTrend && { borderBottomWidth: 0 }]}>
-                      <View style={[st.accent, isMin && st.accentGreen]} />
+                  <Pressable
+                    key={gr.ebayKey}
+                    onPress={() => setChartGradeKey(gr.ebayKey)}
+                  >
+                    <View style={[
+                      st.tblRow,
+                      isMin && st.tblRowGreen,
+                      isCharted && st.tblRowCharted,
+                      isLast && !hasTrend && { borderBottomWidth: 0 },
+                    ]}>
+                      <View style={[st.accent, isMin && st.accentGreen, isCharted && !isMin && st.accentCharted]} />
 
                       <View style={{ flex: 2 }}>
-                        <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
-                          {gr.label}{isMin ? " ★" : ""}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                          <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
+                            {gr.label}{isMin ? " ★" : ""}
+                          </Text>
+                          {isCharted && (
+                            <Ionicons name="stats-chart" size={10} color={Colors.primary} />
+                          )}
+                        </View>
                         {detail?.saleCount != null && (
-                          <Text style={st.saleCountTxt}>{detail.saleCount} sales</Text>
+                          <Text style={st.saleCountTxt}>{detail.saleCount} sales last month</Text>
                         )}
                       </View>
 
@@ -925,15 +948,15 @@ export default function CardProfitScreen() {
                         )}
                       </View>
                     )}
-                  </View>
+                  </Pressable>
                 );
               })}
 
-              {/* Trend chart for top grade */}
-              {!isLoading && (topDetail || (historyData?.history?.length ?? 0) >= 3) && (
+              {/* Trend chart — updates to whichever grade row was tapped */}
+              {!isLoading && (chartDetail || (historyData?.history?.length ?? 0) >= 3) && (
                 <View style={st.chartContainer}>
                   <TrendChart
-                    detail={topDetail}
+                    detail={chartDetail}
                     history={historyData?.history ?? []}
                     currencySymbol={currencySymbol}
                     currencyRate={currencyRate}
@@ -1347,10 +1370,12 @@ const st = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.05)",
     gap: 4,
   },
-  tblRowGreen: { backgroundColor: "rgba(245,158,11,0.05)" },
+  tblRowGreen:    { backgroundColor: "rgba(245,158,11,0.05)" },
+  tblRowCharted:  { backgroundColor: "rgba(255,60,49,0.05)" },
 
-  accent: { width: 3, alignSelf: "stretch", backgroundColor: "transparent", borderRadius: 2, marginRight: 11 },
-  accentGreen: { backgroundColor: "#f59e0b" },
+  accent:        { width: 3, alignSelf: "stretch", backgroundColor: "transparent", borderRadius: 2, marginRight: 11 },
+  accentGreen:   { backgroundColor: "#f59e0b" },
+  accentCharted: { backgroundColor: Colors.primary },
 
   gradeLabel: {
     fontFamily: "Inter_600SemiBold",
