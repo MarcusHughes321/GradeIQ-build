@@ -273,10 +273,10 @@ function TrendChart({
             textAnchor="start" fontFamily="Inter_400Regular">{fmtDate(points[0].ts)}</SvgText>
           <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted}
             textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
-          <SvgText x={PAD.left + chartW} y={PAD.top + 8} fontSize="9" fill={Colors.textMuted}
-            textAnchor="end" fontFamily="Inter_400Regular">{fmt(maxV)}</SvgText>
-          <SvgText x={PAD.left + chartW} y={PAD.top + chartH} fontSize="9" fill={Colors.textMuted}
-            textAnchor="end" fontFamily="Inter_400Regular">{fmt(minV)}</SvgText>
+          <SvgText x={PAD.left + 4} y={PAD.top + 9} fontSize="9" fill={Colors.textMuted}
+            textAnchor="start" fontFamily="Inter_400Regular">{fmt(maxV)}</SvgText>
+          <SvgText x={PAD.left + 4} y={PAD.top + chartH - 2} fontSize="9" fill={Colors.textMuted}
+            textAnchor="start" fontFamily="Inter_400Regular">{fmt(minV)}</SvgText>
         </Svg>
         {detail?.saleCount != null && (
           <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
@@ -335,10 +335,10 @@ function TrendChart({
               fontFamily="Inter_400Regular">{p.label}</SvgText>
           </React.Fragment>
         ))}
-        <SvgText x={PAD.left + chartW} y={PAD.top + 8} fontSize="9" fill={Colors.textMuted}
-          textAnchor="end" fontFamily="Inter_400Regular">{fmt(maxV2)}</SvgText>
-        <SvgText x={PAD.left + chartW} y={PAD.top + chartH} fontSize="9" fill={Colors.textMuted}
-          textAnchor="end" fontFamily="Inter_400Regular">{fmt(minV2)}</SvgText>
+        <SvgText x={PAD.left + 4} y={PAD.top + 9} fontSize="9" fill={Colors.textMuted}
+          textAnchor="start" fontFamily="Inter_400Regular">{fmt(maxV2)}</SvgText>
+        <SvgText x={PAD.left + 4} y={PAD.top + chartH - 2} fontSize="9" fill={Colors.textMuted}
+          textAnchor="start" fontFamily="Inter_400Regular">{fmt(minV2)}</SvgText>
       </Svg>
       {detail.saleCount != null && (
         <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
