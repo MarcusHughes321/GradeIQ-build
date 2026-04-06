@@ -144,11 +144,14 @@ function calcLiquidityScore(detail: GradeDetail | undefined): number {
   return Math.round(velocity + stability + freshness);
 }
 
-function liquidityBand(score: number): { label: string; color: string } {
-  if (score >= 60) return { label: "High",   color: "#22c55e" };
-  if (score >= 35) return { label: "Medium", color: "#f59e0b" };
-  if (score >   0) return { label: "Low",    color: "#ef4444" };
-  return               { label: "No data", color: "#6b7280" };
+// saleCount gates stop low-volume cards from reaching High/Medium
+// just because their avg7d happens to equal avg30d (stable but illiquid)
+function liquidityBand(score: number, saleCount = 0): { label: string; color: string } {
+  if (score === 0) return { label: "No data", color: "#6b7280" };
+  if (score >= 60 && saleCount >= 20) return { label: "High",   color: "#22c55e" };
+  if (score >= 35 && saleCount >= 8)  return { label: "Medium", color: "#f59e0b" };
+  if (score > 0)                      return { label: "Low",    color: "#ef4444" };
+  return                              { label: "No data", color: "#6b7280" };
 }
 
 // ── Animated liquidity bar ──────────────────────────────────────────────────
@@ -604,7 +607,7 @@ export default function CardProfitScreen() {
     const best        = rows.reduce((a, b) => b.score > a.score ? b : a, rows[0]);
     const maxScore    = Math.max(...rows.map(r => r.score), 1);
     const overallScore = Math.max(...rows.map(r => r.score), 0);
-    const overallBand  = liquidityBand(overallScore);
+    const overallBand  = liquidityBand(overallScore, best.saleCount);
 
     return { rows, totalSales, best, maxScore, overallScore, overallBand };
   }, [ebay, enabledCompanies]);
@@ -802,7 +805,7 @@ export default function CardProfitScreen() {
           // Drive bar from the currently selected company pill
           const activeRow = marketSnapshot.rows.find(r => r.compId === selectedCompany)
             ?? marketSnapshot.best;
-          const activeBand = liquidityBand(activeRow.score);
+          const activeBand = liquidityBand(activeRow.score, activeRow.saleCount);
           return (
             <View style={st.snapshotCard}>
               {/* Top row: label + band chip */}
