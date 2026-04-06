@@ -21,6 +21,8 @@ import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
 import type { CompanyId } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
+import { useSubscription } from "@/lib/subscription";
+import ValuesUpgradeSheet from "@/components/ValuesUpgradeSheet";
 
 // Mirrors the config in values.tsx — top grade key and display label per company
 const PICKS_COMPANY_CONFIG: Record<CompanyId, { topEbayKey: string; topGradeLabel: string }> = {
@@ -237,6 +239,8 @@ export default function SetCardsScreen() {
 
   const [ebayPricesMap, setEbayPricesMap] = useState<Record<string, Record<string, number>>>({});
   const [ebayPricesLoading, setEbayPricesLoading] = useState(false);
+  const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
+  const { isSubscribed } = useSubscription();
 
   const top15Key = top15.map(c => c.id).join(",");
 
@@ -290,6 +294,7 @@ export default function SetCardsScreen() {
   const resolvedSetTotal = setTotal || (allCards.length > 0 ? String(allCards.length) : "");
 
   const handleCardPress = (card: SetCard) => {
+    if (!isSubscribed) { setShowUpgradeSheet(true); return; }
     router.push({
       pathname: "/card-profit",
       params: {
@@ -455,6 +460,7 @@ export default function SetCardsScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <ValuesUpgradeSheet visible={showUpgradeSheet} onClose={() => setShowUpgradeSheet(false)} />
       <View style={styles.navBar}>
         <Pressable
           onPress={() => router.back()}

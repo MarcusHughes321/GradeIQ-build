@@ -22,6 +22,8 @@ import { apiRequest } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings-context";
 import { ALL_COMPANIES, CURRENCIES } from "@/lib/settings";
 import type { CompanyId } from "@/lib/settings";
+import { useSubscription } from "@/lib/subscription";
+import ValuesUpgradeSheet from "@/components/ValuesUpgradeSheet";
 
 interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;
@@ -288,6 +290,8 @@ export default function ValuesScreen() {
   const [recentLoaded, setRecentLoaded] = useState(false);
   const [priceTier, setPriceTier] = useState<PriceTierMax>(50);
   const [explainerDismissed, setExplainerDismissed] = useState(true); // default true = hidden until loaded
+  const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
+  const { isSubscribed } = useSubscription();
   const inputRef = useRef<TextInput>(null);
 
   // Browse sets
@@ -477,6 +481,7 @@ export default function ValuesScreen() {
     cardNumber?: string | null,
     setTotal?: string | null,
   ) => {
+    if (!isSubscribed) { setShowUpgradeSheet(true); return; }
     router.push({
       pathname: "/card-profit",
       params: {
@@ -489,7 +494,7 @@ export default function ValuesScreen() {
         ...(setTotal ? { setTotal } : {}),
       },
     });
-  }, []);
+  }, [isSubscribed]);
 
   const handleSetPress = useCallback((set: BrowseSet) => {
     router.push({
@@ -821,6 +826,8 @@ export default function ValuesScreen() {
   );
 
   return (
+    <>
+    <ValuesUpgradeSheet visible={showUpgradeSheet} onClose={() => setShowUpgradeSheet(false)} />
     <FlatList
       style={styles.container}
       data={filteredSets}
@@ -832,6 +839,7 @@ export default function ValuesScreen() {
       keyboardShouldPersistTaps="handled"
       renderItem={({ item }) => <SetRow set={item} onPress={() => handleSetPress(item)} />}
     />
+    </>
   );
 }
 
