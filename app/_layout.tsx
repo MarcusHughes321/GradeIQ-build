@@ -62,6 +62,7 @@ function RootLayoutNav() {
       <Stack.Screen name="bulk-results" />
       <Stack.Screen name="deep-grade-info" />
       <Stack.Screen name="paywall" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+      <Stack.Screen name="grading-fees" options={{ headerShown: false }} />
       <Stack.Screen name="terms" />
       <Stack.Screen name="about" />
       <Stack.Screen name="feedback" />

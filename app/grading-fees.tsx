@@ -1,0 +1,528 @@
+import React, { useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, Linking } from "react-native";
+import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import Colors from "@/constants/colors";
+
+type CompanyKey = "psa" | "bgs" | "cgc" | "ace" | "tag";
+
+interface FeeTier {
+  name: string;
+  price: string;
+  turnaround: string;
+  maxValue?: string;
+  minCards?: number;
+  note?: string;
+}
+
+interface CompanyFees {
+  key: CompanyKey;
+  label: string;
+  color: string;
+  currency: string;
+  lastUpdated: string;
+  sourceUrl: string;
+  sourceLabel: string;
+  tiers: FeeTier[];
+  notes?: string;
+}
+
+const COMPANY_FEES: CompanyFees[] = [
+  {
+    key: "psa",
+    label: "PSA",
+    color: "#1E56A0",
+    currency: "USD",
+    lastUpdated: "Feb 2026",
+    sourceUrl: "https://www.psacard.com/services/tradingcardgrading",
+    sourceLabel: "psacard.com",
+    tiers: [
+      {
+        name: "Value Bulk",
+        price: "$21.99",
+        turnaround: "65+ business days",
+        maxValue: "$200",
+        minCards: 20,
+        note: "PSA Collectors Club membership required",
+      },
+      {
+        name: "Value",
+        price: "$27.99",
+        turnaround: "45–65 business days",
+        maxValue: "$500",
+      },
+      {
+        name: "Value Plus",
+        price: "$44.99",
+        turnaround: "30–45 business days",
+        maxValue: "$500",
+      },
+      {
+        name: "Value Max",
+        price: "$59.99",
+        turnaround: "20–30 business days",
+        maxValue: "$500",
+      },
+      {
+        name: "Regular",
+        price: "$79.99",
+        turnaround: "~10 business days",
+        maxValue: "$999",
+      },
+      {
+        name: "Express",
+        price: "$149.99",
+        turnaround: "~5 business days",
+        maxValue: "$2,499",
+      },
+      {
+        name: "Super Express",
+        price: "$299.99",
+        turnaround: "~2 business days",
+        maxValue: "$4,999",
+      },
+      {
+        name: "Walk-Through",
+        price: "$499.99",
+        turnaround: "Same day",
+        maxValue: "$9,999",
+      },
+    ],
+    notes: "Prices exclude shipping, insurance and handling. Membership can reduce fees.",
+  },
+  {
+    key: "bgs",
+    label: "BGS",
+    color: "#1A1A2E",
+    currency: "USD",
+    lastUpdated: "2025",
+    sourceUrl: "https://www.beckett.com/grading-pricing-turnaroundtimes",
+    sourceLabel: "beckett.com",
+    tiers: [
+      {
+        name: "Economy",
+        price: "$20",
+        turnaround: "20–25 business days",
+        maxValue: "$499",
+        note: "Add $15 for sub-grades",
+      },
+      {
+        name: "Standard",
+        price: "$30",
+        turnaround: "10–15 business days",
+        maxValue: "$999",
+        note: "Add $20 for sub-grades",
+      },
+      {
+        name: "Express",
+        price: "$100",
+        turnaround: "5–7 business days",
+        maxValue: "$1,499",
+        note: "Add $50 for sub-grades",
+      },
+      {
+        name: "Super Express",
+        price: "$125",
+        turnaround: "1–3 business days",
+        note: "Add $125 for sub-grades",
+      },
+    ],
+    notes: "BGS provides 4 sub-grade scores (centering, corners, edges, surface). Sub-grades add to the base fee.",
+  },
+  {
+    key: "cgc",
+    label: "CGC",
+    color: "#00AEEF",
+    currency: "USD",
+    lastUpdated: "Jan 2026",
+    sourceUrl: "https://www.cgccomics.com/cards/submit/",
+    sourceLabel: "cgccomics.com",
+    tiers: [
+      {
+        name: "Bulk",
+        price: "$15",
+        turnaround: "~40 days",
+        maxValue: "$500",
+      },
+      {
+        name: "Economy",
+        price: "$18",
+        turnaround: "~20 days",
+        maxValue: "$1,000",
+      },
+      {
+        name: "Standard",
+        price: "$55",
+        turnaround: "~10 days",
+        maxValue: "$3,000",
+      },
+      {
+        name: "Express",
+        price: "$100",
+        turnaround: "~5 days",
+        maxValue: "$10,000",
+      },
+    ],
+    notes: "Prices reflect the January 2026 update. CGC uses a 10-point scale with half-point grades.",
+  },
+  {
+    key: "ace",
+    label: "ACE",
+    color: "#C62828",
+    currency: "GBP",
+    lastUpdated: "Jul 2025",
+    sourceUrl: "https://acegrading.com/services",
+    sourceLabel: "acegrading.com",
+    tiers: [
+      {
+        name: "Basic",
+        price: "£12",
+        turnaround: "~80 business days",
+        minCards: 20,
+        note: "Min 20 cards, max 50 per submission",
+      },
+      {
+        name: "Standard",
+        price: "£15",
+        turnaround: "~30 business days",
+        minCards: 10,
+        note: "Min 10 cards, max 50 per submission",
+      },
+      {
+        name: "Premier",
+        price: "£18",
+        turnaround: "~15 business days",
+        minCards: 5,
+        note: "Min 5 cards, max 50 per submission",
+      },
+      {
+        name: "Ultra",
+        price: "£25",
+        turnaround: "~5 business days",
+        note: "Max 50 cards per submission",
+      },
+      {
+        name: "Luxury",
+        price: "£50",
+        turnaround: "~2 business days",
+        note: "Max 50 cards per submission",
+      },
+    ],
+    notes: "Turnaround times start from the first full business day after receipt. Shipping is not included.",
+  },
+  {
+    key: "tag",
+    label: "TAG",
+    color: "#FF6B00",
+    currency: "USD",
+    lastUpdated: "2025",
+    sourceUrl: "https://www.taggrading.com/services",
+    sourceLabel: "taggrading.com",
+    tiers: [
+      {
+        name: "Basic",
+        price: "$22",
+        turnaround: "45+ business days",
+        minCards: 10,
+        note: "Min 10 cards. DIG Standard report",
+      },
+      {
+        name: "Standard",
+        price: "$39",
+        turnaround: "~15 business days",
+        note: "Includes TAG Score & DIG+ report",
+      },
+      {
+        name: "Express",
+        price: "$59",
+        turnaround: "~5 business days",
+        note: "Includes TAG Score & DIG+ report",
+      },
+      {
+        name: "Super Express",
+        price: "$99",
+        turnaround: "~2 business days",
+        note: "Includes TAG Score & DIG+ report",
+      },
+    ],
+    notes: "All tiers include raw card images, HD slab images, UV protection and QR-accessible DIG grading reports.",
+  },
+];
+
+const COMPANY_COLORS: Record<CompanyKey, string> = {
+  psa: "#1E56A0",
+  bgs: "#4A4A8A",
+  cgc: "#00AEEF",
+  ace: "#C62828",
+  tag: "#FF6B00",
+};
+
+export default function GradingFeesScreen() {
+  const insets = useSafeAreaInsets();
+  const [selected, setSelected] = useState<CompanyKey>("psa");
+
+  const company = COMPANY_FEES.find(c => c.key === selected)!;
+
+  const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const botPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  return (
+    <View style={[styles.container, { paddingTop: topPad }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
+          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+        </Pressable>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>Grading Fees</Text>
+          <Text style={styles.subtitle}>Service tiers & pricing by company</Text>
+        </View>
+        <View style={styles.backBtn} />
+      </View>
+
+      {/* Company tabs */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabScroll}
+        contentContainerStyle={styles.tabContent}
+      >
+        {COMPANY_FEES.map(c => (
+          <Pressable
+            key={c.key}
+            onPress={() => setSelected(c.key)}
+            style={[
+              styles.tab,
+              selected === c.key && { backgroundColor: COMPANY_COLORS[c.key], borderColor: COMPANY_COLORS[c.key] },
+            ]}
+          >
+            <Text style={[styles.tabLabel, selected === c.key && styles.tabLabelActive]}>
+              {c.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: botPad + 32 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Disclaimer banner */}
+        <View style={styles.disclaimer}>
+          <Ionicons name="information-circle-outline" size={16} color={Colors.textMuted} />
+          <Text style={styles.disclaimerText}>
+            Prices as of {company.lastUpdated}. Always verify before submitting.
+          </Text>
+        </View>
+
+        {/* Tier cards */}
+        {company.tiers.map((tier, i) => (
+          <View key={i} style={styles.tierCard}>
+            <View style={styles.tierHeader}>
+              <Text style={styles.tierName}>{tier.name}</Text>
+              <Text style={[styles.tierPrice, { color: COMPANY_COLORS[selected] }]}>{tier.price}</Text>
+            </View>
+            <View style={styles.tierDetails}>
+              <View style={styles.tierDetail}>
+                <Ionicons name="time-outline" size={14} color={Colors.textMuted} />
+                <Text style={styles.tierDetailText}>{tier.turnaround}</Text>
+              </View>
+              {tier.maxValue && (
+                <View style={styles.tierDetail}>
+                  <Ionicons name="pricetag-outline" size={14} color={Colors.textMuted} />
+                  <Text style={styles.tierDetailText}>Max declared value: {tier.maxValue}</Text>
+                </View>
+              )}
+              {tier.minCards && (
+                <View style={styles.tierDetail}>
+                  <Ionicons name="albums-outline" size={14} color={Colors.textMuted} />
+                  <Text style={styles.tierDetailText}>Minimum {tier.minCards} cards</Text>
+                </View>
+              )}
+              {tier.note && (
+                <View style={styles.tierDetail}>
+                  <Ionicons name="alert-circle-outline" size={14} color={Colors.textMuted} />
+                  <Text style={styles.tierDetailText}>{tier.note}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ))}
+
+        {/* Company notes */}
+        {company.notes && (
+          <View style={styles.notesBox}>
+            <Text style={styles.notesText}>{company.notes}</Text>
+          </View>
+        )}
+
+        {/* Verify link */}
+        <Pressable
+          onPress={() => Linking.openURL(company.sourceUrl)}
+          style={({ pressed }) => [styles.verifyBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Ionicons name="open-outline" size={16} color={COMPANY_COLORS[selected]} />
+          <Text style={[styles.verifyBtnText, { color: COMPANY_COLORS[selected] }]}>
+            Verify current fees at {company.sourceLabel}
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerText: {
+    flex: 1,
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: Colors.text,
+    fontFamily: "Inter_700Bold",
+  },
+  subtitle: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 1,
+    fontFamily: "Inter_400Regular",
+  },
+  tabScroll: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  tabContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+    flexDirection: "row",
+  },
+  tab: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.textMuted,
+    fontFamily: "Inter_600SemiBold",
+  },
+  tabLabelActive: {
+    color: "#fff",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    gap: 10,
+  },
+  disclaimer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 4,
+  },
+  disclaimerText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+  },
+  tierCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  tierHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  tierName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.text,
+    fontFamily: "Inter_700Bold",
+  },
+  tierPrice: {
+    fontSize: 18,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+  },
+  tierDetails: {
+    gap: 5,
+  },
+  tierDetail: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  tierDetailText: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+  },
+  notesBox: {
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.border,
+  },
+  notesText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 18,
+    fontFamily: "Inter_400Regular",
+  },
+  verifyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginTop: 4,
+  },
+  verifyBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
+  },
+});
