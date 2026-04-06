@@ -107,6 +107,7 @@ interface TopPick {
   setName: string;
   setId: string;
   number: string;
+  setTotal?: string;
   imageUrl: string | null;
   rawPriceUSD: number;
 }
@@ -384,8 +385,8 @@ export default function ValuesScreen() {
       // Adapt PrecomputedPick to the shape TopPickCard expects
       const pickAsTopPick: TopPick = {
         id: pick.cardId, name: pick.cardName, setName: pick.setName,
-        setId: pick.setId, number: pick.number, imageUrl: pick.imageUrl,
-        rawPriceUSD: pick.rawPriceUSD,
+        setId: pick.setId, number: pick.number, setTotal: pick.setTotal,
+        imageUrl: pick.imageUrl, rawPriceUSD: pick.rawPriceUSD,
       };
 
       return {
