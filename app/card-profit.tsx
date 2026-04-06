@@ -17,6 +17,10 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withRepeat,
+  withTiming,
+  withSequence,
+  Easing,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { router, useLocalSearchParams } from "expo-router";
@@ -146,6 +150,62 @@ function liquidityBand(score: number): { label: string; color: string } {
   if (score >   0) return { label: "Low",    color: "#ef4444" };
   return               { label: "No data", color: "#6b7280" };
 }
+
+// ── Animated liquidity bar ──────────────────────────────────────────────────
+// High   (≥60): shimmer sweep — a bright gloss slides across the fill
+// Medium (≥35): gentle opacity breathing pulse
+// Low    (< 35): static
+function LiquidityBar({ score, color }: { score: number; color: string }) {
+  const shimmerX       = useSharedValue(-150);
+  const overlayOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    shimmerX.value       = -150;
+    overlayOpacity.value = 0;
+    if (score >= 60) {
+      shimmerX.value = withRepeat(
+        withTiming(400, { duration: 1800, easing: Easing.linear }),
+        -1, false,
+      );
+    } else if (score >= 35) {
+      overlayOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.45, { duration: 900 }),
+          withTiming(0,    { duration: 900 }),
+        ),
+        -1, false,
+      );
+    }
+  }, [score]);
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shimmerX.value }],
+  }));
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: overlayOpacity.value,
+  }));
+
+  const fillPct = `${Math.max(Math.min(score, 100), score > 0 ? 6 : 0)}%`;
+
+  return (
+    <View style={lbStyles.track}>
+      <View style={[lbStyles.fill, { width: fillPct as any, backgroundColor: color }]}>
+        {score >= 60 && (
+          <Animated.View style={[lbStyles.shimmer, shimmerStyle]} />
+        )}
+        {score >= 35 && score < 60 && (
+          <Animated.View style={[StyleSheet.absoluteFill, lbStyles.pulseOverlay, pulseStyle]} />
+        )}
+      </View>
+    </View>
+  );
+}
+const lbStyles = StyleSheet.create({
+  track:        { height: 10, backgroundColor: Colors.border, borderRadius: 6, overflow: "hidden" },
+  fill:         { height: "100%", borderRadius: 6, overflow: "hidden", position: "relative" },
+  shimmer:      { position: "absolute", top: 0, bottom: 0, width: 60, backgroundColor: "rgba(255,255,255,0.35)", transform: [{ skewX: "-20deg" }] },
+  pulseOverlay: { backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 6 },
+});
 
 interface PricePoint { price_usd: number; recorded_at: string; }
 
@@ -517,11 +577,13 @@ export default function CardProfitScreen() {
     const anyData = rows.some(r => r.score > 0);
     if (!anyData) return null;
 
-    const totalSales = rows.reduce((s, r) => s + r.saleCount, 0);
-    const best = rows.reduce((a, b) => b.score > a.score ? b : a, rows[0]);
-    const maxScore = Math.max(...rows.map(r => r.score), 1);
+    const totalSales  = rows.reduce((s, r) => s + r.saleCount, 0);
+    const best        = rows.reduce((a, b) => b.score > a.score ? b : a, rows[0]);
+    const maxScore    = Math.max(...rows.map(r => r.score), 1);
+    const overallScore = Math.max(...rows.map(r => r.score), 0);
+    const overallBand  = liquidityBand(overallScore);
 
-    return { rows, totalSales, best, maxScore };
+    return { rows, totalSales, best, maxScore, overallScore, overallBand };
   }, [ebay, enabledCompanies]);
 
   return (
@@ -715,56 +777,45 @@ export default function CardProfitScreen() {
         {/* ── Market Snapshot ─────────────────────────────────────── */}
         {!isLoading && !error && !!marketSnapshot && (
           <View style={st.snapshotCard}>
-            {/* Header */}
-            <View style={st.snapshotHeader}>
-              <View style={st.snapshotHeaderLeft}>
-                <Ionicons name="pulse" size={14} color={Colors.primary} />
-                <Text style={st.snapshotTitle}>Market Activity</Text>
-              </View>
-              <View style={st.snapshotBestBadge}>
-                <Text style={st.snapshotBestPre}>Most liquid</Text>
-                <View style={[st.snapshotBestChip, { borderColor: marketSnapshot.best.color + "55", backgroundColor: marketSnapshot.best.color + "18" }]}>
-                  <View style={[st.snapshotBestDot, { backgroundColor: marketSnapshot.best.color }]} />
-                  <Text style={[st.snapshotBestLabel, { color: marketSnapshot.best.color }]}>
-                    {marketSnapshot.best.label}
-                  </Text>
-                </View>
+            {/* Top row: label + band chip */}
+            <View style={st.snapshotTopRow}>
+              <Text style={st.snapshotLabel}>Liquidity</Text>
+              <View style={[
+                st.snapshotBandChip,
+                { backgroundColor: marketSnapshot.overallBand.color + "1A", borderColor: marketSnapshot.overallBand.color + "55" },
+              ]}>
+                <View style={[st.snapshotBandDot, { backgroundColor: marketSnapshot.overallBand.color }]} />
+                <Text style={[st.snapshotBandText, { color: marketSnapshot.overallBand.color }]}>
+                  {marketSnapshot.overallBand.label}
+                </Text>
               </View>
             </View>
 
-            {/* Total sales summary */}
-            <View style={st.snapshotSummaryRow}>
-              <Text style={st.snapshotSalesNum}>{marketSnapshot.totalSales}</Text>
-              <Text style={st.snapshotSalesSuffix}> recent top-grade sales combined</Text>
-            </View>
+            {/* Animated liquid bar */}
+            <LiquidityBar score={marketSnapshot.overallScore} color={marketSnapshot.overallBand.color} />
 
-            {/* Per-company liquidity bars */}
-            <View style={st.snapshotBarsWrap}>
-              {marketSnapshot.rows.map(row => {
-                const band = liquidityBand(row.score);
-                const fillPct = marketSnapshot.maxScore > 0 ? (row.score / marketSnapshot.maxScore) * 100 : 0;
-                const isBest = row.compId === marketSnapshot.best.compId;
-                return (
-                  <View key={row.compId} style={st.snapshotBarRow}>
-                    <Text style={[st.snapshotBarName, isBest && { color: Colors.text, fontFamily: "Inter_600SemiBold" }]}>
-                      {row.label}
-                    </Text>
-                    <View style={st.snapshotBarTrack}>
-                      <View style={[
-                        st.snapshotBarFill,
-                        { width: `${Math.max(fillPct, row.score > 0 ? 4 : 0)}%` as any, backgroundColor: row.score > 0 ? row.color : Colors.border },
-                      ]} />
-                    </View>
-                    <Text style={[st.snapshotBarBand, { color: band.color }]}>
-                      {row.score > 0 ? band.label : "—"}
-                    </Text>
+            {/* Per-company sales count pills */}
+            <View style={st.snapshotSalesPills}>
+              {marketSnapshot.rows
+                .filter(r => r.saleCount > 0)
+                .map(r => (
+                  <View key={r.compId} style={[
+                    st.snapshotSalesPill,
+                    r.compId === marketSnapshot.best.compId && { borderColor: r.color + "88", backgroundColor: r.color + "14" },
+                  ]}>
+                    <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
+                    <Text style={st.snapshotSalesCt}>{r.saleCount}</Text>
                   </View>
-                );
-              })}
+                ))
+              }
             </View>
 
-            <Text style={st.snapshotCaption}>
-              Based on eBay sold listings, price stability & data freshness
+            {/* Footer */}
+            <Text style={st.snapshotFooter}>
+              {marketSnapshot.totalSales} recent sales · most liquid:{" "}
+              <Text style={{ color: marketSnapshot.best.color, fontFamily: "Inter_600SemiBold" }}>
+                {marketSnapshot.best.label}
+              </Text>
             </Text>
           </View>
         )}
@@ -1387,102 +1438,64 @@ const st = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     padding: 14,
+    gap: 10,
   },
-  snapshotHeader: {
+  snapshotTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
   },
-  snapshotHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  snapshotTitle: {
+  snapshotLabel: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
     color: Colors.text,
   },
-  snapshotBestBadge: {
+  snapshotBandChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
   },
-  snapshotBestPre: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: Colors.textMuted,
+  snapshotBandDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
-  snapshotBestChip: {
+  snapshotBandText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+  },
+  snapshotSalesPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  snapshotSalesPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
     borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
   },
-  snapshotBestDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  snapshotBestLabel: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 11,
-  },
-  snapshotSummaryRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginBottom: 12,
-  },
-  snapshotSalesNum: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: Colors.text,
-  },
-  snapshotSalesSuffix: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  snapshotBarsWrap: {
-    gap: 7,
-    marginBottom: 10,
-  },
-  snapshotBarRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  snapshotBarName: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-    width: 30,
-  },
-  snapshotBarTrack: {
-    flex: 1,
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  snapshotBarFill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  snapshotBarBand: {
+  snapshotSalesCo: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 11,
-    width: 46,
-    textAlign: "right",
   },
-  snapshotCaption: {
+  snapshotSalesCt: {
     fontFamily: "Inter_400Regular",
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.textMuted,
-    textAlign: "center",
+  },
+  snapshotFooter: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
   },
 });
