@@ -127,8 +127,8 @@ const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
 // Weights: sale velocity 50% | price stability 30% | data freshness 20%
 function calcLiquidityScore(detail: GradeDetail | undefined): number {
   if (!detail || !detail.saleCount) return 0;
-  // Signal 1 — sale velocity (0–50 pts): 20+ sales = full score
-  const velocity = Math.min(detail.saleCount / 20, 1) * 50;
+  // Signal 1 — sale velocity (0–50 pts): 30+ sales = full score
+  const velocity = Math.min(detail.saleCount / 30, 1) * 50;
   // Signal 2 — price stability (0–30 pts): how close avg7d is to avg30d
   let stability = 15;
   if (detail.avg7d != null && detail.avg30d != null && detail.avg30d > 0) {
@@ -148,7 +148,7 @@ function calcLiquidityScore(detail: GradeDetail | undefined): number {
 // just because their avg7d happens to equal avg30d (stable but illiquid)
 function liquidityBand(score: number, saleCount = 0): { label: string; color: string } {
   if (score === 0) return { label: "No data", color: "#6b7280" };
-  if (score >= 60 && saleCount >= 20) return { label: "High",   color: "#22c55e" };
+  if (score >= 60 && saleCount >= 30) return { label: "High",   color: "#22c55e" };
   if (score >= 35 && saleCount >= 8)  return { label: "Medium", color: "#f59e0b" };
   if (score > 0)                      return { label: "Low",    color: "#ef4444" };
   return                              { label: "No data", color: "#6b7280" };
