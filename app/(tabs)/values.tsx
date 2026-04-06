@@ -118,6 +118,7 @@ interface PrecomputedPick {
   setName: string;
   setId: string;
   number: string;
+  setTotal?: string;
   imageUrl: string | null;
   rawPriceUSD: number;
   ebay: {
@@ -459,6 +460,7 @@ export default function ValuesScreen() {
     imageUrl?: string | null,
     rawPriceUSD?: number,
     cardNumber?: string | null,
+    setTotal?: string | null,
   ) => {
     router.push({
       pathname: "/card-profit",
@@ -469,6 +471,7 @@ export default function ValuesScreen() {
         imageUrl: imageUrl || "",
         rawPriceUSD: rawPriceUSD ? String(rawPriceUSD) : "0",
         ...(cardNumber ? { cardNumber } : {}),
+        ...(setTotal ? { setTotal } : {}),
       },
     });
   }, []);
@@ -491,7 +494,7 @@ export default function ValuesScreen() {
       key={entry.pick.id}
       item={entry.pick}
       index={index}
-      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD, entry.pick.number)}
+      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD, entry.pick.number, entry.pick.setTotal)}
       topGradeLocal={entry.topGradeLocal}
       topGradeProfit={entry.topGradeProfit}
       topGradeLabel={picksConfig.topGradeLabel}

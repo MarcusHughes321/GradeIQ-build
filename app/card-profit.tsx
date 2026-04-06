@@ -436,7 +436,7 @@ export default function CardProfitScreen() {
   });
 
   const buildEbayUrl = (gradeLabel: string) => {
-    const q = [gradeLabel, cardName, setName, "pokemon"].filter(Boolean).join(" ");
+    const q = [gradeLabel, cardName, displayCardNumber ? `${displayCardNumber}` : null, setName, "pokemon"].filter(Boolean).join(" ");
     return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`;
   };
 
@@ -619,7 +619,7 @@ export default function CardProfitScreen() {
             </Text>
             <Pressable
               onPress={() => {
-                const q = [cardName, setName, "Pokemon", "raw"].filter(Boolean).join(" ");
+                const q = [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
                 Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
               }}
               hitSlop={8}

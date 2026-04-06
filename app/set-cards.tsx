@@ -141,7 +141,7 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
         <Pressable
           onPress={(e) => {
             e.stopPropagation?.();
-            const q = [item.name, setName, "Pokemon", "raw"].filter(Boolean).join(" ");
+            const q = [item.name, item.number || null, setName, "Pokemon"].filter(Boolean).join(" ");
             Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
           }}
           hitSlop={6}

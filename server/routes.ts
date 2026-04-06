@@ -7715,6 +7715,10 @@ RESPONSE FORMAT (JSON only, no markdown):
           LIMIT 20`,
         [tierMaxGbp]
       );
+      // Look up printedTotal for each pick's set so the frontend can show "8/147"
+      const allSets = await fetchAndCacheSets();
+      const setTotalMap = new Map(allSets.map(s => [s.id, s.printedTotal || s.total || 0]));
+
       res.json({
         picks: rows.map(r => ({
           cardId:       r.card_id,
@@ -7722,6 +7726,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           setName:      r.set_name,
           setId:        r.set_id,
           number:       r.number,
+          setTotal:     setTotalMap.get(r.set_id) ? String(setTotalMap.get(r.set_id)) : undefined,
           imageUrl:     r.image_url,
           rawPriceUSD:  parseFloat(r.raw_price_usd) || 0,
           ebay: {
