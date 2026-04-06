@@ -223,10 +223,12 @@ function TrendChart({
   currencySymbol: string;
   currencyRate: number;
 }) {
-  const W = Dimensions.get("window").width - 48;
+  // LABEL_W: dedicated column for price labels — kept fully outside the SVG
+  const LABEL_W = 38;
+  const svgW = Dimensions.get("window").width - 48 - LABEL_W;
   const H = 90;
-  const PAD = { top: 12, bottom: 28, left: 10, right: 10 };
-  const chartW = W - PAD.left - PAD.right;
+  const PAD = { top: 12, bottom: 28, left: 6, right: 6 };
+  const chartW = svgW - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
   const fmt = (v: number) => {
@@ -235,6 +237,21 @@ function TrendChart({
     if (local >= 1000) return `${currencySymbol}${(local / 1000).toFixed(1)}k`;
     return `${currencySymbol}${local.toFixed(0)}`;
   };
+
+  // Shared price-label column — sits to the left of the SVG, no overlap possible
+  const PriceAxis = ({ high, low }: { high: string; low: string }) => (
+    <View style={{
+      width: LABEL_W,
+      height: H,
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      paddingTop: PAD.top - 2,
+      paddingBottom: PAD.bottom - 4,
+    }}>
+      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted }}>{high}</Text>
+      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted }}>{low}</Text>
+    </View>
+  );
 
   // ── Real time-series path ──────────────────────────────────────────────
   if (history.length >= 3) {
@@ -251,7 +268,6 @@ function TrendChart({
     const trendUp = points[points.length - 1].price >= points[0].price;
     const lineColor = trendUp ? "#22c55e" : "#ef4444";
 
-    // Show first + last date label
     const fmtDate = (iso: string) => {
       const d = new Date(iso);
       return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -262,22 +278,21 @@ function TrendChart({
         <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>
           Price history · {history.length} snapshots
         </Text>
-        <Svg width={W} height={H}>
-          <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
-            stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
-          <Polyline points={polylineStr} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" />
-          {points.map((p, i) => (
-            <Circle key={i} cx={p.x} cy={p.y} r={2.5} fill={lineColor} />
-          ))}
-          <SvgText x={PAD.left} y={H - 4} fontSize="9" fill={Colors.textMuted}
-            textAnchor="start" fontFamily="Inter_400Regular">{fmtDate(points[0].ts)}</SvgText>
-          <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted}
-            textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
-          <SvgText x={PAD.left + 4} y={PAD.top + 9} fontSize="9" fill={Colors.textMuted}
-            textAnchor="start" fontFamily="Inter_400Regular">{fmt(maxV)}</SvgText>
-          <SvgText x={PAD.left + 4} y={PAD.top + chartH - 2} fontSize="9" fill={Colors.textMuted}
-            textAnchor="start" fontFamily="Inter_400Regular">{fmt(minV)}</SvgText>
-        </Svg>
+        <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+          <PriceAxis high={fmt(maxV)} low={fmt(minV)} />
+          <Svg width={svgW} height={H}>
+            <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
+              stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
+            <Polyline points={polylineStr} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" />
+            {points.map((p, i) => (
+              <Circle key={i} cx={p.x} cy={p.y} r={2.5} fill={lineColor} />
+            ))}
+            <SvgText x={PAD.left} y={H - 4} fontSize="9" fill={Colors.textMuted}
+              textAnchor="start" fontFamily="Inter_400Regular">{fmtDate(points[0].ts)}</SvgText>
+            <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted}
+              textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
+          </Svg>
+        </View>
         {detail?.saleCount != null && (
           <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
             {detail.saleCount.toLocaleString()} recorded sales
@@ -323,23 +338,22 @@ function TrendChart({
       <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>
         Rolling average trend · building history…
       </Text>
-      <Svg width={W} height={H}>
-        <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
-          stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
-        <Polyline points={polylineStr2} fill="none"
-          stroke={trendUp2 ? "#22c55e" : "#ef4444"} strokeWidth="2" strokeLinejoin="round" />
-        {points2.map((p, i) => (
-          <React.Fragment key={i}>
-            <Circle cx={p.x} cy={p.y} r={3} fill={trendUp2 ? "#22c55e" : "#ef4444"} />
-            <SvgText x={p.x} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="middle"
-              fontFamily="Inter_400Regular">{p.label}</SvgText>
-          </React.Fragment>
-        ))}
-        <SvgText x={PAD.left + 4} y={PAD.top + 9} fontSize="9" fill={Colors.textMuted}
-          textAnchor="start" fontFamily="Inter_400Regular">{fmt(maxV2)}</SvgText>
-        <SvgText x={PAD.left + 4} y={PAD.top + chartH - 2} fontSize="9" fill={Colors.textMuted}
-          textAnchor="start" fontFamily="Inter_400Regular">{fmt(minV2)}</SvgText>
-      </Svg>
+      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+        <PriceAxis high={fmt(maxV2)} low={fmt(minV2)} />
+        <Svg width={svgW} height={H}>
+          <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2}
+            stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
+          <Polyline points={polylineStr2} fill="none"
+            stroke={trendUp2 ? "#22c55e" : "#ef4444"} strokeWidth="2" strokeLinejoin="round" />
+          {points2.map((p, i) => (
+            <React.Fragment key={i}>
+              <Circle cx={p.x} cy={p.y} r={3} fill={trendUp2 ? "#22c55e" : "#ef4444"} />
+              <SvgText x={p.x} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="middle"
+                fontFamily="Inter_400Regular">{p.label}</SvgText>
+            </React.Fragment>
+          ))}
+        </Svg>
+      </View>
       {detail.saleCount != null && (
         <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
           {detail.saleCount.toLocaleString()} recorded sales
