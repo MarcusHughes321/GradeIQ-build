@@ -49,7 +49,8 @@ The app features a dark-themed interface using red (#FF3C31), black (#000000), w
     - **Card Catalog DB**: `card_catalog` PostgreSQL table stores English card data, updated daily.
     - **Profit Screen UI**: Company pills (PSA/BGS/ACE/TAG/CGC) — tap to switch; grade rows show sale count, avg7d/avg30d/range hints inline; rolling-average trend sparkline (SVG) for the top grade; eBay completed-listings deep-link per grade row.
 - **Card Variant Detection**: AI grading identifies whether a card is **Holo**, **Reverse Holo**, or **Non-Holo** from the photo; results screen shows a coloured badge. Set browsing shows per-variant TCGPlayer prices (Holo/RH/Normal) for each card when multiple variants exist. `card_catalog` DB stores `prices_json` JSONB for variant prices.
-- **Set Browser**: Displays TCGPlayer raw prices with per-variant breakdown (Holo / Reverse Holo / Non-Holo) where available.
+- **Set Browser**: Displays TCGPlayer raw prices with per-variant breakdown (Holo / Reverse Holo / Non-Holo) where available (English). Japanese sets show Cardmarket NM EUR prices converted to user currency.
+- **Japanese Values**: Full Japanese card market support — EN/JP language toggle in Browse Sets header, TCGdex set list with 161 sets across 14 series, PokeTrace EU (Cardmarket) NM prices in EUR, PokeTrace US graded eBay prices, daily JP Top Picks job (`lang='ja'` in `top_picks_precomputed`), set-cards screen shows EUR prices converted to user currency, card-profit shows Cardmarket NM raw price and correct profit calculations.
 - **Grading History**: Stored locally via AsyncStorage.
 - **Customization**: Users can toggle grading companies.
 - **Share Results**: Branded shareable cards with Grade.IQ logo and grading details, supporting multiple social media formats via `react-native-view-shot` and `expo-sharing`.

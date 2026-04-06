@@ -114,6 +114,8 @@ interface TopPick {
   setTotal?: string;
   imageUrl: string | null;
   rawPriceUSD: number;
+  rawPriceEUR?: number | null;
+  lang?: string;
 }
 
 // Server-side pre-computed pick returned by /api/top-picks-precomputed
@@ -126,6 +128,8 @@ interface PrecomputedPick {
   setTotal?: string;
   imageUrl: string | null;
   rawPriceUSD: number;
+  rawPriceEUR?: number | null;
+  lang?: string;
   ebay: {
     psa10: number; psa9: number;
     bgs95: number; bgs9: number;
@@ -326,32 +330,46 @@ export default function ValuesScreen() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [recentLoaded, setRecentLoaded] = useState(false);
   const [priceTier, setPriceTier] = useState<PriceTierMax>(50);
+  const [selectedLang, setSelectedLang] = useState<"en" | "ja">("en");
   const [explainerDismissed, setExplainerDismissed] = useState(true); // default true = hidden until loaded
   const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
   const { isSubscribed, isAdminMode } = useSubscription();
   const hasAccess = isSubscribed || isAdminMode;
   const inputRef = useRef<TextInput>(null);
 
-  // Browse sets
-  const { data: setsData, isLoading: setsLoading, error: setsError, refetch: setsRefetch } = useQuery<{ sets: BrowseSet[] }>({
+  // Browse sets — English (with live price status polling) or Japanese
+  const { data: enSetsData, isLoading: enSetsLoading, error: enSetsError, refetch: enSetsRefetch } = useQuery<{ sets: BrowseSet[] }>({
     queryKey: ["/api/sets/english"],
     staleTime: 60 * 60 * 1000,
     retry: 2,
     retryDelay: 1500,
-    // Poll every 6s while the server is still computing price status in the background
+    enabled: selectedLang === "en",
     refetchInterval: (query) => {
       const sets = (query.state.data as any)?.sets as BrowseSet[] | undefined;
       if (!sets) return false;
       return sets.some(s => s.hasPrices === null) ? 6000 : false;
     },
   });
+  const { data: jaSetsData, isLoading: jaSetsLoading, error: jaSetsError, refetch: jaSetsRefetch } = useQuery<{ sets: BrowseSet[] }>({
+    queryKey: ["/api/sets/japanese"],
+    staleTime: 60 * 60 * 1000,
+    retry: 2,
+    retryDelay: 1500,
+    enabled: selectedLang === "ja",
+  });
+
+  const setsData   = selectedLang === "ja" ? jaSetsData   : enSetsData;
+  const setsLoading = selectedLang === "ja" ? jaSetsLoading : enSetsLoading;
+  const setsError   = selectedLang === "ja" ? jaSetsError   : enSetsError;
+  const setsRefetch = selectedLang === "ja" ? jaSetsRefetch  : enSetsRefetch;
   const sets = useMemo(() => setsData?.sets || [], [setsData]);
 
   const [setSearch, setSetSearch] = useState("");
   const setSearchRef = useRef<TextInput>(null);
 
-  // Expand WOTC sets into two entries (1st Edition + Unlimited) before filtering
+  // Expand WOTC sets into two entries (1st Edition + Unlimited) — English only
   const expandedSets = useMemo<BrowseSet[]>(() => {
+    if (selectedLang === "ja") return sets;
     const result: BrowseSet[] = [];
     for (const s of sets) {
       if (WOTC_1ST_EDITION_SETS[s.id]) {
@@ -362,7 +380,7 @@ export default function ValuesScreen() {
       }
     }
     return result;
-  }, [sets]);
+  }, [sets, selectedLang]);
 
   const filteredSets = useMemo(() => {
     const q = setSearch.trim().toLowerCase();
@@ -380,12 +398,13 @@ export default function ValuesScreen() {
     hasData: boolean;
     lastJobRun: string | null;
   }>({
-    queryKey: ["top-picks-precomputed", priceTier],
+    queryKey: ["top-picks-precomputed", priceTier, selectedLang],
     queryFn: async () => {
-      const resp = await apiRequest("GET", `/api/top-picks-precomputed?tierMaxGbp=${priceTier}`);
+      const langQ = selectedLang === "ja" ? "&lang=ja" : "";
+      const resp = await apiRequest("GET", `/api/top-picks-precomputed?tierMaxGbp=${priceTier}${langQ}`);
       return resp.json();
     },
-    staleTime: 30 * 60 * 1000, // 30 min — re-check mid-day but not on every mount
+    staleTime: 30 * 60 * 1000,
     retry: 1,
     retryDelay: 2000,
   });
@@ -402,12 +421,18 @@ export default function ValuesScreen() {
 
   // Enrich each pre-computed pick with the preferred company's profit.
   // All monetary values are in the user's selected currency.
+  // For JP picks, rawPriceEUR is converted via EUR exchange rate instead of USD rate.
+  const eurRate = ratesData?.rates?.["EUR"] ?? FALLBACK_RATES["EUR"] ?? 0.92;
   const enrichedTopPicks = useMemo(() => {
     const cfg = picksConfig;
 
     const enriched = precomputedPicks.map(pick => {
       const ebay = pick.ebay as any as EbayAllGrades;
-      const rawLocal  = pick.rawPriceUSD * currencyRate;
+      // For JP picks: convert EUR price → user currency; for EN picks: USD → user currency
+      const isJp = pick.lang === "ja" || selectedLang === "ja";
+      const rawLocal = isJp && pick.rawPriceEUR
+        ? pick.rawPriceEUR * (currencyRate / eurRate)
+        : pick.rawPriceUSD * currencyRate;
       const topEbayUSD = (ebay[cfg.topEbayKey] as number) ?? 0;
       const topGradeLocal  = topEbayUSD > 0 ? Math.round(topEbayUSD * currencyRate) : null;
       const topGradeProfit = topGradeLocal !== null ? Math.round(topGradeLocal - rawLocal) : null;
@@ -431,6 +456,7 @@ export default function ValuesScreen() {
         id: pick.cardId, name: pick.cardName, setName: pick.setName,
         setId: pick.setId, number: pick.number, setTotal: pick.setTotal,
         imageUrl: pick.imageUrl, rawPriceUSD: pick.rawPriceUSD,
+        rawPriceEUR: pick.rawPriceEUR, lang: pick.lang,
       };
 
       return {
@@ -445,7 +471,7 @@ export default function ValuesScreen() {
     // Sort by top-grade profit descending
     enriched.sort((a, b) => (b.topGradeProfit ?? -9999) - (a.topGradeProfit ?? -9999));
     return enriched.slice(0, 10);
-  }, [precomputedPicks, picksConfig, effectivePicksCompany, currencyRate]);
+  }, [precomputedPicks, picksConfig, effectivePicksCompany, currencyRate, eurRate, selectedLang]);
 
   // Alias for template clarity
   const tieredPicks = enrichedTopPicks;
@@ -518,6 +544,8 @@ export default function ValuesScreen() {
     rawPriceUSD?: number,
     cardNumber?: string | null,
     setTotal?: string | null,
+    rawPriceEUR?: number | null,
+    lang?: string | null,
   ) => {
     if (!hasAccess) { setShowUpgradeSheet(true); return; }
     router.push({
@@ -530,6 +558,8 @@ export default function ValuesScreen() {
         rawPriceUSD: rawPriceUSD ? String(rawPriceUSD) : "0",
         ...(cardNumber ? { cardNumber } : {}),
         ...(setTotal ? { setTotal } : {}),
+        ...(rawPriceEUR ? { rawPriceEUR: String(rawPriceEUR) } : {}),
+        ...(lang ? { lang } : {}),
       },
     });
   }, [hasAccess]);
@@ -538,21 +568,21 @@ export default function ValuesScreen() {
     router.push({
       pathname: "/set-cards",
       params: {
-        lang: "english",
+        lang: selectedLang === "ja" ? "japanese" : "english",
         setId: set.id,
-        setName: set.name,
+        setName: (set.nameEn || set.name).replace(/ · (1st Edition|Unlimited)$/, ""),
         setTotal: String(set.cardCount),
         ...(set.edition ? { edition: set.edition } : {}),
       },
     });
-  }, []);
+  }, [selectedLang]);
 
   const renderTopCard = useCallback((entry: typeof tieredPicks[0], index: number) => (
     <TopPickCard
       key={entry.pick.id}
       item={entry.pick}
       index={index}
-      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD, entry.pick.number, entry.pick.setTotal)}
+      onPress={() => handleTapCard(entry.pick.id, entry.pick.name, entry.pick.setName, entry.pick.imageUrl, entry.pick.rawPriceUSD, entry.pick.number, entry.pick.setTotal, entry.pick.rawPriceEUR, entry.pick.lang)}
       topGradeLocal={entry.topGradeLocal}
       topGradeProfit={entry.topGradeProfit}
       topGradeLabel={picksConfig.topGradeLabel}
@@ -810,17 +840,30 @@ export default function ValuesScreen() {
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
-              Raw: TCGPlayer market price · eBay: last sold price (excl. Best Offer) · All prices in {currency}{ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}
+              {selectedLang === "ja"
+                ? `Raw: Cardmarket NM EUR · eBay: last sold price (excl. Best Offer) · All prices in ${currency}${ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}`
+                : `Raw: TCGPlayer market price · eBay: last sold price (excl. Best Offer) · All prices in ${currency}${ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}`}
             </Text>
           </View>
         )}
       </View>
 
-      {/* ── Browse Sets header ── */}
+      {/* ── Browse Sets header + language toggle ── */}
       <View style={styles.browseSectionHeader}>
         <Text style={styles.browseSectionTitle}>Browse Sets</Text>
-        <View style={styles.langPill}>
-          <Text style={styles.langPillText}>🇬🇧 English only · more coming soon</Text>
+        <View style={styles.langToggleRow}>
+          <Pressable
+            style={[styles.langToggleBtn, selectedLang === "en" && styles.langToggleBtnActive]}
+            onPress={() => { setSelectedLang("en"); setSetSearch(""); }}
+          >
+            <Text style={[styles.langToggleBtnText, selectedLang === "en" && styles.langToggleBtnTextActive]}>🇬🇧 EN</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.langToggleBtn, selectedLang === "ja" && styles.langToggleBtnActive]}
+            onPress={() => { setSelectedLang("ja"); setSetSearch(""); }}
+          >
+            <Text style={[styles.langToggleBtnText, selectedLang === "ja" && styles.langToggleBtnTextActive]}>🇯🇵 JP</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -1191,22 +1234,38 @@ const styles = StyleSheet.create({
 
   // Browse section
   browseSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 10,
-    gap: 6,
   },
   browseSectionTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.text },
-  langPill: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
+  langToggleRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  langToggleBtn: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignSelf: "flex-start",
+    paddingVertical: 5,
+    borderRadius: 16,
+    backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
-  langPillText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textSecondary },
+  langToggleBtnActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  langToggleBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  langToggleBtnTextActive: {
+    color: "#fff",
+  },
 
   // Edition badges (1st Edition / Unlimited)
   editionBadge1st: {

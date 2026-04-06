@@ -55,10 +55,13 @@ interface CardPrices {
 interface SetCard {
   id: string;
   name: string;
+  nameEn?: string | null;
   number: string;
   imageUrl: string | null;
   price?: number | null;
   prices?: CardPrices | null;
+  priceEUR?: number | null;
+  setNameEn?: string | null;
 }
 
 const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, currencyRate, ebayPrices, ebayLoading, topEbayKey, topGradeLabel, picksCompany, profitDisplay, isSubscribed }: {
@@ -252,6 +255,10 @@ export default function SetCardsScreen() {
   });
 
   const isEnglish = lang === "english";
+  const isJapanese = lang === "japanese";
+
+  // EUR rate (rates are relative to USD — EUR: 0.92 means 1 USD = 0.92 EUR, so 1 EUR = 1/0.92 USD)
+  const eurRate = rates["EUR"] ?? 0.92;
 
   // Preferred picks company — mirrors the logic in values.tsx
   const effectivePicksCompany: CompanyId = useMemo(() => {
@@ -265,13 +272,13 @@ export default function SetCardsScreen() {
   const hasAnyPrice = isEnglish && allCards.some(c => c.price != null);
 
   const cards = useMemo(() => {
-    if (sortBy === "value" && isEnglish) {
+    if (sortBy === "value" && isEnglish && hasAnyPrice) {
       return [...allCards].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
     }
     return [...allCards].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
-  }, [allCards, sortBy, isEnglish]);
+  }, [allCards, sortBy, isEnglish, hasAnyPrice]);
 
-  // Top 15 by raw TCGPlayer price — candidates for profit analysis
+  // Top 15 by raw TCGPlayer price (English) — candidates for profit analysis
   const top15 = useMemo(() => {
     if (!hasAnyPrice) return [];
     return [...allCards]
@@ -280,16 +287,44 @@ export default function SetCardsScreen() {
       .slice(0, 15);
   }, [allCards, hasAnyPrice]);
 
+  // Japanese top picks — fetched from /api/jp-set-picks (PokeTrace EU top cards by NM price)
+  interface JpPick {
+    id: string; name: string; number: string;
+    imageUrl: string | null; nmEUR: number; avg7dEUR: number | null;
+  }
+  const [jpTopPicks, setJpTopPicks] = useState<JpPick[]>([]);
+  const [jpTopPicksLoading, setJpTopPicksLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isJapanese || !setName) return;
+    let cancelled = false;
+    setJpTopPicksLoading(true);
+    (async () => {
+      try {
+        const { getApiUrl } = await import("@/lib/query-client");
+        const slug = setName.toLowerCase().replace(/['\u2019]/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        const url = new URL(`/api/jp-set-picks?setSlug=${encodeURIComponent(slug)}&setNameEn=${encodeURIComponent(setName)}&limit=15`, getApiUrl());
+        const resp = await fetch(url.toString());
+        if (resp.ok && !cancelled) {
+          const d = await resp.json();
+          setJpTopPicks(d.picks || []);
+        }
+      } catch (_) {}
+      if (!cancelled) setJpTopPicksLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [isJapanese, setName]);
+
   const [ebayPricesMap, setEbayPricesMap] = useState<Record<string, Record<string, number>>>({});
   const [ebayPricesLoading, setEbayPricesLoading] = useState(false);
   const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
   const { isSubscribed, isAdminMode } = useSubscription();
   const hasAccess = isSubscribed || isAdminMode;
 
+  // For English: fetch eBay prices for the top 15 by TCGPlayer price
   const top15Key = top15.map(c => c.id).join(",");
-
   useEffect(() => {
-    if (!top15Key) return;
+    if (!top15Key || isJapanese) return;
     let cancelled = false;
     setEbayPricesLoading(true);
     setEbayPricesMap({});
@@ -317,11 +352,44 @@ export default function SetCardsScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [top15Key, setName]);
+  }, [top15Key, setName, isJapanese]);
 
-  // Sort top15 by preferred company's top grade profit, take top 10
+  // For Japanese: fetch eBay graded prices for each JP top pick (using English card name)
+  const jpTopPicksKey = jpTopPicks.map(c => c.id).join(",");
+  useEffect(() => {
+    if (!isJapanese || !jpTopPicksKey) return;
+    let cancelled = false;
+    setEbayPricesLoading(true);
+    setEbayPricesMap({});
+    (async () => {
+      const { getApiUrl } = await import("@/lib/query-client");
+      const map: Record<string, Record<string, number>> = {};
+      for (const card of jpTopPicks) {
+        if (cancelled) break;
+        try {
+          const params = new URLSearchParams({ name: card.name, setName: setName || "" });
+          if (card.number) params.set("cardNumber", card.number);
+          const url = new URL(`/api/ebay-all-grades?${params}`, getApiUrl());
+          const resp = await fetch(url.toString());
+          if (resp.ok) {
+            const d = await resp.json();
+            if (!d.error) map[card.id] = d;
+          }
+        } catch (_) {}
+        if (!cancelled) setEbayPricesMap(prev => ({ ...prev, ...map }));
+        await new Promise(r => setTimeout(r, 250));
+      }
+      if (!cancelled) {
+        setEbayPricesMap(map);
+        setEbayPricesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [jpTopPicksKey, setName, isJapanese]);
+
+  // Sort top15 by preferred company's top grade profit, take top 10 (English)
   const topByProfit = useMemo(() => {
-    if (top15.length === 0) return [];
+    if (top15.length === 0 || isJapanese) return [];
     const key = picksConfig.topEbayKey;
     return [...top15]
       .sort((a, b) => {
@@ -332,27 +400,69 @@ export default function SetCardsScreen() {
         return bProfit - aProfit;
       })
       .slice(0, 10);
-  }, [top15, ebayPricesMap, picksConfig.topEbayKey]);
+  }, [top15, ebayPricesMap, picksConfig.topEbayKey, isJapanese]);
+
+  // Japanese top picks sorted by company's top grade profit
+  const jpTopByProfit = useMemo(() => {
+    if (!isJapanese || jpTopPicks.length === 0) return [];
+    const key = picksConfig.topEbayKey;
+    return [...jpTopPicks]
+      .sort((a, b) => {
+        const aTop = (ebayPricesMap[a.id] as Record<string, number> | undefined)?.[key] ?? 0;
+        const bTop = (ebayPricesMap[b.id] as Record<string, number> | undefined)?.[key] ?? 0;
+        const aRawUSD = a.nmEUR / eurRate;
+        const bRawUSD = b.nmEUR / eurRate;
+        const aProfit = aTop > 0 ? aTop - aRawUSD : -999999;
+        const bProfit = bTop > 0 ? bTop - bRawUSD : -999999;
+        return bProfit - aProfit;
+      })
+      .slice(0, 10);
+  }, [jpTopPicks, ebayPricesMap, picksConfig.topEbayKey, isJapanese, eurRate]);
+
+  // The active top picks list (English or Japanese)
+  const activeTopPicks = isJapanese ? jpTopByProfit : topByProfit;
 
   // Derive set total: prefer the param passed from the set list, fall back to card count
   const resolvedSetTotal = setTotal || (allCards.length > 0 ? String(allCards.length) : "");
 
   const handleCardPress = (card: SetCard) => {
     if (!hasAccess) { setShowUpgradeSheet(true); return; }
+    const cardName = (isJapanese && card.nameEn) ? card.nameEn : card.name;
+    const rawSetName = (isJapanese && card.setNameEn) ? card.setNameEn : (setName || "");
     router.push({
       pathname: "/card-profit",
       params: {
         cardId: card.id,
-        cardName: card.name,
-        setName: setName || "",
+        cardName,
+        setName: rawSetName,
         cardNumber: card.number || "",
         setTotal: resolvedSetTotal,
         imageUrl: card.imageUrl || "",
         rawPriceUSD: card.price ? String(card.price) : "0",
+        ...(isJapanese && card.priceEUR ? { rawPriceEUR: String(card.priceEUR), lang: "ja" } : {}),
         ...(editionParam ? { edition: editionParam } : {}),
         ...(card.prices?.holofoil != null ? { holoPrice: String(card.prices.holofoil) } : {}),
         ...(card.prices?.reverseHolofoil != null ? { reverseHoloPrice: String(card.prices.reverseHolofoil) } : {}),
         ...(card.prices?.normal != null ? { normalPrice: String(card.prices.normal) } : {}),
+      },
+    });
+  };
+
+  // Navigate to card-profit from the Japanese top picks list
+  const handleJpPickPress = (pick: JpPick) => {
+    if (!hasAccess) { setShowUpgradeSheet(true); return; }
+    router.push({
+      pathname: "/card-profit",
+      params: {
+        cardId: pick.id,
+        cardName: pick.name,
+        setName: setName || "",
+        cardNumber: pick.number || "",
+        setTotal: resolvedSetTotal,
+        imageUrl: pick.imageUrl || "",
+        rawPriceUSD: String(pick.nmEUR / eurRate), // approximate USD for eBay profit calcs
+        rawPriceEUR: String(pick.nmEUR),
+        lang: "ja",
       },
     });
   };
@@ -362,9 +472,17 @@ export default function SetCardsScreen() {
     return currencySymbol === "¥" ? `${currencySymbol}${Math.round(local)}` : `${currencySymbol}${local.toFixed(2)}`;
   };
 
+  const fmtEurPrice = (eur: number) => {
+    // Convert EUR → user currency
+    const local = eur * (currencyRate / eurRate);
+    return currencySymbol === "¥" ? `${currencySymbol}${Math.round(local)}` : `${currencySymbol}${local.toFixed(2)}`;
+  };
+
   const renderGridCard = ({ item }: { item: SetCard }) => {
     const hasMultipleVariants = item.prices != null &&
       [item.prices.holofoil, item.prices.reverseHolofoil, item.prices.normal].filter(v => v != null).length > 1;
+
+    const jpPriceEUR = isJapanese ? item.priceEUR : null;
 
     return (
       <Pressable
@@ -386,7 +504,9 @@ export default function SetCardsScreen() {
         {item.number ? (
           <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
         ) : null}
-        {item.price != null ? (
+        {isJapanese && jpPriceEUR != null ? (
+          <Text style={styles.cardPrice} numberOfLines={1}>{fmtEurPrice(jpPriceEUR)} NM</Text>
+        ) : item.price != null ? (
           <View style={styles.gridPriceRow}>
             <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
             {hasMultipleVariants && isEnglish && (
@@ -400,7 +520,10 @@ export default function SetCardsScreen() {
     );
   };
 
-  const showTopPicks = isEnglish && hasAnyPrice && top15.length > 0 && !isLoading && !error;
+  const showTopPicks = !isLoading && !error && (
+    (isEnglish && hasAnyPrice && top15.length > 0) ||
+    (isJapanese && (jpTopPicks.length > 0 || jpTopPicksLoading))
+  );
 
   const listHeader = (
     <>
@@ -472,7 +595,9 @@ export default function SetCardsScreen() {
               <Text style={styles.topPicksSubtitle}>
                 {!hasAccess
                   ? "Subscribe to unlock graded prices & profit data"
-                  : ebayPricesLoading ? "Loading graded prices…" : `Highest ${picksConfig.topGradeLabel} profit first`}
+                  : (ebayPricesLoading || (isJapanese && jpTopPicksLoading))
+                    ? "Loading graded prices…"
+                    : `Highest ${picksConfig.topGradeLabel} profit first`}
               </Text>
             </View>
           </View>
@@ -481,31 +606,56 @@ export default function SetCardsScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.topPicksScroll}
           >
-            {topByProfit.map((card, i) => (
-              <SetPickCard
-                key={card.id}
-                item={card}
-                index={i}
-                setName={setName || ""}
-                onPress={() => handleCardPress(card)}
-                currencySymbol={currencySymbol}
-                currencyRate={currencyRate}
-                ebayPrices={ebayPricesMap[card.id]}
-                ebayLoading={ebayPricesLoading && !ebayPricesMap[card.id]}
-                topEbayKey={picksConfig.topEbayKey}
-                topGradeLabel={picksConfig.topGradeLabel}
-                picksCompany={effectivePicksCompany}
-                profitDisplay={settings.profitDisplay ?? "value"}
-                isSubscribed={hasAccess}
-              />
-            ))}
+            {isJapanese ? (
+              jpTopPicksLoading && jpTopPicks.length === 0 ? (
+                <ActivityIndicator color={Colors.primary} style={{ marginLeft: 16 }} />
+              ) : jpTopByProfit.map((pick, i) => (
+                <SetPickCard
+                  key={pick.id}
+                  item={{ ...pick, price: pick.nmEUR / eurRate } as unknown as SetCard}
+                  index={i}
+                  setName={setName || ""}
+                  onPress={() => handleJpPickPress(pick)}
+                  currencySymbol={currencySymbol}
+                  currencyRate={currencyRate}
+                  ebayPrices={ebayPricesMap[pick.id]}
+                  ebayLoading={ebayPricesLoading && !ebayPricesMap[pick.id]}
+                  topEbayKey={picksConfig.topEbayKey}
+                  topGradeLabel={picksConfig.topGradeLabel}
+                  picksCompany={effectivePicksCompany}
+                  profitDisplay={settings.profitDisplay ?? "value"}
+                  isSubscribed={hasAccess}
+                />
+              ))
+            ) : (
+              topByProfit.map((card, i) => (
+                <SetPickCard
+                  key={card.id}
+                  item={card}
+                  index={i}
+                  setName={setName || ""}
+                  onPress={() => handleCardPress(card)}
+                  currencySymbol={currencySymbol}
+                  currencyRate={currencyRate}
+                  ebayPrices={ebayPricesMap[card.id]}
+                  ebayLoading={ebayPricesLoading && !ebayPricesMap[card.id]}
+                  topEbayKey={picksConfig.topEbayKey}
+                  topGradeLabel={picksConfig.topGradeLabel}
+                  picksCompany={effectivePicksCompany}
+                  profitDisplay={settings.profitDisplay ?? "value"}
+                  isSubscribed={hasAccess}
+                />
+              ))
+            )}
           </ScrollView>
           <View style={styles.topPicksDisclaimer}>
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
-              {editionParam
-                ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer reference · Tap a card for full grade breakdown`
-                : `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer market price · All prices in ${currency}`}
+              {isJapanese
+                ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: Cardmarket NM price · All prices in ${currency}`
+                : editionParam
+                  ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer reference · Tap a card for full grade breakdown`
+                  : `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer market price · All prices in ${currency}`}
             </Text>
           </View>
         </View>

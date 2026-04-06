@@ -350,8 +350,9 @@ async function initTopPicksPrecomputedTable(): Promise<void> {
         PRIMARY KEY (card_id, tier_max_gbp)
       )
     `);
-    // Add ebay_all_grades column to existing tables created before this migration
     await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS ebay_all_grades JSONB`);
+    await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS lang VARCHAR(5) DEFAULT 'en'`);
+    await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS raw_price_eur NUMERIC(10,2)`);
     console.log("[top-picks] DB table ready");
   } catch (e: any) {
     console.error("[top-picks] Failed to create table:", e.message);
@@ -551,6 +552,115 @@ async function fetchEbayGradedPrices(
   }
 
   return result;
+}
+
+// ── Japanese raw price (PokeTrace EU / Cardmarket NM price) ───────────────────
+// Returns the Near-Mint EUR price for a card from the EU market (Cardmarket).
+// Cache key is prefixed "jp-raw:" to avoid collisions with US eBay cache.
+const JP_RAW_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 h
+interface JpRawPrice {
+  priceEUR: number;
+  avg7dEUR: number | null;
+  avg30dEUR: number | null;
+  saleCount: number | null;
+  imageUrl: string | null;
+  fetchedAt: number;
+}
+const jpRawPriceCache = new Map<string, JpRawPrice>();
+
+async function fetchJpRawPrice(
+  cardName: string,
+  setName: string,
+  cardNumber?: string
+): Promise<JpRawPrice> {
+  const baseNum   = cardNumber ? cardNumber.split("/")[0].trim() : "";
+  const cacheKey  = `jp-raw:${[cardName, baseNum].filter(Boolean).join(" ")}`;
+
+  const memHit = jpRawPriceCache.get(cacheKey);
+  if (memHit && Date.now() - memHit.fetchedAt < JP_RAW_CACHE_TTL) return memHit;
+
+  // L2: DB cache
+  let stale: JpRawPrice | null = null;
+  try {
+    const dbRes = await db.query<{ data: JpRawPrice; fetched_ms: string }>(
+      `SELECT data, EXTRACT(EPOCH FROM fetched_at) * 1000 AS fetched_ms
+         FROM ebay_price_cache WHERE cache_key = $1`,
+      [cacheKey]
+    );
+    if (dbRes.rows.length > 0) {
+      const fa = parseFloat(dbRes.rows[0].fetched_ms);
+      if (Date.now() - fa < JP_RAW_CACHE_TTL) {
+        const r = { ...dbRes.rows[0].data, fetchedAt: fa };
+        jpRawPriceCache.set(cacheKey, r);
+        return r;
+      }
+      stale = { ...dbRes.rows[0].data, fetchedAt: parseFloat(dbRes.rows[0].fetched_ms) };
+    }
+  } catch { /* fall through */ }
+
+  const apiKey = process.env.POKETRACE_API_KEY;
+  const empty: JpRawPrice = { priceEUR: 0, avg7dEUR: null, avg30dEUR: null, saleCount: null, imageUrl: null, fetchedAt: Date.now() };
+  if (!apiKey) return stale ?? empty;
+
+  const searchQuery = [cardName, baseNum].filter(Boolean).join(" ");
+  const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(searchQuery)}&market=EU&limit=10`;
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normSet = normalize(setName);
+
+  let ptCard: any = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
+      if (resp.status === 429) {
+        const wait = Math.min(parseInt(resp.headers.get("retry-after") || "10", 10) * 1000, 30_000);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      if (!resp.ok) throw new Error(`PokeTrace EU HTTP ${resp.status}`);
+      const data = await resp.json() as any;
+      const cards: any[] = data?.data || [];
+      const setMatches = (c: any) => {
+        const n = normalize(c.set?.name || "");
+        return n === normSet || n.includes(normSet) || normSet.includes(n);
+      };
+      const numMatches = (c: any) =>
+        baseNum && (c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum);
+      ptCard =
+        cards.find(c => numMatches(c) && setMatches(c)) ||
+        cards.find(c => numMatches(c)) ||
+        cards.find(c => setMatches(c)) ||
+        null;
+      break;
+    } catch (e: any) {
+      if (attempt < 3) await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
+  }
+
+  const nm  = ptCard?.prices?.cardmarket_unsold?.NEAR_MINT;
+  const agg = ptCard?.prices?.cardmarket?.AGGREGATED;
+  const result: JpRawPrice = {
+    priceEUR:   nm?.avg    && nm.avg > 0    ? Math.round(nm.avg * 100) / 100 : 0,
+    avg7dEUR:   agg?.avg7d  && agg.avg7d > 0 ? Math.round(agg.avg7d * 100) / 100 : null,
+    avg30dEUR:  agg?.avg30d && agg.avg30d > 0 ? Math.round(agg.avg30d * 100) / 100 : null,
+    saleCount:  nm?.saleCount ?? null,
+    imageUrl:   ptCard?.image ?? null,
+    fetchedAt:  Date.now(),
+  };
+
+  console.log(`[jp-raw] ${cardName} (${setName}) → €${result.priceEUR} NM | ${ptCard ? "matched" : "no match"}`);
+
+  if (result.priceEUR > 0) {
+    jpRawPriceCache.set(cacheKey, result);
+    const { fetchedAt: _fa, ...dbData } = result;
+    db.query(
+      `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
+      [cacheKey, JSON.stringify(dbData)]
+    ).catch(e => console.error("[jp-raw-cache] DB write failed:", e.message));
+  }
+
+  return result.priceEUR > 0 ? result : (stale ?? empty);
 }
 
 async function fetchAndCacheSets(): Promise<void> {
@@ -7326,6 +7436,179 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // ── Japanese top picks job ────────────────────────────────────────────────
+  // Queries PokeTrace EU for highest-priced Japanese cards across popular sets,
+  // then fetches graded eBay prices (US market) for each, storing results in
+  // top_picks_precomputed with lang='ja' and raw_price_eur.
+
+  let jpTopPicksJobRunning = false;
+  let jpTopPicksLastRun: Date | null = null;
+
+  // Popular modern Japanese sets — slugs that PokeTrace EU recognises
+  const JP_SET_SLUGS = [
+    "151", "crimson-haze", "mask-of-change", "night-wanderer",
+    "stellar-miracle", "paradise-dragona", "ancient-roar", "future-flash",
+    "snow-hazard", "clay-burst", "scarlet-ex", "violet-ex",
+    "vstar-universe", "lost-abyss", "incandescent-arcana",
+    "dark-phantasma", "pokemon-go", "battle-region",
+    "brilliant-stars", "astral-radiance", "fusion-arts",
+    "eevee-heroes", "peerless-fighters", "matchless-fighters",
+    "blue-sky-stream", "towering-perfection",
+    "s-p-promotional-cards",
+  ];
+
+  async function runJapaneseTopPicksJob(): Promise<void> {
+    if (jpTopPicksJobRunning) {
+      console.log("[jp-top-picks] Job already running, skipping");
+      return;
+    }
+    jpTopPicksJobRunning = true;
+    console.log("[jp-top-picks] Starting Japanese precomputed picks job...");
+    try {
+      const rates = await getExchangeRates();
+      const eurRate = rates.rates.EUR ?? 0.86; // USD per EUR
+      const gbpRate = rates.rates.GBP ?? 0.79;
+      const apiKey  = process.env.POKETRACE_API_KEY;
+      if (!apiKey) throw new Error("POKETRACE_API_KEY not configured");
+
+      // Collect candidate cards from each set (PokeTrace EU, sorted by NM price desc)
+      const candidates: Array<{
+        cardId: string; name: string; setName: string; setSlug: string;
+        number: string; imageUrl: string | null; nmEUR: number;
+      }> = [];
+
+      for (const slug of JP_SET_SLUGS) {
+        try {
+          const url = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=8`;
+          const resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
+          if (!resp.ok) { console.warn(`[jp-top-picks] Set ${slug}: HTTP ${resp.status}`); continue; }
+          const data = await resp.json() as any;
+          const cards: any[] = data?.data || [];
+          for (const c of cards) {
+            const nm = c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0;
+            if (nm > 0) {
+              candidates.push({
+                cardId:   c.id || `jp-${c.name}-${c.cardNumber}`,
+                name:     c.name || "Unknown",
+                setName:  c.set?.name || slug,
+                setSlug:  slug,
+                number:   c.cardNumber || "",
+                imageUrl: c.image ?? null,
+                nmEUR:    Math.round(nm * 100) / 100,
+              });
+            }
+          }
+          await new Promise(r => setTimeout(r, 300));
+        } catch (e: any) {
+          console.warn(`[jp-top-picks] Set ${slug} error:`, e.message);
+        }
+      }
+
+      console.log(`[jp-top-picks] Collected ${candidates.length} candidates across ${JP_SET_SLUGS.length} sets`);
+
+      // Convert EUR prices to GBP for tier bucketing
+      for (const tier of TOP_PICKS_TIERS) {
+        const minEUR = (tier.minGBP / gbpRate) * eurRate;
+        const maxEUR = (tier.maxGBP / gbpRate) * eurRate;
+
+        const tieredCandidates = candidates
+          .filter(c => c.nmEUR >= minEUR && c.nmEUR < maxEUR)
+          .sort((a, b) => b.nmEUR - a.nmEUR)
+          .slice(0, 15);
+
+        console.log(`[jp-top-picks] Tier £${tier.maxGBP}: ${tieredCandidates.length} candidates (€${minEUR.toFixed(2)}–€${maxEUR.toFixed(2)})`);
+
+        for (const card of tieredCandidates) {
+          try {
+            const ebay = await fetchEbayGradedPrices(card.name, card.setName, card.number || undefined);
+            const hasData = [
+              ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
+              ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
+            ].some(v => v > 0);
+
+            if (hasData) {
+              const { fetchedAt: _fa, ...gradesOnly } = ebay;
+              await db.query(
+                `INSERT INTO top_picks_precomputed
+                   (card_id, tier_max_gbp, card_name, set_name, set_id, number, image_url,
+                    raw_price_usd, raw_price_eur, lang,
+                    ebay_psa10, ebay_psa9, ebay_bgs95, ebay_bgs9, ebay_ace10, ebay_tag10, ebay_cgc10, ebay_raw,
+                    ebay_all_grades, ebay_fetched_at, is_stale, updated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ja',$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),FALSE,NOW())
+                 ON CONFLICT (card_id, tier_max_gbp) DO UPDATE SET
+                   card_name=$3, set_name=$4, image_url=$7, raw_price_usd=$8, raw_price_eur=$9, lang='ja',
+                   ebay_psa10=$10, ebay_psa9=$11, ebay_bgs95=$12, ebay_bgs9=$13,
+                   ebay_ace10=$14, ebay_tag10=$15, ebay_cgc10=$16, ebay_raw=$17,
+                   ebay_all_grades=$18, ebay_fetched_at=NOW(), is_stale=FALSE, updated_at=NOW()`,
+                [
+                  card.cardId, tier.maxGBP, card.name, card.setName, card.setSlug,
+                  card.number, card.imageUrl,
+                  Math.round(card.nmEUR / eurRate * 100) / 100, // raw_price_usd (approx)
+                  card.nmEUR,                                    // raw_price_eur
+                  ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
+                  ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
+                  JSON.stringify(gradesOnly),
+                ]
+              );
+              console.log(`[jp-top-picks] ✓ ${card.name} (£${tier.maxGBP}) €${card.nmEUR} PSA10=$${ebay.psa10}`);
+            } else {
+              await db.query(
+                `UPDATE top_picks_precomputed SET is_stale=TRUE, updated_at=NOW()
+                  WHERE card_id=$1 AND tier_max_gbp=$2`,
+                [card.cardId, tier.maxGBP]
+              );
+            }
+          } catch (err: any) {
+            console.error(`[jp-top-picks] Error processing ${card.name}:`, err.message);
+          }
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
+
+      jpTopPicksLastRun = new Date();
+      console.log("[jp-top-picks] Japanese precomputed picks job complete");
+    } finally {
+      jpTopPicksJobRunning = false;
+    }
+  }
+
+  async function scheduleDailyJpTopPicksJob() {
+    const now = new Date();
+    const todayAt10 = new Date();
+    todayAt10.setUTCHours(10, 0, 0, 0); // 10am UTC (1h after English job)
+    const nextAt10 = new Date(todayAt10);
+    if (nextAt10 <= now) nextAt10.setUTCDate(nextAt10.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = null;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(ebay_fetched_at) AS latest FROM top_picks_precomputed WHERE lang='ja'`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) lastRanAt = new Date(ts);
+    } catch { /* ignore */ }
+
+    const hasRunToday =
+      (jpTopPicksLastRun && jpTopPicksLastRun >= todayAt10) ||
+      (lastRanAt         && lastRanAt         >= todayAt10);
+    const missedToday = now >= todayAt10 && !hasRunToday;
+
+    if (missedToday) {
+      console.log(`[jp-top-picks] Missed today's 10am run — catching up in 3 min`);
+      setTimeout(async () => {
+        await runJapaneseTopPicksJob().catch(e => console.error("[jp-top-picks] Job error:", e.message));
+        scheduleDailyJpTopPicksJob();
+      }, 3 * 60 * 1000);
+    } else {
+      const delay = nextAt10.getTime() - now.getTime();
+      console.log(`[jp-top-picks] Daily job scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(async () => {
+        await runJapaneseTopPicksJob().catch(e => console.error("[jp-top-picks] Job error:", e.message));
+        scheduleDailyJpTopPicksJob();
+      }, delay);
+    }
+  }
+
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
   function scheduleDailyCardCatalogSync() {
     const now = new Date();
@@ -7584,6 +7867,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   scheduleDailySetStatusRefresh();
   scheduleDailyCardCatalogSync();
   scheduleDailyTopPicksJob();
+  scheduleDailyJpTopPicksJob();
 
   // Kick off first-run catalog population if the DB is empty (non-blocking)
   void (async () => {
@@ -7713,20 +7997,21 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!VALID_TIERS.includes(tierMaxGbp)) {
       return res.status(400).json({ error: `tierMaxGbp must be one of: ${VALID_TIERS.join(", ")}` });
     }
+    const lang = (req.query.lang as string) === "ja" ? "ja" : "en";
     try {
       const { rows } = await db.query(
-        `SELECT card_id, card_name, set_name, set_id, number, image_url, raw_price_usd,
+        `SELECT card_id, card_name, set_name, set_id, number, image_url, raw_price_usd, raw_price_eur,
                 ebay_psa10, ebay_psa9, ebay_bgs95, ebay_bgs9,
                 ebay_ace10, ebay_tag10, ebay_cgc10, ebay_raw,
                 ebay_all_grades, ebay_fetched_at, is_stale, updated_at
            FROM top_picks_precomputed
-          WHERE tier_max_gbp = $1
+          WHERE tier_max_gbp = $1 AND COALESCE(lang, 'en') = $2
           ORDER BY COALESCE(ebay_psa10, 0) DESC
           LIMIT 20`,
-        [tierMaxGbp]
+        [tierMaxGbp, lang]
       );
-      // Look up printedTotal for each pick's set so the frontend can show "8/147"
-      const allSets = await ensureSetsCached();
+      // For English picks, look up set totals from the English sets cache
+      const allSets = lang === "en" ? await ensureSetsCached() : [];
       const setTotalMap = new Map(allSets.map(s => [s.id, s.printedTotal || s.total || 0]));
 
       res.json({
@@ -7739,10 +8024,10 @@ RESPONSE FORMAT (JSON only, no markdown):
           setTotal:     setTotalMap.get(r.set_id) ? String(setTotalMap.get(r.set_id)) : undefined,
           imageUrl:     r.image_url,
           rawPriceUSD:  parseFloat(r.raw_price_usd) || 0,
+          rawPriceEUR:  r.raw_price_eur ? parseFloat(r.raw_price_eur) : null,
+          lang,
           ebay: {
-            // Full grade set from JSONB — used for min profit calculations
             ...(r.ebay_all_grades ?? {}),
-            // Ensure key grades are numeric (fallback if JSONB is missing)
             psa10:     parseFloat(r.ebay_psa10)  || 0,
             psa9:      parseFloat(r.ebay_psa9)   || 0,
             bgs95:     parseFloat(r.ebay_bgs95)  || 0,
@@ -7755,11 +8040,76 @@ RESPONSE FORMAT (JSON only, no markdown):
             isStale:   r.is_stale ?? false,
           },
         })),
-        lastJobRun: topPicksLastRun?.toISOString() ?? null,
+        lastJobRun: lang === "en" ? (topPicksLastRun?.toISOString() ?? null) : (jpTopPicksLastRun?.toISOString() ?? null),
         hasData:    rows.length > 0,
       });
     } catch (err: any) {
       console.error("[top-picks-precomputed]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Japanese raw NM price from PokeTrace EU market ────────────────────────
+  app.get("/api/jp-raw-price", async (req, res) => {
+    const { name, setName, number } = req.query;
+    if (!name || !setName) return res.status(400).json({ error: "name and setName required" });
+    try {
+      const result = await fetchJpRawPrice(
+        String(name), String(setName), number ? String(number) : undefined
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error("[jp-raw-price]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Japanese set top picks from PokeTrace EU ──────────────────────────────
+  // Returns the top N most expensive cards in a Japanese set from Cardmarket (EU market),
+  // enriched with eBay graded prices. Used for the Top Picks section inside set-cards.
+  const jpSetPicksCache = new Map<string, { picks: any[]; fetchedAt: number }>();
+  const JP_SET_PICKS_TTL = 6 * 60 * 60 * 1000; // 6h
+
+  app.get("/api/jp-set-picks", async (req, res) => {
+    const { setSlug, setNameEn } = req.query;
+    if (!setSlug) return res.status(400).json({ error: "setSlug required" });
+    const limit = Math.min(parseInt(req.query.limit as string) || 15, 20);
+    const slug = String(setSlug);
+    const setName = String(setNameEn || slug);
+
+    const cacheHit = jpSetPicksCache.get(slug);
+    if (cacheHit && Date.now() - cacheHit.fetchedAt < JP_SET_PICKS_TTL) {
+      return res.json({ picks: cacheHit.picks.slice(0, limit) });
+    }
+
+    const apiKey = process.env.POKETRACE_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "API key not configured" });
+
+    try {
+      const url = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=20`;
+      const resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return res.status(502).json({ error: `PokeTrace EU HTTP ${resp.status}` });
+      const data = await resp.json() as any;
+      const cards: any[] = data?.data || [];
+
+      // Sort by NM price descending, take top N
+      const sorted = cards
+        .map((c: any) => ({
+          id:       c.id || "",
+          name:     c.name || "Unknown",
+          number:   c.cardNumber || "",
+          imageUrl: c.image ?? null,
+          nmEUR:    c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0,
+          avg7dEUR: c.prices?.cardmarket?.AGGREGATED?.avg7d ?? null,
+        }))
+        .filter(c => c.nmEUR > 0)
+        .sort((a, b) => b.nmEUR - a.nmEUR)
+        .slice(0, 20);
+
+      jpSetPicksCache.set(slug, { picks: sorted, fetchedAt: Date.now() });
+      res.json({ picks: sorted.slice(0, limit) });
+    } catch (err: any) {
+      console.error("[jp-set-picks]", err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -7770,14 +8120,23 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (secret !== "@dm!nM@rceus2026") {
       return res.status(401).json({ error: "Unauthorized" });
     }
+    const lang = (req.query.lang as string) === "ja" ? "ja" : "en";
+    if (lang === "ja") {
+      if (jpTopPicksJobRunning) return res.json({ status: "already_running" });
+      jpTopPicksLastRun = null;
+      runJapaneseTopPicksJob()
+        .then(() => console.log("[jp-top-picks] Manual trigger complete"))
+        .catch(e => console.error("[jp-top-picks] Manual trigger error:", e.message));
+      return res.json({ status: "started", lang: "ja" });
+    }
     if (topPicksJobRunning) {
       return res.json({ status: "already_running" });
     }
-    topPicksLastRun = null; // allow re-run today
+    topPicksLastRun = null;
     runTopPicksJob()
       .then(() => console.log("[top-picks] Manual trigger complete"))
       .catch(e => console.error("[top-picks] Manual trigger error:", e.message));
-    res.json({ status: "started" });
+    res.json({ status: "started", lang: "en" });
   });
 
   // ── eBay Graded Price Lookup (PSA 10 / PSA 9 — backward compat) ──────────
@@ -7959,21 +8318,67 @@ RESPONSE FORMAT (JSON only, no markdown):
         );
         if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
         const data = await resp.json() as any;
-        cards = (data?.cards || []).map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          number: c.localId || "",
-          imageUrl: c.image ? `${c.image}/high.jpg` : null,
-        }));
+
+        // nameEn: English name for this Japanese set (used for PokeTrace slug + display)
+        const setNameEn: string = data.nameEn || data.name || setId;
+
+        // Build a PokeTrace EU set slug from the English set name
+        const ptSlug = setNameEn.toLowerCase().replace(/['\u2019]/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+
+        // Best-effort: fetch PokeTrace EU card list for this set to get NM EUR prices + images
+        const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
+        if (lang === "japanese" && ptSlug) {
+          try {
+            const ptUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(ptSlug)}&market=EU&limit=250`;
+            const ptResp = await fetch(ptUrl, {
+              headers: { "X-API-Key": process.env.POKETRACE_API_KEY || "" },
+              signal: AbortSignal.timeout(10000),
+            });
+            if (ptResp.ok) {
+              const ptData = await ptResp.json() as any;
+              for (const c of (ptData?.data || [])) {
+                const baseNum = (c.cardNumber || "").split("/")[0].trim();
+                if (baseNum) {
+                  const nm = c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0;
+                  ptCardsByNumber.set(baseNum, {
+                    nameEn:   c.name || "",
+                    priceEUR: nm > 0 ? Math.round(nm * 100) / 100 : 0,
+                    imageUrl: c.image ?? null,
+                  });
+                }
+              }
+              console.log(`[sets/cards] PokeTrace EU enrichment: ${ptCardsByNumber.size} cards for ${ptSlug}`);
+            }
+          } catch (e: any) {
+            console.warn(`[sets/cards] PokeTrace EU enrichment failed for ${ptSlug}:`, e.message);
+          }
+        }
+
+        cards = (data?.cards || []).map((c: any) => {
+          const localId = c.localId || "";
+          const pt = ptCardsByNumber.get(localId) ?? null;
+          return {
+            id: c.id,
+            name: c.name,          // Japanese/local name
+            nameEn: pt?.nameEn || c.nameEn || null, // English name (for PokeTrace matching)
+            number: localId,
+            imageUrl: pt?.imageUrl || (c.image ? `${c.image}/high.jpg` : null),
+            priceEUR: pt?.priceEUR ?? null,
+            setNameEn,             // Pass the English set name so frontend can use for PokeTrace
+          };
+        });
       }
 
       const shaped = cards.map((c: any) => ({
         id: c.id,
         name: c.name,
+        nameEn: c.nameEn ?? null,
         number: c.number || "",
         imageUrl: c.imageUrl || null,
         price: c.price ?? null,
         prices: c.prices ?? null,
+        priceEUR: c.priceEUR ?? null,
+        setNameEn: c.setNameEn ?? null,
       }));
 
       console.log(`[sets/cards] Fetched ${shaped.length} cards for ${cacheKey}`);

@@ -373,7 +373,7 @@ export default function CardProfitScreen() {
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
-  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, edition, holoPrice, reverseHoloPrice, normalPrice } = useLocalSearchParams<{
+  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, rawPriceEUR, lang, edition, holoPrice, reverseHoloPrice, normalPrice } = useLocalSearchParams<{
     cardId: string;
     cardName: string;
     setName: string;
@@ -381,11 +381,15 @@ export default function CardProfitScreen() {
     setTotal?: string;
     imageUrl?: string;
     rawPriceUSD?: string;
+    rawPriceEUR?: string;
+    lang?: string;
     edition?: string;
     holoPrice?: string;
     reverseHoloPrice?: string;
     normalPrice?: string;
   }>();
+
+  const isJapanese = lang === "ja";
 
   const editionParam: "1st" | "unlimited" | null =
     edition === "1st" ? "1st" : edition === "unlimited" ? "unlimited" : null;
@@ -492,13 +496,21 @@ export default function CardProfitScreen() {
     return fmtLocal(profitAbs);
   };
 
+  const eurRate = rates["EUR"] ?? FALLBACK_RATES["EUR"] ?? 0.92;
   const baseRawUSD = rawPriceUSD ? parseFloat(rawPriceUSD) : 0;
+  const baseRawEUR = rawPriceEUR ? parseFloat(rawPriceEUR) : 0;
   const selectedVariantPrice = selectedVariant
     ? (variantPrices.find(v => v.key === selectedVariant)?.price ?? null)
     : null;
-  const rawUSD = (hasVariantTabs && selectedVariantPrice != null) ? selectedVariantPrice : baseRawUSD;
-  const rawLocalVal = rawUSD > 0 ? rawUSD * currencyRate : 0;
+  // For Japanese cards, use EUR raw price (Cardmarket NM); otherwise use USD (TCGPlayer)
+  const rawUSD = isJapanese && baseRawEUR > 0
+    ? baseRawEUR / eurRate // EUR → USD equivalent
+    : (hasVariantTabs && selectedVariantPrice != null) ? selectedVariantPrice : baseRawUSD;
+  const rawLocalVal = isJapanese && baseRawEUR > 0
+    ? baseRawEUR * (currencyRate / eurRate) // EUR → user currency directly
+    : rawUSD > 0 ? rawUSD * currencyRate : 0;
   const hasRawPrice = rawLocalVal > 0;
+  const rawPriceLabel = isJapanese ? "Cardmarket NM" : "TCGPlayer";
 
   const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
     queryKey: ["ebay-all-grades", cardName, setName, cardNumber ?? "", editionParam],
@@ -761,7 +773,7 @@ export default function CardProfitScreen() {
           {/* Raw price pill */}
           <View style={st.heroPriceRow}>
             <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
-            <Text style={st.heroPriceLabel}>Raw (TCGPlayer)</Text>
+            <Text style={st.heroPriceLabel}>Raw ({rawPriceLabel})</Text>
             <Text style={st.heroPriceValue}>
               {hasRawPrice ? fmtLocal(rawLocalVal) : "No price data"}
             </Text>
