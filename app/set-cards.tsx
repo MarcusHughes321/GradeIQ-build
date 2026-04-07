@@ -10,6 +10,7 @@ import {
   Dimensions,
   ScrollView,
   Linking,
+  RefreshControl,
 } from "react-native";
 import { Image } from "expo-image";
 import { BlurView } from "expo-blur";
@@ -241,7 +242,7 @@ export default function SetCardsScreen() {
     ? `/api/sets/${lang}/${setId}/cards?edition=${editionParam}`
     : `/api/sets/${lang}/${setId}/cards`;
 
-  const { data, isLoading, error } = useQuery<{ cards: SetCard[] }>({
+  const { data, isLoading, error, refetch, isRefetching } = useQuery<{ cards: SetCard[] }>({
     queryKey: ["/api/sets", lang, setId, "cards", editionParam ?? "any"],
     queryFn: async () => {
       const { getApiUrl } = await import("@/lib/query-client");
@@ -722,6 +723,25 @@ export default function SetCardsScreen() {
           columnWrapperStyle={styles.gridRow}
           showsVerticalScrollIndicator={false}
           renderItem={renderGridCard}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => {
+                refetch();
+                if (isJapanese && setName) {
+                  const slug = setName.toLowerCase().replace(/['\u2019]/g, "").replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+                  import("@/lib/query-client").then(({ getApiUrl }) => {
+                    fetch(new URL(`/api/jp-set-picks?setSlug=${encodeURIComponent(slug)}&setNameEn=${encodeURIComponent(setName)}&limit=15`, getApiUrl()).toString())
+                      .then(r => r.json())
+                      .then(d => { if (d.picks) setJpTopPicks(d.picks); })
+                      .catch(() => {});
+                  });
+                }
+              }}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
         />
       )}
     </View>
