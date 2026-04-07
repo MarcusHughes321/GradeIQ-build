@@ -7828,6 +7828,50 @@ RESPONSE FORMAT (JSON only, no markdown):
       .replace(/[^a-z0-9-]/g, "");
   }
 
+  // Maps PokeTrace slug → TCGdex {series, setId} for high-res card images (600×825)
+  // Sets not listed here fall back to PokeTrace CDN (255×361) images
+  const SLUG_TO_TCGDEX: Record<string, { series: string; setId: string }> = {
+    // SV era — all confirmed working on TCGdex
+    "scarlet-ex":               { series: "SV", setId: "SV1S" },
+    "violet-ex":                { series: "SV", setId: "SV1V" },
+    "triplet-beat":             { series: "SV", setId: "SV1a" },
+    "snow-hazard":              { series: "SV", setId: "SV2P" },
+    "clay-burst":               { series: "SV", setId: "SV2D" },
+    "151":                      { series: "SV", setId: "SV2a" },
+    "raging-surf":              { series: "SV", setId: "SV3a" },
+    "ruler-of-the-black-flame": { series: "SV", setId: "SV3"  },
+    "ancient-roar":             { series: "SV", setId: "SV4K" },
+    "future-flash":             { series: "SV", setId: "SV4M" },
+    "shiny-treasure-ex":        { series: "SV", setId: "SV4a" },
+    "crimson-haze":             { series: "SV", setId: "SV5a" },
+    "wild-force":               { series: "SV", setId: "SV5K" },
+    "cyber-judge":              { series: "SV", setId: "SV5M" },
+    "mask-of-change":           { series: "SV", setId: "SV6"  },
+    "night-wanderer":           { series: "SV", setId: "SV6a" },
+    "stellar-miracle":          { series: "SV", setId: "SV7"  },
+    "paradise-dragona":         { series: "SV", setId: "SV7a" },
+    "super-electric-breaker":   { series: "SV", setId: "SV8"  },
+    "terastal-festival-ex":     { series: "SV", setId: "SV8a" },
+    "battle-partners":          { series: "SV", setId: "SV9"  },
+    "hot-wind-arena":           { series: "SV", setId: "SV9a" },
+    // SwSh era — only confirmed working sets included
+    "star-birth":               { series: "S",  setId: "S9"   },
+    "battle-region":            { series: "S",  setId: "S9a"  },
+    "dark-phantasma":           { series: "S",  setId: "S10a" },
+    "incandescent-arcana":      { series: "S",  setId: "S11a" },
+    "lost-abyss":               { series: "S",  setId: "S11"  },
+    "vstar-universe":           { series: "S",  setId: "S12a" },
+    "vmax-climax":              { series: "S",  setId: "S12"  },
+    // S6a/S7R/S8/S8a not available on TCGdex — fall back to PokeTrace
+  };
+
+  function buildTcgdexImageUrl(slug: string, cardNumber: string): string | null {
+    const info = SLUG_TO_TCGDEX[slug];
+    if (!info || !cardNumber) return null;
+    const padded = String(cardNumber).padStart(3, "0");
+    return `https://assets.tcgdex.net/ja/${info.series}/${info.setId}/${padded}/high.webp`;
+  }
+
   // Popular modern Japanese sets — slugs that PokeTrace EU recognises
   const JP_SET_SLUGS = [
     // SV era
@@ -7915,13 +7959,14 @@ RESPONSE FORMAT (JSON only, no markdown):
             .slice(0, 8);
 
           for (const { c, nm } of topCards) {
+            const tcgdexUrl = buildTcgdexImageUrl(slug, c.cardNumber || "");
             candidates.push({
               cardId:   c.id || `jp-${c.name}-${c.cardNumber}`,
               name:     c.name || "Unknown",
               setName:  c.set?.name || slug,
               setSlug:  slug,
               number:   c.cardNumber || "",
-              imageUrl: c.image ?? null,
+              imageUrl: tcgdexUrl ?? c.image ?? null,
               nmEUR:    Math.round(nm * 100) / 100,
             });
           }
