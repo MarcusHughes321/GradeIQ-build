@@ -7377,7 +7377,7 @@ RESPONSE FORMAT (JSON only, no markdown):
               }
             }
             pageCount++;
-            cursor = ptData?.pagination?.hasMore ? (ptData.pagination.nextCursor ?? null) : null;
+            cursor = ptData?.pagination?.nextCursor ?? null;
           } while (cursor && pageCount < PT_MAX_PAGES);
         } catch (e: any) {
           console.warn(`[jp-catalog] PokeTrace enrichment failed for ${ptSlug}:`, e.message);
