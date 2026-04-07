@@ -11,6 +11,7 @@ import {
   Platform,
   Keyboard,
   RefreshControl,
+  Animated,
 } from "react-native";
 import { Image } from "expo-image";
 import { BlurView } from "expo-blur";
@@ -339,6 +340,29 @@ export default function ValuesScreen() {
   const hasAccess = isSubscribed || isAdminMode;
   const inputRef = useRef<TextInput>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Scroll hint animation for tier tabs chevron
+  const scrollHintX = useRef(new Animated.Value(0)).current;
+  const scrollHintOpacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    // 3 quick bounces on mount, then a slow continuous pulse
+    const bounce = Animated.sequence([
+      Animated.timing(scrollHintX, { toValue: 5, duration: 160, useNativeDriver: true }),
+      Animated.timing(scrollHintX, { toValue: 0, duration: 160, useNativeDriver: true }),
+      Animated.timing(scrollHintX, { toValue: 5, duration: 160, useNativeDriver: true }),
+      Animated.timing(scrollHintX, { toValue: 0, duration: 160, useNativeDriver: true }),
+      Animated.timing(scrollHintX, { toValue: 5, duration: 160, useNativeDriver: true }),
+      Animated.timing(scrollHintX, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]);
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scrollHintOpacity, { toValue: 0.3, duration: 700, useNativeDriver: true }),
+        Animated.timing(scrollHintOpacity, { toValue: 1, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    bounce.start(() => pulse.start());
+    return () => { bounce.stop(); pulse.stop(); };
+  }, []);
 
   // Browse sets — English (with live price status polling) or Japanese
   const { data: enSetsData, isLoading: enSetsLoading, error: enSetsError, refetch: enSetsRefetch } = useQuery<{ sets: BrowseSet[] }>({
@@ -819,14 +843,23 @@ export default function ValuesScreen() {
               </Pressable>
             ))}
           </ScrollView>
-          {/* Fade gradient on right edge — signals more tabs exist to swipe */}
+          {/* Fade gradient + bouncing chevron — signals more tabs exist to swipe */}
           <LinearGradient
             colors={["transparent", Colors.surface]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             pointerEvents="none"
             style={styles.tierTabsFade}
-          />
+          >
+            <Animated.View
+              style={[
+                styles.tierTabsChevron,
+                { transform: [{ translateX: scrollHintX }], opacity: scrollHintOpacity },
+              ]}
+            >
+              <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+            </Animated.View>
+          </LinearGradient>
         </View>
 
         {picksLoading && (
@@ -1296,7 +1329,13 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    width: 48,
+    width: 56,
+    justifyContent: "center",
+    alignItems: "flex-end",
+    paddingRight: 6,
+  },
+  tierTabsChevron: {
+    paddingBottom: 12,
   },
   tierTabsScroll: {
     paddingHorizontal: 16,
