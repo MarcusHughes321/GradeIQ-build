@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -800,23 +801,33 @@ export default function ValuesScreen() {
         </View>
 
         {/* Price tier tabs — based on actual raw TCGPlayer market price in GBP */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tierTabsScroll}
-        >
-          {PRICE_TIERS.map(tier => (
-            <Pressable
-              key={tier.maxGBP}
-              style={[styles.tierTab, priceTier === tier.maxGBP && styles.tierTabActive]}
-              onPress={() => setPriceTier(tier.maxGBP)}
-            >
-              <Text style={[styles.tierTabText, priceTier === tier.maxGBP && styles.tierTabTextActive]}>
-                {tier.label}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={styles.tierTabsWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tierTabsScroll}
+          >
+            {PRICE_TIERS.map(tier => (
+              <Pressable
+                key={tier.maxGBP}
+                style={[styles.tierTab, priceTier === tier.maxGBP && styles.tierTabActive]}
+                onPress={() => setPriceTier(tier.maxGBP)}
+              >
+                <Text style={[styles.tierTabText, priceTier === tier.maxGBP && styles.tierTabTextActive]}>
+                  {tier.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {/* Fade gradient on right edge — signals more tabs exist to swipe */}
+          <LinearGradient
+            colors={["transparent", Colors.surface]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            pointerEvents="none"
+            style={styles.tierTabsFade}
+          />
+        </View>
 
         {picksLoading && (
           <View style={styles.inlineFeedback}>
@@ -1277,6 +1288,16 @@ const styles = StyleSheet.create({
   topPicksSubtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   proBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: Colors.primary, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
   proBadgeText: { fontFamily: "Inter_700Bold", fontSize: 9, color: "#fff", letterSpacing: 0.5 },
+  tierTabsWrapper: {
+    position: "relative",
+  },
+  tierTabsFade: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 48,
+  },
   tierTabsScroll: {
     paddingHorizontal: 16,
     paddingBottom: 12,
