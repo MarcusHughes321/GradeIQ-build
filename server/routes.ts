@@ -8843,6 +8843,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         const dbCount = dbCardCounts.get(s.id) ?? 0;
         return {
           ...s,
+          cardCount: dbCount > 0 ? dbCount : s.cardCount,
           hasPrices: status ? status.hasPrices : null,
           hasCardData: dbCount > 0 ? true : (status ? status.hasCards : null),
         };
