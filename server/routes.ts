@@ -7837,7 +7837,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "crimson-haze", "wild-force", "cyber-judge",
     "mask-of-change", "night-wanderer",
     "stellar-miracle", "paradise-dragona",
-    "surging-sparks", "terastal-festival-ex",
+    "super-electric-breaker", "terastal-festival-ex",
     "battle-partners", "hot-wind-arena",
     "team-rockets-glory",
     "white-flare", "black-bolt",
@@ -7845,7 +7845,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     // SwSh era
     "vstar-universe", "lost-abyss", "incandescent-arcana",
     "dark-phantasma", "pokemon-go", "battle-region",
-    "brilliant-stars", "astral-radiance", "fusion-arts",
+    "fusion-arts",
     "eevee-heroes", "peerless-fighters", "matchless-fighters",
     "blue-sky-stream", "towering-perfection",
     "s-p-promotional-cards",
@@ -7865,6 +7865,19 @@ RESPONSE FORMAT (JSON only, no markdown):
       const gbpRate = rates.rates.GBP ?? 0.79;
       const apiKey  = process.env.POKETRACE_API_KEY;
       if (!apiKey) throw new Error("POKETRACE_API_KEY not configured");
+
+      // Remove any stale picks for sets that are no longer in JP_SET_SLUGS
+      // (e.g. English sets accidentally included in a previous run)
+      if (JP_SET_SLUGS.length > 0) {
+        const slugPlaceholders = JP_SET_SLUGS.map((_: string, i: number) => `$${i + 1}`).join(',');
+        const delResult = await db.query(
+          `DELETE FROM top_picks_precomputed WHERE lang='ja' AND set_id NOT IN (${slugPlaceholders})`,
+          JP_SET_SLUGS
+        );
+        if (delResult.rowCount && delResult.rowCount > 0) {
+          console.log(`[jp-top-picks] Cleaned up ${delResult.rowCount} stale picks for removed/English sets`);
+        }
+      }
 
       // Collect candidate cards from each set (PokeTrace EU, sorted by NM price desc)
       const candidates: Array<{
