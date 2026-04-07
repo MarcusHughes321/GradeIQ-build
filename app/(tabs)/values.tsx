@@ -895,13 +895,13 @@ export default function ValuesScreen() {
         <View style={styles.langToggleRow}>
           <Pressable
             style={[styles.langToggleBtn, selectedLang === "en" && styles.langToggleBtnActive]}
-            onPress={() => { setSelectedLang("en"); setSetSearch(""); }}
+            onPress={() => { setSelectedLang("en"); setSetSearch(""); setPriceTier(50); }}
           >
             <Text style={[styles.langToggleBtnText, selectedLang === "en" && styles.langToggleBtnTextActive]}>🇬🇧 EN</Text>
           </Pressable>
           <Pressable
             style={[styles.langToggleBtn, selectedLang === "ja" && styles.langToggleBtnActive]}
-            onPress={() => { setSelectedLang("ja"); setSetSearch(""); }}
+            onPress={() => { setSelectedLang("ja"); setSetSearch(""); setPriceTier(100); }}
           >
             <Text style={[styles.langToggleBtnText, selectedLang === "ja" && styles.langToggleBtnTextActive]}>🇯🇵 JP</Text>
           </Pressable>
