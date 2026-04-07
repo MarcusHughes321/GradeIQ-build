@@ -563,6 +563,11 @@ export default function ValuesScreen() {
     await saveRecentSearches(updated);
   }, [recentSearches]);
 
+  const handleClearAllRecent = useCallback(async () => {
+    setRecentSearches([]);
+    await saveRecentSearches([]);
+  }, []);
+
   const handleTapCard = useCallback((
     cardId: string,
     cardName: string,
@@ -751,7 +756,12 @@ export default function ValuesScreen() {
       {/* Recent searches */}
       {!hasSearched && recentSearches.length > 0 && (
         <View style={styles.recentSection}>
-          <Text style={styles.sectionLabel}>Recent Searches</Text>
+          <View style={styles.recentHeader}>
+            <Text style={styles.sectionLabel}>Recent Searches</Text>
+            <Pressable onPress={handleClearAllRecent} hitSlop={12}>
+              <Text style={styles.clearAllText}>Clear all</Text>
+            </Pressable>
+          </View>
           {recentSearches.map(item => (
             <View key={item} style={styles.recentRow}>
               <Pressable style={styles.recentTerm} onPress={() => { setQuery(item); doSearch(item); }}>
@@ -1196,6 +1206,17 @@ const styles = StyleSheet.create({
 
   searchResults: { paddingHorizontal: 16, paddingBottom: 4 },
   recentSection: { paddingHorizontal: 16, paddingBottom: 4 },
+  recentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  clearAllText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.primary,
+  },
   sectionLabel: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
