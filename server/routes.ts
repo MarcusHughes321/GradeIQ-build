@@ -8817,6 +8817,12 @@ RESPONSE FORMAT (JSON only, no markdown):
         buildTcgdexSetList("ja"),
         getJpCardCountsFromDB(),
       ]);
+      // Append PokeTrace-only sets that TCGdex doesn't track (same as in sync)
+      for (const extra of EXTRA_JP_POKETRACE_SETS) {
+        if (!sets.some((s: any) => s.id.toLowerCase() === extra.id.toLowerCase())) {
+          sets.push({ id: extra.id, name: extra.id, nameEn: extra.nameEn, cardCount: 0, releaseDate: null, logo: null, _serieIdx: 0, _setIdx: 0 });
+        }
+      }
       // Enrich each set with price/card status.
       // hasCardData: DB card count is the most reliable source (pre-populated by daily sync).
       // Falls back to status cache for sets that have been opened but not yet in DB.
