@@ -7334,7 +7334,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     // PokeTrace EU enrichment (JP only)
     const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
     if (langCode === "ja") {
-      const ptSlug = toPokeTraceSlug(setNameEn);
+      const ptSlug = JP_POKETRACE_SLUG_OVERRIDES[setId] || toPokeTraceSlug(setNameEn);
       if (ptSlug) {
         try {
           let cursor: string | null = null;
@@ -7809,6 +7809,11 @@ RESPONSE FORMAT (JSON only, no markdown):
     "PMCG4": "Team Rocket",
     "PMCG5": "Gym Heroes",
     "PMCG6": "Gym Challenge",
+  };
+
+  // Sets where toPokeTraceSlug(displayName) produces the wrong PokeTrace slug.
+  const JP_POKETRACE_SLUG_OVERRIDES: Record<string, string> = {
+    "SV8a": "terastal-festival-ex",  // display name "Terastal Fest ex" → wrong slug
   };
 
   // Derives a PokeTrace-compatible slug from an English set name.
