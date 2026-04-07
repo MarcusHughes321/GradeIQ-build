@@ -8038,10 +8038,10 @@ RESPONSE FORMAT (JSON only, no markdown):
       })
       .map((s: any) => {
         const info = seriesInfo.sets.get(s.id);
-        // Use the logo URL from the series detail API (no extension — TCGdex serves extension-less URLs)
-        // Fall back to constructed URL if not in cache
-        const logo = info?.logoUrl
-          ?? (info ? `https://assets.tcgdex.net/${langCode}/${info.serieId}/${s.id}/logo` : null);
+        // TCGdex does NOT host logo images for Japanese/Korean sets — the extension-less URL
+        // returns an HTML error page, and appending .webp/.png returns 404.
+        // Set logo to null so the frontend shows the placeholder icon instead of a broken image.
+        const logo: string | null = null;
         const serieReleaseDate = info?.serieReleaseDate ?? null;
         const serieIdx = info ? (seriesOrderMap.get(info.serieId) ?? 0) : 0;
         // English name: static map first (most reliable), then TCGdex English flat-list
@@ -8425,8 +8425,14 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/sets/japanese", async (req, res) => {
     try {
+      await loadSetPriceStatusFromDB();
       const sets = await buildTcgdexSetList("ja");
-      res.json({ sets });
+      // Enrich each set with price status from cache (populated when user opens a set)
+      const enriched = sets.map((s: any) => {
+        const status = setPriceStatusCache.get(s.id);
+        return { ...s, hasPrices: status ? status.hasPrices : null };
+      });
+      res.json({ sets: enriched });
     } catch (err: any) {
       console.error("[sets/japanese] Error:", err.message);
       res.status(500).json({ error: err.message });
@@ -8629,6 +8635,9 @@ RESPONSE FORMAT (JSON only, no markdown):
       setCardsCache.set(cacheKey, { cards: shaped, fetchedAt: Date.now() });
       if (lang === "english") {
         upsertSetPriceStatus(setId, shaped.length > 0, shaped.some((c: any) => c.price != null));
+      } else {
+        // JP/Korean: hasPrices = true when any card has a EUR price from PokeTrace EU
+        upsertSetPriceStatus(setId, shaped.length > 0, shaped.some((c: any) => c.priceEUR != null && c.priceEUR > 0));
       }
       res.json({ cards: shaped });
     } catch (err: any) {

@@ -937,7 +937,7 @@ export default function ValuesScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      renderItem={({ item }) => <SetRow set={item} onPress={() => handleSetPress(item)} />}
+      renderItem={({ item }) => <SetRow set={item} onPress={() => handleSetPress(item)} isJapanese={selectedLang === "ja"} />}
     />
     </>
   );
@@ -945,11 +945,44 @@ export default function ValuesScreen() {
 
 // ─── Set Row ──────────────────────────────────────────────────────────────────
 
-function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
-  // hasCardData is always true for English sets (server confirms via Pokemon TCG API card count)
+function SetRow({ set, onPress, isJapanese }: { set: BrowseSet; onPress: () => void; isJapanese?: boolean }) {
   const hasCards = set.hasCardData !== false && set.cardCount > 0;
-  // hasPrices: null = background check still in progress; true/false = determined
   const pricesKnown = set.hasPrices !== null && set.hasPrices !== undefined;
+
+  // For JP sets: when price status is unknown (null/undefined), assume Cardmarket prices are
+  // available (they're fetched on demand). Once a set has been opened, the real status is cached.
+  const renderPriceBadge = () => {
+    if (pricesKnown) {
+      return set.hasPrices ? (
+        <View style={styles.statusBadgeGreen}>
+          <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
+          <Text style={styles.statusBadgeGreenText}>{isJapanese ? "EUR Prices" : "Card Prices"}</Text>
+        </View>
+      ) : (
+        <View style={styles.statusBadgeAmber}>
+          <Ionicons name="time-outline" size={10} color="#f59e0b" />
+          <Text style={styles.statusBadgeAmberText}>No price data</Text>
+        </View>
+      );
+    }
+    // Unknown status
+    if (isJapanese) {
+      // JP prices are loaded on demand — show a neutral "Cardmarket" badge rather than "Checking..."
+      return hasCards ? (
+        <View style={styles.statusBadgeBlue}>
+          <Ionicons name="globe-outline" size={10} color="#60a5fa" />
+          <Text style={styles.statusBadgeBlueText}>Cardmarket</Text>
+        </View>
+      ) : null;
+    }
+    // EN: genuinely checking in background
+    return (
+      <View style={styles.statusBadgeAmber}>
+        <Ionicons name="ellipsis-horizontal" size={10} color="#f59e0b" />
+        <Text style={styles.statusBadgeAmberText}>Checking prices…</Text>
+      </View>
+    );
+  };
 
   return (
     <Pressable style={({ pressed }) => [styles.setRow, { opacity: pressed ? 0.8 : 1 }]} onPress={onPress}>
@@ -963,7 +996,6 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
         )}
       </View>
       <View style={styles.setInfo}>
-        {/* Edition badge — only for WOTC split entries */}
         {set.edition && (
           <View style={set.edition === "1st" ? styles.editionBadge1st : styles.editionBadgeUnlimited}>
             <Text style={set.edition === "1st" ? styles.editionBadge1stText : styles.editionBadgeUnlimitedText}>
@@ -972,7 +1004,6 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
           </View>
         )}
         <Text style={styles.setName} numberOfLines={2}>
-          {/* Strip the edition suffix from the display name — it's shown as a badge */}
           {(set.nameEn || set.name).replace(/ · (1st Edition|Unlimited)$/, "")}
         </Text>
         {set.series ? <Text style={styles.setSeries} numberOfLines={1}>{set.series}</Text> : null}
@@ -980,7 +1011,6 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
           <Text style={styles.setCardCount}>{set.cardCount} cards</Text>
         </View>
         <View style={[styles.setMeta, { marginTop: 4, gap: 6 }]}>
-          {/* Card data badge — always shown for English sets */}
           {hasCards ? (
             <View style={styles.statusBadgeGreen}>
               <Ionicons name="checkmark-circle" size={10} color="#22c55e" />
@@ -992,25 +1022,7 @@ function SetRow({ set, onPress }: { set: BrowseSet; onPress: () => void }) {
               <Text style={styles.statusBadgeAmberText}>No card data</Text>
             </View>
           )}
-          {/* Price data badge — appears once background check completes */}
-          {pricesKnown ? (
-            set.hasPrices ? (
-              <View style={styles.statusBadgeGreen}>
-                <Ionicons name="pricetag-outline" size={10} color="#22c55e" />
-                <Text style={styles.statusBadgeGreenText}>Card Prices</Text>
-              </View>
-            ) : (
-              <View style={styles.statusBadgeAmber}>
-                <Ionicons name="time-outline" size={10} color="#f59e0b" />
-                <Text style={styles.statusBadgeAmberText}>No price data</Text>
-              </View>
-            )
-          ) : (
-            <View style={styles.statusBadgeAmber}>
-              <Ionicons name="ellipsis-horizontal" size={10} color="#f59e0b" />
-              <Text style={styles.statusBadgeAmberText}>Checking prices…</Text>
-            </View>
-          )}
+          {renderPriceBadge()}
         </View>
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
@@ -1367,6 +1379,16 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   statusBadgeAmberText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#f59e0b" },
+  statusBadgeBlue: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 3,
+    backgroundColor: "rgba(96,165,250,0.1)",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  statusBadgeBlueText: { fontFamily: "Inter_400Regular", fontSize: 10, color: "#60a5fa" },
 
   // Card result row
   cardRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
