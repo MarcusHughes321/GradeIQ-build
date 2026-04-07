@@ -510,7 +510,7 @@ export default function CardProfitScreen() {
     ? baseRawEUR * (currencyRate / eurRate) // EUR → user currency directly
     : rawUSD > 0 ? rawUSD * currencyRate : 0;
   const hasRawPrice = rawLocalVal > 0;
-  const rawPriceLabel = isJapanese ? "Cardmarket NM" : "TCGPlayer";
+  const rawPriceLabel = isJapanese ? "Cardmarket" : "TCGPlayer";
 
   const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
     queryKey: ["ebay-all-grades", cardName, setName, cardNumber ?? "", editionParam],

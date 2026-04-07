@@ -505,7 +505,7 @@ export default function SetCardsScreen() {
           <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
         ) : null}
         {isJapanese && jpPriceEUR != null ? (
-          <Text style={styles.cardPrice} numberOfLines={1}>{fmtEurPrice(jpPriceEUR)} NM</Text>
+          <Text style={styles.cardPrice} numberOfLines={1}>{fmtEurPrice(jpPriceEUR)}</Text>
         ) : item.price != null ? (
           <View style={styles.gridPriceRow}>
             <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
@@ -652,7 +652,7 @@ export default function SetCardsScreen() {
             <Ionicons name="information-circle-outline" size={13} color={Colors.textMuted} />
             <Text style={styles.topPicksDisclaimerText}>
               {isJapanese
-                ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: Cardmarket NM price · All prices in ${currency}`
+                ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: Cardmarket price · All prices in ${currency}`
                 : editionParam
                   ? `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer reference · Tap a card for full grade breakdown`
                   : `${picksConfig.topGradeLabel}: eBay last sold · Raw: TCGPlayer market price · All prices in ${currency}`}

@@ -849,7 +849,7 @@ export default function ValuesScreen() {
             <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.disclaimerText}>
               {selectedLang === "ja"
-                ? `Raw: Cardmarket NM EUR · eBay: last sold price (excl. Best Offer) · All prices in ${currency}${ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}`
+                ? `Raw: Cardmarket EUR · eBay: last sold price (excl. Best Offer) · All prices in ${currency}${ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}`
                 : `Raw: TCGPlayer market price · eBay: last sold price (excl. Best Offer) · All prices in ${currency}${ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}`}
             </Text>
           </View>
@@ -943,6 +943,24 @@ export default function ValuesScreen() {
   );
 }
 
+// ─── JP Set Code Badge Helpers ────────────────────────────────────────────────
+
+function formatSetCode(id: string): string {
+  return id.replace(/^([a-zA-Z]+)(\d.*)$/, (_, prefix, rest) => prefix.toUpperCase() + rest);
+}
+
+function getSetEraColor(id: string): string {
+  const lower = id.toLowerCase();
+  if (lower.startsWith("sv")) return "#7c3aed";
+  if (lower.startsWith("sm")) return "#d97706";
+  if (lower.startsWith("s"))  return "#2563eb";
+  if (lower.startsWith("xy")) return "#0369a1";
+  if (lower.startsWith("bw")) return "#7c3aed";
+  if (lower.startsWith("m"))  return "#dc2626";
+  if (lower.startsWith("dp")) return "#059669";
+  return "#6b7280";
+}
+
 // ─── Set Row ──────────────────────────────────────────────────────────────────
 
 function SetRow({ set, onPress, isJapanese }: { set: BrowseSet; onPress: () => void; isJapanese?: boolean }) {
@@ -989,6 +1007,10 @@ function SetRow({ set, onPress, isJapanese }: { set: BrowseSet; onPress: () => v
       <View style={styles.setLogoContainer}>
         {set.logo ? (
           <Image source={{ uri: set.logo }} style={styles.setLogo} contentFit="contain" />
+        ) : isJapanese ? (
+          <View style={[styles.setLogoPlaceholder, { backgroundColor: getSetEraColor(set.id), borderColor: "transparent" }]}>
+            <Text style={styles.setCodeBadgeText}>{formatSetCode(set.id)}</Text>
+          </View>
         ) : (
           <View style={styles.setLogoPlaceholder}>
             <Ionicons name="albums-outline" size={20} color={Colors.textMuted} />
@@ -1353,6 +1375,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
+  },
+  setCodeBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    color: "#fff",
+    letterSpacing: -0.3,
   },
   setInfo: { flex: 1, gap: 2 },
   setName: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.text, lineHeight: 20 },
