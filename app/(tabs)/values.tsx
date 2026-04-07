@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   Keyboard,
+  RefreshControl,
 } from "react-native";
 import { Image } from "expo-image";
 import { BlurView } from "expo-blur";
@@ -351,7 +352,7 @@ export default function ValuesScreen() {
       return sets.some(s => s.hasPrices === null) ? 6000 : false;
     },
   });
-  const { data: jaSetsData, isLoading: jaSetsLoading, error: jaSetsError, refetch: jaSetsRefetch } = useQuery<{ sets: BrowseSet[] }>({
+  const { data: jaSetsData, isLoading: jaSetsLoading, isRefetching: jaSetsRefetching, error: jaSetsError, refetch: jaSetsRefetch } = useQuery<{ sets: BrowseSet[] }>({
     queryKey: ["/api/sets/japanese"],
     staleTime: 60 * 60 * 1000,
     retry: 2,
@@ -359,10 +360,11 @@ export default function ValuesScreen() {
     enabled: selectedLang === "ja",
   });
 
-  const setsData   = selectedLang === "ja" ? jaSetsData   : enSetsData;
-  const setsLoading = selectedLang === "ja" ? jaSetsLoading : enSetsLoading;
-  const setsError   = selectedLang === "ja" ? jaSetsError   : enSetsError;
-  const setsRefetch = selectedLang === "ja" ? jaSetsRefetch  : enSetsRefetch;
+  const setsData        = selectedLang === "ja" ? jaSetsData        : enSetsData;
+  const setsLoading     = selectedLang === "ja" ? jaSetsLoading     : enSetsLoading;
+  const setsRefetching  = selectedLang === "ja" ? jaSetsRefetching  : false;
+  const setsError       = selectedLang === "ja" ? jaSetsError       : enSetsError;
+  const setsRefetch     = selectedLang === "ja" ? jaSetsRefetch     : enSetsRefetch;
   const sets = useMemo(() => setsData?.sets || [], [setsData]);
 
   const [setSearch, setSetSearch] = useState("");
@@ -968,6 +970,13 @@ export default function ValuesScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + webBottomInset + 100 }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      refreshControl={
+        <RefreshControl
+          refreshing={setsRefetching}
+          onRefresh={() => { setsRefetch(); refetchPicks(); }}
+          tintColor="#FF3C31"
+        />
+      }
       renderItem={({ item }) => <SetRow set={item} onPress={() => handleSetPress(item)} isJapanese={selectedLang === "ja"} />}
     />
     </>
