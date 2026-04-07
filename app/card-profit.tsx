@@ -123,6 +123,15 @@ const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
   PSA: "psa10", Beckett: "bgs10", Ace: "ace10", TAG: "tag10", CGC: "cgc10",
 };
 
+// Submission start URLs per company
+const COMPANY_SUBMIT_URL: Record<string, string> = {
+  PSA:     "https://www.psacard.com/orders/submissionform",
+  Beckett: "https://www.beckett.com/grading",
+  CGC:     "https://www.cgccomics.com/cards/submit/",
+  Ace:     "https://acegrading.com/services",
+  TAG:     "https://www.taggrading.com/submit",
+};
+
 // Grading fee tiers per company — mirrored from grading-fees.tsx
 type FeeCurrency = "USD" | "GBP";
 interface FeeOption { label: string; amount: number; currency: FeeCurrency; turnaround: string; }
@@ -1088,6 +1097,7 @@ export default function CardProfitScreen() {
               {/* ── Grading Fee Section ─────────────────────────────── */}
               {(COMPANY_FEE_OPTIONS[compId] ?? []).length > 0 && (
                 <View style={st.feeSection}>
+                  {/* Header row */}
                   <View style={st.feeSectionHeader}>
                     <Ionicons name="receipt-outline" size={13} color={Colors.textMuted} />
                     <Text style={st.feeSectionTitle}>Grading Fee</Text>
@@ -1102,17 +1112,19 @@ export default function CardProfitScreen() {
                     )}
                   </View>
 
-                  {/* Tier pills — horizontal scroll */}
+                  {/* Tier pills — horizontal scroll, bleeds edge-to-edge within card */}
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={st.feeTierScroll}
+                    style={st.feeTierScrollView}
                   >
                     {(COMPANY_FEE_OPTIONS[compId] ?? []).map(opt => {
                       const isActive = compId === selectedCompany && selectedFeeOption?.label === opt.label;
-                      const optLocalAmt = opt.currency === "GBP"
-                        ? opt.amount * (currencyRate / gbpRate)
-                        : opt.amount * currencyRate;
+                      const nativeSym = opt.currency === "GBP" ? "£" : "$";
+                      const nativeAmt = opt.amount % 1 === 0
+                        ? `${opt.amount}`
+                        : opt.amount.toFixed(2);
                       return (
                         <Pressable
                           key={opt.label}
@@ -1123,7 +1135,7 @@ export default function CardProfitScreen() {
                             {opt.label}
                           </Text>
                           <Text style={[st.feeTierAmt, isActive && st.feeTierAmtActive]}>
-                            {fmtLocal(optLocalAmt)}
+                            {nativeSym}{nativeAmt}
                           </Text>
                         </Pressable>
                       );
@@ -1145,9 +1157,7 @@ export default function CardProfitScreen() {
                       <View style={st.feeMetaRow}>
                         <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
                         <Text style={st.feeMetaTxt}>
-                          {selectedFeeOption.label} fee{" "}
-                          <Text style={{ color: Colors.text }}>{fmtLocal(feeLocalAmount)}</Text>
-                          {" "}deducted from profit above
+                          {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}) deducted from profit above
                         </Text>
                       </View>
                     </View>
@@ -1182,6 +1192,18 @@ export default function CardProfitScreen() {
                           : `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits`}
                       </Text>
                     </View>
+                  )}
+
+                  {/* Ready to Submit button */}
+                  {selectedFeeOption && compId === selectedCompany && COMPANY_SUBMIT_URL[compId] && (
+                    <Pressable
+                      onPress={() => Linking.openURL(COMPANY_SUBMIT_URL[compId])}
+                      style={({ pressed }) => [st.submitBtn, { opacity: pressed ? 0.75 : 1 }]}
+                    >
+                      <Ionicons name="checkmark-circle-outline" size={17} color="#fff" />
+                      <Text style={st.submitBtnTxt}>Ready to Submit?</Text>
+                      <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.7)" style={{ marginLeft: "auto" }} />
+                    </Pressable>
                   )}
                 </View>
               )}
@@ -1730,11 +1752,13 @@ const st = StyleSheet.create({
 
   // ── Grading Fee Section ─────────────────────────────────────────────────
   feeSection: {
-    marginTop: 14,
+    marginTop: 0,
     paddingTop: 14,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceBorder,
-    gap: 10,
+    gap: 12,
   },
   feeSectionHeader: {
     flexDirection: "row",
@@ -1752,10 +1776,13 @@ const st = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary,
   },
+  feeTierScrollView: {
+    marginHorizontal: -14,
+  },
   feeTierScroll: {
     gap: 8,
-    paddingBottom: 2,
-    paddingHorizontal: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 1,
   },
   feeTierPill: {
     paddingHorizontal: 14,
@@ -1766,7 +1793,7 @@ const st = StyleSheet.create({
     borderColor: Colors.surfaceBorder,
     alignItems: "center",
     gap: 3,
-    minWidth: 80,
+    minWidth: 82,
   },
   feeTierPillActive: {
     backgroundColor: Colors.primary + "18",
@@ -1844,5 +1871,20 @@ const st = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
     textAlign: "center",
+  },
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  submitBtnTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#fff",
+    flex: 1,
   },
 });
