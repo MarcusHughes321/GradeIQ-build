@@ -8617,6 +8617,23 @@ RESPONSE FORMAT (JSON only, no markdown):
             setNameEn,             // Pass the English set name so frontend can use for PokeTrace
           };
         });
+
+        // Fallback: TCGdex has no card data for this JP set — build list directly from
+        // PokeTrace data so sets with PokeTrace prices still display their card list.
+        if (cards.length === 0 && ptCardsByNumber.size > 0) {
+          console.log(`[sets/cards] TCGdex empty for ${setId} — building ${ptCardsByNumber.size} cards from PokeTrace`);
+          cards = Array.from(ptCardsByNumber.entries())
+            .sort(([a], [b]) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
+            .map(([num, pt]) => ({
+              id: `${setId}-${num}`,
+              name: pt.nameEn,     // English name is the only name available from PokeTrace
+              nameEn: pt.nameEn,
+              number: num,
+              imageUrl: pt.imageUrl,
+              priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
+              setNameEn,
+            }));
+        }
       }
 
       const shaped = cards.map((c: any) => ({
