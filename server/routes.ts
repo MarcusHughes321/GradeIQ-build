@@ -7844,7 +7844,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "mega-symphony", "munkis-zero",
     // SwSh era
     "vstar-universe", "lost-abyss", "incandescent-arcana",
-    "dark-phantasma", "pokemon-go", "battle-region",
+    "dark-phantasma", "battle-region",
     "fusion-arts",
     "eevee-heroes", "peerless-fighters", "matchless-fighters",
     "blue-sky-stream", "towering-perfection",
