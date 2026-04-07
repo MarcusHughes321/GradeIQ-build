@@ -7830,8 +7830,9 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // Sets where toPokeTraceSlug(displayName) produces the wrong PokeTrace slug.
   const JP_POKETRACE_SLUG_OVERRIDES: Record<string, string> = {
-    "SV8a": "terastal-festival-ex",  // display name "Terastal Fest ex" → wrong slug
-    "M2A":  "mega-dream-ex",         // "MEGA Dream ex" → explicit slug
+    "SV8a": "terastal-festival-ex",           // display name "Terastal Fest ex" → wrong slug
+    "SV10": "the-glory-of-team-rocket",  // PokeTrace slug (not the sv10- prefixed variant)
+    "M2A":  "mega-dream-ex",                  // "MEGA Dream ex" → explicit slug
   };
 
   // Japanese sets that exist on PokeTrace but are NOT listed on TCGdex.
@@ -7909,7 +7910,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "stellar-miracle", "paradise-dragona",
     "super-electric-breaker", "terastal-festival-ex",
     "battle-partners", "hot-wind-arena",
-    "team-rockets-glory",
+    "the-glory-of-team-rocket",
     "white-flare", "black-bolt",
     "mega-symphony", "munkis-zero",
     // SwSh era
@@ -8709,13 +8710,19 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       // Fallback: paginate through all PokeTrace cards so we don't miss SARs/full arts
       // that appear later in the set (PokeTrace default order is not by price).
+      // Some sets need a slug override because the frontend-derived slug doesn't match PokeTrace.
+      const JP_SET_PICKS_FALLBACK_SLUGS: Record<string, string> = {
+        "glory-of-team-rocket": "the-glory-of-team-rocket",
+      };
+      const ptSlug = JP_SET_PICKS_FALLBACK_SLUGS[slug] || slug;
+
       const apiKey = process.env.POKETRACE_API_KEY;
       if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
       let cursor: string | null = null;
       const allCards: any[] = [];
       for (let page = 0; page < 15; page++) {
-        const pageUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=100`
+        const pageUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(ptSlug)}&market=EU&limit=100`
           + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
         const resp = await fetch(pageUrl, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
         if (!resp.ok) break;
