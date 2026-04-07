@@ -8427,10 +8427,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     try {
       await loadSetPriceStatusFromDB();
       const sets = await buildTcgdexSetList("ja");
-      // Enrich each set with price status from cache (populated when user opens a set)
+      // Enrich each set with price/card status from cache (populated when user opens a set)
       const enriched = sets.map((s: any) => {
         const status = setPriceStatusCache.get(s.id);
-        return { ...s, hasPrices: status ? status.hasPrices : null };
+        return {
+          ...s,
+          hasPrices: status ? status.hasPrices : null,
+          // null = never fetched (unknown); true/false = confirmed by actual card fetch
+          hasCardData: status ? status.hasCards : null,
+        };
       });
       res.json({ sets: enriched });
     } catch (err: any) {

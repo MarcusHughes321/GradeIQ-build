@@ -964,7 +964,12 @@ function getSetEraColor(id: string): string {
 // ─── Set Row ──────────────────────────────────────────────────────────────────
 
 function SetRow({ set, onPress, isJapanese }: { set: BrowseSet; onPress: () => void; isJapanese?: boolean }) {
-  const hasCards = set.hasCardData !== false && set.cardCount > 0;
+  // JP/Korean: only show badge when confirmed via actual fetch (hasCardData === true).
+  // null = never opened, false = opened and confirmed empty.
+  // EN: optimistic — badge shows unless explicitly confirmed empty.
+  const hasCards = isJapanese
+    ? set.hasCardData === true
+    : (set.hasCardData !== false && set.cardCount > 0);
   const pricesKnown = set.hasPrices !== null && set.hasPrices !== undefined;
 
   // For JP sets: when price status is unknown (null/undefined), assume Cardmarket prices are
