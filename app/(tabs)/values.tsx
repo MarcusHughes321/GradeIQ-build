@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, memo } from "react";
+import React, { useState, useCallback, useRef, useMemo, memo, useEffect } from "react";
 import {
   View,
   Text,
@@ -336,6 +336,7 @@ export default function ValuesScreen() {
   const { isSubscribed, isAdminMode } = useSubscription();
   const hasAccess = isSubscribed || isAdminMode;
   const inputRef = useRef<TextInput>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Browse sets — English (with live price status polling) or Japanese
   const { data: enSetsData, isLoading: enSetsLoading, error: enSetsError, refetch: enSetsRefetch } = useQuery<{ sets: BrowseSet[] }>({
@@ -508,10 +509,10 @@ export default function ValuesScreen() {
     AsyncStorage.setItem(EXPLAINER_DISMISSED_KEY, "1");
   }, []);
 
-  const doSearch = useCallback(async (q: string) => {
+  const doSearch = useCallback(async (q: string, dismissKb = true) => {
     const trimmed = q.trim();
     if (!trimmed) return;
-    Keyboard.dismiss();
+    if (dismissKb) Keyboard.dismiss();
     setLoading(true);
     setSearchError(null);
     setHasSearched(true);
@@ -529,6 +530,24 @@ export default function ValuesScreen() {
       setLoading(false);
     }
   }, [recentSearches]);
+
+  // Live search — fires 400ms after the user stops typing
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setResults([]);
+      setHasSearched(false);
+      return;
+    }
+    if (trimmed.length < 2) return;
+    searchDebounceRef.current = setTimeout(() => {
+      doSearch(query, false);
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [query]);
 
   const handleClear = useCallback(() => {
     setQuery("");
