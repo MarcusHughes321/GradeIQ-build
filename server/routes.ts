@@ -8681,18 +8681,52 @@ RESPONSE FORMAT (JSON only, no markdown):
       return res.json({ picks: cacheHit.picks.slice(0, limit) });
     }
 
-    const apiKey = process.env.POKETRACE_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: "API key not configured" });
-
     try {
-      const url = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=20`;
-      const resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
-      if (!resp.ok) return res.status(502).json({ error: `PokeTrace EU HTTP ${resp.status}` });
-      const data = await resp.json() as any;
-      const cards: any[] = data?.data || [];
+      // Primary: use card_catalog which has ALL cards pre-populated and sorted by price.
+      // This ensures SARs, full arts, and alt arts are included — not just the first
+      // 20 cards PokeTrace returns in its default (non-price) ordering.
+      const dbResult = await db.query(
+        `SELECT card_id, name_en, name, number, image_url, price_eur
+         FROM card_catalog
+         WHERE lang = 'ja' AND set_name_en ILIKE $1 AND price_eur > 0
+         ORDER BY price_eur DESC
+         LIMIT 20`,
+        [setName]
+      );
 
-      // Sort by NM price descending, take top N
-      const sorted = cards
+      if (dbResult.rows.length >= 5) {
+        const picks = dbResult.rows.map((r: any) => ({
+          id:       r.card_id,
+          name:     r.name_en || r.name,
+          number:   r.number || "",
+          imageUrl: r.image_url || null,
+          nmEUR:    parseFloat(r.price_eur) || 0,
+          avg7dEUR: null,
+        }));
+        jpSetPicksCache.set(slug, { picks, fetchedAt: Date.now() });
+        return res.json({ picks: picks.slice(0, limit) });
+      }
+
+      // Fallback: paginate through all PokeTrace cards so we don't miss SARs/full arts
+      // that appear later in the set (PokeTrace default order is not by price).
+      const apiKey = process.env.POKETRACE_API_KEY;
+      if (!apiKey) return res.status(500).json({ error: "API key not configured" });
+
+      let cursor: string | null = null;
+      const allCards: any[] = [];
+      for (let page = 0; page < 15; page++) {
+        const pageUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=100`
+          + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+        const resp = await fetch(pageUrl, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) break;
+        const data = await resp.json() as any;
+        allCards.push(...(data?.data || []));
+        cursor = data?.pagination?.nextCursor ?? null;
+        if (!cursor) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      const sorted = allCards
         .map((c: any) => ({
           id:       c.id || "",
           name:     c.name || "Unknown",
