@@ -309,11 +309,29 @@ export default function GradingFeesScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: botPad + 32 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Source link banner */}
+        <Pressable
+          onPress={() => Linking.openURL(company.sourceUrl)}
+          style={({ pressed }) => [
+            styles.sourceBanner,
+            { borderColor: COMPANY_COLORS[selected] + "55", opacity: pressed ? 0.75 : 1 },
+          ]}
+        >
+          <View style={[styles.sourceBannerDot, { backgroundColor: COMPANY_COLORS[selected] }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sourceBannerLabel}>Official source · {company.lastUpdated}</Text>
+            <Text style={[styles.sourceBannerUrl, { color: COMPANY_COLORS[selected] }]}>
+              {company.sourceLabel}
+            </Text>
+          </View>
+          <Ionicons name="open-outline" size={15} color={COMPANY_COLORS[selected]} />
+        </Pressable>
+
         {/* Disclaimer banner */}
         <View style={styles.disclaimer}>
-          <Ionicons name="information-circle-outline" size={16} color={Colors.textMuted} />
+          <Ionicons name="information-circle-outline" size={14} color={Colors.textMuted} />
           <Text style={styles.disclaimerText}>
-            Prices as of {company.lastUpdated}. Always verify before submitting.
+            Prices shown are estimates. Always confirm the latest fees before submitting cards.
           </Text>
         </View>
 
@@ -357,17 +375,6 @@ export default function GradingFeesScreen() {
             <Text style={styles.notesText}>{company.notes}</Text>
           </View>
         )}
-
-        {/* Verify link */}
-        <Pressable
-          onPress={() => Linking.openURL(company.sourceUrl)}
-          style={({ pressed }) => [styles.verifyBtn, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Ionicons name="open-outline" size={16} color={COMPANY_COLORS[selected]} />
-          <Text style={[styles.verifyBtnText, { color: COMPANY_COLORS[selected] }]}>
-            Verify current fees at {company.sourceLabel}
-          </Text>
-        </Pressable>
       </ScrollView>
     </View>
   );
@@ -384,7 +391,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: Colors.surfaceBorder,
   },
   backBtn: {
     width: 40,
@@ -410,7 +417,7 @@ const styles = StyleSheet.create({
   },
   tabScroll: {
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: Colors.surfaceBorder,
   },
   tabContent: {
     paddingHorizontal: 16,
@@ -423,7 +430,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.surfaceBorder,
     backgroundColor: Colors.surface,
   },
   tabLabel: {
@@ -462,7 +469,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.surfaceBorder,
   },
   tierHeader: {
     flexDirection: "row",
@@ -500,7 +507,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     borderLeftWidth: 3,
-    borderLeftColor: Colors.border,
+    borderLeftColor: Colors.surfaceBorder,
   },
   notesText: {
     fontSize: 12,
@@ -508,21 +515,29 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontFamily: "Inter_400Regular",
   },
-  verifyBtn: {
+  sourceBanner: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
+    gap: 12,
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
-    marginTop: 4,
   },
-  verifyBtnText: {
+  sourceBannerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  sourceBannerLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
+  sourceBannerUrl: {
+    fontFamily: "Inter_700Bold",
     fontSize: 14,
-    fontWeight: "600",
-    fontFamily: "Inter_600SemiBold",
   },
 });

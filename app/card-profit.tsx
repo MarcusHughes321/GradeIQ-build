@@ -125,42 +125,42 @@ const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
 
 // Grading fee tiers per company — mirrored from grading-fees.tsx
 type FeeCurrency = "USD" | "GBP";
-interface FeeOption { label: string; amount: number; currency: FeeCurrency; }
+interface FeeOption { label: string; amount: number; currency: FeeCurrency; turnaround: string; }
 const COMPANY_FEE_OPTIONS: Record<string, FeeOption[]> = {
   PSA: [
-    { label: "Value Bulk",    amount: 21.99,  currency: "USD" },
-    { label: "Value",         amount: 27.99,  currency: "USD" },
-    { label: "Value Plus",    amount: 44.99,  currency: "USD" },
-    { label: "Value Max",     amount: 59.99,  currency: "USD" },
-    { label: "Regular",       amount: 79.99,  currency: "USD" },
-    { label: "Express",       amount: 149.99, currency: "USD" },
-    { label: "Super Express", amount: 299.99, currency: "USD" },
-    { label: "Walk-Through",  amount: 499.99, currency: "USD" },
+    { label: "Value Bulk",    amount: 21.99,  currency: "USD", turnaround: "65+ business days"   },
+    { label: "Value",         amount: 27.99,  currency: "USD", turnaround: "45–65 business days" },
+    { label: "Value Plus",    amount: 44.99,  currency: "USD", turnaround: "30–45 business days" },
+    { label: "Value Max",     amount: 59.99,  currency: "USD", turnaround: "20–30 business days" },
+    { label: "Regular",       amount: 79.99,  currency: "USD", turnaround: "~10 business days"   },
+    { label: "Express",       amount: 149.99, currency: "USD", turnaround: "~5 business days"    },
+    { label: "Super Express", amount: 299.99, currency: "USD", turnaround: "~2 business days"    },
+    { label: "Walk-Through",  amount: 499.99, currency: "USD", turnaround: "Same day"            },
   ],
   Beckett: [
-    { label: "Economy",       amount: 20,  currency: "USD" },
-    { label: "Standard",      amount: 30,  currency: "USD" },
-    { label: "Express",       amount: 100, currency: "USD" },
-    { label: "Super Express", amount: 125, currency: "USD" },
+    { label: "Economy",       amount: 20,  currency: "USD", turnaround: "20–25 business days" },
+    { label: "Standard",      amount: 30,  currency: "USD", turnaround: "10–15 business days" },
+    { label: "Express",       amount: 100, currency: "USD", turnaround: "5–7 business days"   },
+    { label: "Super Express", amount: 125, currency: "USD", turnaround: "1–3 business days"   },
   ],
   CGC: [
-    { label: "Bulk",     amount: 15,  currency: "USD" },
-    { label: "Economy",  amount: 18,  currency: "USD" },
-    { label: "Standard", amount: 55,  currency: "USD" },
-    { label: "Express",  amount: 100, currency: "USD" },
+    { label: "Bulk",     amount: 15,  currency: "USD", turnaround: "~40 days" },
+    { label: "Economy",  amount: 18,  currency: "USD", turnaround: "~20 days" },
+    { label: "Standard", amount: 55,  currency: "USD", turnaround: "~10 days" },
+    { label: "Express",  amount: 100, currency: "USD", turnaround: "~5 days"  },
   ],
   Ace: [
-    { label: "Basic",    amount: 12, currency: "GBP" },
-    { label: "Standard", amount: 15, currency: "GBP" },
-    { label: "Premier",  amount: 18, currency: "GBP" },
-    { label: "Ultra",    amount: 25, currency: "GBP" },
-    { label: "Luxury",   amount: 50, currency: "GBP" },
+    { label: "Basic",    amount: 12, currency: "GBP", turnaround: "~80 business days" },
+    { label: "Standard", amount: 15, currency: "GBP", turnaround: "~30 business days" },
+    { label: "Premier",  amount: 18, currency: "GBP", turnaround: "~15 business days" },
+    { label: "Ultra",    amount: 25, currency: "GBP", turnaround: "~5 business days"  },
+    { label: "Luxury",   amount: 50, currency: "GBP", turnaround: "~2 business days"  },
   ],
   TAG: [
-    { label: "Basic",         amount: 22, currency: "USD" },
-    { label: "Standard",      amount: 39, currency: "USD" },
-    { label: "Express",       amount: 59, currency: "USD" },
-    { label: "Super Express", amount: 99, currency: "USD" },
+    { label: "Basic",         amount: 22, currency: "USD", turnaround: "45+ business days" },
+    { label: "Standard",      amount: 39, currency: "USD", turnaround: "~15 business days" },
+    { label: "Express",       amount: 59, currency: "USD", turnaround: "~5 business days"  },
+    { label: "Super Express", amount: 99, currency: "USD", turnaround: "~2 business days"  },
   ],
 };
 
@@ -1091,7 +1091,7 @@ export default function CardProfitScreen() {
                   <View style={st.feeSectionHeader}>
                     <Ionicons name="receipt-outline" size={13} color={Colors.textMuted} />
                     <Text style={st.feeSectionTitle}>Grading Fee</Text>
-                    {selectedFeeOption && (
+                    {selectedFeeOption && compId === selectedCompany && (
                       <Pressable
                         onPress={() => setSelectedFeeOption(null)}
                         hitSlop={8}
@@ -1101,14 +1101,18 @@ export default function CardProfitScreen() {
                       </Pressable>
                     )}
                   </View>
+
+                  {/* Tier pills — horizontal scroll */}
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={st.feeTierScroll}
                   >
                     {(COMPANY_FEE_OPTIONS[compId] ?? []).map(opt => {
-                      const isActive = selectedFeeOption?.label === opt.label;
-                      const symb = opt.currency === "GBP" ? "£" : "$";
+                      const isActive = compId === selectedCompany && selectedFeeOption?.label === opt.label;
+                      const optLocalAmt = opt.currency === "GBP"
+                        ? opt.amount * (currencyRate / gbpRate)
+                        : opt.amount * currencyRate;
                       return (
                         <Pressable
                           key={opt.label}
@@ -1119,23 +1123,65 @@ export default function CardProfitScreen() {
                             {opt.label}
                           </Text>
                           <Text style={[st.feeTierAmt, isActive && st.feeTierAmtActive]}>
-                            {symb}{opt.amount % 1 === 0 ? opt.amount : opt.amount.toFixed(2)}
+                            {fmtLocal(optLocalAmt)}
                           </Text>
                         </Pressable>
                       );
                     })}
                   </ScrollView>
-                  {selectedFeeOption ? (
-                    <Text style={st.feeActiveNote}>
-                      <Text style={{ color: Colors.text }}>
-                        {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)})
-                      </Text>
-                      {" "}deducted from profit above
-                    </Text>
+
+                  {/* Turnaround + deduction note */}
+                  {selectedFeeOption && compId === selectedCompany ? (
+                    <View style={st.feeMeta}>
+                      <View style={st.feeMetaRow}>
+                        <Ionicons name="time-outline" size={13} color={Colors.textMuted} />
+                        <Text style={st.feeMetaTxt}>
+                          Est. turnaround:{" "}
+                          <Text style={{ color: Colors.text, fontFamily: "Inter_600SemiBold" }}>
+                            {selectedFeeOption.turnaround}
+                          </Text>
+                        </Text>
+                      </View>
+                      <View style={st.feeMetaRow}>
+                        <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
+                        <Text style={st.feeMetaTxt}>
+                          {selectedFeeOption.label} fee{" "}
+                          <Text style={{ color: Colors.text }}>{fmtLocal(feeLocalAmount)}</Text>
+                          {" "}deducted from profit above
+                        </Text>
+                      </View>
+                    </View>
                   ) : (
                     <Text style={st.feeHint}>
-                      Select a service tier to see profit after grading fee
+                      Tap a tier to see net profit after grading fee
                     </Text>
+                  )}
+
+                  {/* Final Net Profit summary */}
+                  {selectedFeeOption && compId === selectedCompany && hasRawPrice && ebay && (
+                    <View style={[
+                      st.netProfitBox,
+                      minProfitRow
+                        ? (minProfitRow.profit ?? 0) >= 0 ? st.netProfitBoxGreen : st.netProfitBoxRed
+                        : st.netProfitBoxRed,
+                    ]}>
+                      <Text style={st.netProfitLabel}>
+                        {minProfitRow ? `Net Profit at ${minProfitRow.label}` : "No profitable grade"}
+                      </Text>
+                      {minProfitRow && (
+                        <Text style={[
+                          st.netProfitValue,
+                          (minProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" },
+                        ]}>
+                          {fmtLocal(minProfitRow.profit ?? 0)}
+                        </Text>
+                      )}
+                      <Text style={st.netProfitSub}>
+                        {minProfitRow
+                          ? `after ${fmtLocal(rawLocalVal)} raw + ${fmtLocal(feeLocalAmount)} fee`
+                          : `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits`}
+                      </Text>
+                    </View>
                   )}
                 </View>
               )}
@@ -1694,7 +1740,6 @@ const st = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 2,
   },
   feeSectionTitle: {
     fontFamily: "Inter_600SemiBold",
@@ -1710,48 +1755,94 @@ const st = StyleSheet.create({
   feeTierScroll: {
     gap: 8,
     paddingBottom: 2,
+    paddingHorizontal: 1,
   },
   feeTierPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     alignItems: "center",
-    gap: 2,
+    gap: 3,
+    minWidth: 80,
   },
   feeTierPillActive: {
     backgroundColor: Colors.primary + "18",
     borderColor: Colors.primary,
   },
   feeTierName: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
     color: Colors.textMuted,
   },
   feeTierNameActive: {
     color: Colors.primary,
+    fontFamily: "Inter_600SemiBold",
   },
   feeTierAmt: {
     fontFamily: "Inter_700Bold",
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.text,
   },
   feeTierAmtActive: {
     color: Colors.primary,
   },
-  feeActiveNote: {
+  feeMeta: {
+    gap: 5,
+    paddingHorizontal: 2,
+  },
+  feeMetaRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  feeMetaTxt: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
-    paddingHorizontal: 2,
+    flex: 1,
+    lineHeight: 17,
   },
   feeHint: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textMuted,
-    paddingHorizontal: 2,
     fontStyle: "italic",
+    paddingHorizontal: 2,
+  },
+  // Net profit summary box
+  netProfitBox: {
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    gap: 3,
+    alignItems: "center",
+  },
+  netProfitBoxGreen: {
+    backgroundColor: "rgba(34,197,94,0.07)",
+    borderColor: "rgba(34,197,94,0.3)",
+  },
+  netProfitBoxRed: {
+    backgroundColor: "rgba(239,68,68,0.07)",
+    borderColor: "rgba(239,68,68,0.25)",
+  },
+  netProfitLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  netProfitValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 28,
+  },
+  netProfitSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
   },
 });
