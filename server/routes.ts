@@ -7306,6 +7306,22 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // Returns the TCGdex CDN series path for sets with known high-res image support
+  function getTcgdexSeriesForSet(setId: string): string | null {
+    if (setId.startsWith("SV")) return "SV";
+    const S_COVERED = new Set(["S9","S9a","S10a","S10b","S10D","S10P","S11","S11a","S12","S12a"]);
+    if (S_COVERED.has(setId)) return "S";
+    return null;
+  }
+
+  // Build a TCGdex high-res image URL for a JP card using setId + card number
+  function buildTcgdexUrlFromSetId(setId: string, number: string): string | null {
+    const series = getTcgdexSeriesForSet(setId);
+    if (!series || !number || !/^\d+$/.test(number)) return null;
+    const padded = number.padStart(3, "0");
+    return `https://assets.tcgdex.net/ja/${series}/${setId}/${padded}/high.webp`;
+  }
+
   // Fetch JP/Korean cards for a set from TCGdex + PokeTrace (extracted from the set-cards endpoint)
   async function fetchJpSetCards(
     setId: string, langCode: "ja" | "ko", setNameEnHint?: string
@@ -7372,13 +7388,11 @@ RESPONSE FORMAT (JSON only, no markdown):
     let cards = (data?.cards || []).map((c: any) => {
       const localId = c.localId || "";
       const pt = ptCardsByNumber.get(localId) ?? null;
-      const cardId = c.id || "";
-      const tcgdexImageFallback = cardId
-        ? `https://assets.tcgdex.net/${langCode}/${setId}/${cardId}/high.jpg`
-        : null;
-      const imageUrl = pt?.imageUrl
-        || (c.image ? (c.image.endsWith(".jpg") || c.image.endsWith(".png") || c.image.endsWith(".webp") ? c.image : `${c.image}/high.jpg`) : null)
-        || tcgdexImageFallback;
+      // Prefer TCGdex high-res (600×825 webp) over PokeTrace low-res (255×361)
+      const tcgdexUrl = c.image
+        ? (c.image.endsWith(".jpg") || c.image.endsWith(".png") || c.image.endsWith(".webp") ? c.image : `${c.image}/high.webp`)
+        : (langCode === "ja" ? buildTcgdexUrlFromSetId(setId, localId) : null);
+      const imageUrl = tcgdexUrl || pt?.imageUrl || null;
       return {
         id: c.id,
         name: c.name,
@@ -7400,7 +7414,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           name: pt.nameEn,
           nameEn: pt.nameEn,
           number: num,
-          imageUrl: pt.imageUrl,
+          imageUrl: (langCode === "ja" ? buildTcgdexUrlFromSetId(setId, num) : null) || pt.imageUrl,
           priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
           setNameEn,
         }));
@@ -8698,6 +8712,17 @@ RESPONSE FORMAT (JSON only, no markdown):
       .then(() => console.log("[top-picks] Manual trigger complete"))
       .catch(e => console.error("[top-picks] Manual trigger error:", e.message));
     res.json({ status: "started", lang: "en" });
+  });
+
+  // ── Admin: trigger JP catalog image refresh (re-syncs all JP sets with updated image logic) ──
+  app.post("/api/admin/trigger-jp-catalog-sync", async (req, res) => {
+    const secret = req.headers["x-admin-secret"] || req.query.secret;
+    if (secret !== "@dm!nM@rceus2026") return res.status(401).json({ error: "Unauthorized" });
+    if (jpCatalogSyncRunning) return res.json({ status: "already_running" });
+    syncAllJapaneseSets("full")
+      .then(() => console.log("[jp-catalog] Manual trigger complete"))
+      .catch(e => console.error("[jp-catalog] Manual trigger error:", e.message));
+    res.json({ status: "started", message: "JP catalog full sync started — this takes ~30-40 min" });
   });
 
   // ── eBay Graded Price Lookup (PSA 10 / PSA 9 — backward compat) ──────────
