@@ -380,7 +380,12 @@ async function initCardCatalogTable(): Promise<void> {
       )
     `);
     await db.query(`ALTER TABLE card_catalog ADD COLUMN IF NOT EXISTS prices_json JSONB`);
+    await db.query(`ALTER TABLE card_catalog ADD COLUMN IF NOT EXISTS lang VARCHAR(5) NOT NULL DEFAULT 'en'`);
+    await db.query(`ALTER TABLE card_catalog ADD COLUMN IF NOT EXISTS name_en VARCHAR(200)`);
+    await db.query(`ALTER TABLE card_catalog ADD COLUMN IF NOT EXISTS price_eur NUMERIC(10,2)`);
+    await db.query(`ALTER TABLE card_catalog ADD COLUMN IF NOT EXISTS set_name_en VARCHAR(200)`);
     await db.query(`CREATE INDEX IF NOT EXISTS card_catalog_set_id_idx ON card_catalog (set_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS card_catalog_lang_set_idx ON card_catalog (lang, set_id)`);
     console.log("[card-catalog] DB table ready");
   } catch (e: any) {
     console.error("[card-catalog] Failed to create table:", e.message);
@@ -7223,6 +7228,187 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // Read JP/Korean cards for a set from the DB (returns null if not yet synced)
+  async function getJpCardsFromCatalog(setId: string, lang: "ja" | "ko" = "ja"): Promise<any[] | null> {
+    try {
+      const { rows } = await db.query(
+        `SELECT card_id as id, name, name_en as "nameEn", number, image_url as "imageUrl",
+                price_eur::float as "priceEUR", set_name_en as "setNameEn"
+         FROM card_catalog WHERE set_id = $1 AND lang = $2
+         ORDER BY LPAD(regexp_replace(number, '[^0-9]', '', 'g'), 4, '0'), number`,
+        [setId, lang]
+      );
+      if (rows.length === 0) return null;
+      return rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        nameEn: r.nameEn || null,
+        number: r.number || "",
+        imageUrl: r.imageUrl || null,
+        priceEUR: r.priceEUR != null ? Math.round(r.priceEUR * 100) / 100 : null,
+        setNameEn: r.setNameEn || null,
+      }));
+    } catch (err: any) {
+      console.error(`[jp-catalog] DB read error for ${setId}:`, err.message);
+      return null;
+    }
+  }
+
+  // Bulk-upsert an array of JP/Korean shaped card rows into card_catalog
+  async function upsertJpCardsForSet(
+    setId: string, setName: string, setNameEn: string, cards: any[], lang: "ja" | "ko" = "ja"
+  ): Promise<void> {
+    if (cards.length === 0) return;
+    const now = new Date();
+    const CHUNK = 50;
+    // 11 fields per row: card_id, set_id, set_name, name, number, image_url, name_en, price_eur, set_name_en, price_updated_at, lang
+    const FIELDS = 11;
+    for (let i = 0; i < cards.length; i += CHUNK) {
+      const chunk = cards.slice(i, i + CHUNK);
+      const placeholders = chunk.map((_, j) => {
+        const b = j * FIELDS;
+        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11})`;
+      }).join(",");
+      const values: any[] = [];
+      for (const c of chunk) {
+        values.push(
+          c.id, setId, setName, c.name || c.nameEn || "", c.number,
+          c.imageUrl ?? null, c.nameEn ?? null, c.priceEUR ?? null, setNameEn, now, lang
+        );
+      }
+      await db.query(
+        `INSERT INTO card_catalog (card_id, set_id, set_name, name, number, image_url, name_en, price_eur, set_name_en, price_updated_at, lang)
+         VALUES ${placeholders}
+         ON CONFLICT (card_id) DO UPDATE SET
+           name             = EXCLUDED.name,
+           number           = EXCLUDED.number,
+           image_url        = EXCLUDED.image_url,
+           name_en          = EXCLUDED.name_en,
+           price_eur        = EXCLUDED.price_eur,
+           set_name_en      = EXCLUDED.set_name_en,
+           price_updated_at = EXCLUDED.price_updated_at,
+           lang             = EXCLUDED.lang`,
+        values
+      );
+    }
+  }
+
+  // Count JP cards per set in the DB — used to derive hasCardData for the set list
+  async function getJpCardCountsFromDB(): Promise<Map<string, number>> {
+    try {
+      const { rows } = await db.query(
+        `SELECT set_id, COUNT(*) as cnt FROM card_catalog WHERE lang = 'ja' GROUP BY set_id`
+      );
+      return new Map(rows.map((r: any) => [r.set_id, parseInt(r.cnt, 10)]));
+    } catch (err: any) {
+      console.error("[jp-catalog] Failed to read card counts:", err.message);
+      return new Map();
+    }
+  }
+
+  // Fetch JP/Korean cards for a set from TCGdex + PokeTrace (extracted from the set-cards endpoint)
+  async function fetchJpSetCards(
+    setId: string, langCode: "ja" | "ko", setNameEnHint?: string
+  ): Promise<{ cards: any[]; setNameEn: string; setName: string }> {
+    const resp = await fetch(
+      `https://api.tcgdex.net/v2/${langCode}/sets/${encodeURIComponent(setId)}`,
+      { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+    );
+    // TCGdex may return 404 for some JP-exclusive sets — gracefully fall through to PokeTrace
+    let data: any = { cards: [], name: setId };
+    if (resp.ok) {
+      data = await resp.json() as any;
+    } else {
+      console.warn(`[jp-catalog] TCGdex ${resp.status} for ${setId} — falling back to PokeTrace only`);
+    }
+
+    const enNamesMap = await getTcgdexEnNames();
+    const setNameEn: string = setNameEnHint
+      || JP_TCGDEX_EN_NAMES[setId]
+      || enNamesMap.get(setId)
+      || data.nameEn
+      || data.name
+      || setId;
+    const setName: string = data.name || setId;
+
+    // PokeTrace EU enrichment (JP only)
+    const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
+    if (langCode === "ja") {
+      const ptSlug = toPokeTraceSlug(setNameEn);
+      if (ptSlug) {
+        try {
+          let cursor: string | null = null;
+          let pageCount = 0;
+          const PT_MAX_PAGES = 15;
+          do {
+            const ptUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(ptSlug)}&market=EU&limit=100`
+              + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+            const ptResp = await fetch(ptUrl, {
+              headers: { "X-API-Key": process.env.POKETRACE_API_KEY || "" },
+              signal: AbortSignal.timeout(10000),
+            });
+            if (!ptResp.ok) { console.warn(`[jp-catalog] PokeTrace ${ptResp.status} for ${ptSlug}`); break; }
+            const ptData = await ptResp.json() as any;
+            for (const c of (ptData?.data || [])) {
+              const baseNum = (c.cardNumber || "").split("/")[0].trim();
+              if (baseNum) {
+                const nm = c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0;
+                ptCardsByNumber.set(baseNum, {
+                  nameEn:   c.name || "",
+                  priceEUR: nm > 0 ? Math.round(nm * 100) / 100 : 0,
+                  imageUrl: c.image ?? null,
+                });
+              }
+            }
+            pageCount++;
+            cursor = ptData?.pagination?.hasMore ? (ptData.pagination.nextCursor ?? null) : null;
+          } while (cursor && pageCount < PT_MAX_PAGES);
+        } catch (e: any) {
+          console.warn(`[jp-catalog] PokeTrace enrichment failed for ${ptSlug}:`, e.message);
+        }
+      }
+    }
+
+    let cards = (data?.cards || []).map((c: any) => {
+      const localId = c.localId || "";
+      const pt = ptCardsByNumber.get(localId) ?? null;
+      const cardId = c.id || "";
+      const tcgdexImageFallback = cardId
+        ? `https://assets.tcgdex.net/${langCode}/${setId}/${cardId}/high.jpg`
+        : null;
+      const imageUrl = pt?.imageUrl
+        || (c.image ? (c.image.endsWith(".jpg") || c.image.endsWith(".png") || c.image.endsWith(".webp") ? c.image : `${c.image}/high.jpg`) : null)
+        || tcgdexImageFallback;
+      return {
+        id: c.id,
+        name: c.name,
+        nameEn: pt?.nameEn || c.nameEn || null,
+        number: localId,
+        imageUrl,
+        priceEUR: pt ? (pt.priceEUR > 0 ? pt.priceEUR : null) : null,
+        setNameEn,
+      };
+    });
+
+    // Fallback: TCGdex has no cards — build list from PokeTrace data
+    if (cards.length === 0 && ptCardsByNumber.size > 0) {
+      console.log(`[jp-catalog] TCGdex empty for ${setId} — building ${ptCardsByNumber.size} cards from PokeTrace`);
+      cards = Array.from(ptCardsByNumber.entries())
+        .sort(([a], [b]) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
+        .map(([num, pt]) => ({
+          id: `${setId}-${num}`,
+          name: pt.nameEn,
+          nameEn: pt.nameEn,
+          number: num,
+          imageUrl: pt.imageUrl,
+          priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
+          setNameEn,
+        }));
+    }
+
+    return { cards, setNameEn, setName };
+  }
+
   // Check how many cards are stored in the catalog (used to detect first-run)
   async function getCardCatalogCount(): Promise<number> {
     try {
@@ -7827,6 +8013,72 @@ RESPONSE FORMAT (JSON only, no markdown):
       scheduleDailyCardCatalogSync();
     }, delay);
   }
+
+  // Sync all Japanese sets into card_catalog (same pattern as syncAllEnglishSets)
+  let jpCatalogSyncRunning = false;
+  async function syncAllJapaneseSets(mode: "full" | "prices-only" = "full"): Promise<void> {
+    if (jpCatalogSyncRunning) { console.log("[jp-catalog] Sync already in progress — skipping"); return; }
+    jpCatalogSyncRunning = true;
+    try {
+      const allSets = await buildTcgdexSetList("ja");
+      console.log(`[jp-catalog] Starting ${mode} sync for ${allSets.length} JP sets...`);
+      let synced = 0; let skipped = 0; let errors = 0;
+
+      for (const s of allSets) {
+        try {
+          // In prices-only mode, skip sets whose prices were updated within the last 20h
+          if (mode === "prices-only") {
+            const { rows } = await db.query(
+              `SELECT MIN(price_updated_at) as oldest FROM card_catalog WHERE set_id = $1 AND lang = 'ja'`,
+              [s.id]
+            );
+            const oldest = rows[0]?.oldest;
+            if (oldest && Date.now() - new Date(oldest).getTime() < 20 * 60 * 60 * 1000) {
+              skipped++;
+              continue;
+            }
+          }
+
+          const { cards, setNameEn, setName } = await fetchJpSetCards(s.id, "ja", s.nameEn || undefined);
+          if (cards.length > 0) {
+            await upsertJpCardsForSet(s.id, setName, setNameEn, cards, "ja");
+          }
+          upsertSetPriceStatus(s.id, cards.length > 0, cards.some(c => c.priceEUR != null && c.priceEUR > 0));
+          // Warm L1 cache
+          setCardsCache.set(`japanese:${s.id}`, {
+            cards: cards.map(c => ({ ...c, price: null, prices: null })),
+            fetchedAt: Date.now(),
+          });
+
+          synced++;
+          if (synced % 20 === 0) console.log(`[jp-catalog] Synced ${synced}/${allSets.length} JP sets...`);
+        } catch (err: any) {
+          console.warn(`[jp-catalog] Failed to sync ${s.id}: ${err.message}`);
+          errors++;
+        }
+        // Polite delay — PokeTrace has rate limits
+        await new Promise(r => setTimeout(r, 600));
+      }
+      console.log(`[jp-catalog] Sync complete — ${synced} synced, ${skipped} skipped, ${errors} errors`);
+    } finally {
+      jpCatalogSyncRunning = false;
+    }
+  }
+
+  // Schedule daily JP catalog price refresh (4:00 AM UTC — 30 min after EN refresh)
+  function scheduleDailyJpCatalogSync() {
+    const now = new Date();
+    const next = new Date();
+    next.setUTCHours(4, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const delay = next.getTime() - now.getTime();
+    const delayMin = Math.round(delay / 60000);
+    console.log(`[jp-catalog] Daily sync scheduled in ${delayMin} min`);
+    setTimeout(async () => {
+      await syncAllJapaneseSets("prices-only");
+      scheduleDailyJpCatalogSync();
+    }, delay);
+  }
   const PRICE_STATUS_TTL = 23 * 60 * 60 * 1000; // 23h — re-check after 1 day
   let priceStatusPrePopStarted = false;
 
@@ -8083,6 +8335,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   // Start the daily refresh schedulers
   scheduleDailySetStatusRefresh();
   scheduleDailyCardCatalogSync();
+  scheduleDailyJpCatalogSync();
   scheduleDailyTopPicksJob();
   scheduleDailyJpTopPicksJob();
 
@@ -8090,10 +8343,19 @@ RESPONSE FORMAT (JSON only, no markdown):
   void (async () => {
     const count = await getCardCatalogCount();
     if (count === 0) {
-      console.log("[card-catalog] Empty catalog — starting initial population in background...");
+      console.log("[card-catalog] Empty catalog — starting initial EN population in background...");
       void syncAllEnglishSets("full");
     } else {
-      console.log(`[card-catalog] Catalog ready with ${count} cards`);
+      console.log(`[card-catalog] EN catalog ready with ${count} cards`);
+    }
+    // Also kick off first-run JP population if no JP cards are in DB
+    const jpCounts = await getJpCardCountsFromDB();
+    const jpTotal = Array.from(jpCounts.values()).reduce((a, b) => a + b, 0);
+    if (jpTotal === 0) {
+      console.log("[jp-catalog] No JP cards in DB — starting initial JP population in background...");
+      void syncAllJapaneseSets("full");
+    } else {
+      console.log(`[jp-catalog] JP catalog ready: ${jpCounts.size} sets, ${jpTotal} cards`);
     }
   })();
 
@@ -8426,15 +8688,20 @@ RESPONSE FORMAT (JSON only, no markdown):
   app.get("/api/sets/japanese", async (req, res) => {
     try {
       await loadSetPriceStatusFromDB();
-      const sets = await buildTcgdexSetList("ja");
-      // Enrich each set with price/card status from cache (populated when user opens a set)
+      const [sets, dbCardCounts] = await Promise.all([
+        buildTcgdexSetList("ja"),
+        getJpCardCountsFromDB(),
+      ]);
+      // Enrich each set with price/card status.
+      // hasCardData: DB card count is the most reliable source (pre-populated by daily sync).
+      // Falls back to status cache for sets that have been opened but not yet in DB.
       const enriched = sets.map((s: any) => {
         const status = setPriceStatusCache.get(s.id);
+        const dbCount = dbCardCounts.get(s.id) ?? 0;
         return {
           ...s,
           hasPrices: status ? status.hasPrices : null,
-          // null = never fetched (unknown); true/false = confirmed by actual card fetch
-          hasCardData: status ? status.hasCards : null,
+          hasCardData: dbCount > 0 ? true : (status ? status.hasCards : null),
         };
       });
       res.json({ sets: enriched });
@@ -8501,6 +8768,22 @@ RESPONSE FORMAT (JSON only, no markdown):
       }
     }
 
+    // L2 (JP/Korean): card_catalog with lang='ja'/'ko' — populated by daily sync
+    if ((lang === "japanese" || lang === "korean") && !isWotcEdition) {
+      try {
+        const langCode = lang === "japanese" ? "ja" : "ko";
+        const dbCards = await getJpCardsFromCatalog(setId, langCode);
+        if (dbCards !== null) {
+          console.log(`[sets/cards] L2 JP DB hit: ${setId} (${dbCards.length} cards)`);
+          setCardsCache.set(cacheKey, { cards: dbCards, fetchedAt: Date.now() });
+          upsertSetPriceStatus(setId, dbCards.length > 0, dbCards.some((c: any) => c.priceEUR != null && c.priceEUR > 0));
+          return res.json({ cards: dbCards });
+        }
+      } catch (err: any) {
+        console.warn(`[sets/cards] JP DB read failed for ${setId}, falling back to live fetch:`, err.message);
+      }
+    }
+
     // L3: External API (slow — only when DB has no data for this set, or WOTC edition request)
     try {
       let cards: any[] = [];
@@ -8539,105 +8822,13 @@ RESPONSE FORMAT (JSON only, no markdown):
           void upsertCardsForSet(cards);
         }
       } else {
+        // JP/Korean: use the shared fetchJpSetCards helper (TCGdex + PokeTrace)
         const langCode = lang === "japanese" ? "ja" : "ko";
-        const resp = await fetch(
-          `https://api.tcgdex.net/v2/${langCode}/sets/${encodeURIComponent(setId)}`,
-          { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
-        );
-        if (!resp.ok) return res.status(502).json({ error: "TCGdex unavailable" });
-        const data = await resp.json() as any;
-
-        // English name for this Japanese set — used for PokeTrace slug + display.
-        // Static map wins (handles JP-exclusive sets with no EN TCGdex entry),
-        // then fall back to TCGdex-provided nameEn/name.
-        const enNamesMap = await getTcgdexEnNames();
-        const setNameEn: string = JP_TCGDEX_EN_NAMES[setId]
-          || enNamesMap.get(setId)
-          || data.nameEn
-          || data.name
-          || setId;
-
-        // Build a PokeTrace EU set slug using the normalised helper (handles é → e, etc.)
-        const ptSlug = toPokeTraceSlug(setNameEn);
-
-        // Best-effort: fetch PokeTrace EU card list for this set to get NM EUR prices + images
-        // PokeTrace uses cursor-based pagination with max 20 cards per page (limit ≤ 100 required)
-        const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
-        if (lang === "japanese" && ptSlug) {
-          try {
-            let cursor: string | null = null;
-            let pageCount = 0;
-            const PT_MAX_PAGES = 15; // safety cap (15 × 20 = 300 cards max)
-            do {
-              const ptUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(ptSlug)}&market=EU&limit=100`
-                + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
-              const ptResp = await fetch(ptUrl, {
-                headers: { "X-API-Key": process.env.POKETRACE_API_KEY || "" },
-                signal: AbortSignal.timeout(10000),
-              });
-              if (!ptResp.ok) {
-                console.warn(`[sets/cards] PokeTrace EU page ${pageCount + 1} returned ${ptResp.status} for ${ptSlug}`);
-                break;
-              }
-              const ptData = await ptResp.json() as any;
-              for (const c of (ptData?.data || [])) {
-                const baseNum = (c.cardNumber || "").split("/")[0].trim();
-                if (baseNum) {
-                  const nm = c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0;
-                  ptCardsByNumber.set(baseNum, {
-                    nameEn:   c.name || "",
-                    priceEUR: nm > 0 ? Math.round(nm * 100) / 100 : 0,
-                    imageUrl: c.image ?? null,
-                  });
-                }
-              }
-              pageCount++;
-              cursor = ptData?.pagination?.hasMore ? (ptData.pagination.nextCursor ?? null) : null;
-            } while (cursor && pageCount < PT_MAX_PAGES);
-            console.log(`[sets/cards] PokeTrace EU enrichment: ${ptCardsByNumber.size} cards in ${pageCount} pages for ${ptSlug}`);
-          } catch (e: any) {
-            console.warn(`[sets/cards] PokeTrace EU enrichment failed for ${ptSlug}:`, e.message);
-          }
-        }
-
-        cards = (data?.cards || []).map((c: any) => {
-          const localId = c.localId || "";
-          const pt = ptCardsByNumber.get(localId) ?? null;
-          // TCGdex CDN pattern: assets.tcgdex.net/{lang}/{setId}/{cardId}/high.jpg
-          // c.image may be a base URL (without /high.jpg) or null — always build a fallback
-          const cardId = c.id || "";
-          const tcgdexImageFallback = cardId
-            ? `https://assets.tcgdex.net/${langCode}/${setId}/${cardId}/high.jpg`
-            : null;
-          const imageUrl = pt?.imageUrl
-            || (c.image ? (c.image.endsWith(".jpg") || c.image.endsWith(".png") || c.image.endsWith(".webp") ? c.image : `${c.image}/high.jpg`) : null)
-            || tcgdexImageFallback;
-          return {
-            id: c.id,
-            name: c.name,          // Japanese/local name
-            nameEn: pt?.nameEn || c.nameEn || null, // English name (for PokeTrace matching)
-            number: localId,
-            imageUrl,
-            priceEUR: pt?.priceEUR ?? null,
-            setNameEn,             // Pass the English set name so frontend can use for PokeTrace
-          };
-        });
-
-        // Fallback: TCGdex has no card data for this JP set — build list directly from
-        // PokeTrace data so sets with PokeTrace prices still display their card list.
-        if (cards.length === 0 && ptCardsByNumber.size > 0) {
-          console.log(`[sets/cards] TCGdex empty for ${setId} — building ${ptCardsByNumber.size} cards from PokeTrace`);
-          cards = Array.from(ptCardsByNumber.entries())
-            .sort(([a], [b]) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
-            .map(([num, pt]) => ({
-              id: `${setId}-${num}`,
-              name: pt.nameEn,     // English name is the only name available from PokeTrace
-              nameEn: pt.nameEn,
-              number: num,
-              imageUrl: pt.imageUrl,
-              priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
-              setNameEn,
-            }));
+        const { cards: fetchedCards, setNameEn, setName } = await fetchJpSetCards(setId, langCode);
+        cards = fetchedCards;
+        // Write to DB so future requests hit L2 instead of live APIs
+        if (lang === "japanese" && cards.length > 0) {
+          void upsertJpCardsForSet(setId, setName, setNameEn, cards, "ja");
         }
       }
 
