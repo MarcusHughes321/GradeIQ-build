@@ -123,6 +123,47 @@ const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
   PSA: "psa10", Beckett: "bgs10", Ace: "ace10", TAG: "tag10", CGC: "cgc10",
 };
 
+// Grading fee tiers per company — mirrored from grading-fees.tsx
+type FeeCurrency = "USD" | "GBP";
+interface FeeOption { label: string; amount: number; currency: FeeCurrency; }
+const COMPANY_FEE_OPTIONS: Record<string, FeeOption[]> = {
+  PSA: [
+    { label: "Value Bulk",    amount: 21.99,  currency: "USD" },
+    { label: "Value",         amount: 27.99,  currency: "USD" },
+    { label: "Value Plus",    amount: 44.99,  currency: "USD" },
+    { label: "Value Max",     amount: 59.99,  currency: "USD" },
+    { label: "Regular",       amount: 79.99,  currency: "USD" },
+    { label: "Express",       amount: 149.99, currency: "USD" },
+    { label: "Super Express", amount: 299.99, currency: "USD" },
+    { label: "Walk-Through",  amount: 499.99, currency: "USD" },
+  ],
+  Beckett: [
+    { label: "Economy",       amount: 20,  currency: "USD" },
+    { label: "Standard",      amount: 30,  currency: "USD" },
+    { label: "Express",       amount: 100, currency: "USD" },
+    { label: "Super Express", amount: 125, currency: "USD" },
+  ],
+  CGC: [
+    { label: "Bulk",     amount: 15,  currency: "USD" },
+    { label: "Economy",  amount: 18,  currency: "USD" },
+    { label: "Standard", amount: 55,  currency: "USD" },
+    { label: "Express",  amount: 100, currency: "USD" },
+  ],
+  Ace: [
+    { label: "Basic",    amount: 12, currency: "GBP" },
+    { label: "Standard", amount: 15, currency: "GBP" },
+    { label: "Premier",  amount: 18, currency: "GBP" },
+    { label: "Ultra",    amount: 25, currency: "GBP" },
+    { label: "Luxury",   amount: 50, currency: "GBP" },
+  ],
+  TAG: [
+    { label: "Basic",         amount: 22, currency: "USD" },
+    { label: "Standard",      amount: 39, currency: "USD" },
+    { label: "Express",       amount: 59, currency: "USD" },
+    { label: "Super Express", amount: 99, currency: "USD" },
+  ],
+};
+
 // Liquidity score 0–100 for a single grade's detail data.
 // Weights: sale velocity 50% | price stability 30% | data freshness 20%
 function calcLiquidityScore(detail: GradeDetail | undefined): number {
@@ -204,7 +245,7 @@ function LiquidityBar({ score, color }: { score: number; color: string }) {
   );
 }
 const lbStyles = StyleSheet.create({
-  track:        { height: 10, backgroundColor: Colors.border, borderRadius: 6, overflow: "hidden" },
+  track:        { height: 10, backgroundColor: Colors.surfaceBorder, borderRadius: 6, overflow: "hidden" },
   fill:         { height: "100%", borderRadius: 6, overflow: "hidden", position: "relative" },
   shimmer:      { position: "absolute", top: 0, bottom: 0, width: 60, backgroundColor: "rgba(255,255,255,0.35)", transform: [{ skewX: "-20deg" }] },
   pulseOverlay: { backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 6 },
@@ -497,6 +538,8 @@ export default function CardProfitScreen() {
   };
 
   const eurRate = rates["EUR"] ?? FALLBACK_RATES["EUR"] ?? 0.92;
+  const gbpRate = rates["GBP"] ?? FALLBACK_RATES["GBP"] ?? 0.79;
+
   const baseRawUSD = rawPriceUSD ? parseFloat(rawPriceUSD) : 0;
   const baseRawEUR = rawPriceEUR ? parseFloat(rawPriceEUR) : 0;
   const selectedVariantPrice = selectedVariant
@@ -537,9 +580,17 @@ export default function CardProfitScreen() {
 
   // Which grade row the user has tapped to chart (undefined = top grade default)
   const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
+  const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
 
-  // Reset to top grade whenever the company tab switches
-  useEffect(() => { setChartGradeKey(undefined); }, [selectedCompany]);
+  // Reset chart grade and fee whenever the company tab switches
+  useEffect(() => { setChartGradeKey(undefined); setSelectedFeeOption(null); }, [selectedCompany]);
+
+  // Convert selected grading fee to local currency (GBP fees → local via GBP rate)
+  const feeLocalAmount = selectedFeeOption
+    ? selectedFeeOption.currency === "GBP"
+      ? selectedFeeOption.amount * (currencyRate / gbpRate)
+      : selectedFeeOption.amount * currencyRate
+    : 0;
 
   // Cache key mirrors server logic: "CardName BaseNum [1st]"
   const historyCacheKey = useMemo(() => {
@@ -577,11 +628,13 @@ export default function CardProfitScreen() {
       if (!config) return null;
 
       const rows = config.grades.map(g => {
-        const ebayUSD = ebay ? (ebay[g.ebayKey] ?? 0) : 0;
+        const ebayUSD = ebay ? ((ebay[g.ebayKey] as number | undefined) ?? 0) : 0;
         const ebayLocal = ebayUSD > 0 ? Math.round(ebayUSD * currencyRate) : null;
+        // When a fee tier is selected, deduct it from profit for this company only
+        const feeDeduc = compId === selectedCompany ? feeLocalAmount : 0;
         const profit =
           ebayLocal !== null && hasRawPrice
-            ? Math.round(ebayLocal - rawLocalVal)
+            ? Math.round(ebayLocal - rawLocalVal - feeDeduc)
             : null;
         return { ...g, ebayLocal, profit };
       });
@@ -591,7 +644,7 @@ export default function CardProfitScreen() {
 
       return { compId, config, rows, minProfitRow };
     }).filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate]);
+  }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate, feeLocalAmount, selectedCompany]);
 
   // ── Market snapshot — liquidity across all enabled companies ────────────
   const marketSnapshot = useMemo(() => {
@@ -928,7 +981,9 @@ export default function CardProfitScreen() {
               <View style={st.tblHead}>
                 <Text style={[st.tblHeadTxt, { flex: 2 }]}>Grade</Text>
                 <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>eBay Sold</Text>
-                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>Profit</Text>
+                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>
+                  {selectedFeeOption ? "Net Profit" : "Profit"}
+                </Text>
                 <View style={{ width: 48 }} />
               </View>
 
@@ -1025,6 +1080,61 @@ export default function CardProfitScreen() {
                   ) : (
                     <Text style={[st.summaryTxt, { color: "#ef4444" }]}>
                       No profitable grade at this raw price
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* ── Grading Fee Section ─────────────────────────────── */}
+              {(COMPANY_FEE_OPTIONS[compId] ?? []).length > 0 && (
+                <View style={st.feeSection}>
+                  <View style={st.feeSectionHeader}>
+                    <Ionicons name="receipt-outline" size={13} color={Colors.textMuted} />
+                    <Text style={st.feeSectionTitle}>Grading Fee</Text>
+                    {selectedFeeOption && (
+                      <Pressable
+                        onPress={() => setSelectedFeeOption(null)}
+                        hitSlop={8}
+                        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+                      >
+                        <Text style={st.feeClearBtn}>Clear</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={st.feeTierScroll}
+                  >
+                    {(COMPANY_FEE_OPTIONS[compId] ?? []).map(opt => {
+                      const isActive = selectedFeeOption?.label === opt.label;
+                      const symb = opt.currency === "GBP" ? "£" : "$";
+                      return (
+                        <Pressable
+                          key={opt.label}
+                          onPress={() => setSelectedFeeOption(isActive ? null : opt)}
+                          style={[st.feeTierPill, isActive && st.feeTierPillActive]}
+                        >
+                          <Text style={[st.feeTierName, isActive && st.feeTierNameActive]}>
+                            {opt.label}
+                          </Text>
+                          <Text style={[st.feeTierAmt, isActive && st.feeTierAmtActive]}>
+                            {symb}{opt.amount % 1 === 0 ? opt.amount : opt.amount.toFixed(2)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                  {selectedFeeOption ? (
+                    <Text style={st.feeActiveNote}>
+                      <Text style={{ color: Colors.text }}>
+                        {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)})
+                      </Text>
+                      {" "}deducted from profit above
+                    </Text>
+                  ) : (
+                    <Text style={st.feeHint}>
+                      Select a service tier to see profit after grading fee
                     </Text>
                   )}
                 </View>
@@ -1509,7 +1619,7 @@ const st = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.surfaceBorder,
     padding: 14,
     gap: 10,
   },
@@ -1554,7 +1664,7 @@ const st = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.surfaceBorder,
     backgroundColor: Colors.background,
   },
   snapshotSalesCo: {
@@ -1570,5 +1680,78 @@ const st = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
+  },
+
+  // ── Grading Fee Section ─────────────────────────────────────────────────
+  feeSection: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    gap: 10,
+  },
+  feeSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  feeSectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+    flex: 1,
+  },
+  feeClearBtn: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.primary,
+  },
+  feeTierScroll: {
+    gap: 8,
+    paddingBottom: 2,
+  },
+  feeTierPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    alignItems: "center",
+    gap: 2,
+  },
+  feeTierPillActive: {
+    backgroundColor: Colors.primary + "18",
+    borderColor: Colors.primary,
+  },
+  feeTierName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  feeTierNameActive: {
+    color: Colors.primary,
+  },
+  feeTierAmt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  feeTierAmtActive: {
+    color: Colors.primary,
+  },
+  feeActiveNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    paddingHorizontal: 2,
+  },
+  feeHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    paddingHorizontal: 2,
+    fontStyle: "italic",
   },
 });
