@@ -217,7 +217,7 @@ const COMPANY_FEES: CompanyFees[] = [
     color: "#FF6B00",
     currency: "USD",
     lastUpdated: "2025",
-    sourceUrl: "https://www.taggrading.com/services",
+    sourceUrl: "https://taggrading.com/pages/pricing",
     sourceLabel: "taggrading.com",
     tiers: [
       {

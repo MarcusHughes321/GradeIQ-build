@@ -123,13 +123,13 @@ const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
   PSA: "psa10", Beckett: "bgs10", Ace: "ace10", TAG: "tag10", CGC: "cgc10",
 };
 
-// Submission start URLs per company
+// Submission start URLs per company (verified April 2026)
 const COMPANY_SUBMIT_URL: Record<string, string> = {
-  PSA:     "https://www.psacard.com/orders/submissionform",
-  Beckett: "https://www.beckett.com/grading",
+  PSA:     "https://www.psacard.com/submit",
+  Beckett: "https://www.beckett.com/submit",
   CGC:     "https://www.cgccomics.com/cards/submit/",
-  Ace:     "https://acegrading.com/services",
-  TAG:     "https://www.taggrading.com/submit",
+  Ace:     "https://acegrading.com/submission-portal",
+  TAG:     "https://my.taggrading.com",
 };
 
 // Grading fee tiers per company — mirrored from grading-fees.tsx
@@ -856,6 +856,16 @@ export default function CardProfitScreen() {
           )}
         </View>
 
+        {/* Grade This Card — compact secondary CTA */}
+        <Pressable
+          style={({ pressed }) => [st.gradeCtaSmall, { opacity: pressed ? 0.75 : 1 }]}
+          onPress={() => router.push("/(tabs)/grade")}
+        >
+          <Ionicons name="scan-outline" size={14} color={Colors.primary} />
+          <Text style={st.gradeCtaSmallTxt}>Grade This Card</Text>
+          <Ionicons name="chevron-forward" size={13} color={Colors.textMuted} style={{ marginLeft: "auto" }} />
+        </Pressable>
+
         {/* Price fetch status */}
         {isLoading && (
           <View style={st.feedbackRow}>
@@ -1210,15 +1220,6 @@ export default function CardProfitScreen() {
             </View>
           );
         })}
-
-        {/* Grade this card CTA */}
-        <Pressable
-          style={({ pressed }) => [st.gradeCta, { opacity: pressed ? 0.85 : 1 }]}
-          onPress={() => router.push("/(tabs)/grade")}
-        >
-          <Ionicons name="scan-outline" size={18} color="#fff" />
-          <Text style={st.gradeCtaTxt}>Grade This Card</Text>
-        </Pressable>
 
         {/* Stale data warning */}
         {!isLoading && ebay?.isStale && ebay.fetchedAt && (
@@ -1648,23 +1649,6 @@ const st = StyleSheet.create({
     color: Colors.textSecondary,
   },
 
-  gradeCta: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 15,
-    marginHorizontal: 12,
-    marginTop: 20,
-  },
-  gradeCtaTxt: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 15,
-    color: "#fff",
-  },
-
   disclaimer: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1876,7 +1860,7 @@ const st = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: Colors.primary,
+    backgroundColor: "#16a34a",
     borderRadius: 12,
     paddingVertical: 13,
     paddingHorizontal: 16,
@@ -1885,6 +1869,26 @@ const st = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 15,
     color: "#fff",
+    flex: 1,
+  },
+  // Compact secondary CTA shown below hero section
+  gradeCtaSmall: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginHorizontal: 12,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  gradeCtaSmallTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.primary,
     flex: 1,
   },
 });
