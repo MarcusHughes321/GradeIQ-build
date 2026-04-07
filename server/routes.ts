@@ -7836,10 +7836,10 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // Japanese sets that exist on PokeTrace but are NOT listed on TCGdex.
   // These are appended to the TCGdex set list so they still get synced.
-  const EXTRA_JP_POKETRACE_SETS: Array<{ id: string; nameEn: string }> = [
-    { id: "M1B", nameEn: "Mega Brave" },
-    { id: "M2",  nameEn: "Inferno X" },
-    { id: "M2A", nameEn: "MEGA Dream ex" },
+  const EXTRA_JP_POKETRACE_SETS: Array<{ id: string; nameEn: string; releaseDate: string | null }> = [
+    { id: "M1B", nameEn: "Mega Brave",    releaseDate: "2025-08-01" },
+    { id: "M2",  nameEn: "Inferno X",     releaseDate: "2025-09-26" },
+    { id: "M2A", nameEn: "MEGA Dream ex", releaseDate: "2025-11-28" },
   ];
 
   // Derives a PokeTrace-compatible slug from an English set name.
@@ -8129,12 +8129,18 @@ RESPONSE FORMAT (JSON only, no markdown):
     jpCatalogSyncRunning = true;
     try {
       const allSets = await buildTcgdexSetList("ja");
-      // Append PokeTrace-only sets that TCGdex doesn't track
+      // Append PokeTrace-only sets that TCGdex doesn't track, then re-sort
       for (const extra of EXTRA_JP_POKETRACE_SETS) {
         if (!allSets.some((s: any) => s.id.toLowerCase() === extra.id.toLowerCase())) {
-          allSets.push({ id: extra.id, name: extra.id, nameEn: extra.nameEn, cardCount: 0, releaseDate: null, logo: null, _serieIdx: 0, _setIdx: 0 });
+          allSets.push({ id: extra.id, name: extra.id, nameEn: extra.nameEn, cardCount: 0, releaseDate: extra.releaseDate, logo: null, _serieIdx: 999, _setIdx: 0 });
         }
       }
+      allSets.sort((a: any, b: any) => {
+        const da = a.releaseDate ?? "9999-99-99"; const db = b.releaseDate ?? "9999-99-99";
+        if (da !== db) return db.localeCompare(da);
+        if (a._serieIdx !== b._serieIdx) return b._serieIdx - a._serieIdx;
+        return b._setIdx - a._setIdx;
+      });
       console.log(`[jp-catalog] Starting ${mode} sync for ${allSets.length} JP sets...`);
       let synced = 0; let skipped = 0; let errors = 0;
 
@@ -8817,12 +8823,18 @@ RESPONSE FORMAT (JSON only, no markdown):
         buildTcgdexSetList("ja"),
         getJpCardCountsFromDB(),
       ]);
-      // Append PokeTrace-only sets that TCGdex doesn't track (same as in sync)
+      // Append PokeTrace-only sets that TCGdex doesn't track, then re-sort
       for (const extra of EXTRA_JP_POKETRACE_SETS) {
         if (!sets.some((s: any) => s.id.toLowerCase() === extra.id.toLowerCase())) {
-          sets.push({ id: extra.id, name: extra.id, nameEn: extra.nameEn, cardCount: 0, releaseDate: null, logo: null, _serieIdx: 0, _setIdx: 0 });
+          sets.push({ id: extra.id, name: extra.id, nameEn: extra.nameEn, cardCount: 0, releaseDate: extra.releaseDate, logo: null, _serieIdx: 999, _setIdx: 0 });
         }
       }
+      sets.sort((a: any, b: any) => {
+        const da = a.releaseDate ?? "9999-99-99"; const db = b.releaseDate ?? "9999-99-99";
+        if (da !== db) return db.localeCompare(da);
+        if (a._serieIdx !== b._serieIdx) return b._serieIdx - a._serieIdx;
+        return b._setIdx - a._setIdx;
+      });
       // Enrich each set with price/card status.
       // hasCardData: DB card count is the most reliable source (pre-populated by daily sync).
       // Falls back to status cache for sets that have been opened but not yet in DB.
