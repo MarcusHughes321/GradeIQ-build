@@ -7874,24 +7874,43 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       for (const slug of JP_SET_SLUGS) {
         try {
-          const url = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=8`;
-          const resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
-          if (!resp.ok) { console.warn(`[jp-top-picks] Set ${slug}: HTTP ${resp.status}`); continue; }
-          const data = await resp.json() as any;
-          const cards: any[] = data?.data || [];
-          for (const c of cards) {
-            const nm = c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0;
-            if (nm > 0) {
-              candidates.push({
-                cardId:   c.id || `jp-${c.name}-${c.cardNumber}`,
-                name:     c.name || "Unknown",
-                setName:  c.set?.name || slug,
-                setSlug:  slug,
-                number:   c.cardNumber || "",
-                imageUrl: c.image ?? null,
-                nmEUR:    Math.round(nm * 100) / 100,
-              });
-            }
+          // Paginate through all cards in this set — PokeTrace has no price sort,
+          // so we must fetch all cards and pick the most valuable ourselves.
+          let cursor: string | null = null;
+          let pageCount = 0;
+          const MAX_PAGES = 15; // safety cap (~1500 cards max)
+          const setCards: any[] = [];
+          do {
+            const pageUrl = `https://api.poketrace.com/v1/cards?set=${encodeURIComponent(slug)}&market=EU&limit=100`
+              + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+            const resp = await fetch(pageUrl, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
+            if (!resp.ok) { console.warn(`[jp-top-picks] Set ${slug}: HTTP ${resp.status}`); break; }
+            const data = await resp.json() as any;
+            const page: any[] = data?.data || [];
+            setCards.push(...page);
+            cursor = data?.pagination?.nextCursor ?? null;
+            pageCount++;
+            if (!cursor) break; // rely on cursor, not page size (PokeTrace pages vary in size)
+            await new Promise(r => setTimeout(r, 200));
+          } while (pageCount < MAX_PAGES);
+
+          // Take the top 8 most valuable cards from this set
+          const topCards = setCards
+            .map(c => ({ c, nm: c.prices?.cardmarket_unsold?.NEAR_MINT?.avg ?? 0 }))
+            .filter(x => x.nm > 0)
+            .sort((a, b) => b.nm - a.nm)
+            .slice(0, 8);
+
+          for (const { c, nm } of topCards) {
+            candidates.push({
+              cardId:   c.id || `jp-${c.name}-${c.cardNumber}`,
+              name:     c.name || "Unknown",
+              setName:  c.set?.name || slug,
+              setSlug:  slug,
+              number:   c.cardNumber || "",
+              imageUrl: c.image ?? null,
+              nmEUR:    Math.round(nm * 100) / 100,
+            });
           }
           await new Promise(r => setTimeout(r, 300));
         } catch (e: any) {

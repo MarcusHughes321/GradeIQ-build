@@ -761,7 +761,9 @@ export default function ValuesScreen() {
               )}
             </View>
             <Text style={styles.topPicksSubtitle}>
-              {hasAccess ? "Live raw market prices from TCGPlayer" : "Subscribe to unlock graded prices & profit data"}
+              {hasAccess
+                ? selectedLang === "ja" ? "Cardmarket EUR raw prices · eBay graded" : "Live raw market prices from TCGPlayer"
+                : "Subscribe to unlock graded prices & profit data"}
             </Text>
           </View>
         </View>

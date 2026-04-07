@@ -270,13 +270,18 @@ export default function SetCardsScreen() {
 
   const allCards = data?.cards ?? [];
   const hasAnyPrice = isEnglish && allCards.some(c => c.price != null);
+  const hasAnyEurPrice = isJapanese && allCards.some(c => c.priceEUR != null && c.priceEUR > 0);
+  const canSortByValue = hasAnyPrice || hasAnyEurPrice;
 
   const cards = useMemo(() => {
-    if (sortBy === "value" && isEnglish && hasAnyPrice) {
+    if (sortBy === "value" && canSortByValue) {
+      if (isJapanese && hasAnyEurPrice) {
+        return [...allCards].sort((a, b) => (b.priceEUR ?? -1) - (a.priceEUR ?? -1));
+      }
       return [...allCards].sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
     }
     return [...allCards].sort((a, b) => parseCardNumber(a.number) - parseCardNumber(b.number));
-  }, [allCards, sortBy, isEnglish, hasAnyPrice]);
+  }, [allCards, sortBy, isEnglish, isJapanese, hasAnyPrice, hasAnyEurPrice, canSortByValue]);
 
   // Top 15 by raw TCGPlayer price (English) — candidates for profit analysis
   const top15 = useMemo(() => {
@@ -566,7 +571,7 @@ export default function SetCardsScreen() {
             <Ionicons name="list-outline" size={14} color={sortBy === "number" ? Colors.text : Colors.textMuted} />
             <Text style={[styles.sortBtnText, sortBy === "number" && styles.sortBtnTextActive]}>Card #</Text>
           </Pressable>
-          {isEnglish && hasAnyPrice && (
+          {canSortByValue && (
             <Pressable
               style={[styles.sortBtn, sortBy === "value" && styles.sortBtnActive]}
               onPress={() => setSortBy("value")}
