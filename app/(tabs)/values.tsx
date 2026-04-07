@@ -905,6 +905,16 @@ export default function ValuesScreen() {
           >
             <Text style={[styles.langToggleBtnText, selectedLang === "ja" && styles.langToggleBtnTextActive]}>🇯🇵 JP</Text>
           </Pressable>
+          <Pressable
+            onPress={() => { setsRefetch(); refetchPicks(); }}
+            hitSlop={10}
+            style={{ marginLeft: 6, padding: 4 }}
+          >
+            {setsRefetching
+              ? <ActivityIndicator size="small" color={Colors.primary} />
+              : <Ionicons name="refresh-outline" size={18} color={Colors.textMuted} />
+            }
+          </Pressable>
         </View>
       </View>
 
