@@ -223,7 +223,7 @@ export default function SetCardsScreen() {
 
   const editionParam = edition === "1st" || edition === "unlimited" ? edition : null;
 
-  const [sortBy, setSortBy] = useState<SortBy>("number");
+  const [sortBy, setSortBy] = useState<SortBy>("value");
 
   const { settings } = useSettings();
   const currency = settings.currency || "GBP";
