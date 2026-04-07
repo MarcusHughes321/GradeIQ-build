@@ -7677,9 +7677,12 @@ RESPONSE FORMAT (JSON only, no markdown):
     "SV11B": "Black Bolt",
     // ── M series (new 2025/2026 Japanese sets) ────────────────────────────────
     "M1S":   "Mega Symphonia",
+    "M1B":   "Mega Brave",
     "M1":    "Mega Symphonia",
     "M2":    "Inferno X",
+    "M2A":   "MEGA Dream ex",
     "M3":    "Nihil Zero",
+    "M4":    "Ninja Spinner",
     // ── Sword & Shield era ───────────────────────────────────────────────────
     "S1W":   "Sword",
     "S1H":   "Shield",
@@ -7828,7 +7831,16 @@ RESPONSE FORMAT (JSON only, no markdown):
   // Sets where toPokeTraceSlug(displayName) produces the wrong PokeTrace slug.
   const JP_POKETRACE_SLUG_OVERRIDES: Record<string, string> = {
     "SV8a": "terastal-festival-ex",  // display name "Terastal Fest ex" → wrong slug
+    "M2A":  "mega-dream-ex",         // "MEGA Dream ex" → explicit slug
   };
+
+  // Japanese sets that exist on PokeTrace but are NOT listed on TCGdex.
+  // These are appended to the TCGdex set list so they still get synced.
+  const EXTRA_JP_POKETRACE_SETS: Array<{ id: string; nameEn: string }> = [
+    { id: "M1B", nameEn: "Mega Brave" },
+    { id: "M2",  nameEn: "Inferno X" },
+    { id: "M2A", nameEn: "MEGA Dream ex" },
+  ];
 
   // Derives a PokeTrace-compatible slug from an English set name.
   // Normalises accents (é→e) so "Pokémon GO" → "pokemon-go" etc.
@@ -8117,6 +8129,12 @@ RESPONSE FORMAT (JSON only, no markdown):
     jpCatalogSyncRunning = true;
     try {
       const allSets = await buildTcgdexSetList("ja");
+      // Append PokeTrace-only sets that TCGdex doesn't track
+      for (const extra of EXTRA_JP_POKETRACE_SETS) {
+        if (!allSets.some((s: any) => s.id.toLowerCase() === extra.id.toLowerCase())) {
+          allSets.push({ id: extra.id, name: extra.id, nameEn: extra.nameEn, cardCount: 0, releaseDate: null, logo: null, _serieIdx: 0, _setIdx: 0 });
+        }
+      }
       console.log(`[jp-catalog] Starting ${mode} sync for ${allSets.length} JP sets...`);
       let synced = 0; let skipped = 0; let errors = 0;
 
