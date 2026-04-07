@@ -7309,7 +7309,13 @@ RESPONSE FORMAT (JSON only, no markdown):
   // Returns the TCGdex CDN series path for sets with known high-res image support
   function getTcgdexSeriesForSet(setId: string): string | null {
     if (setId.startsWith("SV")) return "SV";
-    const S_COVERED = new Set(["S9","S9a","S10a","S10b","S10D","S10P","S11","S11a","S12","S12a"]);
+    // All S-series sets verified to have Japanese assets on assets.tcgdex.net
+    const S_COVERED = new Set([
+      "S2a","S3","S5a",                            // SwSh mid (newly confirmed)
+      "S9","S9a",                                   // SwSh late
+      "S10a","S10b","S10D","S10P",                 // SwSh final
+      "S11","S11a","S12","S12a",                   // SwSh final
+    ]);
     if (S_COVERED.has(setId)) return "S";
     return null;
   }
@@ -7350,7 +7356,10 @@ RESPONSE FORMAT (JSON only, no markdown):
     // PokeTrace EU enrichment (JP only)
     const ptCardsByNumber = new Map<string, { nameEn: string; priceEUR: number; imageUrl: string | null }>();
     if (langCode === "ja") {
-      const ptSlug = JP_POKETRACE_SLUG_OVERRIDES[setId] || toPokeTraceSlug(setNameEn);
+      // Use explicit override if set, even if empty string (empty = skip PokeTrace for this set)
+      const ptSlug = setId in JP_POKETRACE_SLUG_OVERRIDES
+        ? JP_POKETRACE_SLUG_OVERRIDES[setId]
+        : toPokeTraceSlug(setNameEn);
       if (ptSlug) {
         try {
           let cursor: string | null = null;
@@ -7410,15 +7419,20 @@ RESPONSE FORMAT (JSON only, no markdown):
       const extras = Array.from(ptCardsByNumber.entries())
         .filter(([num]) => !tcgdexNums.has(num))
         .sort(([a], [b]) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
-        .map(([num, pt]) => ({
-          id: `${setId}-${num}`,
-          name: pt.nameEn,
-          nameEn: pt.nameEn,
-          number: num,
-          imageUrl: pt.imageUrl,  // PokeTrace CDN — TCGdex has no image for these SARs
-          priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
-          setNameEn,
-        }));
+        .map(([num, pt]) => {
+          // Prefer TCGdex JA CDN image if this set has verified assets (S_COVERED / SV)
+          // Falls back to PokeTrace CDN (may be English for vintage sets)
+          const tcgdexJaUrl = buildTcgdexUrlFromSetId(setId, num);
+          return {
+            id: `${setId}-${num}`,
+            name: pt.nameEn,
+            nameEn: pt.nameEn,
+            number: num,
+            imageUrl: tcgdexJaUrl ?? pt.imageUrl,
+            priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
+            setNameEn,
+          };
+        });
       if (extras.length > 0) {
         cards = [...cards, ...extras];
       }
@@ -7429,15 +7443,20 @@ RESPONSE FORMAT (JSON only, no markdown):
       console.log(`[jp-catalog] TCGdex empty for ${setId} — building ${ptCardsByNumber.size} cards from PokeTrace`);
       cards = Array.from(ptCardsByNumber.entries())
         .sort(([a], [b]) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
-        .map(([num, pt]) => ({
-          id: `${setId}-${num}`,
-          name: pt.nameEn,
-          nameEn: pt.nameEn,
-          number: num,
-          imageUrl: pt.imageUrl,  // Always use PokeTrace CDN in fallback path
-          priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
-          setNameEn,
-        }));
+        .map(([num, pt]) => {
+          // Prefer TCGdex JA CDN if set has verified assets (handles sets where TCGdex API
+          // has no card data but CDN assets exist, e.g. S2a, S3, S5a)
+          const tcgdexJaUrl = buildTcgdexUrlFromSetId(setId, num);
+          return {
+            id: `${setId}-${num}`,
+            name: pt.nameEn,
+            nameEn: pt.nameEn,
+            number: num,
+            imageUrl: tcgdexJaUrl ?? pt.imageUrl,
+            priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
+            setNameEn,
+          };
+        });
     }
 
     return { cards, setNameEn, setName };
@@ -7849,10 +7868,46 @@ RESPONSE FORMAT (JSON only, no markdown):
   };
 
   // Sets where toPokeTraceSlug(displayName) produces the wrong PokeTrace slug.
+  // IMPORTANT: Vintage JP sets (ADV/PCG/E/L/PMCG/neo era) use their JP-romanized PokeTrace slug,
+  // NOT their English equivalent name — otherwise PokeTrace returns the English TCG set instead
+  // of the Japanese original, resulting in English card images in the JP browse section.
   const JP_POKETRACE_SLUG_OVERRIDES: Record<string, string> = {
     "SV8a": "terastal-festival-ex",           // display name "Terastal Fest ex" → wrong slug
-    "SV10": "the-glory-of-team-rocket",  // PokeTrace slug (not the sv10- prefixed variant)
+    "SV10": "the-glory-of-team-rocket",       // PokeTrace slug (not the sv10- prefixed variant)
     "M2A":  "mega-dream-ex",                  // "MEGA Dream ex" → explicit slug
+
+    // ── ADV era: EN names like "EX Dragon" hit the English TCG set on PokeTrace ──
+    "ADV2": "desert-miracle",                 // 砂漠のきせき (not EX Sandstorm)
+    "ADV3": "rulers-of-the-heavens",          // 天空の覇者 (not EX Dragon)
+    "ADV4": "magma-vs-aqua-double-trouble",   // マグマvsアクア (not Team Magma vs Team Aqua)
+    "ADV5": "broken-seal",                    // とかれた封印 (not EX Hidden Legends)
+    // ── PCG era ──────────────────────────────────────────────────────────────────
+    "PCG1": "legend-flight",                  // 伝説の飛翔 (not EX FireRed & LeafGreen)
+    "PCG2": "blue-sky-exploration",           // 蒼空の激突 (not EX Team Rocket Returns)
+    "PCG3": "rocket-gang-strikes-back",       // ロケット団の逆襲 (not EX Deoxys)
+    "PCG4": "gold-sky-silver-sea",            // 金の空、銀の海 (not EX Unseen Forces)
+    "PCG5": "phantom-forest",                 // まぼろしの森 (not EX Delta Species)
+    "PCG6": "holon-research-tower",           // ホロンの研究塔 (not EX Legend Maker)
+    "PCG7": "holon-phantoms",                 // ホロンの幻影 (not EX Holon Phantoms)
+    "PCG8": "miracle-crystal",                // きせきの結晶 (not EX Crystal Guardians)
+    "PCG9": "end-of-battle",                  // さいはての攻防 (not EX Dragon Frontiers)
+    "PCG10": "world-champions-pack",          // same in both JP/EN — keep
+    // ── LEGEND era ────────────────────────────────────────────────────────────────
+    "L1a": "heartgold-collection",            // ハートゴールドコレクション
+    "L1b": "soulsilver-collection",           // ソウルシルバーコレクション
+    "L2":  "reviving-legends",                // よみがえる伝説
+    "L3":  "clash-at-the-summit",             // 頂上大激突
+    "LL":  "lost-link",                       // 強化パック ロストリンク
+    // ── e-Card era ────────────────────────────────────────────────────────────────
+    "E1":  "base-expansion-pack",             // 基本拡張パック (not English Base Set)
+    "E2":  "the-town-on-no-map",              // 地図にない町
+    // ── Original era: EN names "Base Set"/"Jungle" hit English sets on PokeTrace ─
+    "PMCG1": "",                              // No JP-specific PokeTrace data — skip
+    "PMCG2": "",                              // No JP-specific PokeTrace data — skip
+    "PMCG3": "",                              // No JP-specific PokeTrace data — skip
+    "PMCG4": "",                              // No JP-specific PokeTrace data — skip
+    "PMCG5": "",                              // No JP-specific PokeTrace data — skip
+    "PMCG6": "",                              // No JP-specific PokeTrace data — skip
   };
 
   // Japanese sets that exist on PokeTrace but are NOT listed on TCGdex.
