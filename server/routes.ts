@@ -7404,7 +7404,27 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
     });
 
-    // Fallback: TCGdex has no cards — build list from PokeTrace data
+    // Append PokeTrace-only cards (SARs, full arts, etc.) not returned by TCGdex
+    if (langCode === "ja" && ptCardsByNumber.size > 0) {
+      const tcgdexNums = new Set(cards.map((c: any) => c.number));
+      const extras = Array.from(ptCardsByNumber.entries())
+        .filter(([num]) => !tcgdexNums.has(num))
+        .sort(([a], [b]) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
+        .map(([num, pt]) => ({
+          id: `${setId}-${num}`,
+          name: pt.nameEn,
+          nameEn: pt.nameEn,
+          number: num,
+          imageUrl: pt.imageUrl,  // PokeTrace CDN — TCGdex has no image for these SARs
+          priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
+          setNameEn,
+        }));
+      if (extras.length > 0) {
+        cards = [...cards, ...extras];
+      }
+    }
+
+    // Fallback: TCGdex has no cards — build list entirely from PokeTrace data
     if (cards.length === 0 && ptCardsByNumber.size > 0) {
       console.log(`[jp-catalog] TCGdex empty for ${setId} — building ${ptCardsByNumber.size} cards from PokeTrace`);
       cards = Array.from(ptCardsByNumber.entries())
@@ -7414,7 +7434,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           name: pt.nameEn,
           nameEn: pt.nameEn,
           number: num,
-          imageUrl: (langCode === "ja" ? buildTcgdexUrlFromSetId(setId, num) : null) || pt.imageUrl,
+          imageUrl: pt.imageUrl,  // Always use PokeTrace CDN in fallback path
           priceEUR: pt.priceEUR > 0 ? pt.priceEUR : null,
           setNameEn,
         }));

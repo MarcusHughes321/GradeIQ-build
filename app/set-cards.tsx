@@ -506,6 +506,9 @@ export default function SetCardsScreen() {
             <Ionicons name="image-outline" size={24} color={Colors.textMuted} />
           </View>
         )}
+        {(item.nameEn || item.name) ? (
+          <Text style={styles.cardName} numberOfLines={1}>{item.nameEn || item.name}</Text>
+        ) : null}
         {item.number ? (
           <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
         ) : null}
@@ -1091,11 +1094,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  cardName: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    textAlign: "center",
+    paddingHorizontal: 2,
+  },
   cardNumber: {
     fontFamily: "Inter_400Regular",
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.textMuted,
-    marginTop: 4,
+    marginTop: 1,
     textAlign: "center",
   },
   cardPrice: {
