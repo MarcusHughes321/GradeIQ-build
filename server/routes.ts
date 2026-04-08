@@ -2139,6 +2139,82 @@ async function enhanceForSurfaceDetection(dataUri: string): Promise<string> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CLAHE GRADING ENHANCEMENT FLAG
+// Set to `true` to send multi-filter CLAHE images to the AI for deeper defect
+// detection (edge whitening, corner curvature, surface scratches).
+// Set to `false` to revert to the previous sharpen-only 4-image pipeline.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLAHE_GRADING_ENABLED = true;
+
+interface CLAHEFilterSet {
+  colourClahe: string;   // Colour CLAHE — local contrast boost; preserves holo colour
+  laplacianEdge: string; // Laplacian edge detection — corner chips, edge whitening
+  emboss: string;        // Emboss relief — surface scratches, corner curvature
+}
+
+async function generateCLAHEFilters(dataUri: string): Promise<CLAHEFilterSet> {
+  const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
+  const buffer = Buffer.from(base64Data, "base64");
+
+  const [colourClaheBuf, laplacianEdgeBuf, embossBuf] = await Promise.all([
+    // 1. Colour CLAHE — adaptive histogram equalisation per colour channel.
+    //    Reveals edge whitening and micro-scratches while keeping holographic
+    //    rainbow colours distinct from actual damage (scratches are grey/silver;
+    //    holo patterns remain multi-coloured).
+    sharp(buffer)
+      .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+      .clahe({ width: 32, height: 32, maxSlope: 3 })
+      .sharpen({ sigma: 0.6 })
+      .jpeg({ quality: 88 })
+      .toBuffer(),
+
+    // 2. Greyscale Laplacian edge detection — shows every edge, chip, nick, and
+    //    crack as a bright highlight. Best for catching corner whitening and edge
+    //    chipping that are invisible in the standard image.
+    sharp(buffer)
+      .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+      .greyscale()
+      .clahe({ width: 48, height: 48, maxSlope: 5 })
+      .convolve({
+        width: 3,
+        height: 3,
+        kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
+        scale: 1,
+        offset: 0,
+      })
+      .normalise()
+      .linear(2.2, 0)
+      .jpeg({ quality: 88 })
+      .toBuffer(),
+
+    // 3. Emboss surface relief — converts card surface into a pseudo-3D height-
+    //    map. Physical scratches, corner bends, and dents appear as raised or
+    //    sunken ridges. Most effective for detecting surface wear and curvature.
+    sharp(buffer)
+      .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+      .greyscale()
+      .clahe({ width: 48, height: 48, maxSlope: 6 })
+      .convolve({
+        width: 3,
+        height: 3,
+        kernel: [-2, -1, 0, -1, 1, 1, 0, 1, 2],
+        scale: 1,
+        offset: 128,
+      })
+      .normalise()
+      .linear(1.6, -30)
+      .jpeg({ quality: 88 })
+      .toBuffer(),
+  ]);
+
+  return {
+    colourClahe: `data:image/jpeg;base64,${colourClaheBuf.toString("base64")}`,
+    laplacianEdge: `data:image/jpeg;base64,${laplacianEdgeBuf.toString("base64")}`,
+    emboss: `data:image/jpeg;base64,${embossBuf.toString("base64")}`,
+  };
+}
+
 async function generateCornerCrops(dataUri: string): Promise<string[]> {
   const base64Data = dataUri.replace(/^data:image\/[^;]+;base64,/, "");
   const buffer = Buffer.from(base64Data, "base64");
@@ -3519,6 +3595,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const enhanceTime = Date.now() - gradeStartTime - optimizeTime;
     if (enhanceTime > 50) console.log(`${logPrefix} Surface enhancement took ${enhanceTime}ms`);
 
+    // Optionally generate CLAHE multi-filter images for deeper defect detection
+    let claheFront: CLAHEFilterSet | null = null;
+    let claheBack: CLAHEFilterSet | null = null;
+    if (CLAHE_GRADING_ENABLED) {
+      const claheStart = Date.now();
+      [claheFront, claheBack] = await Promise.all([
+        generateCLAHEFilters(frontUrl),
+        generateCLAHEFilters(backUrl),
+      ]);
+      const claheTime = Date.now() - claheStart;
+      if (claheTime > 50) console.log(`${logPrefix} CLAHE filter generation took ${claheTime}ms`);
+    }
+
+    const claheActive = CLAHE_GRADING_ENABLED && claheFront && claheBack;
+    const imageList = claheActive
+      ? [
+          toClaudeImage(frontUrl),
+          toClaudeImage(backUrl),
+          toClaudeImage(enhancedFrontUrl),
+          toClaudeImage(enhancedBackUrl),
+          toClaudeImage(claheFront!.colourClahe),
+          toClaudeImage(claheBack!.colourClahe),
+          toClaudeImage(claheFront!.laplacianEdge),
+          toClaudeImage(claheBack!.laplacianEdge),
+          toClaudeImage(claheFront!.emboss),
+          toClaudeImage(claheBack!.emboss),
+        ]
+      : [
+          toClaudeImage(frontUrl),
+          toClaudeImage(backUrl),
+          toClaudeImage(enhancedFrontUrl),
+          toClaudeImage(enhancedBackUrl),
+        ];
+
+    const promptText = claheActive
+      ? `Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.
+
+You are given 10 images across 5 filter types (front then back for each):
+- Images 1-2: STANDARD — front and back at optimised quality. Use these as your PRIMARY source for card identification, centering, corners, edges, and overall surface condition.
+- Images 3-4: SHARPEN-ENHANCED — stronger sharpening and contrast boost to help reveal scuffs and scratches.
+- Images 5-6: COLOUR CLAHE — Adaptive histogram equalisation applied per colour channel. Reveals edge whitening, micro-scratches, and corner wear while preserving the card full colour. CRITICAL: Holographic patterns remain multi-coloured (rainbow/iridescent) in this view. Genuine scratches appear as GREY or SILVER linear marks. If a mark is multi-coloured, it is holo texture — NOT a defect.
+- Images 7-8: LAPLACIAN EDGE — Greyscale edge-detection filter. Every physical boundary (card edges, corner points, chips, nicks) appears as a bright white line. Use this to identify corner whitening and edge chipping. A smooth bright border line all the way round is NORMAL factory output — only isolated breaks, dots, or gaps in the border line indicate actual chipping.
+- Images 9-10: EMBOSS RELIEF — Greyscale surface-relief filter. Physical scratches, corner bends, and dents appear as raised ridges or dark grooves. Uniform low-level texture across the whole surface is NORMAL card stock grain — only distinct ridges/grooves that run across an otherwise flat region indicate actual damage.
+
+CRITICAL — HOW TO USE THESE FILTERS:
+1. Standard images (1-2) are your primary judge. Always start there.
+2. A defect ONLY counts if visible in standard images (even faintly) AND confirmed by at least one filter. If something only appears in filtered images but is invisible in standard images, treat it as normal card texture — do NOT count it as a defect.
+3. Holographic, Full Art, Illustration Rare, Special Illustration Rare, and textured cards have complex surfaces by design. Apply extra leniency for these card types when reading filtered images.
+4. Use Laplacian (7-8) specifically for corner and edge assessment. Use Colour CLAHE (5-6) specifically for surface scratches and edge whitening. Use Emboss (9-10) specifically for surface wear depth and corner curvature.
+
+IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different details.`
+      : `Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.\n\nYou are given 4 images:\n- Image 1: FRONT of card (standard)\n- Image 2: BACK of card (standard)\n- Image 3: FRONT of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n- Image 4: BACK of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n\nIMPORTANT: Use images 1 and 2 as your PRIMARY source for ALL grading — card identification, centering, corners, edges, and surface condition. Images 3 and 4 are SUPPLEMENTARY only.\n\nCRITICAL — ENHANCED IMAGE RULES:\n- The enhancement process amplifies EVERYTHING, including normal card features like holographic rainbow patterns, foil texture, print grain, and standard edge cuts.\n- A defect ONLY counts if you can also see it (even faintly) in the STANDARD images (1 or 2). If something appears ONLY in the enhanced images but is completely invisible in the standard images, it is likely a normal card feature amplified by the enhancement — do NOT count it.\n- Holographic, full-art, textured, and illustration rare cards naturally have complex surface patterns (rainbow reflections, embossed texture, foil speckling). These are NOT defects. Do not report holographic patterns, print texture, or foil grain as whitening, scratches, or wear.\n- Normal factory edge cuts can appear as slight whitening when enhanced — this is standard for all cards and is NOT a defect unless clearly visible as actual chipping or peeling in the standard images.\n- When in doubt, always defer to what you see in the STANDARD images. The enhanced images are a second opinion tool, not the primary judge.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different details.`;
+
     const gradingResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -3527,14 +3656,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: "Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.\n\nYou are given 4 images:\n- Image 1: FRONT of card (standard)\n- Image 2: BACK of card (standard)\n- Image 3: FRONT of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n- Image 4: BACK of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n\nIMPORTANT: Use images 1 and 2 as your PRIMARY source for ALL grading — card identification, centering, corners, edges, and surface condition. Images 3 and 4 are SUPPLEMENTARY only.\n\nCRITICAL — ENHANCED IMAGE RULES:\n- The enhancement process amplifies EVERYTHING, including normal card features like holographic rainbow patterns, foil texture, print grain, and standard edge cuts.\n- A defect ONLY counts if you can also see it (even faintly) in the STANDARD images (1 or 2). If something appears ONLY in the enhanced images but is completely invisible in the standard images, it is likely a normal card feature amplified by the enhancement — do NOT count it.\n- Holographic, full-art, textured, and illustration rare cards naturally have complex surface patterns (rainbow reflections, embossed texture, foil speckling). These are NOT defects. Do not report holographic patterns, print texture, or foil grain as whitening, scratches, or wear.\n- Normal factory edge cuts can appear as slight whitening when enhanced — this is standard for all cards and is NOT a defect unless clearly visible as actual chipping or peeling in the standard images.\n- When in doubt, always defer to what you see in the STANDARD images. The enhanced images are a second opinion tool, not the primary judge.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different values. Common digit misreads: 0↔8, 3↔8, 6↔9, 1↔7.\n\nSURFACE INSPECTION: First examine images 1 and 2 for any visible surface issues. Then check images 3 and 4 to see if any ADDITIONAL real damage becomes clearer — but only report it if you can trace it back to something visible in images 1 or 2, even if subtle. Do not report texture, holo patterns, or normal print features as damage.",
-            },
-            toClaudeImage(frontUrl),
-            toClaudeImage(backUrl),
-            toClaudeImage(enhancedFrontUrl),
-            toClaudeImage(enhancedBackUrl),
+            { type: "text", text: promptText },
+            ...imageList,
           ],
         },
       ],
