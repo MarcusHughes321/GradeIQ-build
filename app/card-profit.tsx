@@ -1140,6 +1140,7 @@ export default function CardProfitScreen() {
                       isProfit ? st.tblRowProfit
                         : gr.profit !== null ? st.tblRowLoss
                         : null,
+                      (isCharted && chartGradeKey !== undefined) ? st.tblRowCharted : null,
                       isLast && { borderBottomWidth: 0 },
                     ]}>
                       <View style={[
@@ -1863,6 +1864,7 @@ const st = StyleSheet.create({
     gap: 4,
   },
   tblRowAmber:  { backgroundColor: "rgba(245,158,11,0.08)" },
+  tblRowCharted: { backgroundColor: "rgba(255,255,255,0.07)" },
   tblRowProfit: { backgroundColor: "rgba(34,197,94,0.07)"  },
   tblRowLoss:   { backgroundColor: "rgba(239,68,68,0.07)"  },
 
@@ -1870,7 +1872,7 @@ const st = StyleSheet.create({
   accentAmber:   { backgroundColor: "#f59e0b" },
   accentProfit:  { backgroundColor: "#22c55e" },
   accentLoss:    { backgroundColor: "#ef4444" },
-  accentCharted: { backgroundColor: Colors.primary },
+  accentCharted: { backgroundColor: "#ffffff" },
 
   gradeLabel: {
     fontFamily: "Inter_600SemiBold",
