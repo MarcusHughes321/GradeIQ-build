@@ -1786,7 +1786,7 @@ export default function ResultsScreen() {
               </View>
             ) : (
               <Pressable
-                onPress={() => openCustomPriceModal(rawLocal > 0 ? rawLocal.toFixed(2) : "")}
+                onPress={() => openCustomPriceModal("")}
                 style={({ pressed }) => [styles.maAddCustomPriceBtn, { opacity: pressed ? 0.7 : 1 }]}
               >
                 <Ionicons name="add-circle-outline" size={15} color={Colors.textMuted} />
@@ -1939,7 +1939,7 @@ export default function ResultsScreen() {
                     </View>
                     <View style={styles.maFeeMetaRow}>
                       <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
-                      <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}) deducted from profit above</Text>
+                      <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above</Text>
                     </View>
                   </View>
                 ) : (
@@ -2014,7 +2014,7 @@ export default function ResultsScreen() {
               value={customPriceDraft}
               onChangeText={setCustomPriceDraft}
               keyboardType="decimal-pad"
-              placeholder="0.00"
+              placeholder={rawLocal > 0 ? rawLocal.toFixed(2) : "0.00"}
               placeholderTextColor={Colors.textMuted}
               autoFocus
               returnKeyType="done"

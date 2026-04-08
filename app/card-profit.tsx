@@ -1323,7 +1323,7 @@ export default function CardProfitScreen() {
                       <View style={st.feeMetaRow}>
                         <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
                         <Text style={st.feeMetaTxt}>
-                          {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}) deducted from profit above
+                          {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above
                         </Text>
                       </View>
                     </View>
