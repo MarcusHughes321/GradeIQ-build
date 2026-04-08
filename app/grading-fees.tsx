@@ -16,6 +16,12 @@ interface FeeTier {
   note?: string;
 }
 
+interface LabelOption {
+  name: string;
+  price: string;
+  description: string;
+}
+
 interface CompanyFees {
   key: CompanyKey;
   label: string;
@@ -25,6 +31,7 @@ interface CompanyFees {
   sourceUrl: string;
   sourceLabel: string;
   tiers: FeeTier[];
+  labels?: LabelOption[];
   notes?: string;
 }
 
@@ -209,6 +216,18 @@ const COMPANY_FEES: CompanyFees[] = [
         note: "Max 50 cards per submission",
       },
     ],
+    labels: [
+      {
+        name: "Standard Label",
+        price: "Included",
+        description: "Clean white ACE label with card details and grade. Included in all tiers.",
+      },
+      {
+        name: "Custom Ace Label",
+        price: "+£3 per card",
+        description: "Color-matched artwork label designed around your card's palette. Applied by ACE's design team.",
+      },
+    ],
     notes: "Turnaround times start from the first full business day after receipt. Shipping is not included.",
   },
   {
@@ -369,6 +388,30 @@ export default function GradingFeesScreen() {
           </View>
         ))}
 
+        {/* Custom Labels section (ACE only) */}
+        {company.labels && company.labels.length > 0 && (
+          <View style={styles.labelsSection}>
+            <View style={styles.labelsSectionHeader}>
+              <Ionicons name="color-palette-outline" size={15} color={COMPANY_COLORS[selected]} />
+              <Text style={[styles.labelsSectionTitle, { color: COMPANY_COLORS[selected] }]}>
+                Custom Labels
+              </Text>
+            </View>
+            {company.labels.map((lbl, i) => (
+              <View
+                key={i}
+                style={[styles.labelCard, i === company.labels!.length - 1 && { borderBottomWidth: 0 }]}
+              >
+                <View style={styles.labelCardHeader}>
+                  <Text style={styles.labelName}>{lbl.name}</Text>
+                  <Text style={[styles.labelPrice, { color: COMPANY_COLORS[selected] }]}>{lbl.price}</Text>
+                </View>
+                <Text style={styles.labelDesc}>{lbl.description}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Company notes */}
         {company.notes && (
           <View style={styles.notesBox}>
@@ -514,6 +557,53 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     lineHeight: 18,
     fontFamily: "Inter_400Regular",
+  },
+  labelsSection: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  labelsSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  labelsSectionTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+  },
+  labelCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+    gap: 4,
+  },
+  labelCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  labelName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.text,
+  },
+  labelPrice: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+  },
+  labelDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 17,
   },
   sourceBanner: {
     flexDirection: "row",

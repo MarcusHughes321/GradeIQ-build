@@ -590,15 +590,28 @@ export default function CardProfitScreen() {
   // Which grade row the user has tapped to chart (undefined = top grade default)
   const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
   const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
+  const [aceCustomLabel, setAceCustomLabel] = useState(false);
 
-  // Reset chart grade and fee whenever the company tab switches
-  useEffect(() => { setChartGradeKey(undefined); setSelectedFeeOption(null); }, [selectedCompany]);
+  // Reset chart grade, fee and label whenever the company tab switches
+  useEffect(() => {
+    setChartGradeKey(undefined);
+    setSelectedFeeOption(null);
+    setAceCustomLabel(false);
+  }, [selectedCompany]);
 
   // Convert selected grading fee to local currency (GBP fees → local via GBP rate)
+  // ACE custom label adds £3 per card on top of the base tier fee
+  const ACE_LABEL_GBP = 3;
   const feeLocalAmount = selectedFeeOption
-    ? selectedFeeOption.currency === "GBP"
-      ? selectedFeeOption.amount * (currencyRate / gbpRate)
-      : selectedFeeOption.amount * currencyRate
+    ? (() => {
+        const base = selectedFeeOption.currency === "GBP"
+          ? selectedFeeOption.amount * (currencyRate / gbpRate)
+          : selectedFeeOption.amount * currencyRate;
+        const labelAddon = (selectedCompany === "Ace" && aceCustomLabel)
+          ? ACE_LABEL_GBP * (currencyRate / gbpRate)
+          : 0;
+        return base + labelAddon;
+      })()
     : 0;
 
   // Cache key mirrors server logic: "CardName BaseNum [1st]"
@@ -1160,6 +1173,40 @@ export default function CardProfitScreen() {
                       );
                     })}
                   </ScrollView>
+
+                  {/* ACE Custom Label toggle — shown once a tier is selected */}
+                  {compId === "Ace" && selectedFeeOption && compId === selectedCompany && (
+                    <View style={st.labelSection}>
+                      <View style={st.labelSectionHeader}>
+                        <Ionicons name="color-palette-outline" size={13} color={Colors.textMuted} />
+                        <Text style={st.labelSectionTitle}>Label</Text>
+                      </View>
+                      <View style={st.labelPillRow}>
+                        <Pressable
+                          onPress={() => setAceCustomLabel(false)}
+                          style={[st.labelPill, !aceCustomLabel && st.labelPillActive]}
+                        >
+                          <Text style={[st.labelPillName, !aceCustomLabel && st.labelPillNameActive]}>
+                            Standard
+                          </Text>
+                          <Text style={[st.labelPillPrice, !aceCustomLabel && st.labelPillPriceActive]}>
+                            Included
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setAceCustomLabel(true)}
+                          style={[st.labelPill, aceCustomLabel && st.labelPillActive]}
+                        >
+                          <Text style={[st.labelPillName, aceCustomLabel && st.labelPillNameActive]}>
+                            Custom Ace Label
+                          </Text>
+                          <Text style={[st.labelPillPrice, aceCustomLabel && st.labelPillPriceActive]}>
+                            +£3 per card
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
 
                   {/* Turnaround + deduction note */}
                   {selectedFeeOption && compId === selectedCompany ? (
@@ -1821,6 +1868,63 @@ const st = StyleSheet.create({
   },
   feeTierTurnaroundActive: {
     color: Colors.primary + "aa",
+  },
+  labelSection: {
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    paddingTop: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  labelSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  labelSectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  labelPillRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  labelPill: {
+    flex: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    alignItems: "center",
+    gap: 3,
+  },
+  labelPillActive: {
+    backgroundColor: Colors.primary + "18",
+    borderColor: Colors.primary,
+  },
+  labelPillName: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: Colors.text,
+    textAlign: "center",
+  },
+  labelPillNameActive: {
+    color: Colors.primary,
+  },
+  labelPillPrice: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
+  },
+  labelPillPriceActive: {
+    color: Colors.primary + "cc",
   },
   feeMeta: {
     gap: 5,
