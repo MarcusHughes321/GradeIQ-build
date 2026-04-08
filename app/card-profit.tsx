@@ -32,7 +32,7 @@ import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import type { CompanyId } from "@/lib/settings";
 
 const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 };
@@ -467,6 +467,13 @@ export default function CardProfitScreen() {
   const [priceOverrideInput, setPriceOverrideInput] = useState<string>("");
   const [showPriceModal, setShowPriceModal] = useState(false);
   const [modalDraft, setModalDraft] = useState<string>("");
+
+  // ── Price flag state ────────────────────────────────────────────────────
+  const [flagSheetVisible, setFlagSheetVisible] = useState(false);
+  const [flagSelectedGrades, setFlagSelectedGrades] = useState<Set<string>>(new Set());
+  const [flagNote, setFlagNote] = useState("");
+  const [flagSubmitted, setFlagSubmitted] = useState(false);
+  const [flagSubmitting, setFlagSubmitting] = useState(false);
 
   // ── Pinch-to-zoom state for fullscreen viewer ───────────────────────────
   const zoomScale     = useSharedValue(1);
@@ -1400,6 +1407,28 @@ export default function CardProfitScreen() {
           </View>
         )}
 
+        {/* Price flag trigger */}
+        {!isLoading && ebay && (
+          flagSubmitted ? (
+            <View style={st.flagConfirm}>
+              <Ionicons name="checkmark-circle" size={15} color="#10B981" />
+              <Text style={st.flagConfirmTxt}>Thanks — we're looking into it.</Text>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => {
+                setFlagSelectedGrades(new Set());
+                setFlagNote("");
+                setFlagSheetVisible(true);
+              }}
+              style={({ pressed }) => [st.flagTrigger, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Ionicons name="flag-outline" size={13} color={Colors.textMuted} />
+              <Text style={st.flagTriggerTxt}>Price doesn't look right?</Text>
+            </Pressable>
+          )
+        )}
+
         {/* Disclaimer */}
         <View style={st.disclaimer}>
           <Ionicons name="information-circle-outline" size={12} color={Colors.textMuted} />
@@ -1410,6 +1439,105 @@ export default function CardProfitScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Flag selection modal */}
+      <Modal
+        visible={flagSheetVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setFlagSheetVisible(false)}
+      >
+        <Pressable style={st.flagOverlay} onPress={() => setFlagSheetVisible(false)} />
+        <View style={[st.flagSheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={st.flagSheetHandle} />
+          <Text style={st.flagSheetTitle}>Which prices look off?</Text>
+          <Text style={st.flagSheetSub}>Select the grades that seem incorrect</Text>
+
+          <ScrollView style={st.flagGradeList} scrollEnabled={false}>
+            {(COMPANY_CONFIG[selectedCompany]?.grades ?? []).map(g => {
+              const ebayUSD = ebay ? ((ebay[g.ebayKey] as number | undefined) ?? 0) : 0;
+              const isSelected = flagSelectedGrades.has(g.label);
+              return (
+                <Pressable
+                  key={g.label}
+                  onPress={() => {
+                    const next = new Set(flagSelectedGrades);
+                    if (isSelected) next.delete(g.label);
+                    else next.add(g.label);
+                    setFlagSelectedGrades(next);
+                  }}
+                  style={[st.flagGradeRow, isSelected && st.flagGradeRowSelected]}
+                >
+                  <View style={[st.flagGradeCheck, isSelected && st.flagGradeCheckSelected]}>
+                    {isSelected && <Ionicons name="checkmark" size={12} color="#fff" />}
+                  </View>
+                  <Text style={[st.flagGradeLabel, isSelected && { color: Colors.text }]}>{g.label}</Text>
+                  <Text style={st.flagGradeValue}>
+                    {ebayUSD > 0 ? `$${ebayUSD.toFixed(2)}` : "—"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <TextInput
+            style={st.flagNoteInput}
+            value={flagNote}
+            onChangeText={setFlagNote}
+            placeholder="Optional note — e.g. 'looks like the wrong set'"
+            placeholderTextColor={Colors.textMuted}
+            multiline
+          />
+
+          <Pressable
+            onPress={async () => {
+              if (flagSelectedGrades.size === 0) return;
+              setFlagSubmitting(true);
+              try {
+                const ebayMap: Record<string, number> = {};
+                (COMPANY_CONFIG[selectedCompany]?.grades ?? []).forEach(g => {
+                  if (flagSelectedGrades.has(g.label)) {
+                    ebayMap[g.label] = ebay ? ((ebay[g.ebayKey] as number | undefined) ?? 0) : 0;
+                  }
+                });
+                const url = new URL("/api/price-flags", getApiUrl());
+                await fetch(url.toString(), {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    cardName: cardName ?? "",
+                    setName: setName ?? null,
+                    cardNumber: cardNumber ?? null,
+                    cardLang: lang ?? "en",
+                    company: selectedCompany,
+                    flaggedGrades: Array.from(flagSelectedGrades),
+                    flaggedValues: ebayMap,
+                    userNote: flagNote.trim() || null,
+                  }),
+                });
+                setFlagSheetVisible(false);
+                setFlagSubmitted(true);
+              } catch {
+                // fail silently — not critical
+                setFlagSheetVisible(false);
+              } finally {
+                setFlagSubmitting(false);
+              }
+            }}
+            disabled={flagSelectedGrades.size === 0 || flagSubmitting}
+            style={({ pressed }) => [
+              st.flagSubmitBtn,
+              (flagSelectedGrades.size === 0 || flagSubmitting || pressed) && { opacity: 0.5 },
+            ]}
+          >
+            {flagSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={st.flagSubmitBtnTxt}>Flag {flagSelectedGrades.size > 0 ? flagSelectedGrades.size : ""} Price{flagSelectedGrades.size !== 1 ? "s" : ""}</Text>
+            )}
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2245,5 +2373,130 @@ const st = StyleSheet.create({
     fontSize: 14,
     color: Colors.primary,
     flex: 1,
+  },
+
+  // ── Price flag styles ─────────────────────────────────────────────────
+  flagTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    marginHorizontal: 12,
+    marginTop: 4,
+  },
+  flagTriggerTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    textDecorationLine: "underline",
+  },
+  flagConfirm: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    marginHorizontal: 12,
+    marginTop: 4,
+  },
+  flagConfirmTxt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: "#10B981",
+  },
+  flagOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  flagSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  flagSheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: Colors.surfaceBorder,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  flagSheetTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  flagSheetSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    marginBottom: 16,
+  },
+  flagGradeList: {
+    marginBottom: 12,
+  },
+  flagGradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  flagGradeRowSelected: {
+    backgroundColor: "rgba(255,60,49,0.04)",
+  },
+  flagGradeCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flagGradeCheckSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  flagGradeLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    flex: 1,
+  },
+  flagGradeValue: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  flagNoteInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 12,
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.text,
+    marginBottom: 12,
+    minHeight: 60,
+  },
+  flagSubmitBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flagSubmitBtnTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
   },
 });

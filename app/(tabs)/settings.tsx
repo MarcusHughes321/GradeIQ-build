@@ -282,6 +282,17 @@ export default function SettingsScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
               </Pressable>
+              <View style={styles.menuDivider} />
+              <Pressable
+                onPress={() => router.push("/admin-price-flags")}
+                style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View style={styles.menuRowLeft}>
+                  <Ionicons name="flag-outline" size={20} color="#F59E0B" />
+                  <Text style={styles.menuRowLabel}>Price Flags</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              </Pressable>
             </View>
           </>
         )}

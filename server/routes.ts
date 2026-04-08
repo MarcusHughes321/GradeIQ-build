@@ -240,6 +240,33 @@ async function initGradingFeedbackTable(): Promise<void> {
   } catch (e: any) {
     console.error("[grading-feedback] Failed to create table:", e.message);
   }
+
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS price_flags (
+        id               SERIAL PRIMARY KEY,
+        card_name        TEXT NOT NULL,
+        set_name         TEXT,
+        set_code         TEXT,
+        card_number      TEXT,
+        card_lang        TEXT DEFAULT 'en',
+        company          TEXT NOT NULL,
+        flagged_grades   JSONB NOT NULL DEFAULT '[]',
+        flagged_values   JSONB NOT NULL DEFAULT '{}',
+        user_note        TEXT,
+        status           TEXT NOT NULL DEFAULT 'pending',
+        ai_analysis      TEXT,
+        admin_response   TEXT,
+        corrected_search TEXT,
+        correction_applied BOOLEAN DEFAULT FALSE,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        resolved_at      TIMESTAMPTZ
+      )
+    `);
+    console.log("[price-flags] DB table ready");
+  } catch (e: any) {
+    console.error("[price-flags] Failed to create table:", e.message);
+  }
 }
 
 async function writePriceHistorySnapshot(
@@ -275,6 +302,92 @@ async function writePriceHistorySnapshot(
     console.log(`[price-history] Wrote ${fresh.length} snapshot(s) for "${cacheKey}"`);
   } catch (e: any) {
     console.error("[price-history] Snapshot write failed:", e.message);
+  }
+}
+
+// ── Price flag AI analysis ─────────────────────────────────────────────────
+async function analyzePriceFlag(flagId: number): Promise<void> {
+  try {
+    await db.query(`UPDATE price_flags SET status = 'ai_processing' WHERE id = $1`, [flagId]);
+
+    const { rows } = await db.query(
+      `SELECT card_name, set_name, set_code, card_number, card_lang, company,
+              flagged_grades, flagged_values, user_note, admin_response
+       FROM price_flags WHERE id = $1`,
+      [flagId]
+    );
+    if (rows.length === 0) return;
+    const flag = rows[0];
+
+    const gradeLines = (flag.flagged_grades as string[]).map((g: string) => {
+      const val = (flag.flagged_values as Record<string, number>)[g];
+      return `  - ${g}: ${val != null ? `$${val.toFixed(2)} USD` : "no data"}`;
+    }).join("\n");
+
+    const adminNote = flag.admin_response
+      ? `\n\nAdmin hint: "${flag.admin_response}"`
+      : "";
+
+    const prompt = `You are a Pokemon card market data analyst. A user has flagged eBay sold prices as looking incorrect for the following card:
+
+Card: ${flag.card_name}
+Set: ${flag.set_name ?? "unknown"} (code: ${flag.set_code ?? "unknown"})
+Card number: ${flag.card_number ?? "unknown"}
+Language: ${flag.card_lang === "ja" ? "Japanese" : "English"}
+Grading company: ${flag.company}
+
+Flagged grades and their current prices:
+${gradeLines}
+
+User note: ${flag.user_note ?? "(none)"}${adminNote}
+
+The prices are sourced from PokeTrace, which searches eBay sold listings by card name and set. The most common reasons for wrong prices are:
+1. The search returned results for a different printing of the card (e.g. wrong set, wrong era, different holo variant)
+2. A name collision with another card that has a similar name
+3. The card is a special edition (1st edition, shadowless, etc.) being confused with a standard print
+4. For Japanese cards: the English name search may be pulling non-Japanese results
+
+Analyse why the prices likely look wrong. Then suggest a corrected search query or strategy that would return more accurate results. Be specific.
+
+Respond in this JSON format only:
+{
+  "analysis": "Your detailed analysis of why the prices are wrong (2-4 sentences)",
+  "correctedSearch": "The improved search term or strategy to try (or null if no improvement is obvious)",
+  "confidence": "high|medium|low"
+}`;
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 512,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = (response.content[0] as Anthropic.TextBlock)?.text ?? "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON in AI response");
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const analysis = parsed.analysis ?? "Could not determine reason.";
+    const correctedSearch = parsed.correctedSearch ?? null;
+    const confidence = parsed.confidence ?? "low";
+
+    const newStatus = confidence === "high" && correctedSearch
+      ? "needs_admin"
+      : "needs_admin";
+
+    await db.query(
+      `UPDATE price_flags
+       SET status = $1, ai_analysis = $2, corrected_search = $3
+       WHERE id = $4`,
+      [newStatus, analysis, correctedSearch, flagId]
+    );
+    console.log(`[price-flags] Flag #${flagId} analysed (${confidence} confidence)`);
+  } catch (e: any) {
+    console.error(`[price-flags] analyzePriceFlag(${flagId}) failed:`, e.message);
+    await db.query(
+      `UPDATE price_flags SET status = 'needs_admin', ai_analysis = $1 WHERE id = $2`,
+      [`AI analysis failed: ${e.message}`, flagId]
+    ).catch(() => {});
   }
 }
 
@@ -3527,6 +3640,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err: any) {
       console.error("[grading-feedback] Error:", err.message);
       return res.status(500).json({ error: "Failed to save feedback" });
+    }
+  });
+
+  // ── Price flag: user reports a suspicious eBay price ───────────────────
+  app.post("/api/price-flags", async (req, res) => {
+    try {
+      const { cardName, setName, setCode, cardNumber, cardLang, company, flaggedGrades, flaggedValues, userNote } = req.body ?? {};
+      if (!cardName || !company || !Array.isArray(flaggedGrades) || flaggedGrades.length === 0) {
+        return res.status(400).json({ error: "cardName, company and flaggedGrades are required" });
+      }
+      const { rows } = await db.query<{ id: number }>(
+        `INSERT INTO price_flags (card_name, set_name, set_code, card_number, card_lang, company, flagged_grades, flagged_values, user_note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        [
+          cardName,
+          setName ?? null,
+          setCode ?? null,
+          cardNumber ?? null,
+          cardLang ?? "en",
+          company,
+          JSON.stringify(flaggedGrades),
+          JSON.stringify(flaggedValues ?? {}),
+          userNote ?? null,
+        ]
+      );
+      const flagId = rows[0].id;
+      // Kick off background AI analysis (fire-and-forget)
+      analyzePriceFlag(flagId).catch(e => console.error("[price-flags] Background analysis error:", e.message));
+      return res.json({ ok: true, id: flagId });
+    } catch (err: any) {
+      console.error("[price-flags] POST error:", err.message);
+      return res.status(500).json({ error: "Failed to save price flag" });
+    }
+  });
+
+  // ── Price flags admin: list flags ──────────────────────────────────────
+  app.get("/api/admin/price-flags", async (req, res) => {
+    try {
+      const { status } = req.query;
+      const whereClause = status && status !== "all"
+        ? `WHERE status = $1`
+        : status === "all" ? "" : `WHERE status = 'needs_admin'`;
+      const params = status && status !== "all" ? [status] : [];
+      const { rows } = await db.query(
+        `SELECT id, card_name, set_name, set_code, card_number, card_lang, company,
+                flagged_grades, flagged_values, user_note, status,
+                ai_analysis, admin_response, corrected_search, correction_applied,
+                created_at, resolved_at
+         FROM price_flags
+         ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        params
+      );
+      return res.json({ flags: rows });
+    } catch (err: any) {
+      console.error("[price-flags] GET admin error:", err.message);
+      return res.status(500).json({ error: "Failed to fetch price flags" });
+    }
+  });
+
+  // ── Price flags admin: submit admin response → re-trigger AI ──────────
+  app.post("/api/admin/price-flags/:id/respond", async (req, res) => {
+    try {
+      const flagId = parseInt(req.params.id, 10);
+      const { adminResponse } = req.body ?? {};
+      if (!adminResponse) return res.status(400).json({ error: "adminResponse is required" });
+
+      await db.query(
+        `UPDATE price_flags SET admin_response = $1, status = 'ai_processing' WHERE id = $2`,
+        [adminResponse, flagId]
+      );
+      // Re-run AI with admin context (fire-and-forget)
+      analyzePriceFlag(flagId).catch(e => console.error("[price-flags] Admin re-analysis error:", e.message));
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[price-flags] admin respond error:", err.message);
+      return res.status(500).json({ error: "Failed to process admin response" });
     }
   });
 
