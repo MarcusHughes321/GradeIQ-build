@@ -927,7 +927,6 @@ export default function CardProfitScreen() {
           ) : (
             <Pressable
               onPress={() => {
-                if (hasRawPrice) setPriceOverrideInput(rawLocalVal.toFixed(2));
                 setIsEditingPrice(true);
               }}
               style={({ pressed }) => [st.addPricePaidBtn, { opacity: pressed ? 0.7 : 1 }]}
@@ -1082,9 +1081,14 @@ export default function CardProfitScreen() {
               <View style={st.tblHead}>
                 <Text style={[st.tblHeadTxt, { flex: 2 }]}>Grade</Text>
                 <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>eBay Sold</Text>
-                <Text style={[st.tblHeadTxt, { flex: 2, textAlign: "right" }]}>
-                  {selectedFeeOption ? "Net Profit" : "Profit"}
-                </Text>
+                <View style={{ flex: 2, alignItems: "flex-end" as const }}>
+                  <Text style={st.tblHeadTxt}>
+                    {selectedFeeOption ? "Net Profit" : "Profit"}
+                  </Text>
+                  {priceIsOverridden && (
+                    <Text style={st.tblHeadSubTxt}>vs {fmtLocal(overrideParsed)} paid</Text>
+                  )}
+                </View>
                 <View style={{ width: 48 }} />
               </View>
 
@@ -1772,6 +1776,12 @@ const st = StyleSheet.create({
     color: Colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
+  },
+  tblHeadSubTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 9,
+    color: Colors.textMuted,
+    marginTop: 1,
   },
 
   tblRow: {
