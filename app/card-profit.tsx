@@ -463,6 +463,11 @@ export default function CardProfitScreen() {
 
   const [imageFullscreen, setImageFullscreen] = useState(false);
 
+  // Price-paid override — must be declared before the derived values below use it
+  const [priceOverrideInput, setPriceOverrideInput] = useState<string>("");
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [modalDraft, setModalDraft] = useState<string>("");
+
   // ── Pinch-to-zoom state for fullscreen viewer ───────────────────────────
   const zoomScale     = useSharedValue(1);
   const savedScale    = useSharedValue(1);
@@ -603,11 +608,6 @@ export default function CardProfitScreen() {
   const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
   const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
   const [aceLabelOption, setAceLabelOption] = useState<"standard" | "colour-match" | "custom">("standard");
-
-  // Price-paid override — user can manually enter what they paid for profit calcs
-  const [priceOverrideInput, setPriceOverrideInput] = useState<string>("");
-  const [showPriceModal, setShowPriceModal] = useState(false);
-  const [modalDraft, setModalDraft] = useState<string>("");
 
   const openPriceModal = (currentValue?: string) => {
     setModalDraft(currentValue ?? "");
