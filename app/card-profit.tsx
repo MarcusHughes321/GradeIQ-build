@@ -11,6 +11,7 @@ import {
   Linking,
   Dimensions,
   TextInput,
+  Alert,
 } from "react-native";
 import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Image } from "expo-image";
@@ -608,6 +609,28 @@ export default function CardProfitScreen() {
   const [priceOverrideInput, setPriceOverrideInput] = useState<string>("");
   const [isEditingPrice, setIsEditingPrice] = useState(false);
 
+  // On iOS use Alert.prompt (reliable native dialog). On other platforms fall back to inline input.
+  const promptForPrice = (currentValue?: string) => {
+    if (Platform.OS === "ios") {
+      Alert.prompt(
+        "How much did you pay?",
+        `Enter the price in ${currencySymbol}`,
+        (text: string) => {
+          const val = parseFloat(text);
+          if (!isNaN(val) && val > 0) {
+            setPriceOverrideInput(val.toFixed(2));
+          }
+        },
+        "plain-text",
+        currentValue ?? "",
+        "decimal-pad",
+      );
+    } else {
+      if (currentValue) setPriceOverrideInput(currentValue);
+      setIsEditingPrice(true);
+    }
+  };
+
   // Reset chart grade, fee and label whenever the company tab switches
   useEffect(() => {
     setChartGradeKey(undefined);
@@ -880,7 +903,8 @@ export default function CardProfitScreen() {
           </View>
 
           {/* Price paid — separate editable row below */}
-          {isEditingPrice ? (
+          {/* On iOS the inline form is never shown — Alert.prompt handles input natively */}
+          {isEditingPrice && Platform.OS !== "ios" ? (
             <View style={st.pricePaidEditRow}>
               <Ionicons name="wallet-outline" size={13} color={Colors.textMuted} />
               <Text style={st.heroPriceLabel}>How much did you pay?</Text>
@@ -906,10 +930,7 @@ export default function CardProfitScreen() {
               <Text style={st.heroPriceLabel}>You paid</Text>
               <Text style={[st.heroPriceValue, { marginLeft: 4 }]}>{fmtLocal(overrideParsed)}</Text>
               <Pressable
-                onPress={() => {
-                  setPriceOverrideInput(overrideParsed.toFixed(2));
-                  setIsEditingPrice(true);
-                }}
+                onPress={() => promptForPrice(overrideParsed.toFixed(2))}
                 hitSlop={8}
                 style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, marginLeft: "auto" as any })}
               >
@@ -925,9 +946,7 @@ export default function CardProfitScreen() {
             </View>
           ) : (
             <Pressable
-              onPress={() => {
-                setIsEditingPrice(true);
-              }}
+              onPress={() => promptForPrice()}
               style={({ pressed }) => [st.addPricePaidBtn, { opacity: pressed ? 0.7 : 1 }]}
             >
               <Ionicons name="add-circle-outline" size={15} color={Colors.textMuted} />
