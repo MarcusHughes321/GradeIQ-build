@@ -353,7 +353,26 @@ async function initTopPicksPrecomputedTable(): Promise<void> {
     await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS ebay_all_grades JSONB`);
     await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS lang VARCHAR(5) DEFAULT 'en'`);
     await db.query(`ALTER TABLE top_picks_precomputed ADD COLUMN IF NOT EXISTS raw_price_eur NUMERIC(10,2)`);
-    console.log("[top-picks] DB table ready");
+
+    // History table — one snapshot per card/tier/day; used for trend scoring after ≥7 days
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS top_picks_history (
+        card_id       VARCHAR(120) NOT NULL,
+        tier_max_gbp  INTEGER      NOT NULL,
+        lang          VARCHAR(5)   NOT NULL DEFAULT 'en',
+        snapshot_date DATE         NOT NULL,
+        card_name     VARCHAR(200),
+        ebay_psa10    NUMERIC(10,2),
+        ebay_ace10    NUMERIC(10,2),
+        ebay_tag10    NUMERIC(10,2),
+        ebay_bgs95    NUMERIC(10,2),
+        ebay_cgc10    NUMERIC(10,2),
+        raw_price_usd NUMERIC(10,2),
+        PRIMARY KEY (card_id, tier_max_gbp, lang, snapshot_date)
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_tph_date ON top_picks_history (snapshot_date DESC)`);
+    console.log("[top-picks] DB tables ready");
   } catch (e: any) {
     console.error("[top-picks] Failed to create table:", e.message);
   }
@@ -7550,32 +7569,120 @@ RESPONSE FORMAT (JSON only, no markdown):
       return;
     }
     topPicksJobRunning = true;
-    console.log("[top-picks] Starting precomputed picks job...");
+    console.log("[top-picks] Starting precomputed picks job (smart scoring)...");
+
+    type CatalogCard = {
+      card_id: string; set_id: string; set_name: string; name: string;
+      number: string; rarity: string | null; image_url: string | null; price_usd: string;
+    };
+
     try {
       const rates = await getExchangeRates();
       const gbpRate = rates.rates.GBP ?? 0.79;
+      const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
       for (const tier of TOP_PICKS_TIERS) {
         const minUSD = tier.minGBP / gbpRate;
         const maxUSD = tier.maxGBP / gbpRate;
 
-        // Top 20 candidates from card_catalog — holofoil-first, highest price first
-        const { rows: candidates } = await db.query<{
-          card_id: string; set_id: string; set_name: string; name: string;
-          number: string; rarity: string | null; image_url: string | null; price_usd: string;
-        }>(
+        // ── Step 1: Wide candidate pool (100 cards) ──────────────────────────
+        const { rows: pool } = await db.query<CatalogCard>(
           `SELECT card_id, set_id, set_name, name, number, rarity, image_url, price_usd
              FROM card_catalog
-            WHERE price_usd >= $1 AND price_usd < $2
+            WHERE price_usd >= $1 AND price_usd < $2 AND COALESCE(lang,'en') = 'en'
             ORDER BY
               CASE WHEN rarity ILIKE '%holo%' THEN 0 ELSE 1 END,
               price_usd DESC
-            LIMIT 20`,
+            LIMIT 100`,
           [minUSD, maxUSD]
         );
-        console.log(`[top-picks] Tier £${tier.maxGBP}: ${candidates.length} candidates (USD $${minUSD.toFixed(2)}–$${maxUSD.toFixed(2)})`);
 
-        // Process cards serially with a gap to respect PokeTrace burst limit (30 req/10s)
+        // ── Step 2: Bulk-load eBay cache for all candidates ───────────────────
+        const cacheKeys = pool.map(c => `${c.name} ${c.number}`);
+        const { rows: cacheRows } = await db.query<{ cache_key: string; data: any }>(
+          `SELECT cache_key, data FROM ebay_price_cache WHERE cache_key = ANY($1)`,
+          [cacheKeys]
+        );
+        const cacheMap = new Map(cacheRows.map(r => [r.cache_key, r.data]));
+
+        // ── Step 3: Load last 7 days of history for week-over-week trend ──────
+        const cardIds = pool.map(c => c.card_id);
+        const { rows: histRows } = await db.query<{
+          card_id: string; snapshot_date: string; ebay_psa10: string; ebay_ace10: string;
+        }>(
+          `SELECT card_id, snapshot_date, ebay_psa10, ebay_ace10
+             FROM top_picks_history
+            WHERE card_id = ANY($1) AND tier_max_gbp = $2 AND lang = 'en'
+              AND snapshot_date >= CURRENT_DATE - INTERVAL '7 days'
+            ORDER BY card_id, snapshot_date ASC`,
+          [cardIds, tier.maxGBP]
+        );
+        const histMap = new Map<string, { psa10: number; ace10: number }[]>();
+        for (const h of histRows) {
+          if (!histMap.has(h.card_id)) histMap.set(h.card_id, []);
+          histMap.get(h.card_id)!.push({
+            psa10: parseFloat(h.ebay_psa10) || 0,
+            ace10: parseFloat(h.ebay_ace10) || 0,
+          });
+        }
+
+        // ── Step 4: Score every candidate ────────────────────────────────────
+        const scored = pool.map(card => {
+          const rawUSD = parseFloat(card.price_usd) || 1;
+          const cache  = cacheMap.get(`${card.name} ${card.number}`);
+
+          if (!cache) {
+            // No prior data — neutral score so fresh cards still get a chance
+            return { card, score: 1.0 };
+          }
+
+          // Profit ratio: best graded sale price vs raw TCGPlayer price
+          const bestGrade = Math.max(
+            cache.psa10 || 0, cache.ace10 || 0, cache.tag10 || 0,
+            cache.bgs95 || 0, cache.cgc10 || 0
+          );
+          const profitRatio = bestGrade > 0 ? bestGrade / rawUSD : 0.5;
+
+          // Liquidity: total sale count across all grades in the cache
+          let totalSales = 0;
+          if (cache.gradeDetails) {
+            for (const g of Object.values(cache.gradeDetails) as any[]) {
+              totalSales += (g.saleCount as number) || 0;
+            }
+          }
+          const liquidityMult = 1 + Math.min(totalSales / 20, 1.5);
+
+          // Short-term trend: avg1d > avg7d (rising this week) or avg7d > avg30d
+          let trendMult = 1.0;
+          if (cache.gradeDetails) {
+            for (const g of Object.values(cache.gradeDetails) as any[]) {
+              if (g.avg1d && g.avg7d && g.avg1d > g.avg7d * 1.05) {
+                trendMult = Math.max(trendMult, 1.5); // rising fast (>5% day-over-day)
+              } else if (g.avg7d && g.avg30d && g.avg7d > g.avg30d * 1.05) {
+                trendMult = Math.max(trendMult, 1.25); // rising steadily this month
+              }
+            }
+          }
+
+          // Week-over-week history trend: price higher now than 7 days ago
+          const hist = histMap.get(card.card_id);
+          if (hist && hist.length >= 2) {
+            const oldest = hist[0].psa10 || hist[0].ace10;
+            const newest = hist[hist.length - 1].psa10 || hist[hist.length - 1].ace10;
+            if (oldest > 0 && newest > oldest * 1.05) {
+              trendMult = Math.max(trendMult, 1.3);
+            }
+          }
+
+          return { card, score: profitRatio * liquidityMult * trendMult };
+        });
+
+        // ── Step 5: Sort by score, take top 20 for live eBay fetch ───────────
+        scored.sort((a, b) => b.score - a.score);
+        const candidates = scored.slice(0, 20).map(s => s.card);
+        console.log(`[top-picks] Tier £${tier.maxGBP}: scored ${pool.length} candidates → fetching top ${candidates.length}`);
+
+        // ── Step 6: Fetch live eBay prices and upsert ─────────────────────────
         for (const card of candidates) {
           try {
             const ebay = await fetchEbayGradedPrices(card.name, card.set_name, card.number || undefined);
@@ -7605,12 +7712,24 @@ RESPONSE FORMAT (JSON only, no markdown):
                   JSON.stringify(gradesOnly),
                 ]
               );
-              console.log(`[top-picks] ✓ ${card.name} (£${tier.maxGBP}) PSA10=$${ebay.psa10}`);
-            } else {
-              // No eBay data — mark existing row as stale but keep historic prices
+
+              // ── Step 7: Snapshot to history (once per card per day) ─────────
               await db.query(
-                `UPDATE top_picks_precomputed
-                    SET is_stale=TRUE, updated_at=NOW()
+                `INSERT INTO top_picks_history
+                   (card_id, tier_max_gbp, lang, snapshot_date, card_name,
+                    ebay_psa10, ebay_ace10, ebay_tag10, ebay_bgs95, ebay_cgc10, raw_price_usd)
+                 VALUES ($1,$2,'en',$3,$4,$5,$6,$7,$8,$9,$10)
+                 ON CONFLICT (card_id, tier_max_gbp, lang, snapshot_date) DO NOTHING`,
+                [
+                  card.card_id, tier.maxGBP, today, card.name,
+                  ebay.psa10, ebay.ace10, ebay.tag10, ebay.bgs95, ebay.cgc10,
+                  parseFloat(card.price_usd),
+                ]
+              );
+              console.log(`[top-picks] ✓ ${card.name} (£${tier.maxGBP}) score=${scored.find(s => s.card.card_id === card.card_id)?.score.toFixed(2)} PSA10=$${ebay.psa10}`);
+            } else {
+              await db.query(
+                `UPDATE top_picks_precomputed SET is_stale=TRUE, updated_at=NOW()
                   WHERE card_id=$1 AND tier_max_gbp=$2`,
                 [card.card_id, tier.maxGBP]
               );
@@ -7619,13 +7738,13 @@ RESPONSE FORMAT (JSON only, no markdown):
           } catch (err: any) {
             console.error(`[top-picks] Error processing ${card.name}:`, err.message);
           }
-          // 350ms gap → ~2.8 req/sec, well under the 30 req/10s burst limit
+          // 350ms gap → ~2.8 req/sec, well under PokeTrace burst limit
           await new Promise(r => setTimeout(r, 350));
         }
       }
 
       topPicksLastRun = new Date();
-      console.log("[top-picks] Precomputed picks job complete");
+      console.log("[top-picks] Smart picks job complete");
     } finally {
       topPicksJobRunning = false;
     }
@@ -8080,6 +8199,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       console.log(`[jp-top-picks] Collected ${candidates.length} candidates across ${JP_SET_SLUGS.length} sets`);
 
+      const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
       // Convert EUR prices to GBP for tier bucketing
       for (const tier of TOP_PICKS_TIERS) {
         const minEUR = (tier.minGBP / gbpRate) * eurRate;
@@ -8122,6 +8243,19 @@ RESPONSE FORMAT (JSON only, no markdown):
                   ebay.psa10, ebay.psa9, ebay.bgs95, ebay.bgs9,
                   ebay.ace10, ebay.tag10, ebay.cgc10, ebay.raw,
                   JSON.stringify(gradesOnly),
+                ]
+              );
+              // Snapshot to history (once per card per day)
+              await db.query(
+                `INSERT INTO top_picks_history
+                   (card_id, tier_max_gbp, lang, snapshot_date, card_name,
+                    ebay_psa10, ebay_ace10, ebay_tag10, ebay_bgs95, ebay_cgc10, raw_price_usd)
+                 VALUES ($1,$2,'ja',$3,$4,$5,$6,$7,$8,$9,$10)
+                 ON CONFLICT (card_id, tier_max_gbp, lang, snapshot_date) DO NOTHING`,
+                [
+                  card.cardId, tier.maxGBP, today, card.name,
+                  ebay.psa10, ebay.ace10, ebay.tag10, ebay.bgs95, ebay.cgc10,
+                  Math.round(card.nmEUR / eurRate * 100) / 100,
                 ]
               );
               console.log(`[jp-top-picks] ✓ ${card.name} (£${tier.maxGBP}) €${card.nmEUR} PSA10=$${ebay.psa10}`);
