@@ -894,13 +894,28 @@ export default function CardProfitScreen() {
                     }
                     setIsEditingPrice(true);
                   }}
-                  hitSlop={8}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, flexDirection: "row", alignItems: "center", gap: 4 })}
+                  style={({ pressed }) => [
+                    st.heroPriceEditPill,
+                    priceIsOverridden && st.heroPriceEditPillActive,
+                    !hasEffectiveRawPrice && st.heroPriceEditPillEmpty,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
                 >
-                  <Text style={[st.heroPriceValue, priceIsOverridden && { color: Colors.primary }]}>
+                  {!hasEffectiveRawPrice && (
+                    <Ionicons name="add-circle-outline" size={14} color={Colors.primary} />
+                  )}
+                  <Text style={[
+                    st.heroPriceValue,
+                    priceIsOverridden && { color: Colors.primary },
+                    !hasEffectiveRawPrice && { color: Colors.primary, fontSize: 13 },
+                  ]}>
                     {hasEffectiveRawPrice ? fmtLocal(effectiveRawLocal) : "Enter price paid"}
                   </Text>
-                  <Ionicons name="pencil-outline" size={11} color={Colors.textMuted} />
+                  <Ionicons
+                    name="pencil-outline"
+                    size={13}
+                    color={priceIsOverridden || !hasEffectiveRawPrice ? Colors.primary : Colors.textMuted}
+                  />
                 </Pressable>
                 <Pressable
                   onPress={() => {
@@ -908,7 +923,7 @@ export default function CardProfitScreen() {
                     Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
                   }}
                   hitSlop={8}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 })}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: "auto" as any })}
                 >
                   <Text style={st.rawEbayLink}>Find on eBay</Text>
                   <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
@@ -916,9 +931,6 @@ export default function CardProfitScreen() {
               </>
             )}
           </View>
-          {!hasEffectiveRawPrice && !isEditingPrice && (
-            <Text style={st.noRawNote}>Tap the price above to enter what you paid</Text>
-          )}
         </View>
 
         {/* Grade This Card — compact secondary CTA */}
@@ -1541,6 +1553,26 @@ const st = StyleSheet.create({
     flex: 1,
     paddingVertical: 0,
     minWidth: 60,
+  },
+  heroPriceEditPill: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: Colors.surface,
+  },
+  heroPriceEditPillActive: {
+    borderColor: Colors.primary,
+    backgroundColor: "rgba(255,60,49,0.08)",
+  },
+  heroPriceEditPillEmpty: {
+    borderColor: Colors.primary,
+    borderStyle: "dashed" as const,
+    backgroundColor: "rgba(255,60,49,0.06)",
   },
   rawEbayLink: {
     fontFamily: "Inter_400Regular",
