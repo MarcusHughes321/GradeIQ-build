@@ -423,7 +423,7 @@ export default function CardProfitScreen() {
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
 
-  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, rawPriceEUR, lang, edition, holoPrice, reverseHoloPrice, normalPrice } = useLocalSearchParams<{
+  const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, rawPriceEUR, lang, edition, holoPrice, reverseHoloPrice, normalPrice, company: companyParam } = useLocalSearchParams<{
     cardId: string;
     cardName: string;
     setName: string;
@@ -437,6 +437,7 @@ export default function CardProfitScreen() {
     holoPrice?: string;
     reverseHoloPrice?: string;
     normalPrice?: string;
+    company?: string;
   }>();
 
   const isJapanese = lang === "ja";
@@ -584,7 +585,11 @@ export default function CardProfitScreen() {
       ? settings.enabledCompanies
       : COMPANY_ORDER;
 
-  const defaultCompany: CompanyId = enabledCompanies[0] ?? "PSA";
+  const defaultCompany: CompanyId = (
+    companyParam && enabledCompanies.includes(companyParam as CompanyId)
+      ? companyParam as CompanyId
+      : enabledCompanies[0]
+  ) ?? "PSA";
   const [selectedCompany, setSelectedCompany] = useState<CompanyId>(defaultCompany);
 
   // Which grade row the user has tapped to chart (undefined = top grade default)

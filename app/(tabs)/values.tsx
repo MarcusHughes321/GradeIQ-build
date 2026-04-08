@@ -617,6 +617,7 @@ export default function ValuesScreen() {
         setName,
         imageUrl: imageUrl || "",
         rawPriceUSD: rawPriceUSD ? String(rawPriceUSD) : "0",
+        company: effectivePicksCompany,
         ...(cardNumber ? { cardNumber } : {}),
         ...(setTotal ? { setTotal } : {}),
         ...(rawPriceEUR ? { rawPriceEUR: String(rawPriceEUR) } : {}),
