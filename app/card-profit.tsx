@@ -859,12 +859,30 @@ export default function CardProfitScreen() {
             </View>
           )}
 
-          {/* Raw price pill — tappable to override with price paid */}
+          {/* Raw price — tappable pill to override with price paid */}
           <View style={st.heroPriceRow}>
-            <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
+            {/* Top line: label + Find on eBay */}
+            <View style={st.heroPriceTopLine}>
+              <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
+              <Text style={st.heroPriceLabel}>
+                {priceIsOverridden ? "Price Paid" : `Raw (${rawPriceLabel})`}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  const q = [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
+                  Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
+                }}
+                hitSlop={8}
+                style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row" as const, alignItems: "center" as const, gap: 3, marginLeft: "auto" as any })}
+              >
+                <Text style={st.rawEbayLink}>Find on eBay</Text>
+                <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+
+            {/* Price pill / edit input */}
             {isEditingPrice ? (
-              <>
-                <Text style={st.heroPriceLabel}>Price Paid</Text>
+              <View style={st.heroPriceEditPill}>
                 <Text style={st.heroPriceCurrencySymbol}>{currencySymbol}</Text>
                 <TextInput
                   style={st.heroPriceInput}
@@ -881,54 +899,31 @@ export default function CardProfitScreen() {
                 <Pressable onPress={() => setIsEditingPrice(false)} hitSlop={10}>
                   <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
                 </Pressable>
-              </>
+              </View>
             ) : (
-              <>
-                <Text style={st.heroPriceLabel}>
-                  {priceIsOverridden ? "Price Paid" : `Raw (${rawPriceLabel})`}
+              <Pressable
+                onPress={() => {
+                  if (!priceOverrideInput && effectiveRawLocal > 0) {
+                    setPriceOverrideInput(effectiveRawLocal.toFixed(2));
+                  }
+                  setIsEditingPrice(true);
+                }}
+                style={({ pressed }) => [
+                  st.heroPriceEditPill,
+                  priceIsOverridden && st.heroPriceEditPillActive,
+                  !hasEffectiveRawPrice && st.heroPriceEditPillEmpty,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[
+                  st.heroPriceValue,
+                  priceIsOverridden && { color: Colors.text },
+                  !hasEffectiveRawPrice && { color: Colors.textMuted, fontSize: 14 },
+                ]}>
+                  {hasEffectiveRawPrice ? fmtLocal(effectiveRawLocal) : "Enter price paid"}
                 </Text>
-                <Pressable
-                  onPress={() => {
-                    if (!priceOverrideInput && effectiveRawLocal > 0) {
-                      setPriceOverrideInput(effectiveRawLocal.toFixed(2));
-                    }
-                    setIsEditingPrice(true);
-                  }}
-                  style={({ pressed }) => [
-                    st.heroPriceEditPill,
-                    priceIsOverridden && st.heroPriceEditPillActive,
-                    !hasEffectiveRawPrice && st.heroPriceEditPillEmpty,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  {!hasEffectiveRawPrice && (
-                    <Ionicons name="add-circle-outline" size={14} color={Colors.primary} />
-                  )}
-                  <Text style={[
-                    st.heroPriceValue,
-                    priceIsOverridden && { color: Colors.primary },
-                    !hasEffectiveRawPrice && { color: Colors.primary, fontSize: 13 },
-                  ]}>
-                    {hasEffectiveRawPrice ? fmtLocal(effectiveRawLocal) : "Enter price paid"}
-                  </Text>
-                  <Ionicons
-                    name="pencil-outline"
-                    size={13}
-                    color={priceIsOverridden || !hasEffectiveRawPrice ? Colors.primary : Colors.textMuted}
-                  />
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    const q = [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
-                    Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
-                  }}
-                  hitSlop={8}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: "auto" as any })}
-                >
-                  <Text style={st.rawEbayLink}>Find on eBay</Text>
-                  <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
-                </Pressable>
-              </>
+                <Ionicons name="pencil-outline" size={12} color={Colors.textMuted} />
+              </Pressable>
             )}
           </View>
         </View>
@@ -1521,20 +1516,23 @@ const st = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
   },
   heroPriceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    flexDirection: "column",
+    gap: 8,
     backgroundColor: Colors.background,
     borderRadius: 8,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 10,
     marginTop: 4,
+  },
+  heroPriceTopLine: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
   },
   heroPriceLabel: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: Colors.textMuted,
-    flex: 1,
   },
   heroPriceValue: {
     fontFamily: "Inter_700Bold",
@@ -1557,22 +1555,20 @@ const st = StyleSheet.create({
   heroPriceEditPill: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 5,
+    alignSelf: "flex-start" as const,
+    gap: 6,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     backgroundColor: Colors.surface,
   },
   heroPriceEditPillActive: {
-    borderColor: Colors.primary,
-    backgroundColor: "rgba(255,60,49,0.08)",
+    borderColor: Colors.surfaceBorder,
   },
   heroPriceEditPillEmpty: {
-    borderColor: Colors.primary,
     borderStyle: "dashed" as const,
-    backgroundColor: "rgba(255,60,49,0.06)",
   },
   rawEbayLink: {
     fontFamily: "Inter_400Regular",
