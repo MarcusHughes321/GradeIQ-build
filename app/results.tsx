@@ -2936,7 +2936,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   maAiPillTxt: { fontFamily: "Inter_700Bold", fontSize: 10, color: "#fff" },
-  maFeeSection: { marginTop: 4, gap: 10, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.07)", paddingTop: 16 },
+  maFeeSection: { marginTop: 20, gap: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.12)", paddingTop: 20, paddingBottom: 4 },
   maFeeTitle: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textMuted, marginBottom: 4 },
   maFeePill: {
     paddingHorizontal: 10,
