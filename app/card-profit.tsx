@@ -10,6 +10,7 @@ import {
   Modal,
   Linking,
   Dimensions,
+  TextInput,
 } from "react-native";
 import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Image } from "expo-image";
@@ -565,6 +566,12 @@ export default function CardProfitScreen() {
   const hasRawPrice = rawLocalVal > 0;
   const rawPriceLabel = isJapanese ? "Cardmarket" : "TCGPlayer";
 
+  // Effective price for profit calculations — user override takes priority
+  const overrideParsed = priceOverrideInput !== "" ? parseFloat(priceOverrideInput) : NaN;
+  const effectiveRawLocal = (!isNaN(overrideParsed) && overrideParsed > 0) ? overrideParsed : rawLocalVal;
+  const hasEffectiveRawPrice = effectiveRawLocal > 0;
+  const priceIsOverridden = !isNaN(overrideParsed) && overrideParsed > 0;
+
   const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
     queryKey: ["ebay-all-grades", cardName, setName, cardNumber ?? "", editionParam],
     queryFn: () => {
@@ -596,6 +603,10 @@ export default function CardProfitScreen() {
   const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
   const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
   const [aceLabelOption, setAceLabelOption] = useState<"standard" | "colour-match" | "custom">("standard");
+
+  // Price-paid override — user can manually enter what they paid for profit calcs
+  const [priceOverrideInput, setPriceOverrideInput] = useState<string>("");
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
 
   // Reset chart grade, fee and label whenever the company tab switches
   useEffect(() => {
@@ -658,8 +669,8 @@ export default function CardProfitScreen() {
         // When a fee tier is selected, deduct it from profit for this company only
         const feeDeduc = compId === selectedCompany ? feeLocalAmount : 0;
         const profit =
-          ebayLocal !== null && hasRawPrice
-            ? Math.round(ebayLocal - rawLocalVal - feeDeduc)
+          ebayLocal !== null && hasEffectiveRawPrice
+            ? Math.round(ebayLocal - effectiveRawLocal - feeDeduc)
             : null;
         return { ...g, ebayLocal, profit };
       });
@@ -669,7 +680,7 @@ export default function CardProfitScreen() {
 
       return { compId, config, rows, minProfitRow };
     }).filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [enabledCompanies, ebay, rawLocalVal, hasRawPrice, currencyRate, feeLocalAmount, selectedCompany]);
+  }, [enabledCompanies, ebay, effectiveRawLocal, hasEffectiveRawPrice, currencyRate, feeLocalAmount, selectedCompany]);
 
   // ── Market snapshot — liquidity across all enabled companies ────────────
   const marketSnapshot = useMemo(() => {
@@ -848,27 +859,65 @@ export default function CardProfitScreen() {
             </View>
           )}
 
-          {/* Raw price pill */}
+          {/* Raw price pill — tappable to override with price paid */}
           <View style={st.heroPriceRow}>
             <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
-            <Text style={st.heroPriceLabel}>Raw ({rawPriceLabel})</Text>
-            <Text style={st.heroPriceValue}>
-              {hasRawPrice ? fmtLocal(rawLocalVal) : "No price data"}
-            </Text>
-            <Pressable
-              onPress={() => {
-                const q = [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
-                Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
-              }}
-              hitSlop={8}
-              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 })}
-            >
-              <Text style={st.rawEbayLink}>Find on eBay</Text>
-              <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
-            </Pressable>
+            {isEditingPrice ? (
+              <>
+                <Text style={st.heroPriceLabel}>Price Paid</Text>
+                <Text style={st.heroPriceCurrencySymbol}>{currencySymbol}</Text>
+                <TextInput
+                  style={st.heroPriceInput}
+                  value={priceOverrideInput}
+                  onChangeText={setPriceOverrideInput}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={Colors.textMuted}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={() => setIsEditingPrice(false)}
+                  onBlur={() => setIsEditingPrice(false)}
+                />
+                <Pressable onPress={() => setIsEditingPrice(false)} hitSlop={10}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={st.heroPriceLabel}>
+                  {priceIsOverridden ? "Price Paid" : `Raw (${rawPriceLabel})`}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    if (!priceOverrideInput && effectiveRawLocal > 0) {
+                      setPriceOverrideInput(effectiveRawLocal.toFixed(2));
+                    }
+                    setIsEditingPrice(true);
+                  }}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, flexDirection: "row", alignItems: "center", gap: 4 })}
+                >
+                  <Text style={[st.heroPriceValue, priceIsOverridden && { color: Colors.primary }]}>
+                    {hasEffectiveRawPrice ? fmtLocal(effectiveRawLocal) : "Enter price paid"}
+                  </Text>
+                  <Ionicons name="pencil-outline" size={11} color={Colors.textMuted} />
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const q = [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
+                    Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
+                  }}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 })}
+                >
+                  <Text style={st.rawEbayLink}>Find on eBay</Text>
+                  <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
+                </Pressable>
+              </>
+            )}
           </View>
-          {!hasRawPrice && (
-            <Text style={st.noRawNote}>Profit figures are unavailable without a raw price</Text>
+          {!hasEffectiveRawPrice && !isEditingPrice && (
+            <Text style={st.noRawNote}>Tap the price above to enter what you paid</Text>
           )}
         </View>
 
@@ -1071,9 +1120,9 @@ export default function CardProfitScreen() {
 
                       {isLoading ? (
                         <View style={{ flex: 2 }} />
-                      ) : hasRawPrice && gr.profit !== null ? (
+                      ) : hasEffectiveRawPrice && gr.profit !== null ? (
                         <Text style={[st.profitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
-                          {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), rawLocalVal)}
+                          {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), effectiveRawLocal)}
                         </Text>
                       ) : (
                         <Text style={[st.mutedTxt, { flex: 2, textAlign: "right" }]}>—</Text>
@@ -1107,7 +1156,7 @@ export default function CardProfitScreen() {
               )}
 
               {/* Company summary */}
-              {!isLoading && ebay && hasRawPrice && (
+              {!isLoading && ebay && hasEffectiveRawPrice && (
                 <View style={st.summaryRow}>
                   {minProfitRow ? (
                     <Text style={st.summaryTxt}>
@@ -1234,7 +1283,7 @@ export default function CardProfitScreen() {
                   )}
 
                   {/* Final Net Profit summary */}
-                  {selectedFeeOption && compId === selectedCompany && hasRawPrice && ebay && (
+                  {selectedFeeOption && compId === selectedCompany && hasEffectiveRawPrice && ebay && (
                     <View style={[
                       st.netProfitBox,
                       minProfitRow
@@ -1254,7 +1303,7 @@ export default function CardProfitScreen() {
                       )}
                       <Text style={st.netProfitSub}>
                         {minProfitRow
-                          ? `after ${fmtLocal(rawLocalVal)} raw + ${fmtLocal(feeLocalAmount)} fee`
+                          ? `after ${fmtLocal(effectiveRawLocal)} raw + ${fmtLocal(feeLocalAmount)} fee`
                           : `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits`}
                       </Text>
                     </View>
@@ -1479,6 +1528,19 @@ const st = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.text,
+  },
+  heroPriceCurrencySymbol: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  heroPriceInput: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: Colors.text,
+    flex: 1,
+    paddingVertical: 0,
+    minWidth: 60,
   },
   rawEbayLink: {
     fontFamily: "Inter_400Regular",
