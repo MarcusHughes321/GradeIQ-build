@@ -223,9 +223,14 @@ const COMPANY_FEES: CompanyFees[] = [
         description: "Clean white ACE label with card details and grade. Included in all tiers.",
       },
       {
+        name: "Colour Match",
+        price: "+£1 per card",
+        description: "Label coloured to match the card's palette. A subtle upgrade over the standard white label.",
+      },
+      {
         name: "Custom Ace Label",
         price: "+£3 per card",
-        description: "Color-matched artwork label designed around your card's palette. Applied by ACE's design team.",
+        description: "Fully custom artwork label designed around your specific card. Applied by ACE's design team.",
       },
     ],
     notes: "Turnaround times start from the first full business day after receipt. Shipping is not included.",

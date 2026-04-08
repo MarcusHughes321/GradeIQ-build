@@ -590,27 +590,25 @@ export default function CardProfitScreen() {
   // Which grade row the user has tapped to chart (undefined = top grade default)
   const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
   const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
-  const [aceCustomLabel, setAceCustomLabel] = useState(false);
+  const [aceLabelOption, setAceLabelOption] = useState<"standard" | "colour-match" | "custom">("standard");
 
   // Reset chart grade, fee and label whenever the company tab switches
   useEffect(() => {
     setChartGradeKey(undefined);
     setSelectedFeeOption(null);
-    setAceCustomLabel(false);
+    setAceLabelOption("standard");
   }, [selectedCompany]);
 
   // Convert selected grading fee to local currency (GBP fees → local via GBP rate)
-  // ACE custom label adds £3 per card on top of the base tier fee
-  const ACE_LABEL_GBP = 3;
+  // ACE label add-ons: Colour Match +£1, Custom Ace Label +£3
+  const ACE_LABEL_ADDON_GBP: Record<string, number> = { "standard": 0, "colour-match": 1, "custom": 3 };
   const feeLocalAmount = selectedFeeOption
     ? (() => {
         const base = selectedFeeOption.currency === "GBP"
           ? selectedFeeOption.amount * (currencyRate / gbpRate)
           : selectedFeeOption.amount * currencyRate;
-        const labelAddon = (selectedCompany === "Ace" && aceCustomLabel)
-          ? ACE_LABEL_GBP * (currencyRate / gbpRate)
-          : 0;
-        return base + labelAddon;
+        const labelGbp = selectedCompany === "Ace" ? (ACE_LABEL_ADDON_GBP[aceLabelOption] ?? 0) : 0;
+        return base + labelGbp * (currencyRate / gbpRate);
       })()
     : 0;
 
@@ -1180,28 +1178,27 @@ export default function CardProfitScreen() {
                         <Text style={st.labelSectionTitle}>Label</Text>
                       </View>
                       <View style={st.labelPillRow}>
-                        <Pressable
-                          onPress={() => setAceCustomLabel(false)}
-                          style={[st.labelPill, !aceCustomLabel && st.labelPillActive]}
-                        >
-                          <Text style={[st.labelPillName, !aceCustomLabel && st.labelPillNameActive]}>
-                            Standard
-                          </Text>
-                          <Text style={[st.labelPillPrice, !aceCustomLabel && st.labelPillPriceActive]}>
-                            Included
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => setAceCustomLabel(true)}
-                          style={[st.labelPill, aceCustomLabel && st.labelPillActive]}
-                        >
-                          <Text style={[st.labelPillName, aceCustomLabel && st.labelPillNameActive]}>
-                            Custom Ace Label
-                          </Text>
-                          <Text style={[st.labelPillPrice, aceCustomLabel && st.labelPillPriceActive]}>
-                            +£3 per card
-                          </Text>
-                        </Pressable>
+                        {([
+                          { key: "standard",     name: "Standard",          price: "Included"    },
+                          { key: "colour-match", name: "Colour Match",      price: "+£1 per card" },
+                          { key: "custom",       name: "Custom Ace Label",  price: "+£3 per card" },
+                        ] as const).map(opt => {
+                          const active = aceLabelOption === opt.key;
+                          return (
+                            <Pressable
+                              key={opt.key}
+                              onPress={() => setAceLabelOption(opt.key)}
+                              style={[st.labelPill, active && st.labelPillActive]}
+                            >
+                              <Text style={[st.labelPillName, active && st.labelPillNameActive]}>
+                                {opt.name}
+                              </Text>
+                              <Text style={[st.labelPillPrice, active && st.labelPillPriceActive]}>
+                                {opt.price}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
                       </View>
                     </View>
                   )}
