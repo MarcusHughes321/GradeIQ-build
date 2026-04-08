@@ -999,9 +999,19 @@ export default function ResultsScreen() {
   }, [grading?.result?.cardName, grading?.result?.setNumber]);
 
   const aiGradeKeyForChart = (() => {
+    if (!grading) return undefined;
     const cfg = PROFIT_COMPANY_CONFIG[selectedProfitCompany];
     if (!cfg) return undefined;
-    const aiGrade = aiGradeForCompany(selectedProfitCompany);
+    const res = grading.result;
+    let aiGrade: number;
+    switch (selectedProfitCompany) {
+      case "PSA":     aiGrade = res.psa.grade; break;
+      case "Beckett": aiGrade = res.beckett.overallGrade; break;
+      case "Ace":     aiGrade = res.ace.overallGrade; break;
+      case "TAG":     aiGrade = res.tag?.overallGrade ?? 0; break;
+      case "CGC":     aiGrade = res.cgc?.grade ?? 0; break;
+      default:        return cfg.grades[0]?.ebayKey;
+    }
     const match = cfg.grades.find(g => Math.abs(g.grade - aiGrade) < 0.01);
     return match?.ebayKey ?? cfg.grades[0]?.ebayKey;
   })();
@@ -1092,11 +1102,25 @@ export default function ResultsScreen() {
   // ── Liquidity market snapshot across all enabled companies ────────────────
   const marketSnapshot = (() => {
     if (!ebayPrices) return null;
+    // Use AI grade level as the reference grade for cross-company pills
+    const aiGradeLevel = aiGradeForCompany(selectedProfitCompany);
     const rows = enabledProfitCompanies.map(compId => {
-      const topKey = COMPANY_TOP_KEY[compId];
-      const detail = topKey ? gradeDetails[topKey] : undefined;
+      const cfg = PROFIT_COMPANY_CONFIG[compId];
+      // Find the grade entry closest to the AI grade level for this company
+      const matchedGrade = cfg?.grades.reduce((closest, g) =>
+        Math.abs(g.grade - aiGradeLevel) < Math.abs(closest.grade - aiGradeLevel) ? g : closest,
+        cfg.grades[0]
+      );
+      const gradeKey = matchedGrade?.ebayKey ?? COMPANY_TOP_KEY[compId];
+      const detail = gradeKey ? gradeDetails[gradeKey] : undefined;
       const score = calcLiquidityScore(detail);
-      return { compId, label: PROFIT_COMPANY_CONFIG[compId]?.label ?? compId, color: PROFIT_COMPANY_CONFIG[compId]?.dotColor ?? "#6b7280", score, saleCount: detail?.saleCount ?? 0 };
+      return {
+        compId,
+        label: matchedGrade?.label ?? (PROFIT_COMPANY_CONFIG[compId]?.label ?? compId),
+        color: PROFIT_COMPANY_CONFIG[compId]?.dotColor ?? "#6b7280",
+        score,
+        saleCount: detail?.saleCount ?? 0,
+      };
     });
     const hasData = rows.some(r => r.saleCount > 0);
     const totalSales = rows.reduce((s, r) => s + r.saleCount, 0);
@@ -1727,7 +1751,7 @@ export default function ResultsScreen() {
               const isLast = idx === companyRows.length - 1;
               const isCharted = gr.ebayKey === effectiveChartKey && chartGradeKey !== undefined;
               const aiGrade = aiGradeForCompany(selectedProfitCompany);
-              const isYourGrade = Math.abs(gr.grade - aiGrade) < 0.01;
+              const isYourGrade = Number.isFinite(aiGrade) && Math.abs(gr.grade - aiGrade) < 0.01;
               return (
                 <Pressable key={gr.ebayKey} onPress={() => setChartGradeKey(gr.ebayKey)}>
                   <View style={[
