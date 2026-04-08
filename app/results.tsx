@@ -404,6 +404,8 @@ export default function ResultsScreen() {
   const [rescanning, setRescanning] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
   const imageViewerListRef = useRef<FlatList>(null);
+  const [showDefectPins, setShowDefectPins] = useState(true);
+  const [viewerNaturalSizes, setViewerNaturalSizes] = useState<Record<string, { w: number; h: number }>>({});
   const [feedbackHappy, setFeedbackHappy] = useState<boolean | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
@@ -2174,6 +2176,18 @@ export default function ResultsScreen() {
             </Pressable>
             <Text style={styles.modalTitle}>{viewerShowFront ? "Front" : "Back"}</Text>
             <View style={styles.modalHeaderRight}>
+              {result.defects && result.defects.length > 0 && (
+                <Pressable
+                  onPress={() => setShowDefectPins(!showDefectPins)}
+                  style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Ionicons
+                    name={showDefectPins ? "scan" : "scan-outline"}
+                    size={20}
+                    color={showDefectPins ? Colors.primary : "rgba(255,255,255,0.5)"}
+                  />
+                </Pressable>
+              )}
               <Pressable
                 onPress={() => { setShowAnnotations(!showAnnotations); setSelectedArea(null); }}
                 style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
@@ -2232,13 +2246,22 @@ export default function ResultsScreen() {
                       source={{ uri: item.uri }}
                       style={styles.modalImage}
                       contentFit="contain"
+                      onLoad={(e) => {
+                        const w = (e as any)?.source?.width ?? 0;
+                        const h = (e as any)?.source?.height ?? 0;
+                        if (w > 0 && h > 0) {
+                          setViewerNaturalSizes(prev => ({ ...prev, [item.side]: { w, h } }));
+                        }
+                      }}
                     />
 
-                    {showAnnotations && result.defects && result.defects.length > 0 && (
+                    {showAnnotations && showDefectPins && result.defects && result.defects.length > 0 && (
                       <DefectOverlay
                         defects={result.defects}
                         side={item.side}
                         cardBounds={item.bounds}
+                        containerSize={{ width: IMG_WIDTH, height: FINAL_IMG_HEIGHT }}
+                        naturalImageSize={viewerNaturalSizes[item.side] ?? null}
                       />
                     )}
 

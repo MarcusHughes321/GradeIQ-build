@@ -20,27 +20,54 @@ interface DefectOverlayProps {
   defects: DefectMarker[];
   side: "front" | "back";
   cardBounds?: CardBounds | null;
+  containerSize?: { width: number; height: number };
+  naturalImageSize?: { w: number; h: number } | null;
 }
 
-function mapToImagePosition(
+function mapToContainerPosition(
   defectX: number,
   defectY: number,
-  bounds?: CardBounds | null
-): { imgX: number; imgY: number } {
-  if (!bounds) {
-    return { imgX: defectX, imgY: defectY };
+  bounds?: CardBounds | null,
+  containerSize?: { width: number; height: number },
+  naturalImageSize?: { w: number; h: number } | null
+): { left: number; top: number } {
+  // Step 1: card-relative (0-100) → image-relative (0-100)
+  let imageRelX = defectX;
+  let imageRelY = defectY;
+  if (bounds) {
+    const cardLeft = bounds.leftPercent;
+    const cardTop = bounds.topPercent;
+    const cardWidth = bounds.rightPercent - bounds.leftPercent;
+    const cardHeight = bounds.bottomPercent - bounds.topPercent;
+    imageRelX = cardLeft + (defectX / 100) * cardWidth;
+    imageRelY = cardTop + (defectY / 100) * cardHeight;
   }
-  const cardLeft = bounds.leftPercent;
-  const cardTop = bounds.topPercent;
-  const cardWidth = bounds.rightPercent - bounds.leftPercent;
-  const cardHeight = bounds.bottomPercent - bounds.topPercent;
 
-  const imgX = cardLeft + (defectX / 100) * cardWidth;
-  const imgY = cardTop + (defectY / 100) * cardHeight;
+  // Step 2: account for contentFit="contain" letterboxing
+  if (
+    containerSize && containerSize.width > 0 && containerSize.height > 0 &&
+    naturalImageSize && naturalImageSize.w > 0 && naturalImageSize.h > 0
+  ) {
+    const { width: cw, height: ch } = containerSize;
+    const { w: nw, h: nh } = naturalImageSize;
+    const scale = Math.min(cw / nw, ch / nh);
+    const renderedW = nw * scale;
+    const renderedH = nh * scale;
+    const offsetX = (cw - renderedW) / 2;
+    const offsetY = (ch - renderedH) / 2;
+
+    const pxX = offsetX + (imageRelX / 100) * renderedW;
+    const pxY = offsetY + (imageRelY / 100) * renderedH;
+
+    return {
+      left: Math.max(0, Math.min(100, (pxX / cw) * 100)),
+      top: Math.max(0, Math.min(100, (pxY / ch) * 100)),
+    };
+  }
 
   return {
-    imgX: Math.max(0, Math.min(100, imgX)),
-    imgY: Math.max(0, Math.min(100, imgY)),
+    left: Math.max(0, Math.min(100, imageRelX)),
+    top: Math.max(0, Math.min(100, imageRelY)),
   };
 }
 
@@ -49,21 +76,24 @@ function DefectPin({
   onPress,
   isSelected,
   cardBounds,
+  containerSize,
+  naturalImageSize,
 }: {
   defect: DefectMarker;
   onPress: () => void;
   isSelected: boolean;
   cardBounds?: CardBounds | null;
+  containerSize?: { width: number; height: number };
+  naturalImageSize?: { w: number; h: number } | null;
 }) {
   const color = SEVERITY_COLORS[defect.severity] || "#F59E0B";
-  const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
+  const { left, top } = mapToContainerPosition(
+    defect.x, defect.y, cardBounds, containerSize, naturalImageSize
+  );
 
   return (
     <View
-      style={[
-        styles.pinContainer,
-        { left: `${imgX}%`, top: `${imgY}%` },
-      ]}
+      style={[styles.pinContainer, { left: `${left}%`, top: `${top}%` }]}
       pointerEvents="box-none"
     >
       <Pressable
@@ -71,14 +101,15 @@ function DefectPin({
         hitSlop={12}
         style={({ pressed }) => [
           styles.pin,
-          { backgroundColor: color, opacity: pressed ? 0.8 : 1 },
+          { borderColor: color, opacity: pressed ? 0.8 : 1 },
           isSelected && styles.pinSelected,
         ]}
       >
-        <View style={[styles.pinInner, { borderColor: color }]} />
+        <View style={styles.crossH} />
+        <View style={styles.crossV} />
       </Pressable>
       {isSelected && (
-        <View style={[styles.tooltip, imgX > 60 ? styles.tooltipLeft : styles.tooltipRight]}>
+        <View style={[styles.tooltip, left > 60 ? styles.tooltipLeft : styles.tooltipRight]}>
           <View style={styles.tooltipHeader}>
             <Ionicons name={TYPE_ICONS[defect.type] || "alert-circle-outline"} size={12} color={color} />
             <Text style={[styles.tooltipType, { color }]}>
@@ -97,11 +128,12 @@ function DefectPin({
   );
 }
 
-export default function DefectOverlay({ defects, side, cardBounds }: DefectOverlayProps) {
+export default function DefectOverlay({
+  defects, side, cardBounds, containerSize, naturalImageSize,
+}: DefectOverlayProps) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const sideDefects = defects.filter((d) => d.side === side);
-
   if (sideDefects.length === 0) return null;
 
   return (
@@ -113,11 +145,17 @@ export default function DefectOverlay({ defects, side, cardBounds }: DefectOverl
           isSelected={selectedId === index}
           onPress={() => setSelectedId(selectedId === index ? null : index)}
           cardBounds={cardBounds}
+          containerSize={containerSize}
+          naturalImageSize={naturalImageSize}
         />
       ))}
     </View>
   );
 }
+
+const PIN_SIZE = 20;
+const CROSS_THICK = 2;
+const CROSS_LEN = 8;
 
 const styles = StyleSheet.create({
   overlay: {
@@ -126,36 +164,43 @@ const styles = StyleSheet.create({
   pinContainer: {
     position: "absolute",
     zIndex: 10,
-    transform: [{ translateX: -8 }, { translateY: -8 }],
+    transform: [{ translateX: -(PIN_SIZE / 2) }, { translateY: -(PIN_SIZE / 2) }],
   },
   pin: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: PIN_SIZE,
+    height: PIN_SIZE,
+    borderRadius: PIN_SIZE / 2,
+    borderWidth: 2,
+    backgroundColor: "rgba(0,0,0,0.45)",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.6,
     shadowRadius: 3,
-    elevation: 4,
+    elevation: 5,
   },
   pinSelected: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: "#fff",
+    borderWidth: 2.5,
+    backgroundColor: "rgba(0,0,0,0.65)",
   },
-  pinInner: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.7)",
+  crossH: {
+    position: "absolute",
+    width: CROSS_LEN * 2,
+    height: CROSS_THICK,
+    backgroundColor: "#fff",
+    borderRadius: 1,
+  },
+  crossV: {
+    position: "absolute",
+    width: CROSS_THICK,
+    height: CROSS_LEN * 2,
+    backgroundColor: "#fff",
+    borderRadius: 1,
   },
   tooltip: {
     position: "absolute",
-    top: 24,
+    top: PIN_SIZE + 4,
     width: 180,
     backgroundColor: "rgba(17,17,17,0.95)",
     borderRadius: 10,
