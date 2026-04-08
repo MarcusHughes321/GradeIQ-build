@@ -182,6 +182,19 @@ const PROFIT_COMPANY_CONFIG: Record<CompanyId, { label: string; dotColor: string
 const PROFIT_COMPANY_ORDER: CompanyId[] = ["PSA", "Beckett", "Ace", "TAG", "CGC"];
 const COMPANY_TOP_KEY: Record<CompanyId, string> = { PSA: "psa10", Beckett: "bgs95", Ace: "ace10", TAG: "tag10", CGC: "cgc10" };
 
+// Pure module-level helper — outside the component so React Compiler cannot hoist/transform it
+function getAiGradeForCompany(coId: CompanyId, result: any): number {
+  if (!result) return 0;
+  switch (coId) {
+    case "PSA":     return result.psa?.grade ?? 0;
+    case "Beckett": return result.beckett?.overallGrade ?? 0;
+    case "Ace":     return result.ace?.overallGrade ?? 0;
+    case "TAG":     return result.tag?.overallGrade ?? 0;
+    case "CGC":     return result.cgc?.grade ?? 0;
+    default:        return 0;
+  }
+}
+
 const COMPANY_FEE_OPTIONS: Record<string, FeeOption[]> = {
   PSA:     [{ label: "Value Bulk", amount: 21.99, currency: "USD", turnaround: "65+ days" }, { label: "Value", amount: 27.99, currency: "USD", turnaround: "45–65 days" }, { label: "Value Plus", amount: 44.99, currency: "USD", turnaround: "30–45 days" }, { label: "Regular", amount: 79.99, currency: "USD", turnaround: "~10 days" }, { label: "Express", amount: 149.99, currency: "USD", turnaround: "~5 days" }],
   Beckett: [{ label: "Economy", amount: 20, currency: "USD", turnaround: "20–25 days" }, { label: "Standard", amount: 30, currency: "USD", turnaround: "10–15 days" }, { label: "Express", amount: 100, currency: "USD", turnaround: "5–7 days" }],
@@ -990,6 +1003,10 @@ export default function ResultsScreen() {
     await updateGrading(grading.id, { result: updatedResult });
   };
 
+  // Thin closure over the module-level pure function — React Compiler cannot reorder this
+  const aiGradeForCompany = (coId: CompanyId): number =>
+    getAiGradeForCompany(coId, grading?.result);
+
   // ── Price history for sparkline ──────────────────────────────────────────
   const historyCacheKey = useMemo(() => {
     const cardName = grading?.result?.cardName ?? "";
@@ -999,19 +1016,10 @@ export default function ResultsScreen() {
   }, [grading?.result?.cardName, grading?.result?.setNumber]);
 
   const aiGradeKeyForChart = (() => {
-    if (!grading) return undefined;
     const cfg = PROFIT_COMPANY_CONFIG[selectedProfitCompany];
     if (!cfg) return undefined;
-    const res = grading.result;
-    let aiGrade: number;
-    switch (selectedProfitCompany) {
-      case "PSA":     aiGrade = res.psa.grade; break;
-      case "Beckett": aiGrade = res.beckett.overallGrade; break;
-      case "Ace":     aiGrade = res.ace.overallGrade; break;
-      case "TAG":     aiGrade = res.tag?.overallGrade ?? 0; break;
-      case "CGC":     aiGrade = res.cgc?.grade ?? 0; break;
-      default:        return cfg.grades[0]?.ebayKey;
-    }
+    const aiGrade = getAiGradeForCompany(selectedProfitCompany, grading?.result);
+    if (!aiGrade) return cfg.grades[0]?.ebayKey;
     const match = cfg.grades.find(g => Math.abs(g.grade - aiGrade) < 0.01);
     return match?.ebayKey ?? cfg.grades[0]?.ebayKey;
   })();
@@ -1050,16 +1058,6 @@ export default function ResultsScreen() {
   const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / (rates["USD"] ?? 1);
   const fmtM = (usd: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(usd * currencyRate)}` : `${currencySymbol}${(usd * currencyRate).toFixed(2)}`;
 
-  // AI estimated grade per company (for highlighting in profit table)
-  const aiGradeForCompany = (coId: CompanyId): number => {
-    switch (coId) {
-      case "PSA":     return result.psa.grade;
-      case "Beckett": return result.beckett.overallGrade;
-      case "Ace":     return result.ace.overallGrade;
-      case "TAG":     return result.tag?.overallGrade ?? 0;
-      case "CGC":     return result.cgc?.grade ?? 0;
-    }
-  };
 
   // Raw eBay USD price (used as default "raw price" for profit calc)
   const rawUSD = (ebayPrices as any)?.raw ?? 0;
@@ -1102,13 +1100,15 @@ export default function ResultsScreen() {
   // ── Liquidity market snapshot across all enabled companies ────────────────
   const marketSnapshot = (() => {
     if (!ebayPrices) return null;
-    // Use AI grade level as the reference grade for cross-company pills
-    const aiGradeLevel = aiGradeForCompany(selectedProfitCompany);
+    // Derive grade level from effectiveChartKey so pills + total stay in sync with the table
+    const activeEntry = PROFIT_COMPANY_CONFIG[selectedProfitCompany]?.grades.find(
+      g => g.ebayKey === effectiveChartKey
+    );
+    const activeGradeLevel = activeEntry?.grade ?? aiGradeForCompany(selectedProfitCompany);
     const rows = enabledProfitCompanies.map(compId => {
       const cfg = PROFIT_COMPANY_CONFIG[compId];
-      // Find the grade entry closest to the AI grade level for this company
       const matchedGrade = cfg?.grades.reduce((closest, g) =>
-        Math.abs(g.grade - aiGradeLevel) < Math.abs(closest.grade - aiGradeLevel) ? g : closest,
+        Math.abs(g.grade - activeGradeLevel) < Math.abs(closest.grade - activeGradeLevel) ? g : closest,
         cfg.grades[0]
       );
       const gradeKey = matchedGrade?.ebayKey ?? COMPANY_TOP_KEY[compId];
