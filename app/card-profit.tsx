@@ -1029,7 +1029,7 @@ export default function CardProfitScreen() {
                     ]}>
                       <View style={[
                         st.accent,
-                        isCharted ? st.accentCharted
+                        (isCharted && chartGradeKey !== undefined) ? st.accentCharted
                           : isMin ? st.accentAmber
                           : isProfit ? st.accentProfit
                           : gr.profit !== null ? st.accentLoss
