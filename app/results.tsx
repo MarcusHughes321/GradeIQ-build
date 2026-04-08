@@ -3015,7 +3015,7 @@ const styles = StyleSheet.create({
   maFeeClearBtn: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.primary },
   maFeeTierScrollView: { marginHorizontal: -14 },
   maFeeTierScroll: { gap: 8, paddingHorizontal: 14, paddingVertical: 1 },
-  maFeeTierPill: { paddingHorizontal: 12, paddingVertical: 13, borderRadius: 12, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: "center", gap: 3, minWidth: 90, maxWidth: 120 },
+  maFeeTierPill: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 12, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: "center", gap: 3, minWidth: 96, maxWidth: 130 },
   maFeeTierPillActive: { backgroundColor: Colors.primary + "18", borderColor: Colors.primary },
   maFeeTierName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted },
   maFeeTierNameActive: { color: Colors.primary, fontFamily: "Inter_600SemiBold" },
