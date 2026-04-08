@@ -1153,6 +1153,9 @@ export default function CardProfitScreen() {
                           <Text style={[st.feeTierAmt, isActive && st.feeTierAmtActive]}>
                             {nativeSym}{nativeAmt}
                           </Text>
+                          <Text style={[st.feeTierTurnaround, isActive && st.feeTierTurnaroundActive]}>
+                            {opt.turnaround}
+                          </Text>
                         </Pressable>
                       );
                     })}
@@ -1778,15 +1781,16 @@ const st = StyleSheet.create({
     paddingVertical: 1,
   },
   feeTierPill: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     alignItems: "center",
-    gap: 3,
-    minWidth: 82,
+    gap: 2,
+    minWidth: 90,
+    maxWidth: 120,
   },
   feeTierPillActive: {
     backgroundColor: Colors.primary + "18",
@@ -1808,6 +1812,15 @@ const st = StyleSheet.create({
   },
   feeTierAmtActive: {
     color: Colors.primary,
+  },
+  feeTierTurnaround: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: Colors.textMuted,
+    textAlign: "center",
+  },
+  feeTierTurnaroundActive: {
+    color: Colors.primary + "aa",
   },
   feeMeta: {
     gap: 5,
