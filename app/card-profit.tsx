@@ -11,6 +11,7 @@ import {
   Linking,
   Dimensions,
   TextInput,
+  KeyboardAvoidingView,
 } from "react-native";
 import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Image } from "expo-image";
@@ -1447,8 +1448,12 @@ export default function CardProfitScreen() {
         transparent
         onRequestClose={() => setFlagSheetVisible(false)}
       >
-        <Pressable style={st.flagOverlay} onPress={() => setFlagSheetVisible(false)} />
-        <View style={[st.flagSheet, { paddingBottom: insets.bottom + 16 }]}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable style={[{ flex: 1 }, st.flagOverlay]} onPress={() => setFlagSheetVisible(false)} />
+          <View style={[st.flagSheet, { paddingBottom: insets.bottom + 16 }]}>
           <View style={st.flagSheetHandle} />
           <Text style={st.flagSheetTitle}>Which prices look off?</Text>
           <Text style={st.flagSheetSub}>Select the grades that seem incorrect</Text>
@@ -1536,7 +1541,8 @@ export default function CardProfitScreen() {
               <Text style={st.flagSubmitBtnTxt}>Flag {flagSelectedGrades.size > 0 ? flagSelectedGrades.size : ""} Price{flagSelectedGrades.size !== 1 ? "s" : ""}</Text>
             )}
           </Pressable>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
