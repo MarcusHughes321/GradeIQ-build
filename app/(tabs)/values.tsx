@@ -624,7 +624,7 @@ export default function ValuesScreen() {
         ...(lang ? { lang } : {}),
       },
     });
-  }, [hasAccess]);
+  }, [hasAccess, effectivePicksCompany]);
 
   const handleSetPress = useCallback((set: BrowseSet) => {
     router.push({
