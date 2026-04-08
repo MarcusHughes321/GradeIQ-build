@@ -1347,7 +1347,7 @@ export default function CardProfitScreen() {
                   )}
 
                   {/* Final Net Profit summary */}
-                  {selectedFeeOption && compId === selectedCompany && hasEffectiveRawPrice && ebay && (
+                  {compId === selectedCompany && hasEffectiveRawPrice && ebay && (
                     <View style={[
                       st.netProfitBox,
                       minProfitRow
@@ -1367,8 +1367,8 @@ export default function CardProfitScreen() {
                       )}
                       <Text style={st.netProfitSub}>
                         {minProfitRow
-                          ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtLocal(feeLocalAmount)} fee`
-                          : `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits`}
+                          ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtLocal(feeLocalAmount)} fee` : ""}`
+                          : selectedFeeOption ? `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits` : "No profitable grade at this price"}
                       </Text>
                     </View>
                   )}

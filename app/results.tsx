@@ -1954,25 +1954,19 @@ export default function ResultsScreen() {
                 )}
 
                 {/* Net profit box — follows tapped row, falls back to AI predicted grade */}
-                {selectedFeeOption && hasEffectiveRawPrice && !!ebayPrices && (
+                {hasEffectiveRawPrice && !!ebayPrices && !!netProfitRow && (
                   <View style={[
                     styles.maNetProfitBox,
-                    netProfitRow
-                      ? (netProfitRow.profit ?? 0) >= 0 ? styles.maNetProfitBoxGreen : styles.maNetProfitBoxRed
-                      : styles.maNetProfitBoxRed,
+                    (netProfitRow.profit ?? 0) >= 0 ? styles.maNetProfitBoxGreen : styles.maNetProfitBoxRed,
                   ]}>
                     <Text style={styles.maNetProfitLabel}>
-                      {netProfitRow ? `Net Profit at ${netProfitRow.label}` : "No grade data"}
+                      {`Net Profit at ${netProfitRow.label}`}
                     </Text>
-                    {netProfitRow && (
-                      <Text style={[styles.maNetProfitValue, (netProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
-                        {fmtSym(netProfitRow.profit ?? 0)}
-                      </Text>
-                    )}
+                    <Text style={[styles.maNetProfitValue, (netProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
+                      {fmtSym(netProfitRow.profit ?? 0)}
+                    </Text>
                     <Text style={styles.maNetProfitSub}>
-                      {netProfitRow
-                        ? `after ${fmtSym(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtSym(feeLocalAmount)} fee`
-                        : `fee of ${fmtSym(feeLocalAmount)} exceeds profit`}
+                      {`after ${fmtSym(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtSym(feeLocalAmount)} fee` : ""}`}
                     </Text>
                   </View>
                 )}
