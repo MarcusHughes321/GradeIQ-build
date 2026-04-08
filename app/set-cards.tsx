@@ -445,6 +445,7 @@ export default function SetCardsScreen() {
         setTotal: resolvedSetTotal,
         imageUrl: card.imageUrl || "",
         rawPriceUSD: card.price ? String(card.price) : "0",
+        company: effectivePicksCompany,
         ...(isJapanese && card.priceEUR ? { rawPriceEUR: String(card.priceEUR), lang: "ja" } : {}),
         ...(editionParam ? { edition: editionParam } : {}),
         ...(card.prices?.holofoil != null ? { holoPrice: String(card.prices.holofoil) } : {}),
@@ -469,6 +470,7 @@ export default function SetCardsScreen() {
         rawPriceUSD: String(pick.nmEUR / eurRate), // approximate USD for eBay profit calcs
         rawPriceEUR: String(pick.nmEUR),
         lang: "ja",
+        company: effectivePicksCompany,
       },
     });
   };
