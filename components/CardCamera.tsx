@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,11 @@ const GUIDE_FRAME_W = 280;
 const GUIDE_FRAME_H = 392;
 const CROP_PADDING = 20;
 const FOCUS_SQUARE_SIZE = 70;
+
+// Anti-shake: magnitude delta per 100ms reading that counts as "moving"
+const SHAKE_THRESHOLD = 0.035;
+// How long phone must be still before shutter is re-enabled (ms)
+const STABLE_WINDOW_MS = 280;
 
 interface CardCameraProps {
   side: "front" | "back";
@@ -65,6 +70,19 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   const ZOOM_LEVELS = [1, 1.5, 2, 3];
   const [zoomIndex, setZoomIndex] = useState(0);
   const currentZoom = ZOOM_LEVELS[zoomIndex];
+
+  // Torch
+  const [torchOn, setTorchOn] = useState(false);
+
+  // Anti-shake state
+  const [isShaking, setIsShaking] = useState(false);
+  const lastAccelRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const shakeStableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Tilt-warning animation
+  const tiltWarnOpacity = useRef(new RNAnimated.Value(0)).current;
+  const tiltWarnScale = useRef(new RNAnimated.Value(0.85)).current;
+  const [showTiltWarning, setShowTiltWarning] = useState(false);
 
   const cycleZoom = () => {
     const next = (zoomIndex + 1) % ZOOM_LEVELS.length;
@@ -121,6 +139,8 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
         subscriptionRef.current = Accelerometer.addListener(
           (data: { x: number; y: number; z: number }) => {
             if (!mounted) return;
+
+            // --- Level / tilt ---
             const tx = Math.round(
               Math.atan2(data.x, Math.sqrt(data.y * data.y + data.z * data.z)) * (180 / Math.PI)
             );
@@ -137,6 +157,22 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
               setIsLevel(Math.abs(tx) <= LEVEL_THRESHOLD && Math.abs(ty) <= LEVEL_THRESHOLD);
             }
             setAccelStatus("active");
+
+            // --- Anti-shake detection ---
+            const mag = Math.sqrt(data.x * data.x + data.y * data.y + data.z * data.z);
+            const last = lastAccelRef.current;
+            if (last !== null) {
+              const lastMag = Math.sqrt(last.x * last.x + last.y * last.y + last.z * last.z);
+              const delta = Math.abs(mag - lastMag);
+              if (delta > SHAKE_THRESHOLD) {
+                setIsShaking(true);
+                if (shakeStableTimerRef.current) clearTimeout(shakeStableTimerRef.current);
+                shakeStableTimerRef.current = setTimeout(() => {
+                  if (mounted) setIsShaking(false);
+                }, STABLE_WINDOW_MS);
+              }
+            }
+            lastAccelRef.current = { x: data.x, y: data.y, z: data.z };
           }
         );
       } catch (err: any) {
@@ -152,6 +188,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
         subscriptionRef.current.remove();
         subscriptionRef.current = null;
       }
+      if (shakeStableTimerRef.current) clearTimeout(shakeStableTimerRef.current);
     };
   }, []);
 
@@ -161,8 +198,75 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
     }
   }, [isAngled]);
 
+  // Auto-focus at card guide centre when camera opens
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const { width: screenW, height: screenH } = Dimensions.get("window");
+    const centreX = screenW / 2;
+    const centreY = screenH / 2;
+
+    const timer = setTimeout(() => {
+      triggerFocus(centreX, centreY, false);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const triggerFocus = useCallback((x: number, y: number, withHaptic = true) => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    setFocusPoint({ x, y });
+
+    if (withHaptic && Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    focusScale.setValue(1.4);
+    focusOpacity.setValue(1);
+    RNAnimated.parallel([
+      RNAnimated.spring(focusScale, { toValue: 1, friction: 6, tension: 160, useNativeDriver: true }),
+      RNAnimated.timing(focusOpacity, { toValue: 1, duration: 100, useNativeDriver: true }),
+    ]).start();
+
+    focusTimerRef.current = setTimeout(() => {
+      RNAnimated.timing(focusOpacity, { toValue: 0, duration: 600, useNativeDriver: true }).start(() => {
+        setFocusPoint(null);
+      });
+    }, 1200);
+  }, [focusOpacity, focusScale]);
+
+  const handleTapToFocus = (evt: any) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    triggerFocus(locationX, locationY, true);
+  };
+
+  const showTiltWarningBanner = () => {
+    if (showTiltWarning) return;
+    setShowTiltWarning(true);
+    tiltWarnOpacity.setValue(0);
+    tiltWarnScale.setValue(0.85);
+    RNAnimated.parallel([
+      RNAnimated.spring(tiltWarnScale, { toValue: 1, friction: 6, tension: 120, useNativeDriver: true }),
+      RNAnimated.timing(tiltWarnOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start(() => {
+      setTimeout(() => {
+        RNAnimated.timing(tiltWarnOpacity, { toValue: 0, duration: 350, useNativeDriver: true }).start(() => {
+          setShowTiltWarning(false);
+        });
+      }, 1400);
+    });
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+  };
+
   const handleCapture = async () => {
     if (!cameraRef.current || capturing || focusing) return;
+
+    // Soft tilt lock — warn instead of fire
+    if (!isLevel && accelStatus === "active" && !isAngled) {
+      showTiltWarningBanner();
+      return;
+    }
 
     // Show "Focusing..." state briefly to let the camera's autofocus system
     // settle before firing the shutter. This is the single biggest factor in
@@ -218,30 +322,6 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
     } finally {
       setCapturing(false);
     }
-  };
-
-  const handleTapToFocus = (evt: any) => {
-    const { locationX, locationY } = evt.nativeEvent;
-    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
-
-    setFocusPoint({ x: locationX, y: locationY });
-
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-
-    focusScale.setValue(1.4);
-    focusOpacity.setValue(1);
-    RNAnimated.parallel([
-      RNAnimated.spring(focusScale, { toValue: 1, friction: 6, tension: 160, useNativeDriver: true }),
-      RNAnimated.timing(focusOpacity, { toValue: 1, duration: 100, useNativeDriver: true }),
-    ]).start();
-
-    focusTimerRef.current = setTimeout(() => {
-      RNAnimated.timing(focusOpacity, { toValue: 0, duration: 600, useNativeDriver: true }).start(() => {
-        setFocusPoint(null);
-      });
-    }, 1200);
   };
 
   const cropToGuideFrame = async (uri: string, photoW: number, photoH: number): Promise<string> => {
@@ -349,19 +429,45 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   const guideW = isCorner ? 180 : GUIDE_FRAME_W;
   const guideH = isCorner ? 180 : isSlabMode ? 430 : GUIDE_FRAME_H;
 
-  const hintText = deepGradeFlow
-    ? deepGradeFlow.stepSubtitle
-    : isAngled
-      ? isLevel
-        ? "Perfect angle! Take the photo"
-        : "Tilt bottom of phone down ~25\u00B0 to catch the light"
-      : isSlabMode
+  // Shutter is blocked when phone is actively shaking or when not level (for non-angled shots)
+  const isMotionBlocked = Platform.OS !== "web" && accelStatus === "active" && isShaking;
+  const isShutterBlocked = capturing || focusing || isMotionBlocked;
+
+  // Determine shutter ring / inner colour
+  const shutterBorderColor = focusing
+    ? "#FACC15"
+    : isMotionBlocked
+      ? "#EF4444"
+      : isLevel
+        ? "#10B981"
+        : isAngled
+          ? angledAccentColor
+          : "#fff";
+  const shutterInnerColor = focusing
+    ? "#FACC15"
+    : isMotionBlocked
+      ? "#EF4444"
+      : isLevel
+        ? "#10B981"
+        : isAngled
+          ? angledAccentColor
+          : undefined;
+
+  const hintText = isMotionBlocked
+    ? "Hold still…"
+    : deepGradeFlow
+      ? deepGradeFlow.stepSubtitle
+      : isAngled
         ? isLevel
-          ? "Slab is level. Take the photo!"
-          : "Hold phone flat over the slab"
-        : isLevel
-          ? "Phone is level. Take the photo!"
-          : "Hold phone flat and parallel to card";
+          ? "Perfect angle! Take the photo"
+          : "Tilt bottom of phone down ~25\u00B0 to catch the light"
+        : isSlabMode
+          ? isLevel
+            ? "Slab is level. Take the photo!"
+            : "Hold phone flat over the slab"
+          : isLevel
+            ? "Phone is level. Take the photo!"
+            : "Hold phone flat and parallel to card";
 
   return (
     <View style={styles.container}>
@@ -370,6 +476,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
         style={StyleSheet.absoluteFill}
         facing="back"
         zoom={(currentZoom - 1) / 3}
+        enableTorch={torchOn}
       />
 
       <Pressable
@@ -406,6 +513,24 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
         </RNAnimated.View>
       )}
 
+      {/* Tilt warning banner */}
+      {showTiltWarning && (
+        <RNAnimated.View
+          pointerEvents="none"
+          style={[
+            styles.tiltWarningBanner,
+            {
+              top: insets.top + 100,
+              opacity: tiltWarnOpacity,
+              transform: [{ scale: tiltWarnScale }],
+            },
+          ]}
+        >
+          <Ionicons name="warning-outline" size={16} color="#FACC15" />
+          <Text style={styles.tiltWarningText}>Level the phone first</Text>
+        </RNAnimated.View>
+      )}
+
       <View style={[styles.overlay, { paddingTop: insets.top + 12 }]} pointerEvents="box-none">
         <View style={styles.topBar}>
           <Pressable
@@ -436,7 +561,29 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
                     : side === "front" ? "Front of Card" : "Back of Card"}
             </Text>
           )}
-          <View style={{ width: 44 }} />
+          {/* Torch toggle */}
+          {Platform.OS !== "web" && (
+            <Pressable
+              onPress={() => {
+                setTorchOn(v => !v);
+                if (Platform.OS !== "web") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+              }}
+              style={({ pressed }) => [
+                styles.torchBtn,
+                torchOn && styles.torchBtnActive,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Ionicons
+                name={torchOn ? "flashlight" : "flashlight-outline"}
+                size={20}
+                color={torchOn ? "#000" : "#fff"}
+              />
+            </Pressable>
+          )}
+          {Platform.OS === "web" && <View style={{ width: 44 }} />}
         </View>
 
         {deepGradeFlow && (
@@ -494,9 +641,16 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.hintRow}>
-            <Text style={styles.hintText} numberOfLines={3}>
-              {hintText}
-            </Text>
+            {isMotionBlocked ? (
+              <View style={styles.shakeRow}>
+                <ActivityIndicator size="small" color="#EF4444" style={{ marginRight: 6 }} />
+                <Text style={[styles.hintText, { color: "#EF4444" }]}>{hintText}</Text>
+              </View>
+            ) : (
+              <Text style={styles.hintText} numberOfLines={3}>
+                {hintText}
+              </Text>
+            )}
           </View>
           <View style={styles.captureRow}>
             <Pressable
@@ -518,27 +672,36 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
                   <Text style={styles.focusingText}>Focusing</Text>
                 </View>
               )}
+              {isMotionBlocked && !focusing && (
+                <View style={[styles.focusingBadge, { borderColor: "#EF4444" }]}>
+                  <Ionicons name="hand-left-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                  <Text style={[styles.focusingText, { color: "#EF4444" }]}>Hold still</Text>
+                </View>
+              )}
               <Pressable
                 onPress={handleCapture}
-                disabled={capturing || focusing}
+                disabled={isShutterBlocked}
                 style={({ pressed }) => [
                   styles.captureBtn,
                   {
-                    opacity: (capturing || focusing) ? 0.6 : pressed ? 0.8 : 1,
-                    borderColor: focusing ? "#FACC15" : isLevel ? "#10B981" : isAngled ? angledAccentColor : "#fff",
+                    opacity: isShutterBlocked ? 0.6 : pressed ? 0.8 : 1,
+                    borderColor: shutterBorderColor,
                   },
                 ]}
               >
                 <View style={[
                   styles.captureBtnInner,
-                  focusing && { backgroundColor: "#FACC15" },
-                  !focusing && isLevel && { backgroundColor: "#10B981" },
-                  !focusing && !isLevel && isAngled && { backgroundColor: angledAccentColor },
+                  shutterInnerColor ? { backgroundColor: shutterInnerColor } : undefined,
                 ]}>
                   {(capturing || focusing) ? (
                     <ActivityIndicator color={Colors.background} size="small" />
                   ) : (
-                    <View style={[styles.captureDot, isLevel && { backgroundColor: "#10B981" }, !isLevel && isAngled && { backgroundColor: angledAccentColor }]} />
+                    <View style={[
+                      styles.captureDot,
+                      isLevel && { backgroundColor: "#10B981" },
+                      !isLevel && isAngled && { backgroundColor: angledAccentColor },
+                      isMotionBlocked && { backgroundColor: "#EF4444" },
+                    ]} />
                   )}
                 </View>
               </Pressable>
@@ -577,6 +740,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
     borderRadius: 22,
+  },
+  torchBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  torchBtnActive: {
+    backgroundColor: "#FFD60A",
+    borderColor: "#FFD60A",
   },
   sideLabel: {
     fontFamily: "Inter_600SemiBold",
@@ -736,6 +913,11 @@ const styles = StyleSheet.create({
   hintRow: {
     alignItems: "center",
   },
+  shakeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   hintText: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
@@ -879,5 +1061,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#FACC15",
     letterSpacing: 0.5,
+  },
+  tiltWarningBanner: {
+    position: "absolute",
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+    borderColor: "#FACC15",
+    zIndex: 300,
+  },
+  tiltWarningText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#FACC15",
   },
 });
