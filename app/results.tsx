@@ -1686,6 +1686,28 @@ export default function ResultsScreen() {
               <View style={{ width: 48 }} />
             </View>
 
+            {/* Raw (ungraded) price — baseline row */}
+            <View style={styles.maRawRow}>
+              <View style={styles.maRawAccent} />
+              <Text style={styles.maRawLabel}>Raw</Text>
+              {(ebayPrices as any)?.raw > 0 ? (
+                <View style={[styles.maRawValueWrap, { flex: 1 }]}>
+                  <Text style={styles.maRawValue}>{fmtLocal((ebayPrices as any).raw * currencyRate)}</Text>
+                  <View style={styles.ebaySourceBadge}><Text style={styles.ebaySourceBadgeText}>eBay</Text></View>
+                </View>
+              ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
+                <View style={[styles.maRawValueWrap, { flex: 1 }]}>
+                  <Text style={styles.maRawValue}>{cardValue.rawValue}</Text>
+                  <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}><Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text></View>
+                </View>
+              ) : loadingValue || ebayLoading ? (
+                <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
+              ) : (
+                <Text style={[styles.maRawValue, { color: Colors.textMuted }]}>No data</Text>
+              )}
+              <View style={{ width: 48 }} />
+            </View>
+
             {ebayLoading && !ebayPrices ? (
               <View style={styles.ebayLoadingRow}>
                 <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
@@ -1697,21 +1719,20 @@ export default function ResultsScreen() {
             ) : companyRows.map((gr, idx) => {
               const isProfit = gr.profit !== null && gr.profit >= 0;
               const isLast = idx === companyRows.length - 1;
-              const isCharted = gr.ebayKey === effectiveChartKey;
+              const isCharted = gr.ebayKey === effectiveChartKey && chartGradeKey !== undefined;
               const aiGrade = aiGradeForCompany(selectedProfitCompany);
               const isYourGrade = Math.abs(gr.grade - aiGrade) < 0.01;
               return (
                 <Pressable key={gr.ebayKey} onPress={() => setChartGradeKey(gr.ebayKey)}>
                   <View style={[
                     styles.maTblRow,
-                    isProfit ? styles.maTblRowProfit : gr.profit !== null ? styles.maTblRowLoss : null,
+                    isCharted ? styles.maTblRowCharted : isYourGrade ? styles.maTblRowYourGrade : null,
                     isLast && { borderBottomWidth: 0 },
                   ]}>
                     <View style={[
                       styles.maAccent,
-                      (isCharted && chartGradeKey !== undefined) ? styles.maAccentCharted
-                        : isProfit ? styles.maAccentProfit
-                        : gr.profit !== null ? styles.maAccentLoss
+                      isCharted ? styles.maAccentCharted
+                        : isYourGrade ? styles.maAccentYourGrade
                         : null,
                     ]} />
                     <View style={{ flex: 2 }}>
@@ -1877,24 +1898,6 @@ export default function ResultsScreen() {
               </View>
             )}
 
-            <View style={[styles.ebayPriceRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
-              <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
-              {(ebayPrices as any)?.raw > 0 ? (
-                <View style={styles.ebayValueWithBadge}>
-                  <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{fmtLocal((ebayPrices as any).raw)}</Text>
-                  <View style={styles.ebaySourceBadge}><Text style={styles.ebaySourceBadgeText}>eBay</Text></View>
-                </View>
-              ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
-                <View style={styles.ebayValueWithBadge}>
-                  <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{cardValue.rawValue}</Text>
-                  <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}><Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text></View>
-                </View>
-              ) : loadingValue ? (
-                <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
-              ) : (
-                <Text style={styles.ebayPriceMuted}>No price data</Text>
-              )}
-            </View>
             <Text style={styles.ebayDisclaimer}>Last qualifying eBay sale · excl. Best Offer · Profit = eBay minus raw</Text>
           </View>
         )}
@@ -2855,10 +2858,18 @@ const styles = StyleSheet.create({
   maTblRow: { flexDirection: "row", alignItems: "center", paddingRight: 14, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)", gap: 4 },
   maTblRowProfit: { backgroundColor: "rgba(34,197,94,0.07)" },
   maTblRowLoss: { backgroundColor: "rgba(239,68,68,0.07)" },
+  maTblRowYourGrade: { backgroundColor: "rgba(34,197,94,0.10)" },
+  maTblRowCharted: { backgroundColor: "rgba(245,158,11,0.13)" },
   maAccent: { width: 3, alignSelf: "stretch", backgroundColor: "transparent", borderRadius: 2, marginRight: 11 },
   maAccentProfit: { backgroundColor: "#22c55e" },
   maAccentLoss: { backgroundColor: "#ef4444" },
-  maAccentCharted: { backgroundColor: Colors.primary },
+  maAccentCharted: { backgroundColor: "#f59e0b" },
+  maAccentYourGrade: { backgroundColor: "#22c55e" },
+  maRawRow: { flexDirection: "row", alignItems: "center", paddingRight: 14, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)", gap: 4, backgroundColor: "rgba(255,255,255,0.03)" },
+  maRawAccent: { width: 3, alignSelf: "stretch", backgroundColor: "#6b7280", borderRadius: 2, marginRight: 11 },
+  maRawLabel: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textMuted, flex: 2 },
+  maRawValue: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  maRawValueWrap: { flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "flex-end" },
   maTblGradeLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
   maSaleCountTxt: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, marginTop: 1 },
   maEbayPrice: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textSecondary, textAlign: "right" },
