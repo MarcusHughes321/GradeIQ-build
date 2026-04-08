@@ -9263,6 +9263,73 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  // ── Image filter endpoint ──────────────────────────────────────────────────
+  app.post("/api/filter-image", async (req, res) => {
+    const { imageBase64, filterType } = req.body as { imageBase64?: string; filterType?: string };
+    if (!imageBase64 || !filterType) {
+      return res.status(400).json({ error: "Missing imageBase64 or filterType" });
+    }
+    try {
+      const buffer = Buffer.from(imageBase64, "base64");
+      let pipeline = sharp(buffer).resize(900, 900, { fit: "inside", withoutEnlargement: true });
+
+      switch (filterType) {
+        case "texture":
+          // CLAHE adaptive histogram equalization — reveals card surface texture / micro-scratches
+          pipeline = pipeline
+            .greyscale()
+            .clahe({ width: 48, height: 48, maxSlope: 6 });
+          break;
+
+        case "emboss":
+          // Emboss convolution — 3-D surface relief (TAG-style defect view)
+          pipeline = pipeline
+            .greyscale()
+            .convolve({
+              width: 3,
+              height: 3,
+              kernel: [-2, -1, 0, -1, 1, 1, 0, 1, 2],
+              scale: 1,
+              offset: 128,
+            })
+            .normalise()
+            .linear(1.6, -30);
+          break;
+
+        case "edge":
+          // Laplacian edge detection — highlights all edges, scratches, print lines
+          pipeline = pipeline
+            .greyscale()
+            .convolve({
+              width: 3,
+              height: 3,
+              kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
+              scale: 1,
+              offset: 0,
+            })
+            .normalise()
+            .linear(2.5, 0);
+          break;
+
+        case "sharpen_strong":
+          // Unsharp mask — sharpens micro detail significantly
+          pipeline = pipeline
+            .sharpen({ sigma: 4, m1: 2, m2: 4 })
+            .normalise();
+          break;
+
+        default:
+          return res.status(400).json({ error: "Unknown filterType" });
+      }
+
+      const resultBuffer = await pipeline.jpeg({ quality: 82 }).toBuffer();
+      return res.json({ resultBase64: resultBuffer.toString("base64") });
+    } catch (err: any) {
+      console.error("[filter-image] Error:", err?.message);
+      return res.status(500).json({ error: "Filter processing failed" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

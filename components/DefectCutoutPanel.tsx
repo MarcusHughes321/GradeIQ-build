@@ -1,19 +1,21 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import {
   View, Text, Image, ScrollView, StyleSheet, Modal,
-  FlatList, Dimensions, Pressable, Platform,
+  FlatList, Dimensions, Pressable, ActivityIndicator, Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as ImageManipulator from "expo-image-manipulator";
 import type { DefectMarker, CardBounds } from "@/lib/types";
 import Colors from "@/constants/colors";
+import { getApiUrl } from "@/lib/query-client";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
 const TILE = 96;
 const TILE_ZOOM = 3.5;
 
-const VIEWER_SIZE = Math.min(SCREEN_W - 48, SCREEN_H * 0.44);
+const VIEWER_SIZE = Math.min(SCREEN_W - 48, SCREEN_H * 0.42);
 const VIEWER_ZOOM = 2.5;
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -34,65 +36,97 @@ const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   surface: "layers-outline",
 };
 
+type FilterMode = "css" | "server";
+
 type FilterDef = {
   id: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   description: string;
-  filter: object[];
+  mode: FilterMode;
+  cssFilter?: object[];
+  serverType?: string;
 };
 
 const FILTER_PRESETS: FilterDef[] = [
+  // ── Live (CSS, instant) ────────────────────────────────────────────────────
   {
     id: "normal",
     label: "Normal",
     icon: "image-outline",
     description: "Original image",
-    filter: [],
+    mode: "css",
+    cssFilter: [],
   },
   {
     id: "contrast",
-    label: "Contrast",
+    label: "Hi-Contrast",
     icon: "contrast-outline",
-    description: "High contrast reveals wear marks, edge chips and surface scratches",
-    filter: [{ contrast: 2.8 }, { brightness: 0.95 }],
-  },
-  {
-    id: "sharpen",
-    label: "Sharpen",
-    icon: "scan-outline",
-    description: "Simulates AI sharpening — fine scratches and corner frays become clearer",
-    filter: [{ contrast: 1.7 }, { brightness: 1.15 }, { saturate: 1.2 }],
+    description: "Punches contrast hard to expose wear marks and edge chips",
+    mode: "css",
+    cssFilter: [{ contrast: 4 }, { brightness: 0.72 }],
   },
   {
     id: "grayscale",
     label: "Grayscale",
     icon: "color-filter-outline",
-    description: "Strips holo shimmer — surface scratches and print defects stand out",
-    filter: [{ grayscale: 1 }, { contrast: 1.8 }],
+    description: "Strips holo shimmer so surface scratches and print flaws are unmissable",
+    mode: "css",
+    cssFilter: [{ grayscale: 1 }, { contrast: 3 }, { brightness: 0.88 }],
   },
   {
     id: "invert",
     label: "Invert",
     icon: "eye-outline",
-    description: "Inverts light & dark — light surface scratches on dark cards become obvious",
-    filter: [{ invert: 1 }, { contrast: 1.2 }],
+    description: "Flips light & dark — light scratches on dark-bordered cards become obvious",
+    mode: "css",
+    cssFilter: [{ invert: 1 }, { contrast: 2 }],
   },
   {
     id: "saturate",
     label: "Saturate",
     icon: "color-palette-outline",
-    description: "Boosts colour to reveal ink bleed, print lines and foil inconsistencies",
-    filter: [{ saturate: 4 }, { contrast: 1.3 }],
+    description: "6× colour boost reveals foil inconsistencies, ink bleed and print lines",
+    mode: "css",
+    cssFilter: [{ saturate: 6 }, { contrast: 1.5 }],
+  },
+  // ── Analysis (server-side, ~300 ms first load then cached) ────────────────
+  {
+    id: "texture",
+    label: "Texture Map",
+    icon: "grid-outline",
+    description: "CLAHE adaptive equalisation — reveals card surface texture and micro-scratches",
+    mode: "server",
+    serverType: "texture",
   },
   {
-    id: "warm",
+    id: "emboss",
+    label: "Surface Relief",
+    icon: "layers-outline",
+    description: "Emboss convolution — 3-D relief view exposes surface deformations, dents and creases",
+    mode: "server",
+    serverType: "emboss",
+  },
+  {
+    id: "edge",
     label: "Edge Detect",
     icon: "analytics-outline",
-    description: "Sepia + high contrast — highlights border wear and edge whitening",
-    filter: [{ sepia: 0.8 }, { contrast: 2.5 }, { brightness: 0.85 }],
+    description: "Laplacian filter — every edge, scratch and print line is highlighted",
+    mode: "server",
+    serverType: "edge",
+  },
+  {
+    id: "sharpen_strong",
+    label: "Deep Sharpen",
+    icon: "scan-outline",
+    description: "Unsharp mask — strong sharpening to reveal micro-wear and fine print detail",
+    mode: "server",
+    serverType: "sharpen_strong",
   },
 ];
+
+const CSS_FILTERS = FILTER_PRESETS.filter(f => f.mode === "css");
+const SERVER_FILTERS = FILTER_PRESETS.filter(f => f.mode === "server");
 
 function mapToImagePosition(
   x: number,
@@ -212,6 +246,8 @@ function DefectTile({ defect, imageUri, imgWidth, imgHeight, cardBounds, onPress
 interface DefectViewerPageProps {
   defect: DefectMarker;
   imageUri: string;
+  filteredUri: string | null;
+  loading: boolean;
   imgWidth: number;
   imgHeight: number;
   cardBounds?: CardBounds | null;
@@ -221,22 +257,24 @@ interface DefectViewerPageProps {
 }
 
 function DefectViewerPage({
-  defect, imageUri, imgWidth, imgHeight, cardBounds, index, total, activeFilter,
+  defect, imageUri, filteredUri, loading,
+  imgWidth, imgHeight, cardBounds, index, total, activeFilter,
 }: DefectViewerPageProps) {
   const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
 
-  const filterStyle = activeFilter.filter.length > 0
-    ? { filter: activeFilter.filter } as any
+  const displayUri = filteredUri ?? imageUri;
+  const cssFilterStyle = (activeFilter.mode === "css" && (activeFilter.cssFilter?.length ?? 0) > 0)
+    ? { filter: activeFilter.cssFilter } as any
     : undefined;
 
   return (
     <View style={styles.viewerPage}>
       <View style={[styles.viewerCropWrap, { borderColor: color + "55" }]}>
-        <View style={[StyleSheet.absoluteFillObject, filterStyle]}>
+        <View style={[StyleSheet.absoluteFillObject, cssFilterStyle]}>
           {imgWidth > 0 ? (
             <CropImage
-              imageUri={imageUri}
+              imageUri={displayUri}
               imgWidth={imgWidth}
               imgHeight={imgHeight}
               imgX={imgX}
@@ -248,10 +286,18 @@ function DefectViewerPage({
             <View style={[styles.viewerPlaceholder, { backgroundColor: Colors.surface }]} />
           )}
         </View>
+        {/* Crosshair stays unfiltered */}
         <View style={styles.crosshairWrapLg} pointerEvents="none">
           <View style={[styles.crosshairRingLg, { borderColor: color }]} />
           <View style={[styles.crosshairDotLg, { backgroundColor: color }]} />
         </View>
+        {/* Loading overlay for server-side filters */}
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingTxt}>Processing…</Text>
+          </View>
+        )}
       </View>
 
       <View style={[styles.viewerInfoBox, { borderColor: color + "33" }]}>
@@ -299,8 +345,12 @@ export default function DefectCutoutPanel({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [activeFilterId, setActiveFilterId] = useState("normal");
+  const [filteredFrontUri, setFilteredFrontUri] = useState<string | null>(null);
+  const [filteredBackUri, setFilteredBackUri] = useState<string | null>(null);
+  const [loadingFront, setLoadingFront] = useState(false);
+  const [loadingBack, setLoadingBack] = useState(false);
+  const filteredCache = useRef<Map<string, string>>(new Map());
   const listRef = useRef<FlatList>(null);
-  const filterScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     Image.getSize(frontImage, (w, h) => setFrontDims({ w, h }), () => setFrontDims({ w: 0, h: 0 }));
@@ -310,7 +360,7 @@ export default function DefectCutoutPanel({
   const sorted = useMemo(
     () =>
       [...defects].sort((a, b) => {
-        const order = { major: 0, moderate: 1, minor: 2 };
+        const order: Record<string, number> = { major: 0, moderate: 1, minor: 2 };
         return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
       }),
     [defects]
@@ -318,14 +368,106 @@ export default function DefectCutoutPanel({
 
   const activeFilter = FILTER_PRESETS.find(f => f.id === activeFilterId) ?? FILTER_PRESETS[0];
 
+  const fetchServerFilter = async (filterId: string, serverType: string, side: "front" | "back", uri: string) => {
+    const cacheKey = `${filterId}_${side}`;
+    if (filteredCache.current.has(cacheKey)) {
+      const cached = filteredCache.current.get(cacheKey)!;
+      if (side === "front") setFilteredFrontUri(cached);
+      else setFilteredBackUri(cached);
+      return;
+    }
+
+    if (side === "front") setLoadingFront(true);
+    else setLoadingBack(true);
+
+    try {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 900 } }],
+        { format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
+      const apiBase = getApiUrl();
+      const response = await fetch(new URL("/api/filter-image", apiBase).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: manipulated.base64, filterType: serverType }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as { resultBase64: string };
+        const dataUri = `data:image/jpeg;base64,${data.resultBase64}`;
+        filteredCache.current.set(cacheKey, dataUri);
+        if (side === "front") setFilteredFrontUri(dataUri);
+        else setFilteredBackUri(dataUri);
+      }
+    } catch (err) {
+      console.warn("[DefectCutoutPanel] filter-image error:", err);
+    } finally {
+      if (side === "front") setLoadingFront(false);
+      else setLoadingBack(false);
+    }
+  };
+
+  const handleFilterSelect = async (filterId: string) => {
+    setActiveFilterId(filterId);
+    const preset = FILTER_PRESETS.find(f => f.id === filterId);
+    if (!preset || preset.mode !== "server" || !preset.serverType) {
+      setFilteredFrontUri(null);
+      setFilteredBackUri(null);
+      return;
+    }
+    await Promise.all([
+      fetchServerFilter(filterId, preset.serverType, "front", frontImage),
+      fetchServerFilter(filterId, preset.serverType, "back", backImage),
+    ]);
+  };
+
   const openViewer = (index: number) => {
     setViewerIndex(index);
     setActiveFilterId("normal");
+    setFilteredFrontUri(null);
+    setFilteredBackUri(null);
     setViewerOpen(true);
   };
 
   const majorCount = defects.filter(d => d.severity === "major").length;
   const moderateCount = defects.filter(d => d.severity === "moderate").length;
+
+  const renderFilterPill = (f: FilterDef) => {
+    const isActive = activeFilterId === f.id;
+    const isServer = f.mode === "server";
+    const isLoading = isActive && isServer && (loadingFront || loadingBack);
+    return (
+      <Pressable
+        key={f.id}
+        onPress={() => handleFilterSelect(f.id)}
+        style={({ pressed }) => [
+          styles.filterPill,
+          isActive && styles.filterPillActive,
+          { opacity: pressed ? 0.75 : 1 },
+        ]}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color="#fff" style={{ width: 13, height: 13 }} />
+        ) : (
+          <Ionicons
+            name={f.icon}
+            size={13}
+            color={isActive ? "#fff" : Colors.textMuted}
+          />
+        )}
+        <Text style={[styles.filterPillTxt, isActive && styles.filterPillTxtActive]}>
+          {f.label}
+        </Text>
+        {isServer && !isActive && (
+          <View style={styles.serverBadge}>
+            <Text style={styles.serverBadgeTxt}>AI</Text>
+          </View>
+        )}
+      </Pressable>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -431,6 +573,8 @@ export default function DefectCutoutPanel({
                 <DefectViewerPage
                   defect={item}
                   imageUri={isFront ? frontImage : backImage}
+                  filteredUri={isFront ? filteredFrontUri : filteredBackUri}
+                  loading={isFront ? loadingFront : loadingBack}
                   imgWidth={dims?.w ?? 0}
                   imgHeight={dims?.h ?? 0}
                   cardBounds={isFront ? frontCardBounds : backCardBounds}
@@ -444,35 +588,15 @@ export default function DefectCutoutPanel({
 
           {/* ── Filter strip ── */}
           <View style={styles.filterSection}>
+            {/* Live filters row */}
             <ScrollView
-              ref={filterScrollRef}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.filterRow}
             >
-              {FILTER_PRESETS.map((f) => {
-                const isActive = activeFilterId === f.id;
-                return (
-                  <Pressable
-                    key={f.id}
-                    onPress={() => setActiveFilterId(f.id)}
-                    style={({ pressed }) => [
-                      styles.filterPill,
-                      isActive && styles.filterPillActive,
-                      { opacity: pressed ? 0.75 : 1 },
-                    ]}
-                  >
-                    <Ionicons
-                      name={f.icon}
-                      size={13}
-                      color={isActive ? "#fff" : Colors.textMuted}
-                    />
-                    <Text style={[styles.filterPillTxt, isActive && styles.filterPillTxtActive]}>
-                      {f.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              {CSS_FILTERS.map(renderFilterPill)}
+              <View style={styles.filterDivider} />
+              {SERVER_FILTERS.map(renderFilterPill)}
             </ScrollView>
             {activeFilter.id !== "normal" && (
               <Text style={styles.filterHint} numberOfLines={2}>
@@ -710,6 +834,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
+  // ── Viewer modal ──────────────────────────────────────────────────────────
   viewerModal: {
     flex: 1,
     backgroundColor: "#000",
@@ -732,14 +857,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#fff",
   },
-
   viewerPage: {
     width: SCREEN_W,
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
-    gap: 16,
+    gap: 14,
   },
   viewerCropWrap: {
     width: VIEWER_SIZE,
@@ -775,6 +899,19 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     opacity: 0.9,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    gap: 10,
+  },
+  loadingTxt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: "rgba(255,255,255,0.7)",
   },
   viewerInfoBox: {
     width: "100%",
@@ -845,14 +982,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
+  // ── Filter strip ─────────────────────────────────────────────────────────
   filterSection: {
-    paddingTop: 4,
-    gap: 6,
+    paddingTop: 2,
+    gap: 4,
   },
   filterRow: {
-    paddingHorizontal: 16,
-    gap: 8,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    gap: 6,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  filterDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    marginHorizontal: 4,
   },
   filterPill: {
     flexDirection: "row",
@@ -860,7 +1005,7 @@ const styles = StyleSheet.create({
     gap: 5,
     backgroundColor: "rgba(255,255,255,0.08)",
     borderRadius: 20,
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 7,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
@@ -871,28 +1016,41 @@ const styles = StyleSheet.create({
   },
   filterPillTxt: {
     fontFamily: "Inter_500Medium",
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.textMuted,
   },
   filterPillTxtActive: {
     color: "#fff",
     fontFamily: "Inter_600SemiBold",
   },
+  serverBadge: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+  },
+  serverBadgeTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 8,
+    color: "rgba(255,255,255,0.6)",
+  },
   filterHint: {
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: "rgba(255,255,255,0.45)",
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     lineHeight: 15,
+    paddingBottom: 4,
   },
 
+  // ── Dot scrubber ──────────────────────────────────────────────────────────
   viewerDots: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     paddingBottom: 8,
-    paddingTop: 6,
+    paddingTop: 4,
   },
   dot: {
     borderRadius: 4,
