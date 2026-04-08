@@ -1080,12 +1080,15 @@ export default function ResultsScreen() {
   const gradeDetails: Record<string, GradeDetail> = (ebayPrices as any)?.gradeDetails ?? {};
   const enabledProfitCompanies = PROFIT_COMPANY_ORDER.filter(c => enabledCompanies.includes(c === "Beckett" ? "Beckett" : c));
 
-  // ── Formatting helpers (same as card-profit.tsx) ─────────────────────────
-  const fmtLocal = (usdOrLocal: number) => {
-    const v = usdOrLocal * currencyRate;
+  // ── Formatting helpers ──────────────────────────────────────────────────
+  // fmtLocal: converts a USD value to local currency then formats (same as fmtM)
+  const fmtLocal = (usd: number) => {
+    const v = usd * currencyRate;
     if (currencySymbol === "¥") return `${currencySymbol}${Math.round(v)}`;
     return `${currencySymbol}${v.toFixed(2)}`;
   };
+  // fmtSym: formats a value already in local currency (no conversion)
+  const fmtSym = (v: number) => currencySymbol === "¥" ? `${currencySymbol}${Math.round(v)}` : `${currencySymbol}${v.toFixed(2)}`;
   const fmtProfit = (absVal: number, rawLocal: number) => {
     const localVal = absVal; // already in local currency
     const pct = rawLocal > 0 ? Math.round((localVal / rawLocal) * 100) : null;
@@ -1747,7 +1750,7 @@ export default function ResultsScreen() {
               <Text style={styles.maRawLabel}>Raw</Text>
               {(ebayPrices as any)?.raw > 0 ? (
                 <View style={[styles.maRawValueWrap, { flex: 1 }]}>
-                  <Text style={styles.maRawValue}>{fmtLocal((ebayPrices as any).raw * currencyRate)}</Text>
+                  <Text style={styles.maRawValue}>{fmtM((ebayPrices as any).raw)}</Text>
                   <View style={styles.ebaySourceBadge}><Text style={styles.ebaySourceBadgeText}>eBay</Text></View>
                 </View>
               ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
@@ -1768,7 +1771,7 @@ export default function ResultsScreen() {
               <View style={styles.maCustomPriceRow}>
                 <Ionicons name="wallet-outline" size={13} color={Colors.textMuted} />
                 <Text style={styles.maCustomPriceTxt}>You paid</Text>
-                <Text style={styles.maCustomPriceVal}>{fmtLocal(customPriceParsed)}</Text>
+                <Text style={styles.maCustomPriceVal}>{fmtSym(customPriceParsed)}</Text>
                 <Pressable
                   onPress={() => openCustomPriceModal(customPriceParsed.toFixed(2))}
                   hitSlop={8}
@@ -1838,7 +1841,7 @@ export default function ResultsScreen() {
                       <ActivityIndicator size="small" color={Colors.textMuted} style={{ flex: 2 }} />
                     ) : (
                       <Text style={[styles.maEbayPrice, { flex: 2 }]}>
-                        {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
+                        {gr.ebayLocal !== null ? fmtSym(gr.ebayLocal) : "—"}
                       </Text>
                     )}
                     {ebayLoading ? (
@@ -1939,7 +1942,7 @@ export default function ResultsScreen() {
                     </View>
                     <View style={styles.maFeeMetaRow}>
                       <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
-                      <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above</Text>
+                      <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtSym(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above</Text>
                     </View>
                   </View>
                 ) : (
@@ -1959,13 +1962,13 @@ export default function ResultsScreen() {
                     </Text>
                     {aiGradeRow && (
                       <Text style={[styles.maNetProfitValue, (aiGradeRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
-                        {fmtLocal(aiGradeRow.profit ?? 0)}
+                        {fmtSym(aiGradeRow.profit ?? 0)}
                       </Text>
                     )}
                     <Text style={styles.maNetProfitSub}>
                       {aiGradeRow
-                        ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtLocal(feeLocalAmount)} fee`
-                        : `fee of ${fmtLocal(feeLocalAmount)} exceeds profit`}
+                        ? `after ${fmtSym(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtSym(feeLocalAmount)} fee`
+                        : `fee of ${fmtSym(feeLocalAmount)} exceeds profit`}
                     </Text>
                   </View>
                 )}
