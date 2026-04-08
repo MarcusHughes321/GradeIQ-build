@@ -222,6 +222,26 @@ async function initPriceHistoryTable(): Promise<void> {
   }
 }
 
+async function initGradingFeedbackTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS grading_feedback (
+        id          SERIAL PRIMARY KEY,
+        card_name   TEXT,
+        set_name    TEXT,
+        set_number  TEXT,
+        grade_psa   NUMERIC(4,1),
+        is_positive BOOLEAN NOT NULL,
+        comment     TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[grading-feedback] DB table ready");
+  } catch (e: any) {
+    console.error("[grading-feedback] Failed to create table:", e.message);
+  }
+}
+
 async function writePriceHistorySnapshot(
   cacheKey: string,
   grades: Record<string, number>   // { psa10: 150, psa9: 80, … } — zeroes excluded
@@ -3044,6 +3064,7 @@ async function detectCardBounds(dataUri: string, slabMode?: boolean): Promise<{ 
     const { data: coarsePixels } = await sharp(buffer)
       .resize(csw, csh, { fit: "fill" })
       .greyscale()
+      .clahe({ width: 20, height: 20, maxSlope: 4 })
       .raw()
       .toBuffer({ resolveWithObject: true });
 
@@ -3070,6 +3091,7 @@ async function detectCardBounds(dataUri: string, slabMode?: boolean): Promise<{ 
     const { data: finePixels } = await sharp(buffer)
       .resize(fsw, fsh, { fit: "fill" })
       .greyscale()
+      .clahe({ width: 64, height: 64, maxSlope: 4 })
       .raw()
       .toBuffer({ resolveWithObject: true });
 
@@ -3391,6 +3413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await initSetPriceStatusTable();
   await initCardCatalogTable();
   await initTopPicksPrecomputedTable();
+  await initGradingFeedbackTable();
 
   // Pre-fetch today's exchange rates on startup (non-blocking)
   void getExchangeRates();
@@ -3402,6 +3425,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(data);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Anonymous grading feedback (thumbs up / down + optional comment)
+  app.post("/api/grading-feedback", async (req, res) => {
+    try {
+      const { cardName, setName, setNumber, gradePsa, isPositive, comment } = req.body ?? {};
+      if (typeof isPositive !== "boolean") {
+        return res.status(400).json({ error: "isPositive (boolean) is required" });
+      }
+      await db.query(
+        `INSERT INTO grading_feedback (card_name, set_name, set_number, grade_psa, is_positive, comment)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          cardName ?? null,
+          setName ?? null,
+          setNumber ?? null,
+          gradePsa != null ? Number(gradePsa) : null,
+          isPositive,
+          comment ?? null,
+        ]
+      );
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[grading-feedback] Error:", err.message);
+      return res.status(500).json({ error: "Failed to save feedback" });
     }
   });
 

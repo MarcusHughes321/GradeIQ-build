@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import * as ImageManipulator from "expo-image-manipulator";
 import {
   View,
   Text,
@@ -641,6 +642,8 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
   const [activeHandle, setActiveHandle] = useState<LineKey | null>(null);
   const [autoStraightening, setAutoStraightening] = useState(false);
   const wasStraightenedRef = useRef(false);
+  const [autoDetecting, setAutoDetecting] = useState(false);
+  const autoDetectTriggeredRef = useRef(false);
 
   const rotation = showFront ? frontRotation : backRotation;
   const setRotation = showFront ? setFrontRotation : setBackRotation;
@@ -712,6 +715,82 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
       return () => clearTimeout(timer);
     }
   }, [containerSize]);
+
+  // Auto re-detect card bounds when opened with default (undetected) bounds
+  useEffect(() => {
+    if (autoDetectTriggeredRef.current) return;
+    if (!frontPos || !backPos) return;
+    if (containerSize.width === 0) return;
+
+    const isDefaultLike = (b?: CardBounds) =>
+      !b ||
+      (Math.abs(b.leftPercent - DEFAULT_CARD_BOUNDS.leftPercent) < 2 &&
+        Math.abs(b.rightPercent - DEFAULT_CARD_BOUNDS.rightPercent) < 2);
+
+    const frontNeedsDetect = isDefaultLike(frontCardBounds);
+    const backNeedsDetect = isDefaultLike(backCardBounds);
+
+    if (!frontNeedsDetect && !backNeedsDetect) return;
+
+    autoDetectTriggeredRef.current = true;
+
+    const getBase64 = async (uri: string): Promise<string | null> => {
+      try {
+        const r = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 400 } }],
+          { compress: 0.5, base64: true }
+        );
+        return `data:image/jpeg;base64,${r.base64}`;
+      } catch {
+        return null;
+      }
+    };
+
+    const run = async () => {
+      setAutoDetecting(true);
+      try {
+        const frontB64 = frontNeedsDetect ? await getBase64(frontImage) : null;
+
+        let newFrontBounds: CardBounds | null = null;
+        if (frontB64) {
+          try {
+            const resp = await apiRequest("POST", "/api/detect-bounds", { image: frontB64 });
+            const b = await resp.json();
+            if (b && b.leftPercent != null) newFrontBounds = b;
+          } catch {}
+        }
+
+        let newBackBounds: CardBounds | null = null;
+        if (backNeedsDetect) {
+          await new Promise(r => setTimeout(r, 600));
+          const backB64 = await getBase64(backImage);
+          if (backB64) {
+            try {
+              const resp = await apiRequest("POST", "/api/detect-bounds", { image: backB64 });
+              const b = await resp.json();
+              if (b && b.leftPercent != null) newBackBounds = b;
+            } catch {}
+          }
+        }
+
+        if (newFrontBounds && frontNaturalRef.current.w > 0) {
+          const { w, h } = frontNaturalRef.current;
+          const imgB = calcContainBounds(containerSize.width, containerSize.height, w, h);
+          setFrontPos(initPositions(centering.frontLeftRight, centering.frontTopBottom, imgB, newFrontBounds));
+        }
+        if (newBackBounds && backNaturalRef.current.w > 0) {
+          const { w, h } = backNaturalRef.current;
+          const imgB = calcContainBounds(containerSize.width, containerSize.height, w, h);
+          setBackPos(initPositions(centering.backLeftRight, centering.backTopBottom, imgB, newBackBounds));
+        }
+      } finally {
+        setAutoDetecting(false);
+      }
+    };
+
+    void run();
+  }, [frontPos, backPos]);
 
   const viewportRef = useRef<View>(null);
 
@@ -1275,6 +1354,13 @@ export default function CenteringTool({ frontImage, backImage, centering, origin
         </View>
       </View>
 
+      {autoDetecting && (
+        <View style={styles.autoDetectBanner}>
+          <ActivityIndicator size="small" color={Colors.primary} style={{ transform: [{ scale: 0.75 }] }} />
+          <Text style={styles.autoDetectBannerText}>Re-detecting centering lines…</Text>
+        </View>
+      )}
+
       <View style={styles.controls}>
         <View style={styles.controlRow}>
           <View style={styles.sideToggle}>
@@ -1381,4 +1467,6 @@ const styles = StyleSheet.create({
   rotScrub: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   rotDeg: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textSecondary, width: 32, textAlign: "right" as const },
   hint: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, textAlign: "center" as const, marginTop: 3, marginBottom: 2 },
+  autoDetectBanner: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 6, paddingVertical: 4, backgroundColor: "rgba(255,60,49,0.08)" },
+  autoDetectBannerText: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
 });

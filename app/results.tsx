@@ -404,6 +404,10 @@ export default function ResultsScreen() {
   const [rescanning, setRescanning] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
   const imageViewerListRef = useRef<FlatList>(null);
+  const [feedbackHappy, setFeedbackHappy] = useState<boolean | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -429,6 +433,25 @@ export default function ResultsScreen() {
     } catch {
       return null;
     }
+  };
+
+  const submitFeedback = async (happy: boolean, comment?: string) => {
+    if (feedbackSubmitting) return;
+    setFeedbackHappy(happy);
+    setFeedbackSubmitting(true);
+    try {
+      const r = grading?.result;
+      await apiRequest("POST", "/api/grading-feedback", {
+        cardName: r?.cardName ?? null,
+        setName: r?.setName ?? r?.setInfo ?? null,
+        setNumber: r?.setNumber ?? null,
+        gradePsa: r?.psa?.grade ?? null,
+        isPositive: happy,
+        comment: comment ?? null,
+      });
+      setFeedbackSubmitted(true);
+    } catch {}
+    setFeedbackSubmitting(false);
   };
 
   const fetchCardValue = async (result: GradingResult) => {
@@ -2016,6 +2039,81 @@ export default function ResultsScreen() {
           <Text style={styles.disclaimerText}>
             AI estimates based on photo analysis. Actual grades and values may differ.
           </Text>
+        </View>
+
+        {/* ── FEEDBACK ── */}
+        <View style={styles.feedbackCard}>
+          {feedbackSubmitted ? (
+            <View style={styles.feedbackThanks}>
+              <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
+              <Text style={styles.feedbackThanksText}>Thanks for your feedback!</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.feedbackLabel}>Was this grade accurate?</Text>
+              <View style={styles.feedbackBtns}>
+                <Pressable
+                  onPress={() => {
+                    if (!feedbackSubmitting) {
+                      setFeedbackHappy(true);
+                      submitFeedback(true);
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.feedbackBtn,
+                    feedbackHappy === true && styles.feedbackBtnActiveGood,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  {feedbackSubmitting && feedbackHappy === true ? (
+                    <ActivityIndicator size="small" color="#22c55e" />
+                  ) : (
+                    <Ionicons name="thumbs-up" size={18} color={feedbackHappy === true ? "#22c55e" : Colors.textMuted} />
+                  )}
+                  <Text style={[styles.feedbackBtnText, feedbackHappy === true && { color: "#22c55e" }]}>Yes</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    if (!feedbackSubmitting) setFeedbackHappy(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.feedbackBtn,
+                    feedbackHappy === false && styles.feedbackBtnActiveBad,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Ionicons name="thumbs-down" size={18} color={feedbackHappy === false ? "#ef4444" : Colors.textMuted} />
+                  <Text style={[styles.feedbackBtnText, feedbackHappy === false && { color: "#ef4444" }]}>No</Text>
+                </Pressable>
+              </View>
+              {feedbackHappy === false && (
+                <View style={styles.feedbackInputWrap}>
+                  <TextInput
+                    style={styles.feedbackInput}
+                    value={feedbackText}
+                    onChangeText={setFeedbackText}
+                    placeholder="What was wrong? (optional)"
+                    placeholderTextColor={Colors.textMuted}
+                    multiline
+                    maxLength={400}
+                    returnKeyType="done"
+                    blurOnSubmit
+                  />
+                  <Pressable
+                    onPress={() => submitFeedback(false, feedbackText.trim() || undefined)}
+                    disabled={feedbackSubmitting}
+                    style={({ pressed }) => [styles.feedbackSubmitBtn, { opacity: feedbackSubmitting || pressed ? 0.6 : 1 }]}
+                  >
+                    {feedbackSubmitting ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.feedbackSubmitBtnText}>Send feedback</Text>
+                    )}
+                  </Pressable>
+                </View>
+              )}
+            </>
+          )}
         </View>
 
         <ShareButton grading={grading} enabledCompanies={enabledCompanies} cardValue={cardValue} showMarketData={isSubscribed || isAdminMode} />
@@ -3794,5 +3892,91 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     lineHeight: 16,
     marginTop: 4,
+  },
+  feedbackCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginTop: 10,
+  },
+  feedbackLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    textAlign: "center" as const,
+    marginBottom: 10,
+  },
+  feedbackBtns: {
+    flexDirection: "row" as const,
+    gap: 10,
+  },
+  feedbackBtn: {
+    flex: 1,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  feedbackBtnActiveGood: {
+    borderColor: "#22c55e",
+    backgroundColor: "rgba(34,197,94,0.1)",
+  },
+  feedbackBtnActiveBad: {
+    borderColor: "#ef4444",
+    backgroundColor: "rgba(239,68,68,0.1)",
+  },
+  feedbackBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  feedbackInputWrap: {
+    marginTop: 10,
+    gap: 8,
+  },
+  feedbackInput: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    color: Colors.text,
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 60,
+    textAlignVertical: "top" as const,
+  },
+  feedbackSubmitBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  feedbackSubmitBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
+  },
+  feedbackThanks: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 8,
+    paddingVertical: 4,
+  },
+  feedbackThanksText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
   },
 });
