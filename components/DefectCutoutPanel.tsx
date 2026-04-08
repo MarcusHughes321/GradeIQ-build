@@ -1,11 +1,20 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, Image, ScrollView, StyleSheet } from "react-native";
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import {
+  View, Text, Image, ScrollView, StyleSheet, Modal,
+  FlatList, Dimensions, Pressable, Platform,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { DefectMarker, CardBounds } from "@/lib/types";
 import Colors from "@/constants/colors";
 
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+
 const TILE = 96;
-const ZOOM = 3.5;
+const TILE_ZOOM = 3.5;
+
+const VIEWER_SIZE = Math.min(SCREEN_W - 48, SCREEN_H * 0.48);
+const VIEWER_ZOOM = 2.5;
 
 const SEVERITY_COLOR: Record<string, string> = {
   minor: "#F59E0B",
@@ -41,54 +50,90 @@ function mapToImagePosition(
   };
 }
 
+function CropImage({
+  imageUri,
+  imgWidth,
+  imgHeight,
+  imgX,
+  imgY,
+  size,
+  zoom,
+}: {
+  imageUri: string;
+  imgWidth: number;
+  imgHeight: number;
+  imgX: number;
+  imgY: number;
+  size: number;
+  zoom: number;
+}) {
+  const scaledW = size * zoom;
+  const scaledH = imgWidth > 0 ? scaledW * (imgHeight / imgWidth) : scaledW * 1.4;
+  const rawLeft = -(imgX / 100) * scaledW + size / 2;
+  const rawTop = -(imgY / 100) * scaledH + size / 2;
+  const clampedLeft = Math.max(-(scaledW - size), Math.min(0, rawLeft));
+  const clampedTop = Math.max(-(scaledH - size), Math.min(0, rawTop));
+
+  return (
+    <Image
+      source={{ uri: imageUri }}
+      style={{
+        position: "absolute",
+        width: scaledW,
+        height: scaledH,
+        left: clampedLeft,
+        top: clampedTop,
+      }}
+      resizeMode="cover"
+    />
+  );
+}
+
 interface DefectTileProps {
   defect: DefectMarker;
   imageUri: string;
   imgWidth: number;
   imgHeight: number;
   cardBounds?: CardBounds | null;
+  onPress: () => void;
 }
 
-function DefectTile({ defect, imageUri, imgWidth, imgHeight, cardBounds }: DefectTileProps) {
+function DefectTile({ defect, imageUri, imgWidth, imgHeight, cardBounds, onPress }: DefectTileProps) {
   const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
 
-  const scaledW = TILE * ZOOM;
-  const scaledH = imgWidth > 0 ? scaledW * (imgHeight / imgWidth) : scaledW * 1.4;
-
-  const rawLeft = -(imgX / 100) * scaledW + TILE / 2;
-  const rawTop = -(imgY / 100) * scaledH + TILE / 2;
-
-  const clampedLeft = Math.max(-(scaledW - TILE), Math.min(0, rawLeft));
-  const clampedTop = Math.max(-(scaledH - TILE), Math.min(0, rawTop));
-
   return (
-    <View style={styles.tile}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.75 : 1 }]}
+    >
       <View style={[styles.tileImageWrap, { borderColor: color + "CC" }]}>
         {imgWidth > 0 ? (
-          <Image
-            source={{ uri: imageUri }}
-            style={[
-              styles.tileImage,
-              { width: scaledW, height: scaledH, left: clampedLeft, top: clampedTop },
-            ]}
-            resizeMode="cover"
+          <CropImage
+            imageUri={imageUri}
+            imgWidth={imgWidth}
+            imgHeight={imgHeight}
+            imgX={imgX}
+            imgY={imgY}
+            size={TILE}
+            zoom={TILE_ZOOM}
           />
         ) : (
-          <View style={[styles.tilePlaceholder, { backgroundColor: Colors.surface }]} />
+          <View style={[styles.tilePlaceholder]} />
         )}
 
         <View style={[styles.tileTypeBadge, { backgroundColor: color }]}>
           <Ionicons name={TYPE_ICON[defect.type] || "alert-circle-outline"} size={9} color="#fff" />
         </View>
-
         <View style={styles.tileSideBadge}>
           <Text style={styles.tileSideTxt}>{defect.side === "front" ? "F" : "B"}</Text>
         </View>
-
         <View style={styles.crosshairWrap} pointerEvents="none">
           <View style={[styles.crosshairRing, { borderColor: color }]} />
           <View style={[styles.crosshairDot, { backgroundColor: color }]} />
+        </View>
+        <View style={styles.expandIcon}>
+          <Ionicons name="expand-outline" size={11} color="rgba(255,255,255,0.9)" />
         </View>
       </View>
 
@@ -100,6 +145,68 @@ function DefectTile({ defect, imageUri, imgWidth, imgHeight, cardBounds }: Defec
         <Text style={styles.tileDesc} numberOfLines={2}>
           {defect.description}
         </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+interface DefectViewerPageProps {
+  defect: DefectMarker;
+  imageUri: string;
+  imgWidth: number;
+  imgHeight: number;
+  cardBounds?: CardBounds | null;
+  index: number;
+  total: number;
+}
+
+function DefectViewerPage({
+  defect, imageUri, imgWidth, imgHeight, cardBounds, index, total,
+}: DefectViewerPageProps) {
+  const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
+  const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
+
+  return (
+    <View style={styles.viewerPage}>
+      <View style={[styles.viewerCropWrap, { borderColor: color + "55" }]}>
+        {imgWidth > 0 ? (
+          <CropImage
+            imageUri={imageUri}
+            imgWidth={imgWidth}
+            imgHeight={imgHeight}
+            imgX={imgX}
+            imgY={imgY}
+            size={VIEWER_SIZE}
+            zoom={VIEWER_ZOOM}
+          />
+        ) : (
+          <View style={[styles.viewerPlaceholder, { backgroundColor: Colors.surface }]} />
+        )}
+        <View style={styles.crosshairWrapLg} pointerEvents="none">
+          <View style={[styles.crosshairRingLg, { borderColor: color }]} />
+          <View style={[styles.crosshairDotLg, { backgroundColor: color }]} />
+        </View>
+      </View>
+
+      <View style={[styles.viewerInfoBox, { borderColor: color + "33" }]}>
+        <View style={styles.viewerInfoTop}>
+          <View style={[styles.viewerSeverityPill, { backgroundColor: color + "22", borderColor: color + "55" }]}>
+            <View style={[styles.viewerSeverityDot, { backgroundColor: color }]} />
+            <Text style={[styles.viewerSeverityTxt, { color }]}>{SEVERITY_LABEL[defect.severity]}</Text>
+          </View>
+          <View style={styles.viewerTypePill}>
+            <Ionicons name={TYPE_ICON[defect.type] || "alert-circle-outline"} size={12} color={Colors.textMuted} />
+            <Text style={styles.viewerTypeTxt}>
+              {defect.type.charAt(0).toUpperCase() + defect.type.slice(1)}
+            </Text>
+          </View>
+          <View style={styles.viewerSidePill}>
+            <Text style={styles.viewerSideTxt}>{defect.side === "front" ? "Front" : "Back"}</Text>
+          </View>
+          <View style={{ flex: 1 }} />
+          <Text style={styles.viewerPageCount}>{index + 1} / {total}</Text>
+        </View>
+        <Text style={styles.viewerDesc}>{defect.description}</Text>
       </View>
     </View>
   );
@@ -120,21 +227,34 @@ export default function DefectCutoutPanel({
   frontCardBounds,
   backCardBounds,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [frontDims, setFrontDims] = useState<{ w: number; h: number } | null>(null);
   const [backDims, setBackDims] = useState<{ w: number; h: number } | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
     Image.getSize(frontImage, (w, h) => setFrontDims({ w, h }), () => setFrontDims({ w: 0, h: 0 }));
     Image.getSize(backImage, (w, h) => setBackDims({ w, h }), () => setBackDims({ w: 0, h: 0 }));
   }, [frontImage, backImage]);
 
+  const sorted = useMemo(
+    () =>
+      [...defects].sort((a, b) => {
+        const order = { major: 0, moderate: 1, minor: 2 };
+        return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+      }),
+    [defects]
+  );
+
+  const openViewer = (index: number) => {
+    setViewerIndex(index);
+    setViewerOpen(true);
+  };
+
   const majorCount = defects.filter(d => d.severity === "major").length;
   const moderateCount = defects.filter(d => d.severity === "moderate").length;
-
-  const sorted = [...defects].sort((a, b) => {
-    const order = { major: 0, moderate: 1, minor: 2 };
-    return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
-  });
 
   return (
     <View style={styles.container}>
@@ -192,15 +312,91 @@ export default function DefectCutoutPanel({
                   imgWidth={dims?.w ?? 0}
                   imgHeight={dims?.h ?? 0}
                   cardBounds={isFront ? frontCardBounds : backCardBounds}
+                  onPress={() => openViewer(i)}
                 />
               );
             })}
           </ScrollView>
-          <Text style={styles.footnote}>
-            AI-identified areas · sorted by severity
-          </Text>
+          <Text style={styles.footnote}>Tap a flaw to enlarge · sorted by severity</Text>
         </>
       )}
+
+      <Modal
+        visible={viewerOpen}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={() => setViewerOpen(false)}
+        statusBarTranslucent={Platform.OS === "android"}
+      >
+        <View style={[styles.viewerModal, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={styles.viewerHeader}>
+            <Pressable
+              onPress={() => setViewerOpen(false)}
+              style={({ pressed }) => [styles.viewerCloseBtn, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Ionicons name="close" size={26} color="#fff" />
+            </Pressable>
+            <Text style={styles.viewerHeaderTitle}>Defect Detail</Text>
+            <View style={{ width: 44 }} />
+          </View>
+
+          <FlatList
+            ref={listRef}
+            data={sorted}
+            keyExtractor={(_, i) => String(i)}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            initialScrollIndex={viewerIndex}
+            getItemLayout={(_, index) => ({ length: SCREEN_W, offset: SCREEN_W * index, index })}
+            onMomentumScrollEnd={(e) => {
+              const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+              setViewerIndex(page);
+            }}
+            renderItem={({ item, index }) => {
+              const isFront = item.side === "front";
+              const dims = isFront ? frontDims : backDims;
+              return (
+                <DefectViewerPage
+                  defect={item}
+                  imageUri={isFront ? frontImage : backImage}
+                  imgWidth={dims?.w ?? 0}
+                  imgHeight={dims?.h ?? 0}
+                  cardBounds={isFront ? frontCardBounds : backCardBounds}
+                  index={index}
+                  total={sorted.length}
+                />
+              );
+            }}
+          />
+
+          {sorted.length > 1 && (
+            <View style={styles.viewerDots}>
+              {sorted.map((d, i) => {
+                const color = SEVERITY_COLOR[d.severity] || "#F59E0B";
+                return (
+                  <Pressable
+                    key={i}
+                    onPress={() => {
+                      setViewerIndex(i);
+                      listRef.current?.scrollToIndex({ index: i, animated: true });
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.dot,
+                        i === viewerIndex
+                          ? [styles.dotActive, { backgroundColor: color }]
+                          : styles.dotInactive,
+                      ]}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -293,12 +489,10 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: Colors.background,
   },
-  tileImage: {
-    position: "absolute",
-  },
   tilePlaceholder: {
     width: TILE,
     height: TILE,
+    backgroundColor: Colors.surface,
   },
   tileTypeBadge: {
     position: "absolute",
@@ -330,6 +524,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 9,
     color: "#fff",
+  },
+  expandIcon: {
+    position: "absolute",
+    bottom: 5,
+    right: 5,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 4,
+    padding: 2,
+    zIndex: 10,
   },
   crosshairWrap: {
     ...StyleSheet.absoluteFillObject,
@@ -393,5 +596,161 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     paddingHorizontal: 16,
     marginTop: 10,
+  },
+
+  viewerModal: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  viewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  viewerCloseBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerHeaderTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: "#fff",
+  },
+
+  viewerPage: {
+    width: SCREEN_W,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    gap: 20,
+  },
+  viewerCropWrap: {
+    width: VIEWER_SIZE,
+    height: VIEWER_SIZE,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 2,
+    backgroundColor: "#111",
+    position: "relative",
+  },
+  viewerPlaceholder: {
+    width: VIEWER_SIZE,
+    height: VIEWER_SIZE,
+  },
+  crosshairWrapLg: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 5,
+  },
+  crosshairRingLg: {
+    position: "absolute",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    backgroundColor: "transparent",
+    opacity: 0.9,
+  },
+  crosshairDotLg: {
+    position: "absolute",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    opacity: 0.9,
+  },
+  viewerInfoBox: {
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
+  viewerInfoTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  viewerSeverityPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  viewerSeverityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  viewerSeverityTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+  },
+  viewerTypePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  viewerTypeTxt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  viewerSidePill: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  viewerSideTxt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  viewerPageCount: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.4)",
+  },
+  viewerDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: "rgba(255,255,255,0.85)",
+    lineHeight: 20,
+  },
+
+  viewerDots: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingBottom: 8,
+    paddingTop: 4,
+  },
+  dot: {
+    borderRadius: 4,
+  },
+  dotActive: {
+    width: 16,
+    height: 6,
+  },
+  dotInactive: {
+    width: 6,
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.25)",
   },
 });

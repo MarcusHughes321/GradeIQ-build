@@ -7,6 +7,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   Pressable,
   Platform,
   ActivityIndicator,
@@ -402,6 +403,7 @@ export default function ResultsScreen() {
   const [correcting, setCorrecting] = useState(false);
   const [rescanning, setRescanning] = useState(false);
   const zoomScrollRef = useRef<ScrollView>(null);
+  const imageViewerListRef = useRef<FlatList>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -710,6 +712,9 @@ export default function ResultsScreen() {
     setShowAnnotations(true);
     setSelectedArea(null);
     setImageViewerVisible(true);
+    setTimeout(() => {
+      imageViewerListRef.current?.scrollToIndex({ index: front ? 0 : 1, animated: false });
+    }, 80);
   };
 
   const closeImageViewer = () => {
@@ -2084,7 +2089,11 @@ export default function ResultsScreen() {
                 />
               </Pressable>
               <Pressable
-                onPress={() => setViewerShowFront(!viewerShowFront)}
+                onPress={() => {
+                  const next = !viewerShowFront;
+                  setViewerShowFront(next);
+                  imageViewerListRef.current?.scrollToIndex({ index: next ? 0 : 1, animated: true });
+                }}
                 style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
               >
                 <Ionicons name="swap-horizontal" size={24} color="#fff" />
@@ -2092,93 +2101,115 @@ export default function ResultsScreen() {
             </View>
           </View>
 
-          <ScrollView
-            ref={zoomScrollRef}
-            style={styles.zoomScrollView}
-            contentContainerStyle={styles.zoomScrollContent}
-            maximumZoomScale={5}
-            minimumZoomScale={1}
+          <FlatList
+            ref={imageViewerListRef}
+            data={[
+              { side: "front" as const, uri: grading.frontImage, bounds: result.frontCardBounds },
+              { side: "back" as const, uri: grading.backImage, bounds: result.backCardBounds },
+            ]}
+            keyExtractor={(item) => item.side}
+            horizontal
+            pagingEnabled
             showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={false}
-            bouncesZoom={true}
-            centerContent={true}
-          >
-            <View style={styles.modalImageWrap}>
-              <Image
-                source={{ uri: viewerShowFront ? grading.frontImage : grading.backImage }}
-                style={styles.modalImage}
-                contentFit="contain"
-              />
+            initialScrollIndex={viewerShowFront ? 0 : 1}
+            getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
+            onMomentumScrollEnd={(e) => {
+              const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              setViewerShowFront(page === 0);
+              setSelectedArea(null);
+            }}
+            renderItem={({ item }) => (
+              <View style={{ width: SCREEN_WIDTH }}>
+                <ScrollView
+                  ref={item.side === "front" ? zoomScrollRef : undefined}
+                  style={styles.zoomScrollView}
+                  contentContainerStyle={styles.zoomScrollContent}
+                  maximumZoomScale={5}
+                  minimumZoomScale={1}
+                  showsHorizontalScrollIndicator={false}
+                  showsVerticalScrollIndicator={false}
+                  bouncesZoom={true}
+                  centerContent={true}
+                >
+                  <View style={styles.modalImageWrap}>
+                    <Image
+                      source={{ uri: item.uri }}
+                      style={styles.modalImage}
+                      contentFit="contain"
+                    />
 
-              {showAnnotations && result.defects && result.defects.length > 0 && (
-                <DefectOverlay
-                  defects={result.defects}
-                  side={viewerShowFront ? "front" : "back"}
-                  cardBounds={viewerShowFront ? result.frontCardBounds : result.backCardBounds}
-                />
-              )}
+                    {showAnnotations && result.defects && result.defects.length > 0 && (
+                      <DefectOverlay
+                        defects={result.defects}
+                        side={item.side}
+                        cardBounds={item.bounds}
+                      />
+                    )}
 
-              {showAnnotations && (
-                <View style={styles.annotationOverlay} pointerEvents="box-none">
-                  <Pressable
-                    style={[styles.areaLabel, styles.areaLabelCentering, selectedArea === "Centering" && styles.areaLabelSelected]}
-                    onPress={() => setSelectedArea(selectedArea === "Centering" ? null : "Centering")}
-                  >
-                    <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.centering.grade) }]} />
-                    <Text style={styles.areaLabelText}>Centering</Text>
-                    <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.centering.grade) }]}>
-                      {result.beckett.centering.grade}
-                    </Text>
-                  </Pressable>
+                    {showAnnotations && (
+                      <View style={styles.annotationOverlay} pointerEvents="box-none">
+                        <Pressable
+                          style={[styles.areaLabel, styles.areaLabelCentering, selectedArea === "Centering" && styles.areaLabelSelected]}
+                          onPress={() => setSelectedArea(selectedArea === "Centering" ? null : "Centering")}
+                        >
+                          <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.centering.grade) }]} />
+                          <Text style={styles.areaLabelText}>Centering</Text>
+                          <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.centering.grade) }]}>
+                            {result.beckett.centering.grade}
+                          </Text>
+                        </Pressable>
 
-                  <View style={styles.cornerIndicators} pointerEvents="none">
-                    <View style={[styles.cornerBracket, styles.cornerTL, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
-                    <View style={[styles.cornerBracket, styles.cornerTR, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
-                    <View style={[styles.cornerBracket, styles.cornerBL, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
-                    <View style={[styles.cornerBracket, styles.cornerBR, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
+                        <View style={styles.cornerIndicators} pointerEvents="none">
+                          <View style={[styles.cornerBracket, styles.cornerTL, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
+                          <View style={[styles.cornerBracket, styles.cornerTR, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
+                          <View style={[styles.cornerBracket, styles.cornerBL, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
+                          <View style={[styles.cornerBracket, styles.cornerBR, { borderColor: getGradeColor(result.beckett.corners.grade) }]} />
+                        </View>
+
+                        <Pressable
+                          style={[styles.areaLabel, styles.areaLabelCorners, selectedArea === "Corners" && styles.areaLabelSelected]}
+                          onPress={() => setSelectedArea(selectedArea === "Corners" ? null : "Corners")}
+                        >
+                          <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.corners.grade) }]} />
+                          <Text style={styles.areaLabelText}>Corners</Text>
+                          <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.corners.grade) }]}>
+                            {result.beckett.corners.grade}
+                          </Text>
+                        </Pressable>
+
+                        <View style={styles.edgeIndicators} pointerEvents="none">
+                          <View style={[styles.edgeBar, styles.edgeLeft, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
+                          <View style={[styles.edgeBar, styles.edgeRight, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
+                        </View>
+
+                        <Pressable
+                          style={[styles.areaLabel, styles.areaLabelEdges, selectedArea === "Edges" && styles.areaLabelSelected]}
+                          onPress={() => setSelectedArea(selectedArea === "Edges" ? null : "Edges")}
+                        >
+                          <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
+                          <Text style={styles.areaLabelText}>Edges</Text>
+                          <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.edges.grade) }]}>
+                            {result.beckett.edges.grade}
+                          </Text>
+                        </Pressable>
+
+                        <Pressable
+                          style={[styles.areaLabel, styles.areaLabelSurface, selectedArea === "Surface" && styles.areaLabelSelected]}
+                          onPress={() => setSelectedArea(selectedArea === "Surface" ? null : "Surface")}
+                        >
+                          <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.surface.grade) }]} />
+                          <Text style={styles.areaLabelText}>Surface</Text>
+                          <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.surface.grade) }]}>
+                            {result.beckett.surface.grade}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
                   </View>
-
-                  <Pressable
-                    style={[styles.areaLabel, styles.areaLabelCorners, selectedArea === "Corners" && styles.areaLabelSelected]}
-                    onPress={() => setSelectedArea(selectedArea === "Corners" ? null : "Corners")}
-                  >
-                    <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.corners.grade) }]} />
-                    <Text style={styles.areaLabelText}>Corners</Text>
-                    <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.corners.grade) }]}>
-                      {result.beckett.corners.grade}
-                    </Text>
-                  </Pressable>
-
-                  <View style={styles.edgeIndicators} pointerEvents="none">
-                    <View style={[styles.edgeBar, styles.edgeLeft, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
-                    <View style={[styles.edgeBar, styles.edgeRight, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
-                  </View>
-
-                  <Pressable
-                    style={[styles.areaLabel, styles.areaLabelEdges, selectedArea === "Edges" && styles.areaLabelSelected]}
-                    onPress={() => setSelectedArea(selectedArea === "Edges" ? null : "Edges")}
-                  >
-                    <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.edges.grade) }]} />
-                    <Text style={styles.areaLabelText}>Edges</Text>
-                    <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.edges.grade) }]}>
-                      {result.beckett.edges.grade}
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={[styles.areaLabel, styles.areaLabelSurface, selectedArea === "Surface" && styles.areaLabelSelected]}
-                    onPress={() => setSelectedArea(selectedArea === "Surface" ? null : "Surface")}
-                  >
-                    <View style={[styles.areaLabelDot, { backgroundColor: getGradeColor(result.beckett.surface.grade) }]} />
-                    <Text style={styles.areaLabelText}>Surface</Text>
-                    <Text style={[styles.areaLabelGrade, { color: getGradeColor(result.beckett.surface.grade) }]}>
-                      {result.beckett.surface.grade}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
-            </View>
-          </ScrollView>
+                </ScrollView>
+              </View>
+            )}
+          />
 
           {selectedAnnotation && (
             <View style={styles.notePopup}>
@@ -2201,7 +2232,7 @@ export default function ResultsScreen() {
           {!selectedAnnotation && showAnnotations && (
             <View style={styles.annotationHint}>
               <Ionicons name="hand-left-outline" size={14} color="rgba(255,255,255,0.5)" />
-              <Text style={styles.annotationHintText}>Tap labels on the card to see details</Text>
+              <Text style={styles.annotationHintText}>Swipe to switch sides · Tap labels for details</Text>
             </View>
           )}
 
@@ -2212,7 +2243,10 @@ export default function ResultsScreen() {
                 viewerShowFront && styles.modalTabActive,
                 { opacity: pressed ? 0.85 : 1 },
               ]}
-              onPress={() => setViewerShowFront(true)}
+              onPress={() => {
+                setViewerShowFront(true);
+                imageViewerListRef.current?.scrollToIndex({ index: 0, animated: true });
+              }}
             >
               <Text style={[styles.modalTabText, viewerShowFront && styles.modalTabTextActive]}>Front</Text>
             </Pressable>
@@ -2222,7 +2256,10 @@ export default function ResultsScreen() {
                 !viewerShowFront && styles.modalTabActive,
                 { opacity: pressed ? 0.85 : 1 },
               ]}
-              onPress={() => setViewerShowFront(false)}
+              onPress={() => {
+                setViewerShowFront(false);
+                imageViewerListRef.current?.scrollToIndex({ index: 1, animated: true });
+              }}
             >
               <Text style={[styles.modalTabText, !viewerShowFront && styles.modalTabTextActive]}>Back</Text>
             </Pressable>
