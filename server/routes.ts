@@ -3850,6 +3850,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Price flags admin: apply Claude's suggested fix now ───────────────
+  app.post("/api/admin/price-flags/:id/apply-fix", async (req, res) => {
+    try {
+      const flagId = parseInt(req.params.id, 10);
+      const { rows } = await db.query(
+        `SELECT card_name, card_number, clean_search_term FROM price_flags WHERE id = $1`,
+        [flagId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Flag not found" });
+      const flag = rows[0];
+      if (!flag.clean_search_term) return res.status(400).json({ error: "No clean search term stored for this flag" });
+
+      const fixed = await autoApplyPriceFix(flagId, flag.card_name, flag.card_number, flag.clean_search_term);
+      const newStatus = fixed ? "resolved" : "no_fix";
+      await db.query(
+        `UPDATE price_flags
+         SET status = $1, correction_applied = $2, resolution_method = 'admin_applied',
+             resolved_at = NOW()
+         WHERE id = $3`,
+        [newStatus, fixed, flagId]
+      );
+      return res.json({ ok: true, status: newStatus, fixed });
+    } catch (err: any) {
+      console.error("[price-flags] apply-fix error:", err.message);
+      return res.status(500).json({ error: "Failed to apply fix" });
+    }
+  });
+
   // ── Price flags admin: submit admin response → re-trigger AI ──────────
   app.post("/api/admin/price-flags/:id/respond", async (req, res) => {
     try {

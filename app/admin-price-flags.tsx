@@ -68,6 +68,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
   const [adminText, setAdminText] = useState(flag.admin_response ?? "");
   const [sending, setSending] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [applyingFix, setApplyingFix] = useState(false);
   const statusCfg = STATUS_CONFIG[flag.status] ?? STATUS_CONFIG.pending;
   const isCompleted = flag.status === "resolved" || flag.status === "no_fix";
 
@@ -125,6 +126,48 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
       ]
     );
   }, [flag.id, qc]);
+
+  const handleApplyFix = useCallback(async () => {
+    if (!flag.clean_search_term) return;
+    Alert.alert(
+      "Apply Suggested Fix",
+      `Re-run the PokeTrace search using "${flag.clean_search_term}" and update the price cache?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Apply",
+          onPress: async () => {
+            setApplyingFix(true);
+            try {
+              const url = new URL(`/api/admin/price-flags/${flag.id}/apply-fix`, getApiUrl());
+              const res = await fetch(url.toString(), { method: "POST" });
+              const body = await res.json();
+              if (!res.ok) throw new Error(body.error ?? "Server error");
+              const outcome: "resolved" | "no_fix" = body.status;
+              setFlag(f => ({
+                ...f,
+                status: outcome,
+                resolution_method: "admin_applied",
+                correction_applied: body.fixed,
+                resolved_at: new Date().toISOString(),
+              }));
+              qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
+              Alert.alert(
+                body.fixed ? "Price Updated" : "No Match Found",
+                body.fixed
+                  ? "Cache updated with corrected prices. They'll show next time the card's profit screen is loaded."
+                  : "PokeTrace returned no usable data for that search. Try sending more context to Claude."
+              );
+            } catch (e: any) {
+              Alert.alert("Error", e.message);
+            } finally {
+              setApplyingFix(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [flag.id, flag.clean_search_term, qc]);
 
   const gradeRows = flag.flagged_grades.map(g => ({
     label: g,
@@ -206,6 +249,22 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
             <View style={[det.noteBox, { backgroundColor: "rgba(16,185,129,0.08)", borderColor: "rgba(16,185,129,0.3)" }]}>
               <Text style={[det.noteText, { color: "#10B981" }]}>{flag.corrected_search}</Text>
             </View>
+            {flag.clean_search_term && !isCompleted && (
+              <Pressable
+                onPress={handleApplyFix}
+                disabled={applyingFix}
+                style={({ pressed }) => [det.applyFixBtn, (pressed || applyingFix) && { opacity: 0.6 }]}
+              >
+                {applyingFix ? (
+                  <ActivityIndicator size="small" color="#10B981" />
+                ) : (
+                  <Ionicons name="flash" size={15} color="#10B981" />
+                )}
+                <Text style={det.applyFixTxt}>
+                  {applyingFix ? "Applying fix…" : "Apply Suggested Fix"}
+                </Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -625,5 +684,22 @@ const det = StyleSheet.create({
   resolveBtnTxt: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
+  },
+  applyFixBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "rgba(16,185,129,0.5)",
+    backgroundColor: "rgba(16,185,129,0.08)",
+    paddingVertical: 11,
+  },
+  applyFixTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#10B981",
   },
 });
