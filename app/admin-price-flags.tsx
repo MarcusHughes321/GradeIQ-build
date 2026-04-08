@@ -605,6 +605,10 @@ export default function AdminPriceFlagsScreen() {
   const webTop = Platform.OS === "web" ? 67 : 0;
   const [filterTab, setFilterTab] = useState<FilterTab>("needs_admin");
   const [selectedFlag, setSelectedFlag] = useState<PriceFlag | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<{
+    scanned: number; claudeReviewed: number; flagged: number;
+  } | null>(null);
 
   const { data, isLoading, refetch } = useQuery<{ flags: PriceFlag[] }>({
     queryKey: ["/api/admin/price-flags", filterTab],
@@ -619,6 +623,25 @@ export default function AdminPriceFlagsScreen() {
 
   const flags = data?.flags ?? [];
 
+  const handleScanCache = useCallback(async () => {
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const url = new URL("/api/admin/scan-cache", getApiUrl());
+      const res = await fetch(url.toString(), { method: "POST" });
+      if (!res.ok) throw new Error("Scan failed");
+      const body = await res.json();
+      setScanResult({ scanned: body.scanned, claudeReviewed: body.claudeReviewed, flagged: body.flagged });
+      if (body.flagged > 0) {
+        refetch();
+      }
+    } catch (e: any) {
+      Alert.alert("Scan Error", e.message);
+    } finally {
+      setScanning(false);
+    }
+  }, [refetch]);
+
   if (selectedFlag) {
     return <FlagDetail flag={selectedFlag} onClose={() => setSelectedFlag(null)} />;
   }
@@ -631,8 +654,36 @@ export default function AdminPriceFlagsScreen() {
           <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </Pressable>
         <Text style={st.title}>Price Flags</Text>
-        <View style={st.headerRight} />
+        <Pressable
+          onPress={handleScanCache}
+          disabled={scanning}
+          hitSlop={10}
+          style={[st.scanBtn, scanning && { opacity: 0.5 }]}
+        >
+          {scanning
+            ? <ActivityIndicator size="small" color={Colors.primary} />
+            : <Ionicons name="scan-outline" size={22} color={Colors.primary} />
+          }
+        </Pressable>
       </View>
+
+      {/* Scan result banner */}
+      {scanResult && (
+        <View style={st.scanBanner}>
+          <Ionicons name="shield-checkmark-outline" size={16} color="#10B981" />
+          <Text style={st.scanBannerTxt}>
+            Scanned {scanResult.scanned} cached prices
+            {scanResult.claudeReviewed > 0 ? ` · Claude reviewed ${scanResult.claudeReviewed}` : ""}
+            {" · "}
+            {scanResult.flagged > 0
+              ? `${scanResult.flagged} new issue${scanResult.flagged !== 1 ? "s" : ""} found`
+              : "All prices look healthy"}
+          </Text>
+          <Pressable onPress={() => setScanResult(null)} hitSlop={8}>
+            <Ionicons name="close" size={14} color={Colors.textMuted} />
+          </Pressable>
+        </View>
+      )}
 
       {/* Filter toggle */}
       <View style={st.filterRow}>
@@ -723,6 +774,14 @@ const st = StyleSheet.create({
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, fontFamily: "Inter_600SemiBold", fontSize: 17, color: Colors.text, textAlign: "center" },
   headerRight: { width: 40 },
+  scanBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  scanBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginBottom: 8, padding: 10,
+    backgroundColor: "#10B98118", borderRadius: 10,
+    borderWidth: 1, borderColor: "#10B98140",
+  },
+  scanBannerTxt: { flex: 1, fontSize: 12, color: Colors.text, lineHeight: 16 },
   filterRow: {
     flexDirection: "row",
     padding: 12,

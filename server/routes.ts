@@ -274,6 +274,59 @@ async function initGradingFeedbackTable(): Promise<void> {
   } catch (e: any) {
     console.error("[price-flags] Failed to create table:", e.message);
   }
+
+  // ── Corrections log — institutional memory for Claude ─────────────────
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS corrections_log (
+        id                SERIAL PRIMARY KEY,
+        flag_id           INTEGER,
+        cache_key         TEXT NOT NULL,
+        card_name         TEXT NOT NULL,
+        set_name          TEXT,
+        card_number       TEXT,
+        card_lang         TEXT DEFAULT 'en',
+        old_prices        JSONB,
+        new_prices        JSONB,
+        correction_method TEXT NOT NULL,
+        search_term_used  TEXT,
+        admin_note        TEXT,
+        ai_reasoning      TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS corrections_log_card_name_idx ON corrections_log (card_name)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS corrections_log_created_at_idx ON corrections_log (created_at DESC)`);
+
+    // Backfill from existing resolved price_flags (best-effort, skips duplicates)
+    await db.query(`
+      INSERT INTO corrections_log (flag_id, cache_key, card_name, set_name, card_number,
+        card_lang, old_prices, correction_method, search_term_used, ai_reasoning, created_at)
+      SELECT
+        pf.id,
+        CASE WHEN pf.card_number IS NOT NULL
+          THEN pf.card_name || ' ' || split_part(pf.card_number, '/', 1)
+          ELSE pf.card_name
+        END AS cache_key,
+        pf.card_name,
+        pf.set_name,
+        pf.card_number,
+        pf.card_lang,
+        pf.flagged_values AS old_prices,
+        COALESCE(pf.resolution_method, 'unknown') AS correction_method,
+        pf.clean_search_term,
+        pf.ai_analysis,
+        COALESCE(pf.resolved_at, pf.created_at)
+      FROM price_flags pf
+      WHERE pf.correction_applied = true
+        AND NOT EXISTS (
+          SELECT 1 FROM corrections_log cl WHERE cl.flag_id = pf.id
+        )
+    `);
+    console.log("[corrections-log] DB table ready");
+  } catch (e: any) {
+    console.error("[corrections-log] Failed to create table:", e.message);
+  }
 }
 
 async function writePriceHistorySnapshot(
@@ -394,6 +447,19 @@ async function autoApplyPriceFix(
 
     // Overwrite the original cache entry so the next card-profit load gets fixed prices
     const originalCacheKey = [cardName, baseNum].filter(Boolean).join(" ");
+
+    // Snapshot old prices before overwriting (for corrections_log)
+    let oldPrices: Record<string, number> | null = null;
+    try {
+      const oldRow = await db.query<{ data: any }>(
+        `SELECT data FROM ebay_price_cache WHERE cache_key = $1`, [originalCacheKey]
+      );
+      if (oldRow.rows.length > 0) {
+        const d = oldRow.rows[0].data;
+        oldPrices = { psa10: d.psa10 ?? 0, psa9: d.psa9 ?? 0, psa8: d.psa8 ?? 0, raw: d.raw ?? 0 };
+      }
+    } catch { /* non-fatal */ }
+
     ebayPriceCache.set(originalCacheKey, result);
     const { fetchedAt: _fa, isStale: _is, gradeDetails: _gd, ...dbData } = result;
     await db.query(
@@ -402,6 +468,17 @@ async function autoApplyPriceFix(
          ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
       [originalCacheKey, JSON.stringify({ ...dbData, gradeDetails: result.gradeDetails })]
     );
+
+    // Log the correction for institutional memory
+    void logCorrection({
+      flagId,
+      cacheKey: originalCacheKey,
+      cardName,
+      oldPrices,
+      newPrices: { psa10: result.psa10, psa9: result.psa9, psa8: result.psa8, raw: result.raw },
+      correctionMethod: "auto_fix",
+      searchTermUsed: cleanSearchTerm,
+    });
 
     console.log(`[price-flags] Auto-fix applied for flag #${flagId} — matched: ${ptCard.name} ${ptCard.cardNumber} | PSA10 $${result.psa10}`);
     return true;
@@ -484,6 +561,86 @@ async function previewPriceFix(
   }
 }
 
+// ── Corrections Log — write one entry every time a price is fixed ──────────
+// This builds the institutional memory Claude uses to get smarter over time.
+async function logCorrection(opts: {
+  flagId?: number;
+  cacheKey: string;
+  cardName: string;
+  setName?: string | null;
+  cardNumber?: string | null;
+  cardLang?: string;
+  oldPrices?: Record<string, number> | null;
+  newPrices?: Record<string, number> | null;
+  correctionMethod: string;   // 'auto_fix' | 'admin_applied' | 'manual_prices' | 'sanity_flag'
+  searchTermUsed?: string | null;
+  adminNote?: string | null;
+  aiReasoning?: string | null;
+}): Promise<void> {
+  try {
+    await db.query(
+      `INSERT INTO corrections_log
+         (flag_id, cache_key, card_name, set_name, card_number, card_lang,
+          old_prices, new_prices, correction_method, search_term_used,
+          admin_note, ai_reasoning)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        opts.flagId ?? null,
+        opts.cacheKey,
+        opts.cardName,
+        opts.setName ?? null,
+        opts.cardNumber ?? null,
+        opts.cardLang ?? "en",
+        opts.oldPrices ? JSON.stringify(opts.oldPrices) : null,
+        opts.newPrices ? JSON.stringify(opts.newPrices) : null,
+        opts.correctionMethod,
+        opts.searchTermUsed ?? null,
+        opts.adminNote ?? null,
+        opts.aiReasoning ?? null,
+      ]
+    );
+  } catch (e: any) {
+    console.error("[corrections-log] Failed to log correction:", e.message);
+  }
+}
+
+// ── Fetch recent corrections for Claude context ───────────────────────────
+async function getCorrectionsContext(limit = 60): Promise<string> {
+  try {
+    const { rows } = await db.query(
+      `SELECT card_name, set_name, card_number, old_prices, new_prices,
+              correction_method, search_term_used, admin_note, ai_reasoning
+       FROM corrections_log
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    if (rows.length === 0) return "";
+
+    const lines = rows.map((r: any) => {
+      const oldP10 = r.old_prices?.psa10 ?? r.old_prices?.PSA10;
+      const newP10 = r.new_prices?.psa10 ?? r.new_prices?.PSA10;
+      const priceStr = oldP10 != null
+        ? `PSA10 was $${oldP10}${newP10 != null ? ` → corrected to $${newP10}` : " (flagged)"}`
+        : "(prices unknown)";
+      const method = r.correction_method === "manual_prices" ? "manual override"
+        : r.correction_method === "auto_fix" ? "AI auto-fix"
+        : r.correction_method === "admin_applied" ? "admin confirmed AI fix"
+        : r.correction_method === "sanity_flag" ? "sanity check auto-flag"
+        : r.correction_method;
+      const extra = r.search_term_used ? ` via search "${r.search_term_used}"` : "";
+      const note = r.admin_note ? ` [note: ${r.admin_note}]` : "";
+      const card = [r.card_name, r.set_name, r.card_number].filter(Boolean).join(" / ");
+      return `• ${card}: ${priceStr} — ${method}${extra}${note}`;
+    });
+
+    return `\n\nPAST PRICE CORRECTIONS (institutional memory — use these to spot patterns):\n${lines.join("\n")}`;
+  } catch (e: any) {
+    console.error("[corrections-log] Failed to fetch context:", e.message);
+    return "";
+  }
+}
+
 async function analyzePriceFlag(flagId: number, previewOnly?: boolean): Promise<void> {
   try {
     await db.query(`UPDATE price_flags SET status = 'ai_processing' WHERE id = $1`, [flagId]);
@@ -506,7 +663,10 @@ async function analyzePriceFlag(flagId: number, previewOnly?: boolean): Promise<
       ? `\n\nAdmin hint: "${flag.admin_response}"`
       : "";
 
-    const prompt = `You are a Pokemon card market data analyst. A user has flagged eBay sold prices as looking incorrect for the following card:
+    // Fetch corrections history to give Claude institutional memory
+    const correctionsContext = await getCorrectionsContext(60);
+
+    const prompt = `You are a Pokemon card market data analyst with growing expertise from past price corrections. A user has flagged eBay sold prices as looking incorrect for the following card:
 
 Card: ${flag.card_name}
 Set: ${flag.set_name ?? "unknown"} (code: ${flag.set_code ?? "unknown"})
@@ -529,9 +689,11 @@ Analyse why the prices likely look wrong. Then suggest both a human-readable str
 
 The cleanSearchTerm should be just the card name and ideally the set name to disambiguate, e.g. "Charizard Base Set" or "Gengar Legend Maker" — keep it concise and use only inclusion terms.
 
+If the corrections history below contains a similar card from the same set with a known data contamination issue (e.g. two sets sharing a card name/number, PokeTrace mixing up set data), flag this explicitly in your analysis and set confidence to "low" to trigger admin review rather than auto-apply.${correctionsContext}
+
 Respond in this JSON format only:
 {
-  "analysis": "Your detailed analysis of why the prices are wrong (2-4 sentences)",
+  "analysis": "Your detailed analysis of why the prices are wrong (2-4 sentences). Reference any relevant past corrections if applicable.",
   "correctedSearch": "Human-readable strategy for the admin to understand what went wrong and how to verify",
   "cleanSearchTerm": "Simple search term for PokeTrace API, e.g. 'Gengar Legend Maker' (or null if no better search exists)",
   "confidence": "high|medium|low"
@@ -539,7 +701,7 @@ Respond in this JSON format only:
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 600,
+      max_tokens: 800,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -899,6 +1061,9 @@ async function fetchEbayGradedPrices(
   }
 
   if (hasData) {
+    // ── Sanity checks before caching — auto-flag suspicious prices ────────
+    void checkAndFlagSuspiciousPrices(cacheKey, cardName, setName, cardNumber ?? null, result);
+
     ebayPriceCache.set(cacheKey, result);
     const { fetchedAt: _fa, isStale: _is, gradeDetails: _gd, ...dbData } = result;
     db.query(
@@ -919,6 +1084,99 @@ async function fetchEbayGradedPrices(
   }
 
   return result;
+}
+
+// ── Sanity checks on newly fetched PokeTrace prices ───────────────────────
+// Runs async / fire-and-forget. Auto-creates a price_flag when prices look
+// structurally wrong (grade inversion, extreme ratio, known-bad pattern).
+async function checkAndFlagSuspiciousPrices(
+  cacheKey: string,
+  cardName: string,
+  setName: string,
+  cardNumber: string | null,
+  result: EbayAllGrades
+): Promise<void> {
+  try {
+    const issues: string[] = [];
+
+    // Rule 1: PSA10 should never be less than PSA9 (when both > 0)
+    if (result.psa10 > 0 && result.psa9 > 0 && result.psa10 < result.psa9) {
+      issues.push(`PSA10 ($${result.psa10}) is LOWER than PSA9 ($${result.psa9}) — grade inversion`);
+    }
+
+    // Rule 2: Adjacent grade ratio > 8x is suspicious (e.g. PSA10 $9,500 vs PSA9 $800)
+    if (result.psa10 > 0 && result.psa9 > 0 && result.psa10 / result.psa9 > 8) {
+      issues.push(`PSA10/PSA9 ratio is ${(result.psa10 / result.psa9).toFixed(1)}x — possible data contamination (PSA10 $${result.psa10}, PSA9 $${result.psa9})`);
+    }
+
+    // Rule 3: PSA10 exactly equal to PSA9 when both > $50 — PokeTrace sometimes
+    //         returns the same avg for all grades when the underlying data is wrong
+    if (result.psa10 > 50 && result.psa9 > 50 && result.psa10 === result.psa9) {
+      issues.push(`PSA10 and PSA9 are identical ($${result.psa10}) — likely a data quality issue`);
+    }
+
+    // Rule 4: Raw price > PSA9 (not impossible but very unusual for sealed graded cards)
+    if (result.raw > 0 && result.psa9 > 0 && result.raw > result.psa9 * 1.5) {
+      issues.push(`Raw price ($${result.raw}) is higher than PSA9 ($${result.psa9}) — unusual`);
+    }
+
+    // Rule 5: Check against known corrections — if this card has been corrected before
+    //         and the new price is wildly different, auto-flag for review
+    const knownCorrection = await db.query(
+      `SELECT new_prices FROM corrections_log
+       WHERE cache_key = $1 AND new_prices IS NOT NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      [cacheKey]
+    );
+    if (knownCorrection.rows.length > 0) {
+      const knownNew = knownCorrection.rows[0].new_prices;
+      const knownP10 = knownNew?.psa10 ?? 0;
+      if (knownP10 > 0 && result.psa10 > 0 && Math.abs(result.psa10 - knownP10) / knownP10 > 0.6) {
+        issues.push(`Price differs by ${Math.round(Math.abs(result.psa10 - knownP10) / knownP10 * 100)}% from a previous manual correction (was $${knownP10}, now $${result.psa10}) — may have regressed`);
+      }
+    }
+
+    if (issues.length === 0) return;
+
+    // Check if a pending/needs_admin flag already exists for this card
+    const existing = await db.query(
+      `SELECT id FROM price_flags
+       WHERE card_name = $1 AND status IN ('pending', 'needs_admin', 'ai_processing')
+       LIMIT 1`,
+      [cardName]
+    );
+    if (existing.rows.length > 0) return; // Don't duplicate
+
+    const issueText = issues.join("; ");
+    console.log(`[sanity-check] Auto-flagging "${cacheKey}": ${issueText}`);
+
+    await db.query(
+      `INSERT INTO price_flags
+         (card_name, set_name, card_number, company, flagged_grades, flagged_values,
+          user_note, status)
+       VALUES ($1, $2, $3, 'PSA', $4, $5, $6, 'pending')`,
+      [
+        cardName,
+        setName,
+        cardNumber,
+        JSON.stringify(["PSA10", "PSA9"]),
+        JSON.stringify({ PSA10: result.psa10, PSA9: result.psa9 }),
+        `[Auto-detected] ${issueText}`,
+      ]
+    );
+
+    void logCorrection({
+      cacheKey,
+      cardName,
+      setName,
+      cardNumber,
+      oldPrices: { psa10: result.psa10, psa9: result.psa9, raw: result.raw },
+      correctionMethod: "sanity_flag",
+      aiReasoning: issueText,
+    });
+  } catch (e: any) {
+    console.error("[sanity-check] Error:", e.message);
+  }
 }
 
 // ── Japanese raw price (PokeTrace EU / Cardmarket NM price) ───────────────────
@@ -4008,6 +4266,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const newStatus = fixed ? "resolved" : "no_fix";
+
+      // Fetch flag details for the corrections log
+      const flagForLog = await db.query(
+        `SELECT card_name, set_name, card_number, card_lang, flagged_values, clean_search_term, ai_analysis FROM price_flags WHERE id = $1`,
+        [flagId]
+      );
+      const fl = flagForLog.rows[0];
+
+      if (fixed && fl) {
+        // Get the new prices that were just written to cache
+        const cacheKeyForLog = [fl.card_name, fl.card_number ? fl.card_number.split("/")[0].trim() : ""]
+          .filter(Boolean).join(" ");
+        const newCacheRow = await db.query<{ data: any }>(
+          `SELECT data FROM ebay_price_cache WHERE cache_key = $1`, [cacheKeyForLog]
+        ).catch(() => ({ rows: [] as any[] }));
+        const nd = newCacheRow.rows[0]?.data ?? {};
+        void logCorrection({
+          flagId,
+          cacheKey: cacheKeyForLog,
+          cardName: fl.card_name,
+          setName: fl.set_name,
+          cardNumber: fl.card_number,
+          cardLang: fl.card_lang,
+          oldPrices: fl.flagged_values ? { psa10: fl.flagged_values.psa10 ?? 0, psa9: fl.flagged_values.psa9 ?? 0 } : null,
+          newPrices: { psa10: nd.psa10 ?? 0, psa9: nd.psa9 ?? 0, raw: nd.raw ?? 0 },
+          correctionMethod: "admin_applied",
+          searchTermUsed: fl.clean_search_term,
+          aiReasoning: fl.ai_analysis,
+        });
+      }
+
       await db.query(
         `UPDATE price_flags
          SET status = $1, correction_applied = $2, resolution_method = 'admin_applied',
@@ -4075,6 +4364,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         [cacheKey, JSON.stringify({ ...dbData, gradeDetails: {} })]
       );
 
+      // Fetch old prices + flag metadata for corrections log
+      const oldCacheRow = await db.query<{ data: any }>(
+        `SELECT data FROM ebay_price_cache WHERE cache_key = $1`, [cacheKey]
+      ).catch(() => ({ rows: [] as any[] }));
+      const oldD = oldCacheRow.rows[0]?.data ?? {};
+      const flagMeta = await db.query(
+        `SELECT set_name, card_number, card_lang, user_note FROM price_flags WHERE id = $1`, [flagId]
+      ).catch(() => ({ rows: [] as any[] }));
+      const fm = flagMeta.rows[0] ?? {};
+
       await db.query(
         `UPDATE price_flags
          SET status = 'resolved', correction_applied = true,
@@ -4083,11 +4382,180 @@ export async function registerRoutes(app: Express): Promise<Server> {
         [flagId]
       );
 
+      void logCorrection({
+        flagId,
+        cacheKey,
+        cardName: flag.card_name,
+        setName: fm.set_name,
+        cardNumber: fm.card_number,
+        cardLang: fm.card_lang,
+        oldPrices: { psa10: oldD.psa10 ?? 0, psa9: oldD.psa9 ?? 0, raw: oldD.raw ?? 0 },
+        newPrices: { psa10: result.psa10, psa9: result.psa9, psa8: result.psa8, psa7: result.psa7, raw: result.raw },
+        correctionMethod: "manual_prices",
+        adminNote: fm.user_note,
+      });
+
       console.log(`[price-flags] Manual prices applied for flag #${flagId} — key "${cacheKey}" | PSA10 $${result.psa10}`);
       return res.json({ ok: true, cacheKey, psa10: result.psa10 });
     } catch (err: any) {
       console.error("[price-flags] manual-prices error:", err.message);
       return res.status(500).json({ error: "Failed to apply manual prices" });
+    }
+  });
+
+  // ── Proactive cache scanner — Claude reviews all cached prices ──────────
+  // Fetches all ebay_price_cache entries, batches them to Claude with the
+  // corrections history as context, and auto-creates flags for suspicious ones.
+  app.post("/api/admin/scan-cache", async (req, res) => {
+    try {
+      // Fetch all cache entries
+      const { rows: cacheRows } = await db.query<{
+        cache_key: string; data: any;
+      }>(`SELECT cache_key, data FROM ebay_price_cache ORDER BY fetched_at DESC`);
+
+      if (cacheRows.length === 0) {
+        return res.json({ scanned: 0, flagged: 0, flags: [] });
+      }
+
+      // Get existing pending/needs_admin flags to avoid duplicating
+      const { rows: existingFlags } = await db.query<{ card_name: string }>(
+        `SELECT card_name FROM price_flags WHERE status IN ('pending', 'needs_admin', 'ai_processing')`
+      );
+      const existingFlaggedNames = new Set(existingFlags.map((r: any) => r.card_name.toLowerCase()));
+
+      // Get corrections context for Claude
+      const correctionsContext = await getCorrectionsContext(80);
+
+      // Filter out JP-raw cache entries and already-flagged cards
+      const candidates = cacheRows.filter(r => {
+        if (r.cache_key.startsWith("jp-raw:")) return false;
+        const cardName = r.cache_key.split(" ").slice(0, -1).join(" ") || r.cache_key;
+        if (existingFlaggedNames.has(cardName.toLowerCase())) return false;
+        const d = r.data;
+        // Must have at least PSA10 or PSA9 > 0 to be worth scanning
+        return (d.psa10 > 0 || d.psa9 > 0);
+      });
+
+      // Apply structural sanity pre-filter to avoid wasting Claude calls on obvious issues
+      // (they'll have been auto-flagged by checkAndFlagSuspiciousPrices already)
+      const needsClaudeReview = candidates.filter(r => {
+        const d = r.data;
+        const p10 = d.psa10 ?? 0;
+        const p9 = d.psa9 ?? 0;
+        // Skip if structurally fine AND cheap (< $200 PSA10 is low risk)
+        return !(p10 < p9) && !(p10 === p9 && p10 > 50) && !(p10 / p9 > 8 && p10 > 0 && p9 > 0);
+      });
+
+      // Process in batches of 25 cards
+      const BATCH_SIZE = 25;
+      const batches: typeof needsClaudeReview[] = [];
+      for (let i = 0; i < needsClaudeReview.length; i += BATCH_SIZE) {
+        batches.push(needsClaudeReview.slice(i, i + BATCH_SIZE));
+      }
+
+      const flaggedResults: { cacheKey: string; reason: string; severity: string }[] = [];
+
+      for (const batch of batches) {
+        const cardList = batch.map(r => {
+          const d = r.data;
+          return `${r.cache_key} | PSA10: $${d.psa10 ?? 0} | PSA9: $${d.psa9 ?? 0} | PSA8: $${d.psa8 ?? 0} | Raw: $${d.raw ?? 0}`;
+        }).join("\n");
+
+        const scanPrompt = `You are a Pokemon TCG card price intelligence expert. You have deep knowledge of Pokemon card market values across all eras and sets.
+
+Review these eBay sold price cache entries and identify any that look suspicious or incorrect. Use your Pokemon knowledge and the correction history below to spot:
+- Prices that seem far too high or too low for the card's known rarity/era
+- Cards where the price likely belongs to a different printing or set (data contamination)
+- Known problem patterns from the correction history (e.g. set confusion, name collisions)
+- Any other data quality issues${correctionsContext}
+
+CACHE ENTRIES TO REVIEW:
+${cardList}
+
+Return a JSON array of ONLY the suspicious entries. Each entry:
+{
+  "cacheKey": "exact cache key from the list",
+  "reason": "concise explanation of why this price looks wrong",
+  "severity": "high|medium|low"
+}
+
+Return [] if all prices look reasonable. Only flag genuine concerns — do not flag cards where the price is simply high for a rare card.`;
+
+        try {
+          const aiResp = await anthropic.messages.create({
+            model: "claude-sonnet-4-6",
+            max_tokens: 2000,
+            messages: [{ role: "user", content: scanPrompt }],
+          });
+          const aiText = (aiResp.content[0] as Anthropic.TextBlock)?.text ?? "";
+          const arrMatch = aiText.match(/\[[\s\S]*\]/);
+          if (!arrMatch) continue;
+          const suspicious: { cacheKey: string; reason: string; severity: string }[] = JSON.parse(arrMatch[0]);
+          flaggedResults.push(...suspicious.filter(s => s.cacheKey && s.reason));
+        } catch (e: any) {
+          console.error("[scan-cache] Batch AI call failed:", e.message);
+        }
+      }
+
+      // Create price_flags for each suspicious entry
+      let created = 0;
+      for (const item of flaggedResults) {
+        try {
+          const cacheRow = cacheRows.find(r => r.cache_key === item.cacheKey);
+          if (!cacheRow) continue;
+          const d = cacheRow.data;
+
+          // Parse card name + number from cache key (format: "CardName NUM")
+          const parts = item.cacheKey.split(" ");
+          const lastPart = parts[parts.length - 1];
+          const hasNumber = /^\d+$/.test(lastPart);
+          const cardName = hasNumber ? parts.slice(0, -1).join(" ") : item.cacheKey;
+          const cardNumber = hasNumber ? lastPart : null;
+
+          // Check not already flagged
+          const dup = await db.query(
+            `SELECT id FROM price_flags WHERE card_name = $1 AND status IN ('pending','needs_admin','ai_processing') LIMIT 1`,
+            [cardName]
+          );
+          if (dup.rows.length > 0) continue;
+
+          await db.query(
+            `INSERT INTO price_flags
+               (card_name, card_number, company, flagged_grades, flagged_values, user_note, status)
+             VALUES ($1, $2, 'PSA', $3, $4, $5, 'pending')`,
+            [
+              cardName,
+              cardNumber,
+              JSON.stringify(["PSA10", "PSA9"]),
+              JSON.stringify({ PSA10: d.psa10 ?? 0, PSA9: d.psa9 ?? 0 }),
+              `[Cache scan · ${item.severity}] ${item.reason}`,
+            ]
+          );
+          created++;
+
+          void logCorrection({
+            cacheKey: item.cacheKey,
+            cardName,
+            cardNumber,
+            oldPrices: { psa10: d.psa10 ?? 0, psa9: d.psa9 ?? 0, raw: d.raw ?? 0 },
+            correctionMethod: "sanity_flag",
+            aiReasoning: item.reason,
+          });
+        } catch (e: any) {
+          console.error("[scan-cache] Failed to create flag:", e.message);
+        }
+      }
+
+      console.log(`[scan-cache] Scanned ${candidates.length} cards (${batches.length} Claude batches) — flagged ${created} new issues`);
+      return res.json({
+        scanned: candidates.length,
+        claudeReviewed: needsClaudeReview.length,
+        flagged: created,
+        flags: flaggedResults,
+      });
+    } catch (err: any) {
+      console.error("[scan-cache] Error:", err.message);
+      return res.status(500).json({ error: "Cache scan failed" });
     }
   });
 
