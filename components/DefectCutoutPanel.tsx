@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import {
   View, Text, Image, ScrollView, StyleSheet, Modal,
-  FlatList, Dimensions, Pressable, Platform,
+  FlatList, Dimensions, Pressable, ActivityIndicator, Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as ImageManipulator from "expo-image-manipulator";
 import type { DefectMarker, CardBounds } from "@/lib/types";
 import Colors from "@/constants/colors";
+import { apiRequest } from "@/lib/query-client";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
@@ -33,75 +35,88 @@ const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   surface: "layers-outline",
 };
 
+// ── Filter types ─────────────────────────────────────────────────────────────
+type FilterMode = "css" | "server";
 type FilterDef = {
   id: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   description: string;
-  filter: object[];
+  mode: FilterMode;
+  cssFilter?: object[];   // used when mode === "css"
+  serverType?: string;    // used when mode === "server"
 };
 
-// All filters are instant CSS — applied by React Native's native filter API (RN 0.76+)
-// Values are intentionally extreme to reveal defects not visible in normal view
 const FILTER_PRESETS: FilterDef[] = [
+  // ── Instant (CSS, RN 0.76+ native filter API) ─────────────────────────────
   {
     id: "normal",
     label: "Normal",
     icon: "image-outline",
     description: "Original image",
-    filter: [],
+    mode: "css",
+    cssFilter: [],
   },
   {
     id: "contrast",
     label: "Hi-Contrast",
     icon: "contrast-outline",
     description: "8× contrast — exposes edge chips, corner wear and surface marks",
-    filter: [{ contrast: 8 }, { brightness: 0.65 }],
+    mode: "css",
+    cssFilter: [{ contrast: 8 }, { brightness: 0.65 }],
   },
   {
-    id: "texture",
-    label: "Texture",
-    icon: "grid-outline",
-    description: "Extreme B&W contrast — simulates surface texture map, reveals micro-scratches and print defects",
-    filter: [{ grayscale: 1 }, { contrast: 18 }, { brightness: 1.1 }],
-  },
-  {
-    id: "edge",
-    label: "Edge Detect",
-    icon: "analytics-outline",
-    description: "Unsharp mask: blur → extreme contrast → invert — every edge and scratch appears as a bright line",
-    filter: [{ grayscale: 1 }, { blur: 1 }, { contrast: 40 }, { invert: 1 }],
-  },
-  {
-    id: "surface",
-    label: "Surface Scan",
-    icon: "scan-outline",
-    description: "Inverted B&W — light scratches on dark surfaces become bold dark lines",
-    filter: [{ grayscale: 1 }, { invert: 1 }, { contrast: 10 }, { brightness: 0.9 }],
+    id: "grayscale",
+    label: "Grayscale",
+    icon: "color-filter-outline",
+    description: "Strips holo shimmer so surface scratches and print defects are unmissable",
+    mode: "css",
+    cssFilter: [{ grayscale: 1 }, { contrast: 4 }, { brightness: 0.88 }],
   },
   {
     id: "invert",
     label: "Invert",
     icon: "eye-outline",
-    description: "Colour inversion with high contrast — reveals whitening on dark edges and borders",
-    filter: [{ invert: 1 }, { contrast: 5 }, { brightness: 0.9 }],
+    description: "Colour inversion — light scratches on dark borders become obvious",
+    mode: "css",
+    cssFilter: [{ invert: 1 }, { contrast: 4 }],
   },
   {
     id: "saturate",
     label: "Saturate",
     icon: "color-palette-outline",
-    description: "10× colour boost — foil inconsistencies, print lines and ink bleed become visible",
-    filter: [{ saturate: 10 }, { contrast: 1.8 }],
+    description: "10× colour boost — foil inconsistencies, ink bleed and print lines pop",
+    mode: "css",
+    cssFilter: [{ saturate: 10 }, { contrast: 1.8 }],
+  },
+  // ── Server-side (real convolution via sharp, ~1-2 s first load then cached) ─
+  {
+    id: "texture",
+    label: "Texture Map",
+    icon: "grid-outline",
+    description: "CLAHE adaptive equalisation — locally adjusts brightness across the card surface to reveal micro-scratches and print texture invisible to global contrast",
+    mode: "server",
+    serverType: "texture",
   },
   {
-    id: "warm",
-    label: "Warm Relief",
+    id: "emboss",
+    label: "Surface Relief",
     icon: "layers-outline",
-    description: "Sepia + high contrast — border wear, edge whitening and creases stand out",
-    filter: [{ sepia: 1 }, { contrast: 12 }, { brightness: 0.75 }],
+    description: "Emboss convolution — 3-D relief view exposes deformations, dents and creases (same technique used by TAG & DCG graders)",
+    mode: "server",
+    serverType: "emboss",
+  },
+  {
+    id: "edge",
+    label: "Edge Detect",
+    icon: "analytics-outline",
+    description: "Laplacian kernel — mathematically finds every edge, scratch and print line; highlights defects that eyes miss",
+    mode: "server",
+    serverType: "edge",
   },
 ];
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function mapToImagePosition(x: number, y: number, bounds?: CardBounds | null) {
   if (!bounds) return { imgX: x, imgY: y };
   const cardLeft = bounds.leftPercent;
@@ -135,6 +150,7 @@ function CropImage({
   );
 }
 
+// ── Defect tile (in the horizontal scroll strip) ──────────────────────────────
 function DefectTile({
   defect, imageUri, imgWidth, imgHeight, cardBounds, onPress,
 }: {
@@ -173,23 +189,26 @@ function DefectTile({
   );
 }
 
+// ── Viewer page (one per defect in the modal FlatList) ────────────────────────
 function DefectViewerPage({
-  defect, imageUri, imgWidth, imgHeight, cardBounds, index, total, activeFilter,
+  defect, imageUri, filteredUri, imgWidth, imgHeight, cardBounds, index, total, cssFilter, isLoading,
 }: {
-  defect: DefectMarker; imageUri: string; imgWidth: number; imgHeight: number;
-  cardBounds?: CardBounds | null; index: number; total: number; activeFilter: FilterDef;
+  defect: DefectMarker; imageUri: string; filteredUri: string | null;
+  imgWidth: number; imgHeight: number; cardBounds?: CardBounds | null;
+  index: number; total: number; cssFilter: object[]; isLoading: boolean;
 }) {
   const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
-  const filterStyle = activeFilter.filter.length > 0 ? { filter: activeFilter.filter } as any : undefined;
+  const displayUri = filteredUri ?? imageUri;
+  const filterStyle = cssFilter.length > 0 ? ({ filter: cssFilter } as any) : undefined;
 
   return (
     <View style={styles.viewerPage}>
       <View style={[styles.viewerCropWrap, { borderColor: color + "55" }]}>
-        {/* Filtered image layer */}
+        {/* Image layer — CSS filter applied here; filtered server result replaces uri */}
         <View style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }, filterStyle]}>
           {imgWidth > 0 ? (
-            <CropImage imageUri={imageUri} imgWidth={imgWidth} imgHeight={imgHeight}
+            <CropImage imageUri={displayUri} imgWidth={imgWidth} imgHeight={imgHeight}
               imgX={imgX} imgY={imgY} size={VIEWER_SIZE} zoom={VIEWER_ZOOM} />
           ) : (
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: Colors.surface }]} />
@@ -200,6 +219,12 @@ function DefectViewerPage({
           <View style={[styles.crosshairRingLg, { borderColor: color }]} />
           <View style={[styles.crosshairDotLg, { backgroundColor: color }]} />
         </View>
+        {/* Loading overlay */}
+        {isLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="small" color={Colors.primary} />
+          </View>
+        )}
       </View>
 
       <View style={[styles.viewerInfoBox, { borderColor: color + "33" }]}>
@@ -224,6 +249,7 @@ function DefectViewerPage({
   );
 }
 
+// ── Main component ─────────────────────────────────────────────────────────────
 interface Props {
   defects: DefectMarker[];
   frontImage: string;
@@ -239,6 +265,12 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [activeFilterId, setActiveFilterId] = useState("normal");
+  // filteredCache: key = `${side}:${serverType}` → data URI of processed image
+  const filteredCache = useRef<Record<string, string>>({});
+  const [filteredFrontUri, setFilteredFrontUri] = useState<string | null>(null);
+  const [filteredBackUri, setFilteredBackUri] = useState<string | null>(null);
+  const [loadingFront, setLoadingFront] = useState(false);
+  const [loadingBack, setLoadingBack] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -256,9 +288,75 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
 
   const activeFilter = FILTER_PRESETS.find(f => f.id === activeFilterId) ?? FILTER_PRESETS[0];
 
+  // ── Fetch a server-side filter for one side ──────────────────────────────
+  const fetchServerFilter = async (side: "front" | "back", serverType: string) => {
+    const cacheKey = `${side}:${serverType}`;
+    if (filteredCache.current[cacheKey]) {
+      // Already cached — apply immediately
+      if (side === "front") setFilteredFrontUri(filteredCache.current[cacheKey]);
+      else setFilteredBackUri(filteredCache.current[cacheKey]);
+      return;
+    }
+
+    const uri = side === "front" ? frontImage : backImage;
+    if (side === "front") setLoadingFront(true);
+    else setLoadingBack(true);
+
+    try {
+      let base64: string;
+
+      if (uri.startsWith("data:")) {
+        // Already a data URI (cert lookup crossover) — extract raw base64
+        base64 = uri.split(",")[1];
+      } else {
+        // File URI — resize to 400px so the payload stays small (~30-80 KB)
+        const compressed = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 400 } }],
+          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (!compressed.base64) throw new Error("Compression returned no base64");
+        base64 = compressed.base64;
+      }
+
+      const resp = await apiRequest("POST", "/api/filter-image", { imageBase64: base64, filterType: serverType });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Server ${resp.status}: ${errText}`);
+      }
+      const data = await resp.json() as { resultBase64: string };
+      const dataUri = `data:image/jpeg;base64,${data.resultBase64}`;
+      filteredCache.current[cacheKey] = dataUri;
+      if (side === "front") setFilteredFrontUri(dataUri);
+      else setFilteredBackUri(dataUri);
+    } catch (err: any) {
+      console.error("[DefectCutoutPanel] filter-image failed:", err?.message ?? err);
+    } finally {
+      if (side === "front") setLoadingFront(false);
+      else setLoadingBack(false);
+    }
+  };
+
+  // ── Handle filter selection ──────────────────────────────────────────────
+  const handleFilterSelect = (filterId: string) => {
+    setActiveFilterId(filterId);
+    const preset = FILTER_PRESETS.find(f => f.id === filterId);
+    if (!preset || preset.mode !== "server" || !preset.serverType) {
+      // CSS filter — no server call needed
+      setFilteredFrontUri(null);
+      setFilteredBackUri(null);
+      return;
+    }
+    // Kick off server requests for both sides (needed when user swipes between defects)
+    fetchServerFilter("front", preset.serverType);
+    fetchServerFilter("back", preset.serverType);
+  };
+
   const openViewer = (index: number) => {
     setViewerIndex(index);
     setActiveFilterId("normal");
+    setFilteredFrontUri(null);
+    setFilteredBackUri(null);
     setViewerOpen(true);
   };
 
@@ -326,6 +424,7 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
         </>
       )}
 
+      {/* ── Fullscreen viewer modal ─────────────────────────────────────────── */}
       <Modal
         visible={viewerOpen}
         transparent={false}
@@ -359,22 +458,27 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
             renderItem={({ item, index }) => {
               const isFront = item.side === "front";
               const dims = isFront ? frontDims : backDims;
+              const filteredUri = isFront ? filteredFrontUri : filteredBackUri;
+              const isLoading = isFront ? loadingFront : loadingBack;
+              const cssFilter = activeFilter.mode === "css" ? (activeFilter.cssFilter ?? []) : [];
               return (
                 <DefectViewerPage
                   defect={item}
                   imageUri={isFront ? frontImage : backImage}
+                  filteredUri={filteredUri}
                   imgWidth={dims?.w ?? 0}
                   imgHeight={dims?.h ?? 0}
                   cardBounds={isFront ? frontCardBounds : backCardBounds}
                   index={index}
                   total={sorted.length}
-                  activeFilter={activeFilter}
+                  cssFilter={cssFilter}
+                  isLoading={isLoading}
                 />
               );
             }}
           />
 
-          {/* ── Filter strip ── */}
+          {/* ── Filter strip ──────────────────────────────────────────────────── */}
           <View style={styles.filterSection}>
             <ScrollView
               horizontal
@@ -383,10 +487,11 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
             >
               {FILTER_PRESETS.map((f) => {
                 const isActive = activeFilterId === f.id;
+                const isServer = f.mode === "server";
                 return (
                   <Pressable
                     key={f.id}
-                    onPress={() => setActiveFilterId(f.id)}
+                    onPress={() => handleFilterSelect(f.id)}
                     style={({ pressed }) => [
                       styles.filterPill,
                       isActive && styles.filterPillActive,
@@ -395,6 +500,11 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
                   >
                     <Ionicons name={f.icon} size={13} color={isActive ? "#fff" : Colors.textMuted} />
                     <Text style={[styles.filterPillTxt, isActive && styles.filterPillTxtActive]}>{f.label}</Text>
+                    {isServer && (
+                      <View style={[styles.aiBadge, isActive && styles.aiBadgeActive]}>
+                        <Text style={[styles.aiBadgeTxt, isActive && styles.aiBadgeTxtActive]}>AI</Text>
+                      </View>
+                    )}
                   </Pressable>
                 );
               })}
@@ -404,7 +514,7 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
             )}
           </View>
 
-          {/* ── Dot scrubber ── */}
+          {/* ── Dot scrubber ───────────────────────────────────────────────────── */}
           {sorted.length > 1 && (
             <View style={styles.viewerDots}>
               {sorted.map((d, i) => {
@@ -458,193 +568,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  badgeMajor: {
-    backgroundColor: "rgba(239,68,68,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.25)",
-  },
-  badgeModerate: {
-    backgroundColor: "rgba(251,146,60,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(251,146,60,0.25)",
-  },
+  badgeMajor: { backgroundColor: "rgba(239,68,68,0.12)", borderWidth: 1, borderColor: "rgba(239,68,68,0.25)" },
+  badgeModerate: { backgroundColor: "rgba(251,146,60,0.12)", borderWidth: 1, borderColor: "rgba(251,146,60,0.25)" },
   badgeTxt: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textSecondary },
   cleanBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(34,197,94,0.12)",
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: "rgba(34,197,94,0.25)",
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(34,197,94,0.12)", borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 2,
+    borderWidth: 1, borderColor: "rgba(34,197,94,0.25)",
   },
   cleanBadgeTxt: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: "#22c55e" },
   scrollRow: { gap: 12, paddingHorizontal: 16 },
   tile: { width: TILE, alignItems: "center", gap: 7 },
   tileImageWrap: {
-    width: TILE,
-    height: TILE,
-    borderRadius: 11,
-    overflow: "hidden",
-    borderWidth: 2,
-    position: "relative",
-    backgroundColor: Colors.background,
+    width: TILE, height: TILE, borderRadius: 11, overflow: "hidden",
+    borderWidth: 2, position: "relative", backgroundColor: Colors.background,
   },
   tilePlaceholder: { width: TILE, height: TILE, backgroundColor: Colors.surface },
   tileTypeBadge: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.5,
-    shadowRadius: 2,
-    elevation: 3,
+    position: "absolute", top: 5, right: 5, width: 18, height: 18,
+    borderRadius: 9, alignItems: "center", justifyContent: "center", zIndex: 10,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.5, shadowRadius: 2, elevation: 3,
   },
   tileSideBadge: {
-    position: "absolute",
-    top: 5,
-    left: 5,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    zIndex: 10,
+    position: "absolute", top: 5, left: 5, backgroundColor: "rgba(0,0,0,0.65)",
+    borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, zIndex: 10,
   },
   tileSideTxt: { fontFamily: "Inter_700Bold", fontSize: 9, color: "#fff" },
   expandIcon: {
-    position: "absolute",
-    bottom: 5,
-    right: 5,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: 4,
-    padding: 2,
-    zIndex: 10,
+    position: "absolute", bottom: 5, right: 5, backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 4, padding: 2, zIndex: 10,
   },
-  crosshairWrap: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 5,
-  },
-  crosshairRing: {
-    position: "absolute",
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    backgroundColor: "transparent",
-    opacity: 0.85,
-  },
+  crosshairWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", zIndex: 5 },
+  crosshairRing: { position: "absolute", width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, backgroundColor: "transparent", opacity: 0.85 },
   crosshairDot: { position: "absolute", width: 4, height: 4, borderRadius: 2, opacity: 0.9 },
   tileLabel: { alignItems: "center", gap: 1, width: TILE + 8 },
   tileSeverity: { fontFamily: "Inter_700Bold", fontSize: 10 },
   tileType: { fontFamily: "Inter_500Medium", fontSize: 9, color: Colors.textMuted },
-  tileDesc: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 9,
-    color: Colors.textMuted,
-    textAlign: "center",
-    lineHeight: 12,
-    marginTop: 1,
-  },
+  tileDesc: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted, textAlign: "center", lineHeight: 12, marginTop: 1 },
   emptyRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
   emptyTxt: { fontFamily: "Inter_500Medium", fontSize: 13, color: "#22c55e" },
-  footnote: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 10,
-    color: Colors.textMuted,
-    paddingHorizontal: 16,
-    marginTop: 10,
-  },
+  footnote: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, paddingHorizontal: 16, marginTop: 10 },
 
   viewerModal: { flex: 1, backgroundColor: "#000" },
   viewerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 12, paddingVertical: 10,
   },
   viewerCloseBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   viewerHeaderTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: "#fff" },
-  viewerPage: {
-    width: SCREEN_W,
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    gap: 14,
-  },
-  viewerCropWrap: {
-    width: VIEWER_SIZE,
-    height: VIEWER_SIZE,
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 2,
-    backgroundColor: "#111",
-    position: "relative",
-  },
-  crosshairWrapLg: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 5,
-  },
-  crosshairRingLg: {
-    position: "absolute",
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    backgroundColor: "transparent",
-    opacity: 0.9,
-  },
+  viewerPage: { width: SCREEN_W, flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, gap: 14 },
+  viewerCropWrap: { width: VIEWER_SIZE, height: VIEWER_SIZE, borderRadius: 16, overflow: "hidden", borderWidth: 2, backgroundColor: "#111", position: "relative" },
+  crosshairWrapLg: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", zIndex: 5 },
+  crosshairRingLg: { position: "absolute", width: 44, height: 44, borderRadius: 22, borderWidth: 2, backgroundColor: "transparent", opacity: 0.9 },
   crosshairDotLg: { position: "absolute", width: 8, height: 8, borderRadius: 4, opacity: 0.9 },
-  viewerInfoBox: {
-    width: "100%",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    gap: 8,
-  },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  viewerInfoBox: { width: "100%", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, borderWidth: 1, padding: 14, gap: 8 },
   viewerInfoTop: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  viewerSeverityPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
+  viewerSeverityPill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
   viewerSeverityDot: { width: 6, height: 6, borderRadius: 3 },
   viewerSeverityTxt: { fontFamily: "Inter_700Bold", fontSize: 11 },
-  viewerTypePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
+  viewerTypePill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   viewerTypeTxt: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted },
-  viewerSidePill: {
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
+  viewerSidePill: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   viewerSideTxt: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted },
   viewerPageCount: { fontFamily: "Inter_400Regular", fontSize: 12, color: "rgba(255,255,255,0.4)" },
   viewerDesc: { fontFamily: "Inter_400Regular", fontSize: 14, color: "rgba(255,255,255,0.85)", lineHeight: 20 },
@@ -652,36 +638,24 @@ const styles = StyleSheet.create({
   filterSection: { paddingTop: 2, gap: 4 },
   filterRow: { paddingHorizontal: 14, gap: 7, paddingVertical: 8, alignItems: "center" },
   filterPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   },
   filterPillActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   filterPillTxt: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted },
   filterPillTxtActive: { color: "#fff", fontFamily: "Inter_600SemiBold" },
-  filterHint: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: "rgba(255,255,255,0.45)",
-    paddingHorizontal: 18,
-    lineHeight: 15,
-    paddingBottom: 4,
+  aiBadge: {
+    backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 4,
+    paddingHorizontal: 4, paddingVertical: 1,
   },
+  aiBadgeActive: { backgroundColor: "rgba(255,255,255,0.25)" },
+  aiBadgeTxt: { fontFamily: "Inter_700Bold", fontSize: 8, color: Colors.textMuted },
+  aiBadgeTxtActive: { color: "#fff" },
+  filterHint: { fontFamily: "Inter_400Regular", fontSize: 11, color: "rgba(255,255,255,0.45)", paddingHorizontal: 18, lineHeight: 15, paddingBottom: 4 },
 
-  viewerDots: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingBottom: 8,
-    paddingTop: 4,
-  },
+  viewerDots: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingBottom: 8, paddingTop: 4 },
   dot: { borderRadius: 4 },
   dotActive: { width: 16, height: 6 },
   dotInactive: { width: 6, height: 6, backgroundColor: "rgba(255,255,255,0.25)" },
