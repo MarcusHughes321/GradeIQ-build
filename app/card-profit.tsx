@@ -1034,8 +1034,7 @@ export default function CardProfitScreen() {
                   >
                     <View style={[
                       st.tblRow,
-                      isMin ? st.tblRowAmber
-                        : isProfit ? st.tblRowProfit
+                      isProfit ? st.tblRowProfit
                         : gr.profit !== null ? st.tblRowLoss
                         : null,
                       isLast && { borderBottomWidth: 0 },
@@ -1043,7 +1042,6 @@ export default function CardProfitScreen() {
                       <View style={[
                         st.accent,
                         (isCharted && chartGradeKey !== undefined) ? st.accentCharted
-                          : isMin ? st.accentAmber
                           : isProfit ? st.accentProfit
                           : gr.profit !== null ? st.accentLoss
                           : null,
@@ -1051,7 +1049,7 @@ export default function CardProfitScreen() {
 
                       <View style={{ flex: 2 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                          <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
+                          <Text style={st.gradeLabel}>
                             {gr.label}
                           </Text>
                         </View>
