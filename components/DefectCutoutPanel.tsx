@@ -81,6 +81,8 @@ const FILTER_PRESETS: FilterDef[] = [
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Maps card-relative defect coords (0-100) to image-relative coords (0-100). */
 function mapToImagePosition(x: number, y: number, bounds?: CardBounds | null) {
   if (!bounds) return { imgX: x, imgY: y };
   const cardLeft = bounds.leftPercent;
@@ -93,24 +95,70 @@ function mapToImagePosition(x: number, y: number, bounds?: CardBounds | null) {
   };
 }
 
-function CropImage({
-  imageUri, imgWidth, imgHeight, imgX, imgY, size, zoom,
-}: {
-  imageUri: string; imgWidth: number; imgHeight: number;
-  imgX: number; imgY: number; size: number; zoom: number;
-}) {
+/**
+ * Computes the crop pan position AND the actual crosshair pixel position
+ * inside the crop box, accounting for clamping at image edges.
+ *
+ * The crop box pans the scaled image so the defect is at center — but when
+ * the defect is near an edge the pan is clamped. This returns where the
+ * defect point actually lands in the view after clamping.
+ */
+function computeCropGeometry(
+  imgWidth: number, imgHeight: number,
+  imgX: number, imgY: number,
+  size: number, zoom: number
+) {
   const scaledW = size * zoom;
   const scaledH = imgWidth > 0 ? scaledW * (imgHeight / imgWidth) : scaledW * 1.4;
   const rawLeft = -(imgX / 100) * scaledW + size / 2;
   const rawTop = -(imgY / 100) * scaledH + size / 2;
   const clampedLeft = Math.max(-(scaledW - size), Math.min(0, rawLeft));
   const clampedTop = Math.max(-(scaledH - size), Math.min(0, rawTop));
+  // Where the defect point actually appears in the view (pixel offset from top-left of crop box)
+  const crossX = (imgX / 100) * scaledW + clampedLeft;
+  const crossY = (imgY / 100) * scaledH + clampedTop;
+  return { scaledW, scaledH, clampedLeft, clampedTop, crossX, crossY };
+}
+
+/** Crosshair ring + dot positioned at the actual defect location in the view. */
+function Crosshair({
+  x, y, ringSize, dotSize, color,
+}: {
+  x: number; y: number; ringSize: number; dotSize: number; color: string;
+}) {
   return (
-    <Image
-      source={{ uri: imageUri }}
-      style={{ position: "absolute", width: scaledW, height: scaledH, left: clampedLeft, top: clampedTop }}
-      resizeMode="cover"
-    />
+    <>
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: x - ringSize / 2,
+          top: y - ringSize / 2,
+          width: ringSize,
+          height: ringSize,
+          borderRadius: ringSize / 2,
+          borderWidth: ringSize > 24 ? 2 : 1.5,
+          borderColor: color,
+          backgroundColor: "transparent",
+          opacity: 0.9,
+          zIndex: 5,
+        }}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: x - dotSize / 2,
+          top: y - dotSize / 2,
+          width: dotSize,
+          height: dotSize,
+          borderRadius: dotSize / 2,
+          backgroundColor: color,
+          opacity: 0.9,
+          zIndex: 5,
+        }}
+      />
+    </>
   );
 }
 
@@ -123,26 +171,34 @@ function DefectTile({
 }) {
   const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
+  const geo = imgWidth > 0
+    ? computeCropGeometry(imgWidth, imgHeight, imgX, imgY, TILE, TILE_ZOOM)
+    : null;
+
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.75 : 1 }]}>
       <View style={[styles.tileImageWrap, { borderColor: color + "CC" }]}>
-        {imgWidth > 0 ? (
-          <CropImage imageUri={imageUri} imgWidth={imgWidth} imgHeight={imgHeight}
-            imgX={imgX} imgY={imgY} size={TILE} zoom={TILE_ZOOM} />
-        ) : <View style={styles.tilePlaceholder} />}
+        {geo ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={{ position: "absolute", width: geo.scaledW, height: geo.scaledH, left: geo.clampedLeft, top: geo.clampedTop }}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.tilePlaceholder} />
+        )}
         <View style={[styles.tileTypeBadge, { backgroundColor: color }]}>
           <Ionicons name={TYPE_ICON[defect.type] || "alert-circle-outline"} size={9} color="#fff" />
         </View>
         <View style={styles.tileSideBadge}>
           <Text style={styles.tileSideTxt}>{defect.side === "front" ? "F" : "B"}</Text>
         </View>
-        <View style={styles.crosshairWrap} pointerEvents="none">
-          <View style={[styles.crosshairRing, { borderColor: color }]} />
-          <View style={[styles.crosshairDot, { backgroundColor: color }]} />
-        </View>
         <View style={styles.expandIcon}>
           <Ionicons name="expand-outline" size={11} color="rgba(255,255,255,0.9)" />
         </View>
+        {geo && (
+          <Crosshair x={geo.crossX} y={geo.crossY} ringSize={20} dotSize={4} color={color} />
+        )}
       </View>
       <View style={styles.tileLabel}>
         <Text style={[styles.tileSeverity, { color }]}>{SEVERITY_LABEL[defect.severity]}</Text>
@@ -165,23 +221,29 @@ function DefectViewerPage({
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
   const displayUri = filteredUri ?? imageUri;
 
+  const geo = imgWidth > 0
+    ? computeCropGeometry(imgWidth, imgHeight, imgX, imgY, VIEWER_SIZE, VIEWER_ZOOM)
+    : null;
+
   return (
     <View style={styles.viewerPage}>
       <View style={[styles.viewerCropWrap, { borderColor: color + "55" }]}>
-        {/* Image layer — server-processed result replaces original uri once ready */}
+        {/* Image layer */}
         <View style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }]}>
-          {imgWidth > 0 ? (
-            <CropImage imageUri={displayUri} imgWidth={imgWidth} imgHeight={imgHeight}
-              imgX={imgX} imgY={imgY} size={VIEWER_SIZE} zoom={VIEWER_ZOOM} />
+          {geo ? (
+            <Image
+              source={{ uri: displayUri }}
+              style={{ position: "absolute", width: geo.scaledW, height: geo.scaledH, left: geo.clampedLeft, top: geo.clampedTop }}
+              resizeMode="cover"
+            />
           ) : (
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: Colors.surface }]} />
           )}
         </View>
-        {/* Crosshair — always unfiltered */}
-        <View style={styles.crosshairWrapLg} pointerEvents="none">
-          <View style={[styles.crosshairRingLg, { borderColor: color }]} />
-          <View style={[styles.crosshairDotLg, { backgroundColor: color }]} />
-        </View>
+        {/* Crosshair at actual defect location */}
+        {geo && (
+          <Crosshair x={geo.crossX} y={geo.crossY} ringSize={44} dotSize={8} color={color} />
+        )}
         {/* Loading overlay */}
         {isLoading && (
           <View style={styles.loadingOverlay}>
@@ -228,7 +290,6 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [activeFilterId, setActiveFilterId] = useState("normal");
-  // filteredCache: key = `${side}:${serverType}` → data URI of processed image
   const filteredCache = useRef<Record<string, string>>({});
   const [filteredFrontUri, setFilteredFrontUri] = useState<string | null>(null);
   const [filteredBackUri, setFilteredBackUri] = useState<string | null>(null);
@@ -251,11 +312,9 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
 
   const activeFilter = FILTER_PRESETS.find(f => f.id === activeFilterId) ?? FILTER_PRESETS[0];
 
-  // ── Fetch a server-side filter for one side ──────────────────────────────
   const fetchServerFilter = async (side: "front" | "back", serverType: string) => {
     const cacheKey = `${side}:${serverType}`;
     if (filteredCache.current[cacheKey]) {
-      // Already cached — apply immediately
       if (side === "front") setFilteredFrontUri(filteredCache.current[cacheKey]);
       else setFilteredBackUri(filteredCache.current[cacheKey]);
       return;
@@ -269,10 +328,8 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
       let base64: string;
 
       if (uri.startsWith("data:")) {
-        // Already a data URI (cert lookup crossover) — extract raw base64
         base64 = uri.split(",")[1];
       } else {
-        // File URI — resize to 400px so the payload stays small (~30-80 KB)
         const compressed = await ImageManipulator.manipulateAsync(
           uri,
           [{ resize: { width: 400 } }],
@@ -300,7 +357,6 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
     }
   };
 
-  // ── Handle filter selection ──────────────────────────────────────────────
   const handleFilterSelect = (filterId: string) => {
     setActiveFilterId(filterId);
     const preset = FILTER_PRESETS.find(f => f.id === filterId);
@@ -310,8 +366,6 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
       return;
     }
     const serverType = preset.serverType;
-    // Stagger front and back calls by 600 ms to avoid the proxy rejecting
-    // two large concurrent POSTs with a spurious 404
     fetchServerFilter("front", serverType);
     setTimeout(() => fetchServerFilter("back", serverType), 600);
   };
@@ -561,9 +615,6 @@ const styles = StyleSheet.create({
     position: "absolute", bottom: 5, right: 5, backgroundColor: "rgba(0,0,0,0.5)",
     borderRadius: 4, padding: 2, zIndex: 10,
   },
-  crosshairWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", zIndex: 5 },
-  crosshairRing: { position: "absolute", width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, backgroundColor: "transparent", opacity: 0.85 },
-  crosshairDot: { position: "absolute", width: 4, height: 4, borderRadius: 2, opacity: 0.9 },
   tileLabel: { alignItems: "center", gap: 1, width: TILE + 8 },
   tileSeverity: { fontFamily: "Inter_700Bold", fontSize: 10 },
   tileType: { fontFamily: "Inter_500Medium", fontSize: 9, color: Colors.textMuted },
@@ -581,9 +632,6 @@ const styles = StyleSheet.create({
   viewerHeaderTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: "#fff" },
   viewerPage: { width: SCREEN_W, flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, gap: 14 },
   viewerCropWrap: { width: VIEWER_SIZE, height: VIEWER_SIZE, borderRadius: 16, overflow: "hidden", borderWidth: 2, backgroundColor: "#111", position: "relative" },
-  crosshairWrapLg: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", zIndex: 5 },
-  crosshairRingLg: { position: "absolute", width: 44, height: 44, borderRadius: 22, borderWidth: 2, backgroundColor: "transparent", opacity: 0.9 },
-  crosshairDotLg: { position: "absolute", width: 8, height: 8, borderRadius: 4, opacity: 0.9 },
   loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", zIndex: 10 },
   viewerInfoBox: { width: "100%", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 14, borderWidth: 1, padding: 14, gap: 8 },
   viewerInfoTop: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
