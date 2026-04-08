@@ -36,60 +36,24 @@ const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 // ── Filter types ─────────────────────────────────────────────────────────────
-type FilterMode = "css" | "server";
+type FilterMode = "normal" | "server";
 type FilterDef = {
   id: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   description: string;
   mode: FilterMode;
-  cssFilter?: object[];   // used when mode === "css"
-  serverType?: string;    // used when mode === "server"
+  serverType?: string;
 };
 
 const FILTER_PRESETS: FilterDef[] = [
-  // ── Instant (CSS, RN 0.76+ native filter API) ─────────────────────────────
   {
     id: "normal",
     label: "Normal",
     icon: "image-outline",
     description: "Original image",
-    mode: "css",
-    cssFilter: [],
+    mode: "normal",
   },
-  {
-    id: "contrast",
-    label: "Hi-Contrast",
-    icon: "contrast-outline",
-    description: "8× contrast — exposes edge chips, corner wear and surface marks",
-    mode: "css",
-    cssFilter: [{ contrast: 8 }, { brightness: 0.65 }],
-  },
-  {
-    id: "grayscale",
-    label: "Grayscale",
-    icon: "color-filter-outline",
-    description: "Strips holo shimmer so surface scratches and print defects are unmissable",
-    mode: "css",
-    cssFilter: [{ grayscale: 1 }, { contrast: 4 }, { brightness: 0.88 }],
-  },
-  {
-    id: "invert",
-    label: "Invert",
-    icon: "eye-outline",
-    description: "Colour inversion — light scratches on dark borders become obvious",
-    mode: "css",
-    cssFilter: [{ invert: 1 }, { contrast: 4 }],
-  },
-  {
-    id: "saturate",
-    label: "Saturate",
-    icon: "color-palette-outline",
-    description: "10× colour boost — foil inconsistencies, ink bleed and print lines pop",
-    mode: "css",
-    cssFilter: [{ saturate: 10 }, { contrast: 1.8 }],
-  },
-  // ── Server-side (real convolution via sharp, ~1-2 s first load then cached) ─
   {
     id: "texture",
     label: "Texture Map",
@@ -191,22 +155,21 @@ function DefectTile({
 
 // ── Viewer page (one per defect in the modal FlatList) ────────────────────────
 function DefectViewerPage({
-  defect, imageUri, filteredUri, imgWidth, imgHeight, cardBounds, index, total, cssFilter, isLoading,
+  defect, imageUri, filteredUri, imgWidth, imgHeight, cardBounds, index, total, isLoading,
 }: {
   defect: DefectMarker; imageUri: string; filteredUri: string | null;
   imgWidth: number; imgHeight: number; cardBounds?: CardBounds | null;
-  index: number; total: number; cssFilter: object[]; isLoading: boolean;
+  index: number; total: number; isLoading: boolean;
 }) {
   const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
   const displayUri = filteredUri ?? imageUri;
-  const filterStyle = cssFilter.length > 0 ? ({ filter: cssFilter } as any) : undefined;
 
   return (
     <View style={styles.viewerPage}>
       <View style={[styles.viewerCropWrap, { borderColor: color + "55" }]}>
-        {/* Image layer — CSS filter applied here; filtered server result replaces uri */}
-        <View style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }, filterStyle]}>
+        {/* Image layer — server-processed result replaces original uri once ready */}
+        <View style={[StyleSheet.absoluteFillObject, { overflow: "hidden" }]}>
           {imgWidth > 0 ? (
             <CropImage imageUri={displayUri} imgWidth={imgWidth} imgHeight={imgHeight}
               imgX={imgX} imgY={imgY} size={VIEWER_SIZE} zoom={VIEWER_ZOOM} />
@@ -342,14 +305,15 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
     setActiveFilterId(filterId);
     const preset = FILTER_PRESETS.find(f => f.id === filterId);
     if (!preset || preset.mode !== "server" || !preset.serverType) {
-      // CSS filter — no server call needed
       setFilteredFrontUri(null);
       setFilteredBackUri(null);
       return;
     }
-    // Kick off server requests for both sides (needed when user swipes between defects)
-    fetchServerFilter("front", preset.serverType);
-    fetchServerFilter("back", preset.serverType);
+    const serverType = preset.serverType;
+    // Stagger front and back calls by 600 ms to avoid the proxy rejecting
+    // two large concurrent POSTs with a spurious 404
+    fetchServerFilter("front", serverType);
+    setTimeout(() => fetchServerFilter("back", serverType), 600);
   };
 
   const openViewer = (index: number) => {
@@ -460,7 +424,6 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
               const dims = isFront ? frontDims : backDims;
               const filteredUri = isFront ? filteredFrontUri : filteredBackUri;
               const isLoading = isFront ? loadingFront : loadingBack;
-              const cssFilter = activeFilter.mode === "css" ? (activeFilter.cssFilter ?? []) : [];
               return (
                 <DefectViewerPage
                   defect={item}
@@ -471,7 +434,6 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
                   cardBounds={isFront ? frontCardBounds : backCardBounds}
                   index={index}
                   total={sorted.length}
-                  cssFilter={cssFilter}
                   isLoading={isLoading}
                 />
               );
