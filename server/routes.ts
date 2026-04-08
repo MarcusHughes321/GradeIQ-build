@@ -8673,6 +8673,16 @@ RESPONSE FORMAT (JSON only, no markdown):
       return res.status(400).json({ error: `tierMaxGbp must be one of: ${VALID_TIERS.join(", ")}` });
     }
     const lang = (req.query.lang as string) === "ja" ? "ja" : "en";
+    // Whitelist company → DB column so we can ORDER BY safely without SQL injection
+    const COMPANY_ORDER_COL: Record<string, string> = {
+      PSA:     "ebay_psa10",
+      Beckett: "ebay_bgs95",
+      Ace:     "ebay_ace10",
+      TAG:     "ebay_tag10",
+      CGC:     "ebay_cgc10",
+    };
+    const company = (req.query.company as string) ?? "PSA";
+    const orderCol = COMPANY_ORDER_COL[company] ?? "ebay_psa10";
     try {
       const { rows } = await db.query(
         `SELECT card_id, card_name, set_name, set_id, number, image_url, raw_price_usd, raw_price_eur,
@@ -8681,7 +8691,7 @@ RESPONSE FORMAT (JSON only, no markdown):
                 ebay_all_grades, ebay_fetched_at, is_stale, updated_at
            FROM top_picks_precomputed
           WHERE tier_max_gbp = $1 AND COALESCE(lang, 'en') = $2
-          ORDER BY COALESCE(ebay_psa10, 0) DESC
+          ORDER BY COALESCE(${orderCol}, 0) DESC
           LIMIT 20`,
         [tierMaxGbp, lang]
       );

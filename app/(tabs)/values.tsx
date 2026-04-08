@@ -428,16 +428,25 @@ export default function ValuesScreen() {
     );
   }, [expandedSets, setSearch]);
 
+  // Preferred picks company — fall back to first enabled if the saved preference isn't enabled
+  const effectivePicksCompany: CompanyId = useMemo(() => {
+    const preferred = settings.preferredPicksCompany;
+    if (settings.enabledCompanies.includes(preferred)) return preferred;
+    return (settings.enabledCompanies[0] as CompanyId) ?? "PSA";
+  }, [settings.preferredPicksCompany, settings.enabledCompanies]);
+
   // Pre-computed top grading picks — single fast DB read per tier, no live eBay calls
+  // Query key includes effectivePicksCompany so results refresh when company changes
   const { data: precomputedData, isLoading: picksLoading, error: picksError, refetch: refetchPicks } = useQuery<{
     picks: PrecomputedPick[];
     hasData: boolean;
     lastJobRun: string | null;
   }>({
-    queryKey: ["top-picks-precomputed", priceTier, selectedLang],
+    queryKey: ["top-picks-precomputed", priceTier, selectedLang, effectivePicksCompany],
     queryFn: async () => {
       const langQ = selectedLang === "ja" ? "&lang=ja" : "";
-      const resp = await apiRequest("GET", `/api/top-picks-precomputed?tierMaxGbp=${priceTier}${langQ}`);
+      const companyQ = `&company=${encodeURIComponent(effectivePicksCompany)}`;
+      const resp = await apiRequest("GET", `/api/top-picks-precomputed?tierMaxGbp=${priceTier}${langQ}${companyQ}`);
       return resp.json();
     },
     staleTime: 30 * 60 * 1000,
@@ -445,13 +454,6 @@ export default function ValuesScreen() {
     retryDelay: 2000,
   });
   const precomputedPicks: PrecomputedPick[] = precomputedData?.picks ?? [];
-
-  // Preferred picks company — fall back to first enabled if the saved preference isn't enabled
-  const effectivePicksCompany: CompanyId = useMemo(() => {
-    const preferred = settings.preferredPicksCompany;
-    if (settings.enabledCompanies.includes(preferred)) return preferred;
-    return (settings.enabledCompanies[0] as CompanyId) ?? "PSA";
-  }, [settings.preferredPicksCompany, settings.enabledCompanies]);
 
   const picksConfig = PICKS_COMPANY_CONFIG[effectivePicksCompany];
 
