@@ -15,7 +15,10 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Alert,
+  Linking,
 } from "react-native";
+import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
+import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -177,6 +180,7 @@ const PROFIT_COMPANY_CONFIG: Record<CompanyId, { label: string; dotColor: string
   CGC:     { label: "CGC", dotColor: "#E63946", grades: [{ grade: 10, ebayKey: "cgc10", label: "CGC 10" }, { grade: 9.5, ebayKey: "cgc95", label: "CGC 9.5" }, { grade: 9, ebayKey: "cgc9", label: "CGC 9" }, { grade: 8, ebayKey: "cgc8", label: "CGC 8" }] },
 };
 const PROFIT_COMPANY_ORDER: CompanyId[] = ["PSA", "Beckett", "Ace", "TAG", "CGC"];
+const COMPANY_TOP_KEY: Record<CompanyId, string> = { PSA: "psa10", Beckett: "bgs95", Ace: "ace10", TAG: "tag10", CGC: "cgc10" };
 
 const COMPANY_FEE_OPTIONS: Record<string, FeeOption[]> = {
   PSA:     [{ label: "Value Bulk", amount: 21.99, currency: "USD", turnaround: "65+ days" }, { label: "Value", amount: 27.99, currency: "USD", turnaround: "45–65 days" }, { label: "Value Plus", amount: 44.99, currency: "USD", turnaround: "30–45 days" }, { label: "Regular", amount: 79.99, currency: "USD", turnaround: "~10 days" }, { label: "Express", amount: 149.99, currency: "USD", turnaround: "~5 days" }],
@@ -236,6 +240,103 @@ function LiquidityBar({ score, color }: { score: number; color: string }) {
   );
 }
 
+interface PricePoint { price_usd: number; recorded_at: string; }
+
+function TrendChart({ detail, history, currencySymbol, currencyRate }: {
+  detail: GradeDetail | undefined;
+  history: PricePoint[];
+  currencySymbol: string;
+  currencyRate: number;
+}) {
+  const LABEL_W = 38;
+  const svgW = Dimensions.get("window").width - 64 - LABEL_W;
+  const H = 90;
+  const PAD = { top: 12, bottom: 28, left: 6, right: 6 };
+  const chartW = svgW - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const fmt = (v: number) => {
+    const local = v * currencyRate;
+    if (currencySymbol === "¥") return `${currencySymbol}${Math.round(local)}`;
+    if (local >= 1000) return `${currencySymbol}${(local / 1000).toFixed(1)}k`;
+    return `${currencySymbol}${local.toFixed(0)}`;
+  };
+  const PriceAxis = ({ high, low }: { high: string; low: string }) => (
+    <View style={{ width: LABEL_W, height: H, justifyContent: "space-between", alignItems: "flex-end", paddingTop: PAD.top - 2, paddingBottom: PAD.bottom - 4 }}>
+      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted }}>{high}</Text>
+      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted }}>{low}</Text>
+    </View>
+  );
+  if (history.length >= 3) {
+    const vals = history.map(p => p.price_usd);
+    const minV = Math.min(...vals); const maxV = Math.max(...vals); const range = maxV - minV || 1;
+    const toX = (i: number) => PAD.left + (i / (history.length - 1)) * chartW;
+    const toY = (v: number) => PAD.top + (1 - (v - minV) / range) * chartH;
+    const points = history.map((p, i) => ({ x: toX(i), y: toY(p.price_usd), price: p.price_usd, ts: p.recorded_at }));
+    const lineColor = points[points.length - 1].price >= points[0].price ? "#22c55e" : "#ef4444";
+    const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return (
+      <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+        <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>Price history · {history.length} snapshots</Text>
+        <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+          <Svg width={svgW} height={H}>
+            <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2} stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
+            <Polyline points={points.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" />
+            {points.map((p, i) => <Circle key={i} cx={p.x} cy={p.y} r={2.5} fill={lineColor} />)}
+            <SvgText x={PAD.left} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="start" fontFamily="Inter_400Regular">{fmtDate(points[0].ts)}</SvgText>
+            <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
+          </Svg>
+          <PriceAxis high={fmt(maxV)} low={fmt(minV)} />
+        </View>
+        {detail?.saleCount != null && (
+          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+            {detail.saleCount.toLocaleString()} recorded sales{detail?.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+          </Text>
+        )}
+      </View>
+    );
+  }
+  if (!detail) return null;
+  const rawPoints = [
+    { label: "30d", value: detail.avg30d },
+    { label: "7d",  value: detail.avg7d  },
+    { label: "1d",  value: detail.avg1d  },
+  ].filter((p): p is { label: string; value: number } => typeof p.value === "number" && p.value > 0);
+  if (rawPoints.length < 2) return (
+    <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+      <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center" }}>Not enough recent sales for a trend</Text>
+    </View>
+  );
+  const vals2 = rawPoints.map(p => p.value);
+  const minV2 = Math.min(...vals2); const maxV2 = Math.max(...vals2); const range2 = maxV2 - minV2 || 1;
+  const toX2 = (i: number) => PAD.left + (i / (rawPoints.length - 1)) * chartW;
+  const toY2 = (v: number) => PAD.top + (1 - (v - minV2) / range2) * chartH;
+  const points2 = rawPoints.map((p, i) => ({ x: toX2(i), y: toY2(p.value), ...p }));
+  const trendUp2 = points2[points2.length - 1].value >= points2[0].value;
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}>
+      <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted, marginBottom: 4 }}>Rolling average trend · building history…</Text>
+      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+        <Svg width={svgW} height={H}>
+          <Line x1={PAD.left} y1={PAD.top + chartH / 2} x2={PAD.left + chartW} y2={PAD.top + chartH / 2} stroke={Colors.surfaceBorder} strokeWidth="1" strokeDasharray="4,4" />
+          <Polyline points={points2.map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={trendUp2 ? "#22c55e" : "#ef4444"} strokeWidth="2" strokeLinejoin="round" />
+          {points2.map((p, i) => (
+            <React.Fragment key={i}>
+              <Circle cx={p.x} cy={p.y} r={3} fill={trendUp2 ? "#22c55e" : "#ef4444"} />
+              <SvgText x={p.x} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="middle" fontFamily="Inter_400Regular">{p.label}</SvgText>
+            </React.Fragment>
+          ))}
+        </Svg>
+        <PriceAxis high={fmt(maxV2)} low={fmt(minV2)} />
+      </View>
+      {detail.saleCount != null && (
+        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+          {detail.saleCount.toLocaleString()} recorded sales{detail.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
@@ -266,6 +367,7 @@ export default function ResultsScreen() {
   const [reAnalyseStage, setReAnalyseStage] = useState("");
   // Market-analysis section state
   const [selectedProfitCompany, setSelectedProfitCompany] = useState<CompanyId>("PSA");
+  const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
   const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
   const [aceLabelOption, setAceLabelOption] = useState<"standard" | "colour-match" | "custom">("standard");
   const [rates, setRates] = useState<Record<string, number>>({});
@@ -450,10 +552,11 @@ export default function ResultsScreen() {
     if (firstEnabled) setSelectedProfitCompany(firstEnabled);
   }, [enabledCompanies]);
 
-  // Reset fee when company switches
+  // Reset fee + chart key when company switches
   useEffect(() => {
     setSelectedFeeOption(null);
     setAceLabelOption("standard");
+    setChartGradeKey(undefined);
   }, [selectedProfitCompany]);
 
   useEffect(() => {
@@ -880,6 +983,27 @@ export default function ResultsScreen() {
     await updateGrading(grading.id, { result: updatedResult });
   };
 
+  // ── Price history for sparkline ──────────────────────────────────────────
+  const historyCacheKey = useMemo(() => {
+    const cardName = grading?.result?.cardName ?? "";
+    const cardNumber = grading?.result?.setNumber ?? "";
+    const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
+    return [cardName, baseNum].filter(Boolean).join(" ");
+  }, [grading?.result?.cardName, grading?.result?.setNumber]);
+
+  const topGradeKeyForChart = PROFIT_COMPANY_CONFIG[selectedProfitCompany]?.grades[0]?.ebayKey;
+  const effectiveChartKey = chartGradeKey ?? topGradeKeyForChart;
+
+  const { data: historyData } = useQuery<{ history: PricePoint[] }>({
+    queryKey: ["price-history", historyCacheKey, effectiveChartKey],
+    queryFn: () =>
+      apiRequest("GET", `/api/price-history?cacheKey=${encodeURIComponent(historyCacheKey)}&grade=${encodeURIComponent(effectiveChartKey ?? "")}`)
+        .then(r => r.json()),
+    enabled: !!(historyCacheKey && effectiveChartKey && (isSubscribed || isAdminMode)),
+    staleTime: 60 * 60 * 1000,
+    retry: 1,
+  });
+
   if (!grading) {
     return (
       <View style={[styles.loading, { paddingTop: insets.top + webTopInset }]}>
@@ -931,6 +1055,57 @@ export default function ResultsScreen() {
   // Grade details (for liquidity) — from the gradeDetails nested object
   const gradeDetails: Record<string, GradeDetail> = (ebayPrices as any)?.gradeDetails ?? {};
   const enabledProfitCompanies = PROFIT_COMPANY_ORDER.filter(c => enabledCompanies.includes(c === "Beckett" ? "Beckett" : c));
+
+  // ── Formatting helpers (same as card-profit.tsx) ─────────────────────────
+  const fmtLocal = (usdOrLocal: number) => {
+    const v = usdOrLocal * currencyRate;
+    if (currencySymbol === "¥") return `${currencySymbol}${Math.round(v)}`;
+    return `${currencySymbol}${v.toFixed(2)}`;
+  };
+  const fmtProfit = (absVal: number, rawLocal: number) => {
+    const localVal = absVal; // already in local currency
+    const pct = rawLocal > 0 ? Math.round((localVal / rawLocal) * 100) : null;
+    const s = currencySymbol === "¥" ? `${currencySymbol}${Math.round(localVal)}` : `${currencySymbol}${localVal.toFixed(2)}`;
+    return pct != null ? `${s} (${pct}%)` : s;
+  };
+  const buildEbayUrl = (gradeLabel: string) => {
+    const q = [gradeLabel, result.cardName, result.setNumber, result.setName || result.setInfo, "pokemon"].filter(Boolean).join(" ");
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`;
+  };
+
+  // Raw price in local currency for profit calculations
+  const rawLocal = rawUSD * currencyRate;
+
+  // ── Liquidity market snapshot across all enabled companies ────────────────
+  const marketSnapshot = (() => {
+    if (!ebayPrices) return null;
+    const rows = enabledProfitCompanies.map(compId => {
+      const topKey = COMPANY_TOP_KEY[compId];
+      const detail = topKey ? gradeDetails[topKey] : undefined;
+      const score = calcLiquidityScore(detail);
+      return { compId, label: PROFIT_COMPANY_CONFIG[compId]?.label ?? compId, color: PROFIT_COMPANY_CONFIG[compId]?.dotColor ?? "#6b7280", score, saleCount: detail?.saleCount ?? 0 };
+    });
+    const hasData = rows.some(r => r.saleCount > 0);
+    const best = rows.reduce((a, b) => b.score > a.score ? b : a, rows[0]);
+    const overallScore = Math.max(...rows.map(r => r.score), 0);
+    const overallBand = liquidityBand(overallScore, best?.saleCount ?? 0);
+    return { rows, hasData, best, overallScore, overallBand };
+  })();
+
+  // ── Per-company grade rows (profit calculations) ──────────────────────────
+  const companyRows = (() => {
+    if (!ebayPrices) return [];
+    const cfg = PROFIT_COMPANY_CONFIG[selectedProfitCompany];
+    return cfg.grades.map(g => {
+      const ebayUSD = (ebayPrices as any)[g.ebayKey] ?? 0;
+      const ebayLocal = ebayUSD > 0 ? ebayUSD * currencyRate : null;
+      const feeDeduc = feeLocalAmount;
+      const profit = ebayLocal != null && rawUSD > 0 ? Math.round((ebayLocal - rawLocal - feeDeduc) * 100) / 100 : null;
+      return { ...g, ebayLocal, profit, detail: gradeDetails[g.ebayKey as string] };
+    });
+  })();
+  const minProfitRow = [...companyRows].reverse().find(r => r.profit !== null && r.profit >= 0) ?? null;
+  const chartDetail = effectiveChartKey ? gradeDetails[effectiveChartKey] : undefined;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
@@ -1209,10 +1384,12 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
-        {/* ── Market Analysis (replaces simple eBay table) ── */}
-        <View style={styles.ebayCard}>
-          {/* Header row */}
-          <View style={styles.ebayCardHeader}>
+        {/* ── Market Analysis — card-profit.tsx style ── */}
+
+        {/* 1. Liquidity snapshot card */}
+        <View style={styles.maSnapshotCard}>
+          {/* eBay header */}
+          <View style={[styles.ebayCardHeader, { marginBottom: 0 }]}>
             <View style={styles.ebayLogoRow}>
               <Text style={styles.ebayLogoText}>
                 <Text style={{ color: "#E53238" }}>e</Text>
@@ -1225,8 +1402,97 @@ export default function ResultsScreen() {
             {ebayLoading && <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.75 }] }} />}
           </View>
 
-          {/* Company pills */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 4 }}>
+          {isGateEnabled && !isSubscribed && !isAdminMode ? (
+            <View style={{ overflow: "hidden" as const, borderRadius: 12, minHeight: 120 }}>
+              <View style={styles.maSnapshotTopRow}>
+                <Text style={styles.maSnapshotLabel}>Liquidity</Text>
+                <View style={[styles.maSnapshotBandChip, { backgroundColor: "#6b728022", borderColor: "#6b728055" }]}>
+                  <View style={[styles.maSnapshotBandDot, { backgroundColor: "#6b7280" }]} />
+                  <Text style={[styles.maSnapshotBandText, { color: "#6b7280" }]}>---</Text>
+                </View>
+              </View>
+              <LiquidityBar score={0} color="#6b7280" />
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => router.push("/paywall")}>
+                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
+                  <View style={styles.proBlurContent}>
+                    <Ionicons name="lock-closed" size={20} color="#F59E0B" />
+                    <Text style={styles.proBlurTitle}>Pro Feature</Text>
+                    <Text style={styles.proBlurSubtitle}>Upgrade to see last sold prices & profit</Text>
+                  </View>
+                </BlurView>
+              </Pressable>
+            </View>
+          ) : !marketSnapshot ? (
+            ebayLoading ? (
+              <View style={styles.ebayLoadingRow}>
+                <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
+              </View>
+            ) : (
+              <View style={styles.ebayLoadingRow}>
+                <Text style={styles.ebayPriceMuted}>No price data available</Text>
+              </View>
+            )
+          ) : !marketSnapshot.hasData ? (
+            <View>
+              <View style={styles.maSnapshotTopRow}>
+                <Text style={styles.maSnapshotLabel}>Liquidity</Text>
+                <View style={[styles.maSnapshotBandChip, { backgroundColor: "#6b728022", borderColor: "#6b728055" }]}>
+                  <View style={[styles.maSnapshotBandDot, { backgroundColor: "#6b7280" }]} />
+                  <Text style={[styles.maSnapshotBandText, { color: "#6b7280" }]}>No data</Text>
+                </View>
+              </View>
+              <LiquidityBar score={0} color="#6b7280" />
+              <Text style={styles.maSnapshotFooter}>Not enough sales history to assess liquidity</Text>
+            </View>
+          ) : (() => {
+            const tappedDetail = effectiveChartKey ? gradeDetails[effectiveChartKey] : undefined;
+            const activeScore = calcLiquidityScore(tappedDetail);
+            const activeSaleCount = tappedDetail?.saleCount ?? 0;
+            const activeBand = liquidityBand(activeScore, activeSaleCount);
+            const activeGradeLabel = PROFIT_COMPANY_CONFIG[selectedProfitCompany]?.grades.find(g => g.ebayKey === effectiveChartKey)?.label ?? PROFIT_COMPANY_CONFIG[selectedProfitCompany]?.label ?? selectedProfitCompany;
+            const companyColor = PROFIT_COMPANY_CONFIG[selectedProfitCompany]?.dotColor ?? "#6b7280";
+            return (
+              <View style={{ gap: 10 }}>
+                <View style={styles.maSnapshotTopRow}>
+                  <Text style={styles.maSnapshotLabel}>Liquidity</Text>
+                  <View style={[styles.maSnapshotBandChip, { backgroundColor: activeBand.color + "1A", borderColor: activeBand.color + "55" }]}>
+                    <View style={[styles.maSnapshotBandDot, { backgroundColor: activeBand.color }]} />
+                    <Text style={[styles.maSnapshotBandText, { color: activeBand.color }]}>{activeBand.label}</Text>
+                  </View>
+                </View>
+                <LiquidityBar score={activeScore} color={activeBand.color} />
+                <View style={styles.maSnapshotSalesPills}>
+                  <View style={[styles.maSnapshotSalesPill, { borderColor: companyColor + "99", backgroundColor: companyColor + "1A" }]}>
+                    <Text style={[styles.maSnapshotSalesCo, { color: companyColor }]}>{activeGradeLabel}</Text>
+                    <Text style={[styles.maSnapshotSalesCt, { color: Colors.text }]}>{activeSaleCount}</Text>
+                  </View>
+                  {marketSnapshot.rows
+                    .filter(r => r.compId !== selectedProfitCompany && r.saleCount > 0)
+                    .map(r => (
+                      <View key={r.compId} style={styles.maSnapshotSalesPill}>
+                        <Text style={[styles.maSnapshotSalesCo, { color: r.color }]}>{r.label}</Text>
+                        <Text style={styles.maSnapshotSalesCt}>{r.saleCount}</Text>
+                      </View>
+                    ))
+                  }
+                </View>
+                <Text style={styles.maSnapshotFooter}>
+                  {activeSaleCount > 0
+                    ? `${activeSaleCount} recorded ${activeGradeLabel} sales in the last month`
+                    : `No recent sales data for ${activeGradeLabel}`}
+                </Text>
+              </View>
+            );
+          })()}
+        </View>
+
+        {/* 2. Company pills */}
+        {(isSubscribed || isAdminMode || !isGateEnabled) && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.maCompanyPillRow}
+          >
             {enabledProfitCompanies.map(coId => {
               const cfg = PROFIT_COMPANY_CONFIG[coId];
               const isActive = selectedProfitCompany === coId;
@@ -1234,208 +1500,210 @@ export default function ResultsScreen() {
                 <Pressable
                   key={coId}
                   onPress={() => setSelectedProfitCompany(coId)}
-                  style={({ pressed }) => [
-                    styles.maPill,
-                    isActive && { backgroundColor: cfg.dotColor + "22", borderColor: cfg.dotColor },
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
+                  style={[styles.maCompanyPill, isActive && { borderColor: cfg.dotColor, backgroundColor: cfg.dotColor + "22" }]}
                 >
-                  <View style={[styles.maPillDot, { backgroundColor: cfg.dotColor }]} />
-                  <Text style={[styles.maPillTxt, isActive && { color: Colors.text }]}>{cfg.label}</Text>
+                  <View style={[styles.maCompanyPillDot, { backgroundColor: cfg.dotColor }]} />
+                  <Text style={[styles.maCompanyPillLabel, isActive && { color: Colors.text }]}>{cfg.label}</Text>
                 </Pressable>
               );
             })}
           </ScrollView>
+        )}
 
-          {/* Gate */}
-          {isGateEnabled && !isSubscribed && !isAdminMode ? (
-            <View style={{ overflow: "hidden", borderRadius: 12 }}>
-              {/* Skeleton */}
-              <View style={styles.maLiquidityRow}>
-                <Text style={styles.maLiquidityLabel}>Liquidity</Text>
-                <View style={{ flex: 1, height: 8, backgroundColor: Colors.surfaceBorder, borderRadius: 4, marginHorizontal: 8 }} />
-                <Text style={[styles.maLiquidityBand, { color: "#6b7280" }]}>---</Text>
+        {/* 3. Grade table card */}
+        {(isSubscribed || isAdminMode || !isGateEnabled) && (
+          <View style={styles.maCompanyCard}>
+            {/* Column headers */}
+            <View style={styles.maTblHead}>
+              <Text style={[styles.maTblHeadTxt, { flex: 2 }]}>Grade</Text>
+              <Text style={[styles.maTblHeadTxt, { flex: 2, textAlign: "right" as const }]}>eBay Sold</Text>
+              <View style={{ flex: 2, alignItems: "flex-end" as const }}>
+                <Text style={styles.maTblHeadTxt}>{selectedFeeOption ? "Net Profit" : "Profit"}</Text>
               </View>
-              {[1,2,3].map(i => (
-                <View key={i} style={styles.maGradeRow}>
-                  <Text style={styles.maGradeLabel}>--- {i}</Text>
-                  <View style={{ flex: 1 }} />
-                  <Text style={styles.maPriceMuted}>£---</Text>
-                  <Text style={[styles.maProfitTxt, { color: "#6b7280", marginLeft: 12 }]}>+£--</Text>
-                </View>
-              ))}
-              <Pressable style={StyleSheet.absoluteFill} onPress={() => router.push("/paywall")}>
-                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
-                  <View style={styles.proBlurContent}>
-                    <Ionicons name="lock-closed" size={20} color="#F59E0B" />
-                    <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                    <Text style={styles.proBlurSubtitle}>Upgrade to see market data & profit</Text>
-                  </View>
-                </BlurView>
-              </Pressable>
+              <View style={{ width: 48 }} />
             </View>
-          ) : ebayLoading && !ebayPrices ? (
-            <View style={styles.ebayLoadingRow}>
-              <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
-            </View>
-          ) : !ebayPrices ? (
-            <View style={styles.ebayLoadingRow}>
-              <Text style={styles.ebayPriceMuted}>No price data available</Text>
-            </View>
-          ) : (() => {
-            const cfg = PROFIT_COMPANY_CONFIG[selectedProfitCompany];
-            const aiGrade = aiGradeForCompany(selectedProfitCompany);
-            // Top grade key for liquidity
-            const topGradeKey = cfg.grades[0].ebayKey;
-            const topDetail = gradeDetails[topGradeKey];
-            const liqScore = calcLiquidityScore(topDetail);
-            const liqBand  = liquidityBand(liqScore, topDetail?.saleCount ?? 0);
 
-            return (
-              <View style={{ gap: 0 }}>
-                {/* Liquidity row */}
-                <View style={styles.maLiquidityRow}>
-                  <Text style={styles.maLiquidityLabel}>Liquidity</Text>
-                  <LiquidityBar score={liqScore} color={liqBand.color} />
-                  <Text style={[styles.maLiquidityBand, { color: liqBand.color }]}>{liqBand.label}</Text>
-                  {topDetail?.saleCount ? (
-                    <Text style={styles.maLiquiditySales}>{topDetail.saleCount} sales</Text>
-                  ) : null}
-                </View>
-
-                {/* Column headers */}
-                <View style={[styles.ebayColHeader, { marginTop: 6 }]}>
-                  <View style={{ flex: 1 }} />
-                  <Text style={[styles.ebayColHeaderText, { width: 72 }]}>eBay Price</Text>
-                  <Text style={[styles.ebayColHeaderText, { width: 72, textAlign: "right" as const }]}>Profit</Text>
-                </View>
-
-                {/* Grade rows */}
-                {cfg.grades.map(gr => {
-                  const priceUSD = (ebayPrices as any)[gr.ebayKey] ?? 0;
-                  const priceLocal = priceUSD * currencyRate;
-                  const profitLocal = rawUSD > 0 ? priceLocal - rawUSD * currencyRate : null;
-                  const netProfit = profitLocal != null && selectedFeeOption ? profitLocal - feeLocalAmount : profitLocal;
-                  const displayProfit = selectedFeeOption ? netProfit : profitLocal;
-                  const isYourGrade = Math.abs(gr.grade - aiGrade) < 0.01;
-                  const isProfit = displayProfit != null && displayProfit >= 0;
-
-                  return (
-                    <View
-                      key={gr.ebayKey}
-                      style={[
-                        styles.maGradeRow,
-                        isYourGrade && { backgroundColor: cfg.dotColor + "18", borderRadius: 8 },
-                      ]}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
-                        {isYourGrade && <View style={[styles.maYourGradeDot, { backgroundColor: cfg.dotColor }]} />}
-                        <Text style={[styles.maGradeLabel, isYourGrade && { color: Colors.text, fontFamily: "Inter_700Bold" }]}>
-                          {gr.label}
-                        </Text>
+            {/* Grade rows */}
+            {ebayLoading && !ebayPrices ? (
+              <View style={styles.ebayLoadingRow}>
+                <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
+              </View>
+            ) : !ebayPrices ? (
+              <View style={styles.ebayLoadingRow}>
+                <Text style={styles.ebayPriceMuted}>No price data available</Text>
+              </View>
+            ) : companyRows.map((gr, idx) => {
+              const isProfit = gr.profit !== null && gr.profit >= 0;
+              const isLast = idx === companyRows.length - 1;
+              const isCharted = gr.ebayKey === effectiveChartKey;
+              const aiGrade = aiGradeForCompany(selectedProfitCompany);
+              const isYourGrade = Math.abs(gr.grade - aiGrade) < 0.01;
+              return (
+                <Pressable key={gr.ebayKey} onPress={() => setChartGradeKey(gr.ebayKey)}>
+                  <View style={[
+                    styles.maTblRow,
+                    isProfit ? styles.maTblRowProfit : gr.profit !== null ? styles.maTblRowLoss : null,
+                    isLast && { borderBottomWidth: 0 },
+                  ]}>
+                    <View style={[
+                      styles.maAccent,
+                      (isCharted && chartGradeKey !== undefined) ? styles.maAccentCharted
+                        : isProfit ? styles.maAccentProfit
+                        : gr.profit !== null ? styles.maAccentLoss
+                        : null,
+                    ]} />
+                    <View style={{ flex: 2 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                        <Text style={styles.maTblGradeLabel}>{gr.label}</Text>
                         {isYourGrade && (
-                          <View style={[styles.maAiPill, { backgroundColor: cfg.dotColor }]}>
+                          <View style={[styles.maAiPill, { backgroundColor: PROFIT_COMPANY_CONFIG[selectedProfitCompany].dotColor }]}>
                             <Text style={styles.maAiPillTxt}>AI</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={[styles.maPriceTxt, { width: 72 }]}>
-                        {priceUSD > 0 ? fmtM(priceUSD) : "—"}
-                      </Text>
-                      <Text style={[styles.maProfitTxt, { width: 72, textAlign: "right" as const, color: displayProfit == null ? Colors.textMuted : isProfit ? "#22c55e" : "#ef4444" }]}>
-                        {displayProfit == null ? "—" : `${isProfit ? "+" : ""}${currencySymbol === "¥" ? `¥${Math.round(Math.abs(displayProfit))}` : `${currencySymbol}${Math.abs(displayProfit).toFixed(2)}`}`}
-                      </Text>
+                      {gr.detail?.saleCount != null && (
+                        <Text style={styles.maSaleCountTxt}>{gr.detail.saleCount} sales last month</Text>
+                      )}
                     </View>
-                  );
-                })}
+                    {ebayLoading ? (
+                      <ActivityIndicator size="small" color={Colors.textMuted} style={{ flex: 2 }} />
+                    ) : (
+                      <Text style={[styles.maEbayPrice, { flex: 2 }]}>
+                        {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
+                      </Text>
+                    )}
+                    {ebayLoading ? (
+                      <View style={{ flex: 2 }} />
+                    ) : rawUSD > 0 && gr.profit !== null ? (
+                      <Text style={[styles.maProfitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
+                        {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), rawLocal)}
+                      </Text>
+                    ) : (
+                      <Text style={[styles.maMutedTxt, { flex: 2, textAlign: "right" as const }]}>—</Text>
+                    )}
+                    <Pressable
+                      onPress={() => Linking.openURL(buildEbayUrl(gr.label))}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.maEbayLinkBtn, { opacity: pressed ? 0.5 : 1 }]}
+                    >
+                      <Text style={styles.maEbayLinkTxt}>eBay</Text>
+                      <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
+                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            })}
 
-                {/* Fee selector */}
-                <View style={styles.maFeeSection}>
-                  <Text style={styles.maFeeTitle}>Grading Fee</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: 4 }}>
-                    {(COMPANY_FEE_OPTIONS[selectedProfitCompany] ?? []).map(fee => {
-                      const isSelected = selectedFeeOption?.label === fee.label;
-                      return (
-                        <Pressable
-                          key={fee.label}
-                          onPress={() => setSelectedFeeOption(isSelected ? null : fee)}
-                          style={({ pressed }) => [
-                            styles.maFeePill,
-                            isSelected && styles.maFeePillActive,
-                            { opacity: pressed ? 0.7 : 1 },
-                          ]}
-                        >
-                          <Text style={[styles.maFeePillTxt, isSelected && styles.maFeePillTxtActive]}>{fee.label}</Text>
-                          <Text style={styles.maFeePillSub}>{fee.turnaround}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
+            {/* Trend chart */}
+            {!ebayLoading && (chartDetail || (historyData?.history?.length ?? 0) >= 3) && (
+              <View style={styles.maChartContainer}>
+                <TrendChart
+                  detail={chartDetail}
+                  history={historyData?.history ?? []}
+                  currencySymbol={currencySymbol}
+                  currencyRate={currencyRate}
+                />
+              </View>
+            )}
 
-                  {/* ACE label add-on */}
-                  {selectedProfitCompany === "Ace" && selectedFeeOption && (
-                    <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
-                      {(["standard", "colour-match", "custom"] as const).map(opt => {
-                        const labels = { standard: "Standard", "colour-match": "Colour Match (+£1)", custom: "Custom (+£3)" };
-                        const isSel = aceLabelOption === opt;
+            {/* Min grade to profit */}
+            {!ebayLoading && !!ebayPrices && rawUSD > 0 && (
+              <View style={styles.maSummaryRow}>
+                {minProfitRow ? (
+                  <Text style={styles.maSummaryTxt}>
+                    Min grade to profit:{" "}
+                    <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>{minProfitRow.label}</Text>
+                  </Text>
+                ) : (
+                  <Text style={[styles.maSummaryTxt, { color: "#ef4444" }]}>No profitable grade at this raw price</Text>
+                )}
+              </View>
+            )}
+
+            {/* Grading fee section */}
+            {(COMPANY_FEE_OPTIONS[selectedProfitCompany] ?? []).length > 0 && (
+              <View style={styles.maFeeSection}>
+                <View style={styles.maFeeSectionHeader}>
+                  <Ionicons name="receipt-outline" size={13} color={Colors.textMuted} />
+                  <Text style={styles.maFeeSectionTitle}>Grading Fee</Text>
+                  {selectedFeeOption && (
+                    <Pressable onPress={() => setSelectedFeeOption(null)} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+                      <Text style={styles.maFeeClearBtn}>Clear</Text>
+                    </Pressable>
+                  )}
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.maFeeTierScroll} style={styles.maFeeTierScrollView}>
+                  {(COMPANY_FEE_OPTIONS[selectedProfitCompany] ?? []).map(opt => {
+                    const isActive = selectedFeeOption?.label === opt.label;
+                    const nativeSym = opt.currency === "GBP" ? "£" : "$";
+                    const nativeAmt = opt.amount % 1 === 0 ? `${opt.amount}` : opt.amount.toFixed(2);
+                    return (
+                      <Pressable key={opt.label} onPress={() => setSelectedFeeOption(isActive ? null : opt)} style={[styles.maFeeTierPill, isActive && styles.maFeeTierPillActive]}>
+                        <Text style={[styles.maFeeTierName, isActive && styles.maFeeTierNameActive]}>{opt.label}</Text>
+                        <Text style={[styles.maFeeTierAmt, isActive && styles.maFeeTierAmtActive]}>{nativeSym}{nativeAmt}</Text>
+                        <Text style={[styles.maFeeTierTurnaround, isActive && styles.maFeeTierTurnaroundActive]}>{opt.turnaround}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+                {selectedProfitCompany === "Ace" && selectedFeeOption && (
+                  <View style={styles.maLabelSection}>
+                    <View style={styles.maLabelSectionHeader}>
+                      <Ionicons name="color-palette-outline" size={13} color={Colors.textMuted} />
+                      <Text style={styles.maLabelSectionTitle}>Label</Text>
+                    </View>
+                    <View style={styles.maLabelPillRow}>
+                      {([{ key: "standard" as const, name: "Standard", price: "Included" }, { key: "colour-match" as const, name: "Colour Match", price: "+£1 per card" }, { key: "custom" as const, name: "Custom Ace Label", price: "+£3 per card" }]).map(opt => {
+                        const active = aceLabelOption === opt.key;
                         return (
-                          <Pressable
-                            key={opt}
-                            onPress={() => setAceLabelOption(opt)}
-                            style={({ pressed }) => [styles.maFeePill, isSel && styles.maFeePillActive, { opacity: pressed ? 0.7 : 1, flex: 1 }]}
-                          >
-                            <Text style={[styles.maFeePillTxt, isSel && styles.maFeePillTxtActive, { textAlign: "center" as const }]}>{labels[opt]}</Text>
+                          <Pressable key={opt.key} onPress={() => setAceLabelOption(opt.key)} style={[styles.maLabelPill, active && styles.maLabelPillActive]}>
+                            <Text style={[styles.maLabelPillName, active && styles.maLabelPillNameActive]}>{opt.name}</Text>
+                            <Text style={[styles.maLabelPillPrice, active && styles.maLabelPillPriceActive]}>{opt.price}</Text>
                           </Pressable>
                         );
                       })}
                     </View>
-                  )}
-                </View>
-
-                {/* Net profit summary */}
-                {selectedFeeOption && (() => {
-                  const yourGradeEntry = cfg.grades.find(g => Math.abs(g.grade - aiGrade) < 0.01) ?? cfg.grades[0];
-                  const yourPriceUSD = (ebayPrices as any)[yourGradeEntry.ebayKey] ?? 0;
-                  const net = yourPriceUSD > 0 && rawUSD > 0
-                    ? yourPriceUSD * currencyRate - rawUSD * currencyRate - feeLocalAmount
-                    : null;
-                  return net != null ? (
-                    <View style={[styles.maNetBox, { borderColor: net >= 0 ? "#22c55e33" : "#ef444433", backgroundColor: net >= 0 ? "#22c55e0d" : "#ef44440d" }]}>
-                      <Text style={styles.maNetLabel}>Net profit at {yourGradeEntry.label}</Text>
-                      <Text style={[styles.maNetValue, { color: net >= 0 ? "#22c55e" : "#ef4444" }]}>
-                        {net >= 0 ? "+" : ""}{currencySymbol === "¥" ? `¥${Math.round(Math.abs(net))}` : `${currencySymbol}${Math.abs(net).toFixed(2)}`}
-                      </Text>
-                      <Text style={styles.maNetSub}>after {fmtM(rawUSD)} raw + {currencySymbol}{feeLocalAmount.toFixed(2)} fee</Text>
+                  </View>
+                )}
+                {selectedFeeOption ? (
+                  <View style={styles.maFeeMeta}>
+                    <View style={styles.maFeeMetaRow}>
+                      <Ionicons name="time-outline" size={13} color={Colors.textMuted} />
+                      <Text style={styles.maFeeMetaTxt}>Est. turnaround: <Text style={{ color: Colors.text, fontFamily: "Inter_600SemiBold" }}>{selectedFeeOption.turnaround}</Text></Text>
                     </View>
-                  ) : null;
-                })()}
-
-                {/* Raw price row */}
-                <View style={[styles.ebayPriceRow, { marginTop: 8, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
-                  <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
-                  {ebayPrices.raw > 0 ? (
-                    <View style={styles.ebayValueWithBadge}>
-                      <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{fmtM(ebayPrices.raw)}</Text>
-                      <View style={styles.ebaySourceBadge}><Text style={styles.ebaySourceBadgeText}>eBay</Text></View>
+                    <View style={styles.maFeeMetaRow}>
+                      <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
+                      <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}) deducted from profit above</Text>
                     </View>
-                  ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
-                    <View style={styles.ebayValueWithBadge}>
-                      <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{cardValue.rawValue}</Text>
-                      <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}><Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text></View>
-                    </View>
-                  ) : loadingValue ? (
-                    <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
-                  ) : (
-                    <Text style={styles.ebayPriceMuted}>No price data</Text>
-                  )}
-                </View>
-                <Text style={styles.ebayDisclaimer}>
-                  Last qualifying eBay sale · excl. Best Offer · Profit = eBay minus raw
-                </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.maFeeHint}>Tap a tier to see net profit after grading fee</Text>
+                )}
               </View>
-            );
-          })()}
-        </View>
+            )}
+
+            {/* Raw price row */}
+            <View style={[styles.ebayPriceRow, { marginTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", paddingTop: 10 }]}>
+              <Text style={styles.ebayPriceLabel}>Raw (Ungraded)</Text>
+              {(ebayPrices as any)?.raw > 0 ? (
+                <View style={styles.ebayValueWithBadge}>
+                  <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{fmtLocal((ebayPrices as any).raw)}</Text>
+                  <View style={styles.ebaySourceBadge}><Text style={styles.ebaySourceBadgeText}>eBay</Text></View>
+                </View>
+              ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
+                <View style={styles.ebayValueWithBadge}>
+                  <Text style={[styles.ebayPriceValue, { color: Colors.text }]}>{cardValue.rawValue}</Text>
+                  <View style={[styles.ebaySourceBadge, { backgroundColor: "#f97316" }]}><Text style={styles.ebaySourceBadgeText}>TCGPlayer</Text></View>
+                </View>
+              ) : loadingValue ? (
+                <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.7 }] }} />
+              ) : (
+                <Text style={styles.ebayPriceMuted}>No price data</Text>
+              )}
+            </View>
+            <Text style={styles.ebayDisclaimer}>Last qualifying eBay sale · excl. Best Offer · Profit = eBay minus raw</Text>
+          </View>
+        )}
 
         {result.isCrossover && result.currentGrade && (() => {
           const currentCompanyRaw = result.currentGrade!.company.toLowerCase();
@@ -2526,6 +2794,75 @@ const styles = StyleSheet.create({
   maNetLabel: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textMuted },
   maNetValue: { fontFamily: "Inter_700Bold", fontSize: 22 },
   maNetSub: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+
+  // ── card-profit.tsx style Market Analysis ──────────────────────────────
+  maSnapshotCard: {
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 14, gap: 10,
+  },
+  maSnapshotTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  maSnapshotLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  maSnapshotBandChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  maSnapshotBandDot: { width: 7, height: 7, borderRadius: 4 },
+  maSnapshotBandText: { fontFamily: "Inter_700Bold", fontSize: 12 },
+  maSnapshotSalesPills: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  maSnapshotSalesPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder, backgroundColor: Colors.background },
+  maSnapshotSalesCo: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
+  maSnapshotSalesCt: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+  maSnapshotFooter: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+  maCompanyPillRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  maCompanyPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.surfaceBorder, backgroundColor: Colors.surface },
+  maCompanyPillDot: { width: 8, height: 8, borderRadius: 4 },
+  maCompanyPillLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.textMuted },
+  maCompanyCard: { marginBottom: 12, marginHorizontal: 16, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, overflow: "hidden" },
+  maTblHead: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder, gap: 4 },
+  maTblHeadTxt: { fontFamily: "Inter_500Medium", fontSize: 10, color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 },
+  maTblRow: { flexDirection: "row", alignItems: "center", paddingRight: 14, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)", gap: 4 },
+  maTblRowProfit: { backgroundColor: "rgba(34,197,94,0.07)" },
+  maTblRowLoss: { backgroundColor: "rgba(239,68,68,0.07)" },
+  maAccent: { width: 3, alignSelf: "stretch", backgroundColor: "transparent", borderRadius: 2, marginRight: 11 },
+  maAccentProfit: { backgroundColor: "#22c55e" },
+  maAccentLoss: { backgroundColor: "#ef4444" },
+  maAccentCharted: { backgroundColor: Colors.primary },
+  maTblGradeLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  maSaleCountTxt: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted, marginTop: 1 },
+  maEbayPrice: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textSecondary, textAlign: "right" },
+  maProfitVal: { fontFamily: "Inter_700Bold", fontSize: 13, textAlign: "right" },
+  maMutedTxt: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textMuted },
+  maEbayLinkBtn: { width: 48, height: 32, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 2 },
+  maEbayLinkTxt: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted },
+  maChartContainer: { borderTopWidth: 1, borderTopColor: Colors.surfaceBorder, paddingTop: 12, paddingBottom: 4 },
+  maSummaryRow: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
+  maSummaryTxt: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textSecondary },
+  maFeeSectionHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  maFeeSectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.textMuted, flex: 1 },
+  maFeeClearBtn: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.primary },
+  maFeeTierScrollView: { marginHorizontal: -14 },
+  maFeeTierScroll: { gap: 8, paddingHorizontal: 14, paddingVertical: 1 },
+  maFeeTierPill: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: "center", gap: 2, minWidth: 90, maxWidth: 120 },
+  maFeeTierPillActive: { backgroundColor: Colors.primary + "18", borderColor: Colors.primary },
+  maFeeTierName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted },
+  maFeeTierNameActive: { color: Colors.primary, fontFamily: "Inter_600SemiBold" },
+  maFeeTierAmt: { fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.textMuted },
+  maFeeTierAmtActive: { color: Colors.primary },
+  maFeeTierTurnaround: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted },
+  maFeeTierTurnaroundActive: { color: Colors.primary },
+  maLabelSection: { gap: 8 },
+  maLabelSectionHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  maLabelSectionTitle: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textMuted },
+  maLabelPillRow: { flexDirection: "row", gap: 8 },
+  maLabelPill: { flex: 1, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: "center", gap: 2 },
+  maLabelPillActive: { backgroundColor: Colors.primary + "18", borderColor: Colors.primary },
+  maLabelPillName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.textMuted },
+  maLabelPillNameActive: { color: Colors.primary, fontFamily: "Inter_600SemiBold" },
+  maLabelPillPrice: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.textMuted },
+  maLabelPillPriceActive: { color: Colors.primary },
+  maFeeMeta: { gap: 4 },
+  maFeeMetaRow: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  maFeeMetaTxt: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted, flex: 1 },
+  maFeeHint: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
+
   // Two-column Market Prices layout (Your Grade | Grade 10)
   ebayColHeader: {
     flexDirection: "row",
