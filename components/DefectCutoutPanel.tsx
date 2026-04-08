@@ -82,6 +82,15 @@ const FILTER_PRESETS: FilterDef[] = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Returns true if bounds are real (not null, not near-full-image defaults). */
+function boundsLookValid(b?: CardBounds | null): boolean {
+  if (!b) return false;
+  const w = b.rightPercent - b.leftPercent;
+  const h = b.bottomPercent - b.topPercent;
+  // Reject bounds that cover ≥90% of the image — those are just defaults.
+  return w < 90 && h < 90 && b.leftPercent > 3 && b.topPercent > 1;
+}
+
 /** Maps card-relative defect coords (0-100) to image-relative coords (0-100). */
 function mapToImagePosition(x: number, y: number, bounds?: CardBounds | null) {
   if (!bounds) return { imgX: x, imgY: y };
@@ -297,10 +306,46 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
   const [loadingBack, setLoadingBack] = useState(false);
   const listRef = useRef<FlatList>(null);
 
+  // Resolved bounds — may be auto-detected if the stored ones look like defaults
+  const [resolvedFrontBounds, setResolvedFrontBounds] = useState<CardBounds | null>(frontCardBounds ?? null);
+  const [resolvedBackBounds, setResolvedBackBounds] = useState<CardBounds | null>(backCardBounds ?? null);
+
   useEffect(() => {
     Image.getSize(frontImage, (w, h) => setFrontDims({ w, h }), () => setFrontDims({ w: 0, h: 0 }));
     Image.getSize(backImage, (w, h) => setBackDims({ w, h }), () => setBackDims({ w: 0, h: 0 }));
   }, [frontImage, backImage]);
+
+  // If stored bounds look like wide defaults, auto-detect real card bounds
+  useEffect(() => {
+    const needFront = !boundsLookValid(frontCardBounds);
+    const needBack = !boundsLookValid(backCardBounds);
+    if (!needFront && !needBack) return;
+
+    const detectOne = async (uri: string): Promise<CardBounds | null> => {
+      try {
+        const compressed = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 600 } }],
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (!compressed.base64) return null;
+        const resp = await apiRequest("POST", "/api/detect-bounds", { image: compressed.base64 });
+        if (!resp.ok) return null;
+        return await resp.json() as CardBounds;
+      } catch {
+        return null;
+      }
+    };
+
+    (async () => {
+      const [fb, bb] = await Promise.all([
+        needFront ? detectOne(frontImage) : Promise.resolve(frontCardBounds ?? null),
+        needBack ? detectOne(backImage) : Promise.resolve(backCardBounds ?? null),
+      ]);
+      if (fb && boundsLookValid(fb)) setResolvedFrontBounds(fb);
+      if (bb && boundsLookValid(bb)) setResolvedBackBounds(bb);
+    })();
+  }, []);
 
   const sorted = useMemo(
     () => [...defects].sort((a, b) => {
@@ -432,7 +477,7 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
                   imageUri={isFront ? frontImage : backImage}
                   imgWidth={dims?.w ?? 0}
                   imgHeight={dims?.h ?? 0}
-                  cardBounds={isFront ? frontCardBounds : backCardBounds}
+                  cardBounds={isFront ? resolvedFrontBounds : resolvedBackBounds}
                   onPress={() => openViewer(i)}
                 />
               );
@@ -485,7 +530,7 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
                   filteredUri={filteredUri}
                   imgWidth={dims?.w ?? 0}
                   imgHeight={dims?.h ?? 0}
-                  cardBounds={isFront ? frontCardBounds : backCardBounds}
+                  cardBounds={isFront ? resolvedFrontBounds : resolvedBackBounds}
                   index={index}
                   total={sorted.length}
                   isLoading={isLoading}
