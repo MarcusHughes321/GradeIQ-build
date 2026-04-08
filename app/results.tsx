@@ -408,6 +408,7 @@ export default function ResultsScreen() {
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const feedbackInFlightRef = useRef(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -436,7 +437,8 @@ export default function ResultsScreen() {
   };
 
   const submitFeedback = async (happy: boolean, comment?: string) => {
-    if (feedbackSubmitting) return;
+    if (feedbackInFlightRef.current) return;
+    feedbackInFlightRef.current = true;
     setFeedbackHappy(happy);
     setFeedbackSubmitting(true);
     try {
@@ -452,6 +454,7 @@ export default function ResultsScreen() {
       setFeedbackSubmitted(true);
     } catch {}
     setFeedbackSubmitting(false);
+    feedbackInFlightRef.current = false;
   };
 
   const fetchCardValue = async (result: GradingResult) => {
@@ -2053,12 +2056,7 @@ export default function ResultsScreen() {
               <Text style={styles.feedbackLabel}>Was this grade accurate?</Text>
               <View style={styles.feedbackBtns}>
                 <Pressable
-                  onPress={() => {
-                    if (!feedbackSubmitting) {
-                      setFeedbackHappy(true);
-                      submitFeedback(true);
-                    }
-                  }}
+                  onPress={() => submitFeedback(true)}
                   style={({ pressed }) => [
                     styles.feedbackBtn,
                     feedbackHappy === true && styles.feedbackBtnActiveGood,
