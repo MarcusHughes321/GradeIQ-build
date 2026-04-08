@@ -34,6 +34,7 @@ import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
 import CompanyLabel from "@/components/CompanyLabel";
 import DefectOverlay from "@/components/DefectOverlay";
+import DefectCutoutPanel from "@/components/DefectCutoutPanel";
 import ShareButton from "@/components/ShareCard";
 import { useSettings } from "@/lib/settings-context";
 import { useSubscription } from "@/lib/subscription";
@@ -1614,6 +1615,15 @@ export default function ResultsScreen() {
         {enabledCompanies.includes("Ace") && <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />}
         {enabledCompanies.includes("TAG") && result.tag && <CompanyCard company="TAG" grade={result.tag} color={Colors.cardTAG} />}
         {enabledCompanies.includes("CGC") && result.cgc && <CompanyCard company="CGC" grade={result.cgc} color={Colors.cardCGC} />}
+
+        {/* ── Defect Cutout Panel ── */}
+        <DefectCutoutPanel
+          defects={result.defects ?? []}
+          frontImage={grading.frontImage}
+          backImage={grading.backImage}
+          frontCardBounds={result.frontCardBounds}
+          backCardBounds={result.backCardBounds}
+        />
 
         {/* ── Market Analysis — card-profit.tsx style ── */}
 
