@@ -13,7 +13,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 const TILE = 96;
 const TILE_ZOOM = 3.5;
 
-const VIEWER_SIZE = Math.min(SCREEN_W - 48, SCREEN_H * 0.48);
+const VIEWER_SIZE = Math.min(SCREEN_W - 48, SCREEN_H * 0.44);
 const VIEWER_ZOOM = 2.5;
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -33,6 +33,66 @@ const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   edge: "remove-outline",
   surface: "layers-outline",
 };
+
+type FilterDef = {
+  id: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  description: string;
+  filter: object[];
+};
+
+const FILTER_PRESETS: FilterDef[] = [
+  {
+    id: "normal",
+    label: "Normal",
+    icon: "image-outline",
+    description: "Original image",
+    filter: [],
+  },
+  {
+    id: "contrast",
+    label: "Contrast",
+    icon: "contrast-outline",
+    description: "High contrast reveals wear marks, edge chips and surface scratches",
+    filter: [{ contrast: 2.8 }, { brightness: 0.95 }],
+  },
+  {
+    id: "sharpen",
+    label: "Sharpen",
+    icon: "scan-outline",
+    description: "Simulates AI sharpening — fine scratches and corner frays become clearer",
+    filter: [{ contrast: 1.7 }, { brightness: 1.15 }, { saturate: 1.2 }],
+  },
+  {
+    id: "grayscale",
+    label: "Grayscale",
+    icon: "color-filter-outline",
+    description: "Strips holo shimmer — surface scratches and print defects stand out",
+    filter: [{ grayscale: 1 }, { contrast: 1.8 }],
+  },
+  {
+    id: "invert",
+    label: "Invert",
+    icon: "eye-outline",
+    description: "Inverts light & dark — light surface scratches on dark cards become obvious",
+    filter: [{ invert: 1 }, { contrast: 1.2 }],
+  },
+  {
+    id: "saturate",
+    label: "Saturate",
+    icon: "color-palette-outline",
+    description: "Boosts colour to reveal ink bleed, print lines and foil inconsistencies",
+    filter: [{ saturate: 4 }, { contrast: 1.3 }],
+  },
+  {
+    id: "warm",
+    label: "Edge Detect",
+    icon: "analytics-outline",
+    description: "Sepia + high contrast — highlights border wear and edge whitening",
+    filter: [{ sepia: 0.8 }, { contrast: 2.5 }, { brightness: 0.85 }],
+  },
+];
 
 function mapToImagePosition(
   x: number,
@@ -119,9 +179,8 @@ function DefectTile({ defect, imageUri, imgWidth, imgHeight, cardBounds, onPress
             zoom={TILE_ZOOM}
           />
         ) : (
-          <View style={[styles.tilePlaceholder]} />
+          <View style={styles.tilePlaceholder} />
         )}
-
         <View style={[styles.tileTypeBadge, { backgroundColor: color }]}>
           <Ionicons name={TYPE_ICON[defect.type] || "alert-circle-outline"} size={9} color="#fff" />
         </View>
@@ -158,30 +217,37 @@ interface DefectViewerPageProps {
   cardBounds?: CardBounds | null;
   index: number;
   total: number;
+  activeFilter: FilterDef;
 }
 
 function DefectViewerPage({
-  defect, imageUri, imgWidth, imgHeight, cardBounds, index, total,
+  defect, imageUri, imgWidth, imgHeight, cardBounds, index, total, activeFilter,
 }: DefectViewerPageProps) {
   const color = SEVERITY_COLOR[defect.severity] || "#F59E0B";
   const { imgX, imgY } = mapToImagePosition(defect.x, defect.y, cardBounds);
 
+  const filterStyle = activeFilter.filter.length > 0
+    ? { filter: activeFilter.filter } as any
+    : undefined;
+
   return (
     <View style={styles.viewerPage}>
       <View style={[styles.viewerCropWrap, { borderColor: color + "55" }]}>
-        {imgWidth > 0 ? (
-          <CropImage
-            imageUri={imageUri}
-            imgWidth={imgWidth}
-            imgHeight={imgHeight}
-            imgX={imgX}
-            imgY={imgY}
-            size={VIEWER_SIZE}
-            zoom={VIEWER_ZOOM}
-          />
-        ) : (
-          <View style={[styles.viewerPlaceholder, { backgroundColor: Colors.surface }]} />
-        )}
+        <View style={[StyleSheet.absoluteFillObject, filterStyle]}>
+          {imgWidth > 0 ? (
+            <CropImage
+              imageUri={imageUri}
+              imgWidth={imgWidth}
+              imgHeight={imgHeight}
+              imgX={imgX}
+              imgY={imgY}
+              size={VIEWER_SIZE}
+              zoom={VIEWER_ZOOM}
+            />
+          ) : (
+            <View style={[styles.viewerPlaceholder, { backgroundColor: Colors.surface }]} />
+          )}
+        </View>
         <View style={styles.crosshairWrapLg} pointerEvents="none">
           <View style={[styles.crosshairRingLg, { borderColor: color }]} />
           <View style={[styles.crosshairDotLg, { backgroundColor: color }]} />
@@ -232,7 +298,9 @@ export default function DefectCutoutPanel({
   const [backDims, setBackDims] = useState<{ w: number; h: number } | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
+  const [activeFilterId, setActiveFilterId] = useState("normal");
   const listRef = useRef<FlatList>(null);
+  const filterScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     Image.getSize(frontImage, (w, h) => setFrontDims({ w, h }), () => setFrontDims({ w: 0, h: 0 }));
@@ -248,8 +316,11 @@ export default function DefectCutoutPanel({
     [defects]
   );
 
+  const activeFilter = FILTER_PRESETS.find(f => f.id === activeFilterId) ?? FILTER_PRESETS[0];
+
   const openViewer = (index: number) => {
     setViewerIndex(index);
+    setActiveFilterId("normal");
     setViewerOpen(true);
   };
 
@@ -365,11 +436,52 @@ export default function DefectCutoutPanel({
                   cardBounds={isFront ? frontCardBounds : backCardBounds}
                   index={index}
                   total={sorted.length}
+                  activeFilter={activeFilter}
                 />
               );
             }}
           />
 
+          {/* ── Filter strip ── */}
+          <View style={styles.filterSection}>
+            <ScrollView
+              ref={filterScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
+            >
+              {FILTER_PRESETS.map((f) => {
+                const isActive = activeFilterId === f.id;
+                return (
+                  <Pressable
+                    key={f.id}
+                    onPress={() => setActiveFilterId(f.id)}
+                    style={({ pressed }) => [
+                      styles.filterPill,
+                      isActive && styles.filterPillActive,
+                      { opacity: pressed ? 0.75 : 1 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={f.icon}
+                      size={13}
+                      color={isActive ? "#fff" : Colors.textMuted}
+                    />
+                    <Text style={[styles.filterPillTxt, isActive && styles.filterPillTxtActive]}>
+                      {f.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            {activeFilter.id !== "normal" && (
+              <Text style={styles.filterHint} numberOfLines={2}>
+                {activeFilter.description}
+              </Text>
+            )}
+          </View>
+
+          {/* ── Dot scrubber ── */}
           {sorted.length > 1 && (
             <View style={styles.viewerDots}>
               {sorted.map((d, i) => {
@@ -627,7 +739,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
-    gap: 20,
+    gap: 16,
   },
   viewerCropWrap: {
     width: VIEWER_SIZE,
@@ -733,13 +845,54 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
+  filterSection: {
+    paddingTop: 4,
+    gap: 6,
+  },
+  filterRow: {
+    paddingHorizontal: 16,
+    gap: 8,
+    paddingVertical: 6,
+  },
+  filterPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  filterPillActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  filterPillTxt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  filterPillTxtActive: {
+    color: "#fff",
+    fontFamily: "Inter_600SemiBold",
+  },
+  filterHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.45)",
+    paddingHorizontal: 20,
+    lineHeight: 15,
+  },
+
   viewerDots: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     paddingBottom: 8,
-    paddingTop: 4,
+    paddingTop: 6,
   },
   dot: {
     borderRadius: 4,
