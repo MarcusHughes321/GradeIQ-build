@@ -1289,6 +1289,23 @@ export default function CardProfitScreen() {
                     </Text>
                   )}
 
+                  {/* Nudge — fee tier selected but no raw price entered */}
+                  {selectedFeeOption && compId === selectedCompany && !hasEffectiveRawPrice && (
+                    <Pressable
+                      onPress={() => {
+                        if (!priceOverrideInput && effectiveRawLocal > 0) {
+                          setPriceOverrideInput(effectiveRawLocal.toFixed(2));
+                        }
+                        setIsEditingPrice(true);
+                      }}
+                      style={({ pressed }) => [st.noPriceNudge, { opacity: pressed ? 0.75 : 1 }]}
+                    >
+                      <Ionicons name="pricetag-outline" size={14} color={Colors.textMuted} />
+                      <Text style={st.noPriceNudgeTxt}>Add your purchase price to see net profit</Text>
+                      <Ionicons name="chevron-forward" size={13} color={Colors.textMuted} style={{ marginLeft: "auto" as any }} />
+                    </Pressable>
+                  )}
+
                   {/* Final Net Profit summary */}
                   {selectedFeeOption && compId === selectedCompany && hasEffectiveRawPrice && ebay && (
                     <View style={[
@@ -1555,13 +1572,12 @@ const st = StyleSheet.create({
   heroPriceEditPill: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    alignSelf: "flex-start" as const,
     gap: 6,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     backgroundColor: Colors.surface,
   },
   heroPriceEditPillActive: {
@@ -2038,6 +2054,23 @@ const st = StyleSheet.create({
     color: Colors.textMuted,
     fontStyle: "italic",
     paddingHorizontal: 2,
+  },
+  noPriceNudge: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  noPriceNudgeTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    flex: 1,
   },
   // Net profit summary box
   netProfitBox: {
