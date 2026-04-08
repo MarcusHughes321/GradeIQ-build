@@ -1284,91 +1284,7 @@ export default function ResultsScreen() {
           </View>
         </View>
 
-        {result.currentGrade && (
-          <View style={styles.currentGradeBanner}>
-            <View style={styles.currentGradeBannerHeader}>
-              <Ionicons name="git-compare-outline" size={16} color="#8B5CF6" />
-              <Text style={styles.currentGradeBannerTitle}>Crossover Analysis</Text>
-              {result.currentGrade.certNumber ? (
-                <Text style={styles.currentGradeBannerCert}>Cert #{result.currentGrade.certNumber}</Text>
-              ) : null}
-            </View>
-            <View style={styles.currentGradeBannerBody}>
-              <View>
-                <Text style={styles.currentGradeBannerSublabel}>Currently in</Text>
-                <View style={styles.currentGradePill}>
-                  <Text style={styles.currentGradePillCompany}>{result.currentGrade.company}</Text>
-                  <Text style={styles.currentGradePillGrade}>{result.currentGrade.grade}</Text>
-                </View>
-              </View>
-              <Ionicons name="arrow-forward" size={20} color="rgba(139,92,246,0.4)" style={{ marginTop: 18 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.currentGradeBannerSublabel}>Predicted crossover grades</Text>
-                <View style={styles.crossoverChipRow}>
-                  {enabledCompanies.includes("PSA") && (
-                    <View style={styles.crossoverMiniChip}>
-                      <Text style={styles.crossoverMiniChipLabel}>PSA</Text>
-                      <Text style={styles.crossoverMiniChipGrade}>{result.psa.grade % 1 === 0 ? result.psa.grade : result.psa.grade.toFixed(1)}</Text>
-                    </View>
-                  )}
-                  {enabledCompanies.includes("Beckett") && (
-                    <View style={styles.crossoverMiniChip}>
-                      <Text style={styles.crossoverMiniChipLabel}>BGS</Text>
-                      <Text style={styles.crossoverMiniChipGrade}>{result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade : result.beckett.overallGrade.toFixed(1)}</Text>
-                    </View>
-                  )}
-                  {enabledCompanies.includes("Ace") && (
-                    <View style={styles.crossoverMiniChip}>
-                      <Text style={styles.crossoverMiniChipLabel}>ACE</Text>
-                      <Text style={styles.crossoverMiniChipGrade}>{result.ace.overallGrade}</Text>
-                    </View>
-                  )}
-                  {enabledCompanies.includes("CGC") && (
-                    <View style={styles.crossoverMiniChip}>
-                      <Text style={styles.crossoverMiniChipLabel}>CGC</Text>
-                      <Text style={styles.crossoverMiniChipGrade}>{result.cgc.grade % 1 === 0 ? result.cgc.grade : result.cgc.grade.toFixed(1)}</Text>
-                    </View>
-                  )}
-                  {enabledCompanies.includes("TAG") && (
-                    <View style={styles.crossoverMiniChip}>
-                      <Text style={styles.crossoverMiniChipLabel}>TAG</Text>
-                      <Text style={styles.crossoverMiniChipGrade}>{result.tag.overallGrade % 1 === 0 ? result.tag.overallGrade : result.tag.overallGrade.toFixed(1)}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
-
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryHeader}>
-            <Ionicons name="clipboard-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.summaryTitle}>Condition Summary</Text>
-          </View>
-          <Text style={styles.summaryText}>{result.overallCondition || gradeSummary}</Text>
-        </View>
-
-        {result.defects && result.defects.length > 0 && (
-          <View style={styles.defectsCard}>
-            <View style={styles.summaryHeader}>
-              <Ionicons name="alert-circle-outline" size={16} color="#F59E0B" />
-              <Text style={styles.summaryTitle}>Defects Found ({result.defects.length})</Text>
-            </View>
-            {result.defects.map((d, i) => (
-              <View key={i} style={styles.defectRow}>
-                <View style={[styles.defectDot, { backgroundColor: SEVERITY_COLORS_MAP[d.severity] || "#F59E0B" }]} />
-                <View style={styles.defectInfo}>
-                  <Text style={styles.defectDesc}>{d.description}</Text>
-                  <Text style={styles.defectMeta}>
-                    {d.type.charAt(0).toUpperCase() + d.type.slice(1)} · {d.side.charAt(0).toUpperCase() + d.side.slice(1)} · {d.severity}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
+        {/* ── 1. OVERALL GRADES ── */}
         <View style={styles.overallGradesCard}>
           <Text style={styles.sectionTitle}>Overall Grades</Text>
           <View style={styles.gradeChips}>
@@ -1432,6 +1348,95 @@ export default function ResultsScreen() {
           </View>
         </View>
 
+        {/* ── 2. CROSSOVER BANNER (crossover mode only) ── */}
+        {result.currentGrade && (
+          <View style={styles.currentGradeBanner}>
+            <View style={styles.currentGradeBannerHeader}>
+              <Ionicons name="git-compare-outline" size={16} color="#8B5CF6" />
+              <Text style={styles.currentGradeBannerTitle}>Crossover Analysis</Text>
+              {result.currentGrade.certNumber ? (
+                <Text style={styles.currentGradeBannerCert}>Cert #{result.currentGrade.certNumber}</Text>
+              ) : null}
+            </View>
+            <View style={styles.currentGradeBannerBody}>
+              <View>
+                <Text style={styles.currentGradeBannerSublabel}>Currently in</Text>
+                <View style={styles.currentGradePill}>
+                  <Text style={styles.currentGradePillCompany}>{result.currentGrade.company}</Text>
+                  <Text style={styles.currentGradePillGrade}>{result.currentGrade.grade}</Text>
+                </View>
+              </View>
+              <Ionicons name="arrow-forward" size={20} color="rgba(139,92,246,0.4)" style={{ marginTop: 18 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.currentGradeBannerSublabel}>Predicted crossover grades</Text>
+                <View style={styles.crossoverChipRow}>
+                  {enabledCompanies.includes("PSA") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>PSA</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.psa.grade % 1 === 0 ? result.psa.grade : result.psa.grade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("Beckett") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>BGS</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.beckett.overallGrade % 1 === 0 ? result.beckett.overallGrade : result.beckett.overallGrade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("Ace") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>ACE</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.ace.overallGrade}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("CGC") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>CGC</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.cgc.grade % 1 === 0 ? result.cgc.grade : result.cgc.grade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {enabledCompanies.includes("TAG") && (
+                    <View style={styles.crossoverMiniChip}>
+                      <Text style={styles.crossoverMiniChipLabel}>TAG</Text>
+                      <Text style={styles.crossoverMiniChipGrade}>{result.tag.overallGrade % 1 === 0 ? result.tag.overallGrade : result.tag.overallGrade.toFixed(1)}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── 3. CONDITION SUMMARY ── */}
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <Ionicons name="clipboard-outline" size={16} color={Colors.textSecondary} />
+            <Text style={styles.summaryTitle}>Condition Summary</Text>
+          </View>
+          <Text style={styles.summaryText}>{result.overallCondition || gradeSummary}</Text>
+        </View>
+
+        {/* ── 4. DEFECTS FOUND (text list) ── */}
+        {result.defects && result.defects.length > 0 && (
+          <View style={styles.defectsCard}>
+            <View style={styles.summaryHeader}>
+              <Ionicons name="alert-circle-outline" size={16} color="#F59E0B" />
+              <Text style={styles.summaryTitle}>Defects Found ({result.defects.length})</Text>
+            </View>
+            {result.defects.map((d, i) => (
+              <View key={i} style={styles.defectRow}>
+                <View style={[styles.defectDot, { backgroundColor: SEVERITY_COLORS_MAP[d.severity] || "#F59E0B" }]} />
+                <View style={styles.defectInfo}>
+                  <Text style={styles.defectDesc}>{d.description}</Text>
+                  <Text style={styles.defectMeta}>
+                    {d.type.charAt(0).toUpperCase() + d.type.slice(1)} · {d.side.charAt(0).toUpperCase() + d.side.slice(1)} · {d.severity}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* ── 5. FRONT & BACK IMAGES ── */}
         <View style={styles.imageRow}>
           <Pressable
             style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
@@ -1455,7 +1460,30 @@ export default function ResultsScreen() {
           </Pressable>
         </View>
 
+        {/* ── 6. DETECTED FLAWS (zoomed crop panel) ── */}
+        <DefectCutoutPanel
+          defects={result.defects ?? []}
+          frontImage={grading.frontImage}
+          backImage={grading.backImage}
+          frontCardBounds={result.frontCardBounds}
+          backCardBounds={result.backCardBounds}
+        />
 
+        {/* ── 7. CENTERING ── */}
+        <CenteringCard
+          centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
+          onOpenTool={() => setCenteringToolVisible(true)}
+          enabledCompanies={enabledCompanies}
+        />
+
+        {/* ── 8. COMPANY BREAKDOWN (tap to expand) ── */}
+        {enabledCompanies.includes("PSA") && <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />}
+        {enabledCompanies.includes("Beckett") && <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />}
+        {enabledCompanies.includes("Ace") && <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />}
+        {enabledCompanies.includes("TAG") && result.tag && <CompanyCard company="TAG" grade={result.tag} color={Colors.cardTAG} />}
+        {enabledCompanies.includes("CGC") && result.cgc && <CompanyCard company="CGC" grade={result.cgc} color={Colors.cardCGC} />}
+
+        {/* ── 9. CROSSOVER PROFIT POTENTIAL (crossover mode only) ── */}
         {result.isCrossover && result.currentGrade && (() => {
           const currentCompanyRaw = result.currentGrade!.company.toLowerCase();
           // Normalise company key for eBay lookup ("beckett" → "bgs")
@@ -1604,28 +1632,7 @@ export default function ResultsScreen() {
           );
         })()}
 
-        <CenteringCard
-          centering={result.centering || { frontLeftRight: 50, frontTopBottom: 50, backLeftRight: 50, backTopBottom: 50 }}
-          onOpenTool={() => setCenteringToolVisible(true)}
-          enabledCompanies={enabledCompanies}
-        />
-
-        {enabledCompanies.includes("PSA") && <CompanyCard company="PSA" grade={result.psa} color={Colors.cardPSA} />}
-        {enabledCompanies.includes("Beckett") && <CompanyCard company="Beckett" grade={result.beckett} color={Colors.cardBeckett} />}
-        {enabledCompanies.includes("Ace") && <CompanyCard company="Ace" grade={result.ace} color={Colors.cardAce} />}
-        {enabledCompanies.includes("TAG") && result.tag && <CompanyCard company="TAG" grade={result.tag} color={Colors.cardTAG} />}
-        {enabledCompanies.includes("CGC") && result.cgc && <CompanyCard company="CGC" grade={result.cgc} color={Colors.cardCGC} />}
-
-        {/* ── Defect Cutout Panel ── */}
-        <DefectCutoutPanel
-          defects={result.defects ?? []}
-          frontImage={grading.frontImage}
-          backImage={grading.backImage}
-          frontCardBounds={result.frontCardBounds}
-          backCardBounds={result.backCardBounds}
-        />
-
-        {/* ── Market Analysis — card-profit.tsx style ── */}
+        {/* ── 10. MARKET ANALYSIS ── */}
 
         {/* 1. Liquidity snapshot card */}
         <View style={styles.maSnapshotCard}>
