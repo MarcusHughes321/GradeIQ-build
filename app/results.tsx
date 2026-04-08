@@ -389,6 +389,9 @@ export default function ResultsScreen() {
   const [selectedProfitCompany, setSelectedProfitCompany] = useState<CompanyId>("PSA");
   const [chartGradeKey, setChartGradeKey] = useState<string | undefined>(undefined);
   const [selectedFeeOption, setSelectedFeeOption] = useState<FeeOption | null>(null);
+  const [customPriceInput, setCustomPriceInput] = useState<string>("");
+  const [showCustomPriceModal, setShowCustomPriceModal] = useState(false);
+  const [customPriceDraft, setCustomPriceDraft] = useState<string>("");
   const [aceLabelOption, setAceLabelOption] = useState<"standard" | "colour-match" | "custom">("standard");
   const [rates, setRates] = useState<Record<string, number>>({});
   const [correctionVisible, setCorrectionVisible] = useState(false);
@@ -1097,6 +1100,23 @@ export default function ResultsScreen() {
   // Raw price in local currency for profit calculations
   const rawLocal = rawUSD * currencyRate;
 
+  // Custom price override (user's purchase price)
+  const customPriceParsed = customPriceInput !== "" ? parseFloat(customPriceInput) : NaN;
+  const priceIsOverridden = !isNaN(customPriceParsed) && customPriceParsed > 0;
+  const effectiveRawLocal = priceIsOverridden ? customPriceParsed : rawLocal;
+  const hasEffectiveRawPrice = effectiveRawLocal > 0;
+
+  // Modal helpers
+  const openCustomPriceModal = (current?: string) => {
+    setCustomPriceDraft(current ?? "");
+    setShowCustomPriceModal(true);
+  };
+  const confirmCustomPriceModal = () => {
+    const val = parseFloat(customPriceDraft);
+    if (!isNaN(val) && val > 0) setCustomPriceInput(customPriceDraft);
+    setShowCustomPriceModal(false);
+  };
+
   // ── Liquidity market snapshot across all enabled companies ────────────────
   const marketSnapshot = (() => {
     if (!ebayPrices) return null;
@@ -1138,11 +1158,16 @@ export default function ResultsScreen() {
       const ebayUSD = (ebayPrices as any)[g.ebayKey] ?? 0;
       const ebayLocal = ebayUSD > 0 ? ebayUSD * currencyRate : null;
       const feeDeduc = feeLocalAmount;
-      const profit = ebayLocal != null && rawUSD > 0 ? Math.round((ebayLocal - rawLocal - feeDeduc) * 100) / 100 : null;
+      const profit = ebayLocal != null && hasEffectiveRawPrice ? Math.round((ebayLocal - effectiveRawLocal - feeDeduc) * 100) / 100 : null;
       return { ...g, ebayLocal, profit, detail: gradeDetails[g.ebayKey as string] };
     });
   })();
   const minProfitRow = [...companyRows].reverse().find(r => r.profit !== null && r.profit >= 0) ?? null;
+  // Net profit box is based on the AI grade for the selected company
+  const aiGradeNum = aiGradeForCompany(selectedProfitCompany);
+  const aiGradeRow = Number.isFinite(aiGradeNum) && aiGradeNum > 0
+    ? (companyRows.find(r => Math.abs(r.grade - aiGradeNum) < 0.01) ?? null)
+    : null;
   const chartDetail = effectiveChartKey ? gradeDetails[effectiveChartKey] : undefined;
 
   return (
@@ -1738,6 +1763,37 @@ export default function ResultsScreen() {
               <View style={{ width: 48 }} />
             </View>
 
+            {/* Custom price row — user's purchase price for accurate profit */}
+            {priceIsOverridden ? (
+              <View style={styles.maCustomPriceRow}>
+                <Ionicons name="wallet-outline" size={13} color={Colors.textMuted} />
+                <Text style={styles.maCustomPriceTxt}>You paid</Text>
+                <Text style={styles.maCustomPriceVal}>{fmtLocal(customPriceParsed)}</Text>
+                <Pressable
+                  onPress={() => openCustomPriceModal(customPriceParsed.toFixed(2))}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, marginLeft: "auto" as any })}
+                >
+                  <Ionicons name="pencil-outline" size={14} color={Colors.textMuted} />
+                </Pressable>
+                <Pressable
+                  onPress={() => setCustomPriceInput("")}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color={Colors.textMuted} />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => openCustomPriceModal(rawLocal > 0 ? rawLocal.toFixed(2) : "")}
+                style={({ pressed }) => [styles.maAddCustomPriceBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Ionicons name="add-circle-outline" size={15} color={Colors.textMuted} />
+                <Text style={styles.maAddCustomPriceTxt}>Add your purchase price for accurate profit</Text>
+              </Pressable>
+            )}
+
             {ebayLoading && !ebayPrices ? (
               <View style={styles.ebayLoadingRow}>
                 <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
@@ -1787,9 +1843,9 @@ export default function ResultsScreen() {
                     )}
                     {ebayLoading ? (
                       <View style={{ flex: 2 }} />
-                    ) : rawUSD > 0 && gr.profit !== null ? (
+                    ) : hasEffectiveRawPrice && gr.profit !== null ? (
                       <Text style={[styles.maProfitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
-                        {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), rawLocal)}
+                        {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), effectiveRawLocal)}
                       </Text>
                     ) : (
                       <Text style={[styles.maMutedTxt, { flex: 2, textAlign: "right" as const }]}>—</Text>
@@ -1818,7 +1874,7 @@ export default function ResultsScreen() {
               </View>
             )}
 
-            {!ebayLoading && !!ebayPrices && rawUSD > 0 && (
+            {!ebayLoading && !!ebayPrices && hasEffectiveRawPrice && (
               <View style={styles.maSummaryRow}>
                 {minProfitRow ? (
                   <Text style={styles.maSummaryTxt}>
@@ -1890,26 +1946,26 @@ export default function ResultsScreen() {
                   <Text style={styles.maFeeHint}>Tap a tier to see net profit after grading fee</Text>
                 )}
 
-                {/* Net profit box */}
-                {selectedFeeOption && rawUSD > 0 && !!ebayPrices && (
+                {/* Net profit box — based on AI predicted grade */}
+                {selectedFeeOption && hasEffectiveRawPrice && !!ebayPrices && (
                   <View style={[
                     styles.maNetProfitBox,
-                    minProfitRow
-                      ? (minProfitRow.profit ?? 0) >= 0 ? styles.maNetProfitBoxGreen : styles.maNetProfitBoxRed
+                    aiGradeRow
+                      ? (aiGradeRow.profit ?? 0) >= 0 ? styles.maNetProfitBoxGreen : styles.maNetProfitBoxRed
                       : styles.maNetProfitBoxRed,
                   ]}>
                     <Text style={styles.maNetProfitLabel}>
-                      {minProfitRow ? `Net Profit at ${minProfitRow.label}` : "No profitable grade"}
+                      {aiGradeRow ? `Net Profit at ${aiGradeRow.label}` : "No grade data"}
                     </Text>
-                    {minProfitRow && (
-                      <Text style={[styles.maNetProfitValue, (minProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
-                        {fmtLocal(minProfitRow.profit ?? 0)}
+                    {aiGradeRow && (
+                      <Text style={[styles.maNetProfitValue, (aiGradeRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
+                        {fmtLocal(aiGradeRow.profit ?? 0)}
                       </Text>
                     )}
                     <Text style={styles.maNetProfitSub}>
-                      {minProfitRow
-                        ? `after ${fmtLocal(rawLocal)} raw + ${fmtLocal(feeLocalAmount)} fee`
-                        : `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits`}
+                      {aiGradeRow
+                        ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtLocal(feeLocalAmount)} fee`
+                        : `fee of ${fmtLocal(feeLocalAmount)} exceeds profit`}
                     </Text>
                   </View>
                 )}
@@ -1941,6 +1997,47 @@ export default function ResultsScreen() {
 
         <ShareButton grading={grading} enabledCompanies={enabledCompanies} cardValue={cardValue} showMarketData={isSubscribed || isAdminMode} />
       </ScrollView>
+
+      {/* Custom price modal */}
+      <Modal
+        visible={showCustomPriceModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCustomPriceModal(false)}
+      >
+        <Pressable style={styles.priceModalOverlay} onPress={() => setShowCustomPriceModal(false)}>
+          <Pressable style={styles.priceModalCard} onPress={() => {}}>
+            <Text style={styles.priceModalTitle}>How much did you pay?</Text>
+            <Text style={styles.priceModalSub}>Enter the price in {currencySymbol}</Text>
+            <TextInput
+              style={styles.priceModalInput}
+              value={customPriceDraft}
+              onChangeText={setCustomPriceDraft}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={Colors.textMuted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={confirmCustomPriceModal}
+              selectTextOnFocus
+            />
+            <View style={styles.priceModalBtns}>
+              <Pressable
+                onPress={() => setShowCustomPriceModal(false)}
+                style={({ pressed }) => [styles.priceModalBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.priceModalBtnTxtCancel}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmCustomPriceModal}
+                style={({ pressed }) => [styles.priceModalBtn, styles.priceModalBtnConfirm, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.priceModalBtnTxtConfirm}>Confirm</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={imageViewerVisible}
@@ -2945,6 +3042,21 @@ const styles = StyleSheet.create({
   maNetProfitSub: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center" as const },
   maSubmitBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#16a34a", borderRadius: 12, paddingVertical: 13, paddingHorizontal: 16 },
   maSubmitBtnTxt: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff", flex: 1 },
+  maCustomPriceRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)", gap: 6, backgroundColor: "rgba(255,255,255,0.02)" },
+  maCustomPriceTxt: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textMuted },
+  maCustomPriceVal: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.text, marginLeft: 4 },
+  maAddCustomPriceBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 9, gap: 7, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(255,255,255,0.02)" },
+  maAddCustomPriceTxt: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted, flex: 1 },
+  priceModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "center", alignItems: "center", padding: 24 },
+  priceModalCard: { backgroundColor: Colors.surface, borderRadius: 18, padding: 24, width: "100%", gap: 12, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  priceModalTitle: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.text, textAlign: "center" as const },
+  priceModalSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textMuted, textAlign: "center" as const },
+  priceModalInput: { borderWidth: 1, borderColor: Colors.surfaceBorder, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontFamily: "Inter_500Medium", fontSize: 20, color: Colors.text, backgroundColor: "rgba(255,255,255,0.04)", textAlign: "center" as const },
+  priceModalBtns: { flexDirection: "row", gap: 10, marginTop: 4 },
+  priceModalBtn: { flex: 1, paddingVertical: 13, borderRadius: 10, alignItems: "center" as const, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  priceModalBtnConfirm: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  priceModalBtnTxtCancel: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.textMuted },
+  priceModalBtnTxtConfirm: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
 
   // Two-column Market Prices layout (Your Grade | Grade 10)
   ebayColHeader: {
