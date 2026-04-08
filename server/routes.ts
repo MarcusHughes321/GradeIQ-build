@@ -258,11 +258,16 @@ async function initGradingFeedbackTable(): Promise<void> {
         ai_analysis      TEXT,
         admin_response   TEXT,
         corrected_search TEXT,
+        clean_search_term TEXT,
         correction_applied BOOLEAN DEFAULT FALSE,
+        resolution_method TEXT,
         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         resolved_at      TIMESTAMPTZ
       )
     `);
+    // Migrate existing tables that predate new columns
+    await db.query(`ALTER TABLE price_flags ADD COLUMN IF NOT EXISTS clean_search_term TEXT`);
+    await db.query(`ALTER TABLE price_flags ADD COLUMN IF NOT EXISTS resolution_method TEXT`);
     console.log("[price-flags] DB table ready");
   } catch (e: any) {
     console.error("[price-flags] Failed to create table:", e.message);
@@ -306,6 +311,104 @@ async function writePriceHistorySnapshot(
 }
 
 // ── Price flag AI analysis ─────────────────────────────────────────────────
+async function autoApplyPriceFix(
+  flagId: number,
+  cardName: string,
+  cardNumber: string | null,
+  cleanSearchTerm: string
+): Promise<boolean> {
+  try {
+    const apiKey = process.env.POKETRACE_API_KEY;
+    if (!apiKey) return false;
+
+    const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(cleanSearchTerm)}&market=US&limit=10`;
+    const resp = await fetch(url, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) {
+      console.warn(`[price-flags] Auto-fix PokeTrace ${resp.status} for flag #${flagId}`);
+      return false;
+    }
+
+    const data = await resp.json() as any;
+    const cards: any[] = data?.data || [];
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normCard = normalize(cardName);
+    const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
+
+    const numMatches = (c: any) =>
+      baseNum && (c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum);
+
+    const ptCard =
+      cards.find(c => numMatches(c) && normalize(c.name) === normCard) ||
+      cards.find(c => numMatches(c)) ||
+      cards.find(c => normalize(c.name) === normCard) ||
+      null;
+
+    if (!ptCard) {
+      console.log(`[price-flags] Auto-fix found no matching card for flag #${flagId}`);
+      return false;
+    }
+
+    const ebayPrices = ptCard?.prices?.ebay || {};
+    const graded: Partial<EbayAllGrades> = {};
+    const gradeDetails: Record<string, GradeDetail> = {};
+    for (const [ptKey, ourKey] of Object.entries(PT_GRADE_MAP)) {
+      const gd = ebayPrices[ptKey];
+      const avg = gd?.avg;
+      (graded as any)[ourKey] = avg && avg > 0 ? Math.round(avg * 100) / 100 : 0;
+      if (gd) {
+        gradeDetails[ourKey as string] = {
+          avg1d: gd.avg1d ?? null,
+          avg7d: gd.avg7d ?? null,
+          avg30d: gd.avg30d ?? null,
+          low: gd.low ?? null,
+          high: gd.high ?? null,
+          saleCount: gd.saleCount ?? null,
+          lastUpdated: gd.lastUpdated ?? null,
+        };
+      }
+    }
+
+    const rawAvg = ebayPrices["NEAR_MINT"]?.avg;
+    const result: EbayAllGrades = {
+      psa10: 0, psa9: 0, psa8: 0, psa7: 0,
+      bgs10: 0, bgs95: 0, bgs9: 0, bgs85: 0, bgs8: 0,
+      ace10: 0, ace9: 0, ace8: 0,
+      tag10: 0, tag9: 0, tag8: 0,
+      cgc10: 0, cgc95: 0, cgc9: 0, cgc8: 0,
+      raw: rawAvg && rawAvg > 0 ? Math.round(rawAvg * 100) / 100 : 0,
+      gradeDetails,
+      fetchedAt: Date.now(),
+      ...graded,
+    };
+
+    const hasData = result.psa10 > 0 || result.psa9 > 0 || result.bgs95 > 0 || result.raw > 0;
+    if (!hasData) {
+      console.log(`[price-flags] Auto-fix returned no price data for flag #${flagId}`);
+      return false;
+    }
+
+    // Overwrite the original cache entry so the next card-profit load gets fixed prices
+    const originalCacheKey = [cardName, baseNum].filter(Boolean).join(" ");
+    ebayPriceCache.set(originalCacheKey, result);
+    const { fetchedAt: _fa, isStale: _is, gradeDetails: _gd, ...dbData } = result;
+    await db.query(
+      `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
+      [originalCacheKey, JSON.stringify({ ...dbData, gradeDetails: result.gradeDetails })]
+    );
+
+    console.log(`[price-flags] Auto-fix applied for flag #${flagId} — matched: ${ptCard.name} ${ptCard.cardNumber} | PSA10 $${result.psa10}`);
+    return true;
+  } catch (e: any) {
+    console.error(`[price-flags] autoApplyPriceFix(${flagId}) error:`, e.message);
+    return false;
+  }
+}
+
 async function analyzePriceFlag(flagId: number): Promise<void> {
   try {
     await db.query(`UPDATE price_flags SET status = 'ai_processing' WHERE id = $1`, [flagId]);
@@ -347,18 +450,21 @@ The prices are sourced from PokeTrace, which searches eBay sold listings by card
 3. The card is a special edition (1st edition, shadowless, etc.) being confused with a standard print
 4. For Japanese cards: the English name search may be pulling non-Japanese results
 
-Analyse why the prices likely look wrong. Then suggest a corrected search query or strategy that would return more accurate results. Be specific.
+Analyse why the prices likely look wrong. Then suggest both a human-readable strategy AND a clean search term suitable for the PokeTrace API (which accepts simple card name + number searches, no exclusion operators).
+
+The cleanSearchTerm should be just the card name and ideally the set name to disambiguate, e.g. "Charizard Base Set" or "Gengar Legend Maker" — keep it concise and use only inclusion terms.
 
 Respond in this JSON format only:
 {
   "analysis": "Your detailed analysis of why the prices are wrong (2-4 sentences)",
-  "correctedSearch": "The improved search term or strategy to try (or null if no improvement is obvious)",
+  "correctedSearch": "Human-readable strategy for the admin to understand what went wrong and how to verify",
+  "cleanSearchTerm": "Simple search term for PokeTrace API, e.g. 'Gengar Legend Maker' (or null if no better search exists)",
   "confidence": "high|medium|low"
 }`;
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 512,
+      max_tokens: 600,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -369,19 +475,35 @@ Respond in this JSON format only:
     const parsed = JSON.parse(jsonMatch[0]);
     const analysis = parsed.analysis ?? "Could not determine reason.";
     const correctedSearch = parsed.correctedSearch ?? null;
+    const cleanSearchTerm = parsed.cleanSearchTerm ?? null;
     const confidence = parsed.confidence ?? "low";
 
-    const newStatus = confidence === "high" && correctedSearch
-      ? "needs_admin"
-      : "needs_admin";
+    let newStatus: string;
+    let correctionApplied = false;
+    let resolutionMethod: string | null = null;
+
+    if (confidence === "high" && cleanSearchTerm) {
+      console.log(`[price-flags] Flag #${flagId} high confidence — attempting auto-fix with "${cleanSearchTerm}"`);
+      correctionApplied = await autoApplyPriceFix(flagId, flag.card_name, flag.card_number, cleanSearchTerm);
+      if (correctionApplied) {
+        newStatus = "resolved";
+        resolutionMethod = "auto_fix";
+      } else {
+        newStatus = "no_fix";
+      }
+    } else {
+      newStatus = "needs_admin";
+    }
 
     await db.query(
       `UPDATE price_flags
-       SET status = $1, ai_analysis = $2, corrected_search = $3
-       WHERE id = $4`,
-      [newStatus, analysis, correctedSearch, flagId]
+       SET status = $1, ai_analysis = $2, corrected_search = $3,
+           clean_search_term = $4, correction_applied = $5, resolution_method = $6,
+           resolved_at = CASE WHEN $1 IN ('resolved', 'no_fix') THEN NOW() ELSE NULL END
+       WHERE id = $7`,
+      [newStatus, analysis, correctedSearch, cleanSearchTerm, correctionApplied, resolutionMethod, flagId]
     );
-    console.log(`[price-flags] Flag #${flagId} analysed (${confidence} confidence)`);
+    console.log(`[price-flags] Flag #${flagId} → ${newStatus} (${confidence} confidence)`);
   } catch (e: any) {
     console.error(`[price-flags] analyzePriceFlag(${flagId}) failed:`, e.message);
     await db.query(
@@ -3679,15 +3801,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/price-flags", async (req, res) => {
     try {
       const { status } = req.query;
-      const whereClause = status && status !== "all"
-        ? `WHERE status = $1`
-        : status === "all" ? "" : `WHERE status = 'needs_admin'`;
-      const params = status && status !== "all" ? [status] : [];
+      let whereClause: string;
+      let params: any[] = [];
+      if (status === "all") {
+        whereClause = "";
+      } else if (status === "completed") {
+        whereClause = `WHERE status IN ('resolved', 'no_fix')`;
+      } else if (status && status !== "needs_admin") {
+        whereClause = `WHERE status = $1`;
+        params = [status];
+      } else {
+        whereClause = `WHERE status = 'needs_admin'`;
+      }
       const { rows } = await db.query(
         `SELECT id, card_name, set_name, set_code, card_number, card_lang, company,
                 flagged_grades, flagged_values, user_note, status,
-                ai_analysis, admin_response, corrected_search, correction_applied,
-                created_at, resolved_at
+                ai_analysis, admin_response, corrected_search, clean_search_term,
+                correction_applied, resolution_method, created_at, resolved_at
          FROM price_flags
          ${whereClause}
          ORDER BY created_at DESC
@@ -3698,6 +3828,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err: any) {
       console.error("[price-flags] GET admin error:", err.message);
       return res.status(500).json({ error: "Failed to fetch price flags" });
+    }
+  });
+
+  // ── Price flags admin: manual resolve ─────────────────────────────────
+  app.post("/api/admin/price-flags/:id/resolve", async (req, res) => {
+    try {
+      const flagId = parseInt(req.params.id, 10);
+      const { outcome } = req.body ?? {}; // "resolved" | "no_fix"
+      const finalStatus = outcome === "no_fix" ? "no_fix" : "resolved";
+      await db.query(
+        `UPDATE price_flags
+         SET status = $1, resolution_method = 'admin', resolved_at = NOW()
+         WHERE id = $2`,
+        [finalStatus, flagId]
+      );
+      return res.json({ ok: true, status: finalStatus });
+    } catch (err: any) {
+      console.error("[price-flags] resolve error:", err.message);
+      return res.status(500).json({ error: "Failed to resolve flag" });
     }
   });
 

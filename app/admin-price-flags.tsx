@@ -20,6 +20,7 @@ import { getApiUrl, apiRequest } from "@/lib/query-client";
 import Colors from "@/constants/colors";
 
 type FlagStatus = "pending" | "ai_processing" | "needs_admin" | "resolved" | "no_fix";
+type FilterTab = "needs_admin" | "completed";
 
 interface PriceFlag {
   id: number;
@@ -36,7 +37,9 @@ interface PriceFlag {
   ai_analysis: string | null;
   admin_response: string | null;
   corrected_search: string | null;
+  clean_search_term: string | null;
   correction_applied: boolean;
+  resolution_method: string | null;
   created_at: string;
   resolved_at: string | null;
 }
@@ -58,12 +61,15 @@ function timeAgo(isoStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function FlagDetail({ flag, onClose }: { flag: PriceFlag; onClose: () => void }) {
+function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
+  const [flag, setFlag] = useState(initialFlag);
   const [adminText, setAdminText] = useState(flag.admin_response ?? "");
   const [sending, setSending] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const statusCfg = STATUS_CONFIG[flag.status] ?? STATUS_CONFIG.pending;
+  const isCompleted = flag.status === "resolved" || flag.status === "no_fix";
 
   const handleSend = useCallback(async () => {
     const trimmed = adminText.trim();
@@ -86,6 +92,39 @@ function FlagDetail({ flag, onClose }: { flag: PriceFlag; onClose: () => void })
       setSending(false);
     }
   }, [adminText, flag.id, onClose, qc]);
+
+  const handleResolve = useCallback((outcome: "resolved" | "no_fix") => {
+    Alert.alert(
+      outcome === "resolved" ? "Mark as Resolved" : "Mark as No Fix",
+      outcome === "resolved"
+        ? "Mark this flag as resolved — prices have been manually verified or corrected."
+        : "Mark this as no fix available — the prices may still be inaccurate.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          onPress: async () => {
+            setResolving(true);
+            try {
+              const url = new URL(`/api/admin/price-flags/${flag.id}/resolve`, getApiUrl());
+              const res = await fetch(url.toString(), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ outcome }),
+              });
+              if (!res.ok) throw new Error("Server error");
+              setFlag(f => ({ ...f, status: outcome, resolution_method: "admin", resolved_at: new Date().toISOString() }));
+              qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
+            } catch (e: any) {
+              Alert.alert("Error", e.message);
+            } finally {
+              setResolving(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [flag.id, qc]);
 
   const gradeRows = flag.flagged_grades.map(g => ({
     label: g,
@@ -163,45 +202,92 @@ function FlagDetail({ flag, onClose }: { flag: PriceFlag; onClose: () => void })
         {/* Corrected search suggestion */}
         {flag.corrected_search && (
           <View style={det.section}>
-            <Text style={det.sectionTitle}>Suggested Search Term</Text>
+            <Text style={det.sectionTitle}>Suggested Search Strategy</Text>
             <View style={[det.noteBox, { backgroundColor: "rgba(16,185,129,0.08)", borderColor: "rgba(16,185,129,0.3)" }]}>
               <Text style={[det.noteText, { color: "#10B981" }]}>{flag.corrected_search}</Text>
             </View>
           </View>
         )}
 
-        {/* Admin response */}
-        <View style={det.section}>
-          <Text style={det.sectionTitle}>Your Response to Claude</Text>
-          <Text style={det.sectionSub}>
-            Provide context to guide the AI — e.g. "This is a Base Set Shadowless, not Base Set Unlimited"
-          </Text>
-          <TextInput
-            style={det.textInput}
-            value={adminText}
-            onChangeText={setAdminText}
-            placeholder="Type your hint here…"
-            placeholderTextColor={Colors.textMuted}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-          />
-          <Pressable
-            onPress={handleSend}
-            disabled={sending || !adminText.trim()}
-            style={({ pressed }) => [
-              det.sendBtn,
-              (pressed || sending || !adminText.trim()) && { opacity: 0.5 },
-            ]}
-          >
-            {sending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="send" size={16} color="#fff" />
-            )}
-            <Text style={det.sendBtnTxt}>{sending ? "Sending…" : "Send to Claude"}</Text>
-          </Pressable>
-        </View>
+        {/* Resolution banner for completed flags */}
+        {isCompleted ? (
+          <View style={det.section}>
+            <View style={[det.resolutionBanner, {
+              backgroundColor: flag.status === "resolved" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+              borderColor: flag.status === "resolved" ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.3)",
+            }]}>
+              <Ionicons
+                name={flag.status === "resolved" ? "checkmark-circle" : "close-circle"}
+                size={20}
+                color={flag.status === "resolved" ? "#10B981" : "#ef4444"}
+              />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[det.resolutionTitle, { color: flag.status === "resolved" ? "#10B981" : "#ef4444" }]}>
+                  {flag.status === "resolved" ? "Price Corrected" : "No Fix Available"}
+                </Text>
+                <Text style={det.resolutionSub}>
+                  {flag.resolution_method === "auto_fix"
+                    ? `Auto-fixed by AI${flag.clean_search_term ? ` using "${flag.clean_search_term}"` : ""}`
+                    : "Manually resolved by admin"}
+                  {flag.resolved_at ? ` · ${timeAgo(flag.resolved_at)}` : ""}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          /* Admin response — only shown for flags still needing attention */
+          <View style={det.section}>
+            <Text style={det.sectionTitle}>Your Response to Claude</Text>
+            <Text style={det.sectionSub}>
+              Provide context to guide the AI — e.g. "This is a Base Set Shadowless, not Base Set Unlimited"
+            </Text>
+            <TextInput
+              style={det.textInput}
+              value={adminText}
+              onChangeText={setAdminText}
+              placeholder="Type your hint here…"
+              placeholderTextColor={Colors.textMuted}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            <Pressable
+              onPress={handleSend}
+              disabled={sending || !adminText.trim()}
+              style={({ pressed }) => [
+                det.sendBtn,
+                (pressed || sending || !adminText.trim()) && { opacity: 0.5 },
+              ]}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="send" size={16} color="#fff" />
+              )}
+              <Text style={det.sendBtnTxt}>{sending ? "Sending…" : "Send to Claude"}</Text>
+            </Pressable>
+
+            {/* Manual resolve buttons */}
+            <View style={det.resolveRow}>
+              <Pressable
+                onPress={() => handleResolve("resolved")}
+                disabled={resolving}
+                style={({ pressed }) => [det.resolveBtn, det.resolveBtnGreen, (pressed || resolving) && { opacity: 0.6 }]}
+              >
+                {resolving ? <ActivityIndicator size="small" color="#10B981" /> : <Ionicons name="checkmark-circle-outline" size={16} color="#10B981" />}
+                <Text style={[det.resolveBtnTxt, { color: "#10B981" }]}>Mark Resolved</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleResolve("no_fix")}
+                disabled={resolving}
+                style={({ pressed }) => [det.resolveBtn, det.resolveBtnRed, (pressed || resolving) && { opacity: 0.6 }]}
+              >
+                <Ionicons name="close-circle-outline" size={16} color="#ef4444" />
+                <Text style={[det.resolveBtnTxt, { color: "#ef4444" }]}>No Fix Available</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -221,13 +307,13 @@ function InfoRow({ label, value, accent }: { label: string; value: string; accen
 export default function AdminPriceFlagsScreen() {
   const insets = useSafeAreaInsets();
   const webTop = Platform.OS === "web" ? 67 : 0;
-  const [filterStatus, setFilterStatus] = useState<"needs_admin" | "all">("needs_admin");
+  const [filterTab, setFilterTab] = useState<FilterTab>("needs_admin");
   const [selectedFlag, setSelectedFlag] = useState<PriceFlag | null>(null);
 
   const { data, isLoading, refetch } = useQuery<{ flags: PriceFlag[] }>({
-    queryKey: ["/api/admin/price-flags", filterStatus],
+    queryKey: ["/api/admin/price-flags", filterTab],
     queryFn: async () => {
-      const url = new URL(`/api/admin/price-flags?status=${filterStatus}`, getApiUrl());
+      const url = new URL(`/api/admin/price-flags?status=${filterTab}`, getApiUrl());
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error("Failed to load flags");
       return res.json();
@@ -254,14 +340,14 @@ export default function AdminPriceFlagsScreen() {
 
       {/* Filter toggle */}
       <View style={st.filterRow}>
-        {(["needs_admin", "all"] as const).map(f => (
+        {(["needs_admin", "completed"] as const).map(f => (
           <Pressable
             key={f}
-            onPress={() => setFilterStatus(f)}
-            style={[st.filterBtn, filterStatus === f && st.filterBtnActive]}
+            onPress={() => setFilterTab(f)}
+            style={[st.filterBtn, filterTab === f && st.filterBtnActive]}
           >
-            <Text style={[st.filterBtnTxt, filterStatus === f && st.filterBtnTxtActive]}>
-              {f === "needs_admin" ? "Needs Review" : "All Flags"}
+            <Text style={[st.filterBtnTxt, filterTab === f && st.filterBtnTxtActive]}>
+              {f === "needs_admin" ? "Needs Review" : "Completed"}
             </Text>
           </Pressable>
         ))}
@@ -276,9 +362,13 @@ export default function AdminPriceFlagsScreen() {
           <ActivityIndicator color={Colors.textMuted} style={{ marginTop: 48 }} />
         ) : flags.length === 0 ? (
           <View style={st.emptyState}>
-            <Ionicons name="checkmark-circle-outline" size={40} color={Colors.textMuted} />
+            <Ionicons
+              name={filterTab === "needs_admin" ? "checkmark-circle-outline" : "archive-outline"}
+              size={40}
+              color={Colors.textMuted}
+            />
             <Text style={st.emptyTxt}>
-              {filterStatus === "needs_admin" ? "No flags waiting for review" : "No flags yet"}
+              {filterTab === "needs_admin" ? "No flags waiting for review" : "No completed flags yet"}
             </Text>
           </View>
         ) : (
@@ -491,5 +581,49 @@ const det = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: "#fff",
+  },
+  resolutionBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
+  resolutionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+  },
+  resolutionSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  resolveRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  resolveBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    paddingVertical: 11,
+  },
+  resolveBtnGreen: {
+    borderColor: "rgba(16,185,129,0.4)",
+    backgroundColor: "rgba(16,185,129,0.07)",
+  },
+  resolveBtnRed: {
+    borderColor: "rgba(239,68,68,0.4)",
+    backgroundColor: "rgba(239,68,68,0.07)",
+  },
+  resolveBtnTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
   },
 });
