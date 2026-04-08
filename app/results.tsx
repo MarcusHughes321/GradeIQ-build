@@ -1171,6 +1171,10 @@ export default function ResultsScreen() {
   const aiGradeRow = Number.isFinite(aiGradeNum) && aiGradeNum > 0
     ? (companyRows.find(r => Math.abs(r.grade - aiGradeNum) < 0.01) ?? null)
     : null;
+  // If the user tapped a specific grade row, the net profit box follows that row; otherwise defaults to AI grade
+  const netProfitRow = chartGradeKey
+    ? (companyRows.find(r => r.ebayKey === chartGradeKey) ?? aiGradeRow)
+    : aiGradeRow;
   const chartDetail = effectiveChartKey ? gradeDetails[effectiveChartKey] : undefined;
 
   return (
@@ -1949,24 +1953,24 @@ export default function ResultsScreen() {
                   <Text style={styles.maFeeHint}>Tap a tier to see net profit after grading fee</Text>
                 )}
 
-                {/* Net profit box — based on AI predicted grade */}
+                {/* Net profit box — follows tapped row, falls back to AI predicted grade */}
                 {selectedFeeOption && hasEffectiveRawPrice && !!ebayPrices && (
                   <View style={[
                     styles.maNetProfitBox,
-                    aiGradeRow
-                      ? (aiGradeRow.profit ?? 0) >= 0 ? styles.maNetProfitBoxGreen : styles.maNetProfitBoxRed
+                    netProfitRow
+                      ? (netProfitRow.profit ?? 0) >= 0 ? styles.maNetProfitBoxGreen : styles.maNetProfitBoxRed
                       : styles.maNetProfitBoxRed,
                   ]}>
                     <Text style={styles.maNetProfitLabel}>
-                      {aiGradeRow ? `Net Profit at ${aiGradeRow.label}` : "No grade data"}
+                      {netProfitRow ? `Net Profit at ${netProfitRow.label}` : "No grade data"}
                     </Text>
-                    {aiGradeRow && (
-                      <Text style={[styles.maNetProfitValue, (aiGradeRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
-                        {fmtSym(aiGradeRow.profit ?? 0)}
+                    {netProfitRow && (
+                      <Text style={[styles.maNetProfitValue, (netProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
+                        {fmtSym(netProfitRow.profit ?? 0)}
                       </Text>
                     )}
                     <Text style={styles.maNetProfitSub}>
-                      {aiGradeRow
+                      {netProfitRow
                         ? `after ${fmtSym(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtSym(feeLocalAmount)} fee`
                         : `fee of ${fmtSym(feeLocalAmount)} exceeds profit`}
                     </Text>
