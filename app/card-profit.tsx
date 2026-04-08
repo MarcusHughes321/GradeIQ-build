@@ -12,6 +12,7 @@ import {
   Dimensions,
   TextInput,
   KeyboardAvoidingView,
+  RefreshControl,
 } from "react-native";
 import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Image } from "expo-image";
@@ -28,7 +29,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
@@ -585,7 +586,10 @@ export default function CardProfitScreen() {
   const hasEffectiveRawPrice = effectiveRawLocal > 0;
   const priceIsOverridden = !isNaN(overrideParsed) && overrideParsed > 0;
 
-  const { data: ebay, isLoading, error } = useQuery<EbayAllGrades>({
+  const qc = useQueryClient();
+  const [ebayRefreshing, setEbayRefreshing] = useState(false);
+
+  const { data: ebay, isLoading, error, refetch: refetchEbay } = useQuery<EbayAllGrades>({
     queryKey: ["ebay-all-grades", cardName, setName, cardNumber ?? "", editionParam],
     queryFn: () => {
       const editionQ = editionParam ? `&edition=${editionParam}` : "";
@@ -596,9 +600,16 @@ export default function CardProfitScreen() {
       ).then(r => r.json());
     },
     enabled: !!(cardName && setName),
-    staleTime: 24 * 60 * 60 * 1000,
+    staleTime: 4 * 60 * 60 * 1000,
     retry: 1,
   });
+
+  const handleRefresh = async () => {
+    setEbayRefreshing(true);
+    qc.invalidateQueries({ queryKey: ["ebay-all-grades", cardName, setName, cardNumber ?? "", editionParam] });
+    await refetchEbay().catch(() => {});
+    setEbayRefreshing(false);
+  };
 
   const enabledCompanies: CompanyId[] =
     settings.enabledCompanies.length > 0
@@ -832,6 +843,14 @@ export default function CardProfitScreen() {
         style={st.scroll}
         contentContainerStyle={{ paddingBottom: insets.bottom + webBot + 40 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={ebayRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
       >
         {/* Card hero — large centred image */}
         <View style={st.heroSection}>
