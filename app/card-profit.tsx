@@ -1330,7 +1330,7 @@ export default function CardProfitScreen() {
                     </View>
                   ) : (
                     <Text style={st.feeHint}>
-                      Tap a tier to see net profit after grading fee
+                      Tap a tier to factor in the grading fee
                     </Text>
                   )}
 

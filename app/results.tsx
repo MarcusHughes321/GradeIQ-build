@@ -1950,7 +1950,7 @@ export default function ResultsScreen() {
                     </View>
                   </View>
                 ) : (
-                  <Text style={styles.maFeeHint}>Tap a tier to see net profit after grading fee</Text>
+                  <Text style={styles.maFeeHint}>Tap a tier to factor in the grading fee</Text>
                 )}
 
                 {/* Net profit box — follows tapped row, falls back to AI predicted grade */}
