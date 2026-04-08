@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -92,7 +93,10 @@ function FlagDetail({ flag, onClose }: { flag: PriceFlag; onClose: () => void })
   }));
 
   return (
-    <View style={[det.container, { paddingBottom: insets.bottom + 16 }]}>
+    <KeyboardAvoidingView
+      style={[det.container, { paddingBottom: insets.bottom + 16 }]}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       {/* Header */}
       <View style={[det.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={onClose} hitSlop={10} style={det.backBtn}>
@@ -199,7 +203,7 @@ function FlagDetail({ flag, onClose }: { flag: PriceFlag; onClose: () => void })
           </Pressable>
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
