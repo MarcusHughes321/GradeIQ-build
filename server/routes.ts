@@ -3854,13 +3854,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/price-flags/:id/apply-fix", async (req, res) => {
     try {
       const flagId = parseInt(req.params.id, 10);
-      const { rows } = await db.query(
+      let { rows } = await db.query(
         `SELECT card_name, card_number, clean_search_term FROM price_flags WHERE id = $1`,
         [flagId]
       );
       if (rows.length === 0) return res.status(404).json({ error: "Flag not found" });
-      const flag = rows[0];
-      if (!flag.clean_search_term) return res.status(400).json({ error: "No clean search term stored for this flag" });
+      let flag = rows[0];
+
+      // If an older flag has no clean_search_term (pre-dates the updated prompt),
+      // re-run the AI analysis synchronously to get one before applying the fix.
+      if (!flag.clean_search_term) {
+        console.log(`[price-flags] apply-fix #${flagId} — no clean_search_term, re-analysing first`);
+        await analyzePriceFlag(flagId).catch(() => {});
+        const refreshed = await db.query(
+          `SELECT card_name, card_number, clean_search_term, status FROM price_flags WHERE id = $1`,
+          [flagId]
+        );
+        flag = refreshed.rows[0] ?? flag;
+      }
+
+      if (!flag.clean_search_term) {
+        return res.status(422).json({ error: "Claude could not determine a clean search term for this flag" });
+      }
 
       const fixed = await autoApplyPriceFix(flagId, flag.card_name, flag.card_number, flag.clean_search_term);
       const newStatus = fixed ? "resolved" : "no_fix";

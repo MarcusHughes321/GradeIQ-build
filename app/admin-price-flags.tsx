@@ -128,10 +128,11 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
   }, [flag.id, qc]);
 
   const handleApplyFix = useCallback(async () => {
-    if (!flag.clean_search_term) return;
     Alert.alert(
       "Apply Suggested Fix",
-      `Re-run the PokeTrace search using "${flag.clean_search_term}" and update the price cache?`,
+      flag.clean_search_term
+        ? `Re-run the PokeTrace search using "${flag.clean_search_term}" and update the price cache?`
+        : "Apply the AI-suggested search strategy and update the price cache? Claude will refine the search term automatically.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -249,7 +250,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
             <View style={[det.noteBox, { backgroundColor: "rgba(16,185,129,0.08)", borderColor: "rgba(16,185,129,0.3)" }]}>
               <Text style={[det.noteText, { color: "#10B981" }]}>{flag.corrected_search}</Text>
             </View>
-            {flag.clean_search_term && !isCompleted && (
+            {!isCompleted && (
               <Pressable
                 onPress={handleApplyFix}
                 disabled={applyingFix}
