@@ -1030,11 +1030,8 @@ export default function CardProfitScreen() {
                       <View style={{ flex: 2 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
                           <Text style={[st.gradeLabel, isMin && { color: "#f59e0b" }]}>
-                            {gr.label}{isMin ? " ★" : ""}
+                            {gr.label}
                           </Text>
-                          {isCharted && (
-                            <Ionicons name="stats-chart" size={10} color={Colors.primary} />
-                          )}
                         </View>
                         {detail?.saleCount != null && (
                           <Text style={st.saleCountTxt}>{detail.saleCount} sales last month</Text>
