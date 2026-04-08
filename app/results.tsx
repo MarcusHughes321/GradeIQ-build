@@ -998,8 +998,14 @@ export default function ResultsScreen() {
     return [cardName, baseNum].filter(Boolean).join(" ");
   }, [grading?.result?.cardName, grading?.result?.setNumber]);
 
-  const topGradeKeyForChart = PROFIT_COMPANY_CONFIG[selectedProfitCompany]?.grades[0]?.ebayKey;
-  const effectiveChartKey = chartGradeKey ?? topGradeKeyForChart;
+  const aiGradeKeyForChart = (() => {
+    const cfg = PROFIT_COMPANY_CONFIG[selectedProfitCompany];
+    if (!cfg) return undefined;
+    const aiGrade = aiGradeForCompany(selectedProfitCompany);
+    const match = cfg.grades.find(g => Math.abs(g.grade - aiGrade) < 0.01);
+    return match?.ebayKey ?? cfg.grades[0]?.ebayKey;
+  })();
+  const effectiveChartKey = chartGradeKey ?? aiGradeKeyForChart;
 
   const { data: historyData } = useQuery<{ history: PricePoint[] }>({
     queryKey: ["price-history", historyCacheKey, effectiveChartKey],
