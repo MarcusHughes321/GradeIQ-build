@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,15 @@ import Colors from "@/constants/colors";
 type FlagStatus = "pending" | "ai_processing" | "needs_admin" | "resolved" | "no_fix";
 type FilterTab = "needs_admin" | "completed";
 
+interface SuggestedPrices {
+  psa10?: number; psa9?: number; psa8?: number; psa7?: number;
+  bgs10?: number; bgs95?: number; bgs9?: number; bgs8?: number;
+  ace10?: number; ace9?: number;
+  tag10?: number; tag9?: number;
+  cgc10?: number; cgc95?: number; cgc9?: number;
+  raw?: number;
+}
+
 interface PriceFlag {
   id: number;
   card_name: string;
@@ -40,6 +49,8 @@ interface PriceFlag {
   clean_search_term: string | null;
   correction_applied: boolean;
   resolution_method: string | null;
+  suggested_prices: SuggestedPrices | null;
+  suggested_card: string | null;
   created_at: string;
   resolved_at: string | null;
 }
@@ -51,6 +62,24 @@ const STATUS_CONFIG: Record<FlagStatus, { label: string; color: string; icon: ke
   resolved:       { label: "Resolved",       color: "#10B981", icon: "checkmark-circle-outline" },
   no_fix:         { label: "No Fix Found",   color: "#ef4444", icon: "close-circle-outline" },
 };
+
+const PREVIEW_GRADE_ROWS: { key: keyof SuggestedPrices; label: string }[] = [
+  { key: "psa10",  label: "PSA 10" },
+  { key: "psa9",   label: "PSA 9" },
+  { key: "psa8",   label: "PSA 8" },
+  { key: "psa7",   label: "PSA 7" },
+  { key: "bgs95",  label: "BGS 9.5" },
+  { key: "bgs9",   label: "BGS 9" },
+  { key: "ace10",  label: "ACE 10" },
+  { key: "tag10",  label: "TAG 10" },
+  { key: "cgc10",  label: "CGC 10" },
+  { key: "raw",    label: "Raw / NM" },
+];
+
+function fmt(usd: number | undefined) {
+  if (!usd || usd <= 0) return "—";
+  return `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 function timeAgo(isoStr: string): string {
   const diff = Date.now() - new Date(isoStr).getTime();
@@ -69,8 +98,36 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
   const [sending, setSending] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [applyingFix, setApplyingFix] = useState(false);
+  // When admin has dismissed a preview (wants to send another note)
+  const [previewDismissed, setPreviewDismissed] = useState(false);
+
   const statusCfg = STATUS_CONFIG[flag.status] ?? STATUS_CONFIG.pending;
   const isCompleted = flag.status === "resolved" || flag.status === "no_fix";
+  const isAnalysing = flag.status === "ai_processing";
+  const hasPreview = !previewDismissed && !!flag.suggested_prices && flag.status === "needs_admin";
+
+  // Poll while AI is analysing
+  useEffect(() => {
+    if (!isAnalysing) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const url = new URL(`/api/admin/price-flags?status=needs_admin`, getApiUrl());
+        const res = await fetch(url.toString());
+        const body = await res.json();
+        const updated: PriceFlag | undefined = body.flags?.find((f: PriceFlag) => f.id === flag.id);
+        if (updated && !cancelled) {
+          setFlag(updated);
+          setPreviewDismissed(false);
+          qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
+        }
+      } catch (_) {}
+    };
+
+    const interval = setInterval(poll, 2500);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isAnalysing, flag.id, qc]);
 
   const handleSend = useCallback(async () => {
     const trimmed = adminText.trim();
@@ -84,15 +141,16 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
         body: JSON.stringify({ adminResponse: trimmed }),
       });
       if (!res.ok) throw new Error("Server error");
+      // Stay on screen — show analysing state, poll for results
+      setFlag(f => ({ ...f, status: "ai_processing", suggested_prices: null, suggested_card: null }));
+      setPreviewDismissed(false);
       qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
-      Alert.alert("Sent", "Admin response submitted. Claude will re-analyse shortly.");
-      onClose();
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {
       setSending(false);
     }
-  }, [adminText, flag.id, onClose, qc]);
+  }, [adminText, flag.id, qc]);
 
   const handleResolve = useCallback((outcome: "resolved" | "no_fix") => {
     Alert.alert(
@@ -128,52 +186,42 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
   }, [flag.id, qc]);
 
   const handleApplyFix = useCallback(async () => {
-    Alert.alert(
-      "Apply Suggested Fix",
-      flag.clean_search_term
-        ? `Re-run the PokeTrace search using "${flag.clean_search_term}" and update the price cache?`
-        : "Apply the AI-suggested search strategy and update the price cache? Claude will refine the search term automatically.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Apply",
-          onPress: async () => {
-            setApplyingFix(true);
-            try {
-              const url = new URL(`/api/admin/price-flags/${flag.id}/apply-fix`, getApiUrl());
-              const res = await fetch(url.toString(), { method: "POST" });
-              const body = await res.json();
-              if (!res.ok) throw new Error(body.error ?? "Server error");
-              const outcome: "resolved" | "no_fix" = body.status;
-              setFlag(f => ({
-                ...f,
-                status: outcome,
-                resolution_method: "admin_applied",
-                correction_applied: body.fixed,
-                resolved_at: new Date().toISOString(),
-              }));
-              qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
-              Alert.alert(
-                body.fixed ? "Price Updated" : "No Match Found",
-                body.fixed
-                  ? "Cache updated with corrected prices. They'll show next time the card's profit screen is loaded."
-                  : "PokeTrace returned no usable data for that search. Try sending more context to Claude."
-              );
-            } catch (e: any) {
-              Alert.alert("Error", e.message);
-            } finally {
-              setApplyingFix(false);
-            }
-          },
-        },
-      ]
-    );
-  }, [flag.id, flag.clean_search_term, qc]);
+    setApplyingFix(true);
+    try {
+      const url = new URL(`/api/admin/price-flags/${flag.id}/apply-fix`, getApiUrl());
+      const res = await fetch(url.toString(), { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Server error");
+      const outcome: "resolved" | "no_fix" = body.status;
+      setFlag(f => ({
+        ...f,
+        status: outcome,
+        resolution_method: "admin_applied",
+        correction_applied: body.fixed,
+        resolved_at: new Date().toISOString(),
+      }));
+      qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
+      Alert.alert(
+        body.fixed ? "Prices Updated" : "No Match Found",
+        body.fixed
+          ? "Cache updated with the confirmed prices. Pull to refresh on the profit screen to see them."
+          : "PokeTrace returned no usable data. Try sending more context."
+      );
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setApplyingFix(false);
+    }
+  }, [flag.id, qc]);
 
   const gradeRows = flag.flagged_grades.map(g => ({
     label: g,
     value: flag.flagged_values[g],
   }));
+
+  const previewRows = PREVIEW_GRADE_ROWS.filter(
+    r => flag.suggested_prices && (flag.suggested_prices[r.key] ?? 0) > 0
+  );
 
   return (
     <KeyboardAvoidingView
@@ -231,39 +279,107 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
           </View>
         )}
 
-        {/* AI Analysis */}
-        <View style={det.section}>
-          <Text style={det.sectionTitle}>AI Analysis</Text>
-          <View style={det.noteBox}>
-            {flag.ai_analysis ? (
-              <Text style={det.noteText}>{flag.ai_analysis}</Text>
-            ) : (
-              <Text style={[det.noteText, { color: Colors.textMuted }]}>Waiting for AI analysis…</Text>
-            )}
+        {/* AI Analysing spinner */}
+        {isAnalysing && (
+          <View style={det.section}>
+            <View style={det.analysingBox}>
+              <ActivityIndicator size="small" color="#8B5CF6" />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={[det.noteText, { color: "#8B5CF6", fontFamily: "Inter_600SemiBold" }]}>
+                  Claude is looking up prices…
+                </Text>
+                <Text style={[det.noteText, { color: Colors.textMuted, fontSize: 12 }]}>
+                  Querying PokeTrace with a refined search. This usually takes 5–15 seconds.
+                </Text>
+              </View>
+            </View>
           </View>
-        </View>
+        )}
+
+        {/* AI Analysis */}
+        {!isAnalysing && (
+          <View style={det.section}>
+            <Text style={det.sectionTitle}>AI Analysis</Text>
+            <View style={det.noteBox}>
+              {flag.ai_analysis ? (
+                <Text style={det.noteText}>{flag.ai_analysis}</Text>
+              ) : (
+                <Text style={[det.noteText, { color: Colors.textMuted }]}>Waiting for AI analysis…</Text>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Corrected search suggestion */}
-        {flag.corrected_search && (
+        {!isAnalysing && flag.corrected_search && !hasPreview && (
           <View style={det.section}>
             <Text style={det.sectionTitle}>Suggested Search Strategy</Text>
             <View style={[det.noteBox, { backgroundColor: "rgba(16,185,129,0.08)", borderColor: "rgba(16,185,129,0.3)" }]}>
               <Text style={[det.noteText, { color: "#10B981" }]}>{flag.corrected_search}</Text>
             </View>
-            {!isCompleted && (
+          </View>
+        )}
+
+        {/* ── PRICE PREVIEW ── shown after admin sends a note and analysis completes */}
+        {hasPreview && (
+          <View style={det.section}>
+            <Text style={det.sectionTitle}>Claude Found These Prices</Text>
+            <View style={det.previewCard}>
+              {flag.suggested_card && (
+                <View style={det.previewCardHeader}>
+                  <Ionicons name="card-outline" size={15} color="#8B5CF6" />
+                  <Text style={det.previewCardLabel}>{flag.suggested_card}</Text>
+                </View>
+              )}
+              {flag.corrected_search && (
+                <Text style={det.previewStrategy}>{flag.corrected_search}</Text>
+              )}
+              <View style={det.previewGradeList}>
+                {previewRows.map(r => (
+                  <View key={r.key} style={det.previewGradeRow}>
+                    <Text style={det.previewGradeLabel}>{r.label}</Text>
+                    <Text style={det.previewGradeValue}>
+                      {fmt(flag.suggested_prices?.[r.key])}
+                    </Text>
+                  </View>
+                ))}
+                {previewRows.length === 0 && (
+                  <Text style={[det.noteText, { color: Colors.textMuted }]}>
+                    No price data found for this search.
+                  </Text>
+                )}
+              </View>
+
+              <Text style={det.previewNote}>
+                These are eBay sold averages in USD from PokeTrace. Confirm to overwrite the cached prices.
+              </Text>
+            </View>
+
+            {/* Confirm / Reject */}
+            {previewRows.length > 0 && !isCompleted && (
               <Pressable
                 onPress={handleApplyFix}
                 disabled={applyingFix}
-                style={({ pressed }) => [det.applyFixBtn, (pressed || applyingFix) && { opacity: 0.6 }]}
+                style={({ pressed }) => [det.confirmBtn, (pressed || applyingFix) && { opacity: 0.6 }]}
               >
                 {applyingFix ? (
-                  <ActivityIndicator size="small" color="#10B981" />
+                  <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Ionicons name="flash" size={15} color="#10B981" />
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
                 )}
-                <Text style={det.applyFixTxt}>
-                  {applyingFix ? "Applying fix…" : "Apply Suggested Fix"}
+                <Text style={det.confirmBtnTxt}>
+                  {applyingFix ? "Applying…" : "Confirm — Apply These Prices"}
                 </Text>
+              </Pressable>
+            )}
+
+            {!isCompleted && (
+              <Pressable
+                onPress={() => setPreviewDismissed(true)}
+                style={({ pressed }) => [det.rejectBtn, pressed && { opacity: 0.6 }]}
+              >
+                <Ionicons name="close-circle-outline" size={16} color={Colors.textMuted} />
+                <Text style={det.rejectBtnTxt}>That's wrong — send another note</Text>
               </Pressable>
             )}
           </View>
@@ -294,12 +410,12 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
               </View>
             </View>
           </View>
-        ) : (
-          /* Admin response — only shown for flags still needing attention */
+        ) : !isAnalysing && !hasPreview ? (
+          /* Admin response — only shown when not analysing and no pending preview */
           <View style={det.section}>
             <Text style={det.sectionTitle}>Your Response to Claude</Text>
             <Text style={det.sectionSub}>
-              Provide context to guide the AI — e.g. "This is a Base Set Shadowless, not Base Set Unlimited"
+              Describe what the correct card is — e.g. "This is a Team Rocket Dark Blastoise, the £300 version, not Legendary Collection"
             </Text>
             <TextInput
               style={det.textInput}
@@ -347,7 +463,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
               </Pressable>
             </View>
           </View>
-        )}
+        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -583,7 +699,6 @@ const det = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
     marginBottom: 8,
-    lineHeight: 18,
   },
   infoCard: {
     backgroundColor: Colors.surface,
@@ -601,8 +716,19 @@ const det = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.surfaceBorder,
   },
-  infoLabel: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
-  infoValue: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textMuted, textAlign: "right", flex: 1, marginLeft: 12 },
+  infoLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    flex: 1,
+  },
+  infoValue: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    flex: 2,
+    textAlign: "right",
+  },
   noteBox: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -612,14 +738,107 @@ const det = StyleSheet.create({
   },
   noteText: {
     fontFamily: "Inter_400Regular",
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
-    lineHeight: 22,
+    lineHeight: 20,
   },
+  analysingBox: {
+    backgroundColor: "rgba(139,92,246,0.08)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.3)",
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+
+  // Price preview
+  previewCard: {
+    backgroundColor: "rgba(139,92,246,0.06)",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(139,92,246,0.35)",
+    padding: 16,
+    gap: 12,
+  },
+  previewCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  previewCardLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#8B5CF6",
+    flex: 1,
+  },
+  previewStrategy: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+  },
+  previewGradeList: {
+    gap: 2,
+  },
+  previewGradeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(139,92,246,0.12)",
+  },
+  previewGradeLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  previewGradeValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.text,
+  },
+  previewNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    lineHeight: 16,
+  },
+  confirmBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#10B981",
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 10,
+  },
+  confirmBtnTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
+  },
+  rejectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  rejectBtnTxt: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+
   textInput: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     padding: 14,
     fontFamily: "Inter_400Regular",
@@ -636,33 +855,17 @@ const det = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: 12,
     paddingVertical: 14,
+    marginBottom: 12,
   },
   sendBtnTxt: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: "#fff",
   },
-  resolutionBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-  },
-  resolutionTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-  },
-  resolutionSub: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
   resolveRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
+    gap: 8,
+    marginTop: 4,
   },
   resolveBtn: {
     flex: 1,
@@ -670,37 +873,55 @@ const det = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1.5,
-    paddingVertical: 11,
   },
   resolveBtnGreen: {
     borderColor: "rgba(16,185,129,0.4)",
-    backgroundColor: "rgba(16,185,129,0.07)",
+    backgroundColor: "rgba(16,185,129,0.06)",
   },
   resolveBtnRed: {
     borderColor: "rgba(239,68,68,0.4)",
-    backgroundColor: "rgba(239,68,68,0.07)",
+    backgroundColor: "rgba(239,68,68,0.06)",
   },
   resolveBtnTxt: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
+    fontSize: 12,
+  },
+  resolutionBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+  },
+  resolutionTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+  },
+  resolutionSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
   },
   applyFixBtn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 6,
-    marginTop: 8,
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: "rgba(16,185,129,0.5)",
-    backgroundColor: "rgba(16,185,129,0.08)",
-    paddingVertical: 11,
+    borderColor: "rgba(16,185,129,0.4)",
+    backgroundColor: "rgba(16,185,129,0.06)",
+    alignSelf: "flex-start",
   },
   applyFixTxt: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
+    fontSize: 13,
     color: "#10B981",
   },
 });

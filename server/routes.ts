@@ -268,6 +268,8 @@ async function initGradingFeedbackTable(): Promise<void> {
     // Migrate existing tables that predate new columns
     await db.query(`ALTER TABLE price_flags ADD COLUMN IF NOT EXISTS clean_search_term TEXT`);
     await db.query(`ALTER TABLE price_flags ADD COLUMN IF NOT EXISTS resolution_method TEXT`);
+    await db.query(`ALTER TABLE price_flags ADD COLUMN IF NOT EXISTS suggested_prices JSONB`);
+    await db.query(`ALTER TABLE price_flags ADD COLUMN IF NOT EXISTS suggested_card TEXT`);
     console.log("[price-flags] DB table ready");
   } catch (e: any) {
     console.error("[price-flags] Failed to create table:", e.message);
@@ -409,7 +411,80 @@ async function autoApplyPriceFix(
   }
 }
 
-async function analyzePriceFlag(flagId: number): Promise<void> {
+// Like autoApplyPriceFix but stores found prices in suggested_prices column without touching cache.
+// Returns true if prices were found and stored.
+async function previewPriceFix(
+  flagId: number,
+  cardName: string,
+  cardNumber: string | null,
+  cleanSearchTerm: string
+): Promise<boolean> {
+  try {
+    const apiKey = process.env.POKETRACE_API_KEY;
+    if (!apiKey) return false;
+
+    const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(cleanSearchTerm)}&market=US&limit=10`;
+    const resp = await fetch(url, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) {
+      console.warn(`[price-flags] Preview PokeTrace ${resp.status} for flag #${flagId}`);
+      return false;
+    }
+
+    const data = await resp.json() as any;
+    const cards: any[] = data?.data || [];
+    const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normCard = normalize(cardName);
+    const baseNum = cardNumber ? cardNumber.split("/")[0].trim() : "";
+
+    const numMatches = (c: any) =>
+      baseNum && (c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum);
+
+    const ptCard =
+      cards.find(c => numMatches(c) && normalize(c.name) === normCard) ||
+      cards.find(c => numMatches(c)) ||
+      cards.find(c => normalize(c.name) === normCard) ||
+      null;
+
+    if (!ptCard) {
+      console.log(`[price-flags] Preview found no matching card for flag #${flagId}`);
+      return false;
+    }
+
+    const ebayPrices = ptCard?.prices?.ebay || {};
+    const graded: Record<string, number> = {};
+    for (const [ptKey, ourKey] of Object.entries(PT_GRADE_MAP)) {
+      const gd = ebayPrices[ptKey];
+      const avg = gd?.avg;
+      graded[ourKey as string] = avg && avg > 0 ? Math.round(avg * 100) / 100 : 0;
+    }
+    const rawAvg = ebayPrices["NEAR_MINT"]?.avg;
+    graded["raw"] = rawAvg && rawAvg > 0 ? Math.round(rawAvg * 100) / 100 : 0;
+
+    const hasData = (graded["psa10"] ?? 0) > 0 || (graded["psa9"] ?? 0) > 0 ||
+                    (graded["bgs95"] ?? 0) > 0 || (graded["raw"] ?? 0) > 0;
+    if (!hasData) {
+      console.log(`[price-flags] Preview returned no price data for flag #${flagId}`);
+      return false;
+    }
+
+    const matchedCardLabel = `${ptCard.name} ${ptCard.cardNumber ?? ""}`.trim();
+    await db.query(
+      `UPDATE price_flags SET suggested_prices = $1, suggested_card = $2 WHERE id = $3`,
+      [JSON.stringify(graded), matchedCardLabel, flagId]
+    );
+
+    console.log(`[price-flags] Preview stored for flag #${flagId} — matched: ${matchedCardLabel} | PSA10 $${graded["psa10"] ?? 0}`);
+    return true;
+  } catch (e: any) {
+    console.error(`[price-flags] previewPriceFix(${flagId}) error:`, e.message);
+    return false;
+  }
+}
+
+async function analyzePriceFlag(flagId: number, previewOnly?: boolean): Promise<void> {
   try {
     await db.query(`UPDATE price_flags SET status = 'ai_processing' WHERE id = $1`, [flagId]);
 
@@ -482,7 +557,20 @@ Respond in this JSON format only:
     let correctionApplied = false;
     let resolutionMethod: string | null = null;
 
-    if (confidence === "high" && cleanSearchTerm) {
+    if (previewOnly) {
+      // Admin re-analysis: always show a price preview rather than auto-applying.
+      // Run PokeTrace lookup and store found prices in suggested_prices for admin confirmation.
+      newStatus = "needs_admin";
+      if (cleanSearchTerm) {
+        const previewed = await previewPriceFix(flagId, flag.card_name, flag.card_number, cleanSearchTerm);
+        if (!previewed) {
+          // Clear any stale preview so we don't show old data
+          await db.query(`UPDATE price_flags SET suggested_prices = NULL, suggested_card = NULL WHERE id = $1`, [flagId]);
+        }
+      } else {
+        await db.query(`UPDATE price_flags SET suggested_prices = NULL, suggested_card = NULL WHERE id = $1`, [flagId]);
+      }
+    } else if (confidence === "high" && cleanSearchTerm) {
       console.log(`[price-flags] Flag #${flagId} high confidence — attempting auto-fix with "${cleanSearchTerm}"`);
       correctionApplied = await autoApplyPriceFix(flagId, flag.card_name, flag.card_number, cleanSearchTerm);
       if (correctionApplied) {
@@ -503,7 +591,7 @@ Respond in this JSON format only:
        WHERE id = $7`,
       [newStatus, analysis, correctedSearch, cleanSearchTerm, correctionApplied, resolutionMethod, flagId]
     );
-    console.log(`[price-flags] Flag #${flagId} → ${newStatus} (${confidence} confidence)`);
+    console.log(`[price-flags] Flag #${flagId} → ${newStatus} (${confidence} confidence, previewOnly=${!!previewOnly})`);
   } catch (e: any) {
     console.error(`[price-flags] analyzePriceFlag(${flagId}) failed:`, e.message);
     await db.query(
@@ -3817,7 +3905,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `SELECT id, card_name, set_name, set_code, card_number, card_lang, company,
                 flagged_grades, flagged_values, user_note, status,
                 ai_analysis, admin_response, corrected_search, clean_search_term,
-                correction_applied, resolution_method, created_at, resolved_at
+                correction_applied, resolution_method, created_at, resolved_at,
+                suggested_prices, suggested_card
          FROM price_flags
          ${whereClause}
          ORDER BY created_at DESC
@@ -3855,29 +3944,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const flagId = parseInt(req.params.id, 10);
       let { rows } = await db.query(
-        `SELECT card_name, card_number, clean_search_term FROM price_flags WHERE id = $1`,
+        `SELECT card_name, card_number, clean_search_term, suggested_prices, suggested_card FROM price_flags WHERE id = $1`,
         [flagId]
       );
       if (rows.length === 0) return res.status(404).json({ error: "Flag not found" });
       let flag = rows[0];
 
-      // If an older flag has no clean_search_term (pre-dates the updated prompt),
-      // re-run the AI analysis synchronously to get one before applying the fix.
-      if (!flag.clean_search_term) {
-        console.log(`[price-flags] apply-fix #${flagId} — no clean_search_term, re-analysing first`);
-        await analyzePriceFlag(flagId).catch(() => {});
-        const refreshed = await db.query(
-          `SELECT card_name, card_number, clean_search_term, status FROM price_flags WHERE id = $1`,
-          [flagId]
-        );
-        flag = refreshed.rows[0] ?? flag;
+      let fixed = false;
+
+      // If admin confirmed a price preview, apply those stored prices directly (no re-analysis needed)
+      if (flag.suggested_prices) {
+        try {
+          const suggestedData: Record<string, number> = typeof flag.suggested_prices === "string"
+            ? JSON.parse(flag.suggested_prices)
+            : flag.suggested_prices;
+          const baseNum = flag.card_number ? flag.card_number.split("/")[0].trim() : "";
+          const originalCacheKey = [flag.card_name, baseNum].filter(Boolean).join(" ");
+
+          const result: EbayAllGrades = {
+            psa10: 0, psa9: 0, psa8: 0, psa7: 0,
+            bgs10: 0, bgs95: 0, bgs9: 0, bgs85: 0, bgs8: 0,
+            ace10: 0, ace9: 0, ace8: 0,
+            tag10: 0, tag9: 0, tag8: 0,
+            cgc10: 0, cgc95: 0, cgc9: 0, cgc8: 0,
+            raw: 0,
+            gradeDetails: {},
+            fetchedAt: Date.now(),
+            ...suggestedData,
+          };
+
+          ebayPriceCache.set(originalCacheKey, result);
+          const { fetchedAt: _fa, isStale: _is, gradeDetails: _gd, ...dbData } = result;
+          await db.query(
+            `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
+               VALUES ($1, $2, NOW())
+               ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
+            [originalCacheKey, JSON.stringify({ ...dbData, gradeDetails: {} })]
+          );
+          console.log(`[price-flags] apply-fix #${flagId} — applied suggested_prices for "${originalCacheKey}" | PSA10 $${result.psa10}`);
+          fixed = true;
+        } catch (parseErr: any) {
+          console.error(`[price-flags] apply-fix #${flagId} — failed to parse suggested_prices:`, parseErr.message);
+        }
       }
 
-      if (!flag.clean_search_term) {
-        return res.status(422).json({ error: "Claude could not determine a clean search term for this flag" });
+      // Fallback: use clean_search_term to re-query PokeTrace if no suggested_prices
+      if (!fixed) {
+        if (!flag.clean_search_term) {
+          console.log(`[price-flags] apply-fix #${flagId} — no clean_search_term, re-analysing first`);
+          await analyzePriceFlag(flagId).catch(() => {});
+          const refreshed = await db.query(
+            `SELECT card_name, card_number, clean_search_term, status FROM price_flags WHERE id = $1`,
+            [flagId]
+          );
+          flag = refreshed.rows[0] ?? flag;
+        }
+
+        if (!flag.clean_search_term) {
+          return res.status(422).json({ error: "Claude could not determine a clean search term for this flag" });
+        }
+
+        fixed = await autoApplyPriceFix(flagId, flag.card_name, flag.card_number, flag.clean_search_term);
       }
 
-      const fixed = await autoApplyPriceFix(flagId, flag.card_name, flag.card_number, flag.clean_search_term);
       const newStatus = fixed ? "resolved" : "no_fix";
       await db.query(
         `UPDATE price_flags
@@ -3904,8 +4033,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `UPDATE price_flags SET admin_response = $1, status = 'ai_processing' WHERE id = $2`,
         [adminResponse, flagId]
       );
-      // Re-run AI with admin context (fire-and-forget)
-      analyzePriceFlag(flagId).catch(e => console.error("[price-flags] Admin re-analysis error:", e.message));
+      // Re-run AI with admin context in preview mode — stores found prices in suggested_prices for admin confirmation
+      analyzePriceFlag(flagId, true).catch(e => console.error("[price-flags] Admin re-analysis error:", e.message));
       return res.json({ ok: true });
     } catch (err: any) {
       console.error("[price-flags] admin respond error:", err.message);
