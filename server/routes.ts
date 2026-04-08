@@ -4022,6 +4022,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Price flags admin: manual price override ──────────────────────────
+  // Admin enters correct USD prices directly — writes to cache, marks resolved.
+  app.post("/api/admin/price-flags/:id/manual-prices", async (req, res) => {
+    try {
+      const flagId = parseInt(req.params.id, 10);
+      const { prices } = req.body ?? {}; // e.g. { psa10: 380, psa9: 220, psa8: 120, raw: 60 }
+      if (!prices || typeof prices !== "object") {
+        return res.status(400).json({ error: "prices object is required" });
+      }
+
+      const { rows } = await db.query(
+        `SELECT card_name, card_number FROM price_flags WHERE id = $1`, [flagId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Flag not found" });
+      const flag = rows[0];
+
+      const baseNum = flag.card_number ? flag.card_number.split("/")[0].trim() : "";
+      const cacheKey = [flag.card_name, baseNum].filter(Boolean).join(" ");
+
+      const numPrice = (v: any): number => {
+        const n = parseFloat(String(v));
+        return isNaN(n) || n < 0 ? 0 : Math.round(n * 100) / 100;
+      };
+
+      const result: EbayAllGrades = {
+        psa10: numPrice(prices.psa10), psa9: numPrice(prices.psa9),
+        psa8: numPrice(prices.psa8), psa7: numPrice(prices.psa7),
+        bgs10: numPrice(prices.bgs10), bgs95: numPrice(prices.bgs95),
+        bgs9: numPrice(prices.bgs9), bgs85: numPrice(prices.bgs85),
+        bgs8: numPrice(prices.bgs8),
+        ace10: numPrice(prices.ace10), ace9: numPrice(prices.ace9), ace8: numPrice(prices.ace8),
+        tag10: numPrice(prices.tag10), tag9: numPrice(prices.tag9), tag8: numPrice(prices.tag8),
+        cgc10: numPrice(prices.cgc10), cgc95: numPrice(prices.cgc95),
+        cgc9: numPrice(prices.cgc9), cgc8: numPrice(prices.cgc8),
+        raw: numPrice(prices.raw),
+        gradeDetails: {},
+        fetchedAt: Date.now(),
+      };
+
+      const hasData = result.psa10 > 0 || result.psa9 > 0 || result.bgs95 > 0 || result.raw > 0;
+      if (!hasData) {
+        return res.status(400).json({ error: "At least one non-zero price is required" });
+      }
+
+      ebayPriceCache.set(cacheKey, result);
+      const { fetchedAt: _fa, isStale: _is, gradeDetails: _gd, ...dbData } = result;
+      await db.query(
+        `INSERT INTO ebay_price_cache (cache_key, data, fetched_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (cache_key) DO UPDATE SET data = $2, fetched_at = NOW()`,
+        [cacheKey, JSON.stringify({ ...dbData, gradeDetails: {} })]
+      );
+
+      await db.query(
+        `UPDATE price_flags
+         SET status = 'resolved', correction_applied = true,
+             resolution_method = 'manual_prices', resolved_at = NOW()
+         WHERE id = $1`,
+        [flagId]
+      );
+
+      console.log(`[price-flags] Manual prices applied for flag #${flagId} — key "${cacheKey}" | PSA10 $${result.psa10}`);
+      return res.json({ ok: true, cacheKey, psa10: result.psa10 });
+    } catch (err: any) {
+      console.error("[price-flags] manual-prices error:", err.message);
+      return res.status(500).json({ error: "Failed to apply manual prices" });
+    }
+  });
+
   // ── Price flags admin: submit admin response → re-trigger AI ──────────
   app.post("/api/admin/price-flags/:id/respond", async (req, res) => {
     try {

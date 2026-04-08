@@ -98,6 +98,11 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
   const [sending, setSending] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [applyingFix, setApplyingFix] = useState(false);
+  const [applyingManual, setApplyingManual] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualPrices, setManualPrices] = useState({
+    psa10: "", psa9: "", psa8: "", psa7: "", raw: "",
+  });
   // When admin has dismissed a preview (wants to send another note)
   const [previewDismissed, setPreviewDismissed] = useState(false);
 
@@ -213,6 +218,48 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
       setApplyingFix(false);
     }
   }, [flag.id, qc]);
+
+  const handleManualPrices = useCallback(async () => {
+    const prices: Record<string, number> = {};
+    const keys: (keyof typeof manualPrices)[] = ["psa10", "psa9", "psa8", "psa7", "raw"];
+    for (const k of keys) {
+      const v = parseFloat(manualPrices[k]);
+      if (!isNaN(v) && v > 0) prices[k] = v;
+    }
+    if (Object.keys(prices).length === 0) {
+      Alert.alert("No Prices Entered", "Enter at least one grade price in USD.");
+      return;
+    }
+    setApplyingManual(true);
+    try {
+      const url = new URL(`/api/admin/price-flags/${flag.id}/manual-prices`, getApiUrl());
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prices }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Server error");
+      setFlag(f => ({
+        ...f,
+        status: "resolved",
+        resolution_method: "manual_prices",
+        correction_applied: true,
+        resolved_at: new Date().toISOString(),
+      }));
+      setShowManualForm(false);
+      setManualPrices({ psa10: "", psa9: "", psa8: "", psa7: "", raw: "" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
+      Alert.alert(
+        "Prices Set",
+        `Cache updated for "${body.cacheKey}". Pull to refresh on the profit screen to see the corrected prices.`
+      );
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setApplyingManual(false);
+    }
+  }, [manualPrices, flag.id, qc]);
 
   const gradeRows = flag.flagged_grades.map(g => ({
     label: g,
@@ -404,6 +451,10 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
                 <Text style={det.resolutionSub}>
                   {flag.resolution_method === "auto_fix"
                     ? `Auto-fixed by AI${flag.clean_search_term ? ` using "${flag.clean_search_term}"` : ""}`
+                    : flag.resolution_method === "manual_prices"
+                    ? "Prices set manually by admin"
+                    : flag.resolution_method === "admin_applied"
+                    ? "AI fix confirmed and applied by admin"
                     : "Manually resolved by admin"}
                   {flag.resolved_at ? ` · ${timeAgo(flag.resolved_at)}` : ""}
                 </Text>
@@ -464,6 +515,75 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
             </View>
           </View>
         ) : null}
+
+        {/* ── MANUAL PRICE OVERRIDE ── always visible, for when PokeTrace data is irretrievably wrong */}
+        {!isAnalysing && (
+          <View style={det.section}>
+            <Pressable
+              onPress={() => setShowManualForm(v => !v)}
+              style={det.manualToggle}
+            >
+              <Ionicons
+                name="pencil-outline"
+                size={15}
+                color={Colors.textMuted}
+              />
+              <Text style={det.manualToggleTxt}>Set Prices Manually</Text>
+              <Ionicons
+                name={showManualForm ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={Colors.textMuted}
+              />
+            </Pressable>
+
+            {showManualForm && (
+              <View style={det.manualForm}>
+                <Text style={det.manualFormNote}>
+                  Enter correct eBay sold prices in USD. Leave blank to keep as-is. Use an exchange rate site to convert from your local currency.
+                </Text>
+                <View style={det.manualGrid}>
+                  {([
+                    { key: "psa10" as const, label: "PSA 10" },
+                    { key: "psa9"  as const, label: "PSA 9" },
+                    { key: "psa8"  as const, label: "PSA 8" },
+                    { key: "psa7"  as const, label: "PSA 7" },
+                    { key: "raw"   as const, label: "Raw / NM" },
+                  ]).map(({ key, label }) => (
+                    <View key={key} style={det.manualInputRow}>
+                      <Text style={det.manualInputLabel}>{label}</Text>
+                      <View style={det.manualInputWrap}>
+                        <Text style={det.manualInputSym}>$</Text>
+                        <TextInput
+                          style={det.manualInput}
+                          value={manualPrices[key]}
+                          onChangeText={v => setManualPrices(p => ({ ...p, [key]: v }))}
+                          placeholder="0.00"
+                          placeholderTextColor={Colors.textMuted}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                <Pressable
+                  onPress={handleManualPrices}
+                  disabled={applyingManual}
+                  style={({ pressed }) => [det.manualApplyBtn, (pressed || applyingManual) && { opacity: 0.6 }]}
+                >
+                  {applyingManual ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="save-outline" size={16} color="#fff" />
+                  )}
+                  <Text style={det.manualApplyBtnTxt}>
+                    {applyingManual ? "Saving…" : "Apply Manual Prices"}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -923,5 +1043,94 @@ const det = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
     color: "#10B981",
+  },
+
+  manualToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface,
+  },
+  manualToggleTxt: {
+    flex: 1,
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  manualForm: {
+    marginTop: 10,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 14,
+    gap: 14,
+  },
+  manualFormNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 17,
+  },
+  manualGrid: {
+    gap: 2,
+  },
+  manualInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  manualInputLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    width: 72,
+  },
+  manualInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flex: 1,
+    maxWidth: 160,
+  },
+  manualInputSym: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    marginRight: 4,
+  },
+  manualInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.text,
+    padding: 0,
+  },
+  manualApplyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+  },
+  manualApplyBtnTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
   },
 });
