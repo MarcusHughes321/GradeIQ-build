@@ -6,6 +6,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImageManipulator from "expo-image-manipulator";
+import { fetch } from "expo/fetch";
 import type { DefectMarker, CardBounds } from "@/lib/types";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
@@ -381,28 +382,42 @@ export default function DefectCutoutPanel({
     else setLoadingBack(true);
 
     try {
-      const manipulated = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: 900 } }],
-        { format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
+      let base64: string;
+
+      if (uri.startsWith("data:")) {
+        // Already a data URI — strip the prefix
+        base64 = uri.split(",")[1] ?? "";
+      } else {
+        // File URI — use ImageManipulator to convert
+        const manipulated = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 900 } }],
+          { format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        base64 = manipulated.base64 ?? "";
+      }
+
+      if (!base64) throw new Error("Could not extract image base64");
 
       const apiBase = getApiUrl();
       const response = await fetch(new URL("/api/filter-image", apiBase).toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: manipulated.base64, filterType: serverType }),
+        body: JSON.stringify({ imageBase64: base64, filterType: serverType }),
       });
 
-      if (response.ok) {
-        const data = await response.json() as { resultBase64: string };
-        const dataUri = `data:image/jpeg;base64,${data.resultBase64}`;
-        filteredCache.current.set(cacheKey, dataUri);
-        if (side === "front") setFilteredFrontUri(dataUri);
-        else setFilteredBackUri(dataUri);
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Server ${response.status}: ${errText}`);
       }
+
+      const data = await response.json() as { resultBase64: string };
+      const dataUri = `data:image/jpeg;base64,${data.resultBase64}`;
+      filteredCache.current.set(cacheKey, dataUri);
+      if (side === "front") setFilteredFrontUri(dataUri);
+      else setFilteredBackUri(dataUri);
     } catch (err) {
-      console.warn("[DefectCutoutPanel] filter-image error:", err);
+      console.error("[DefectCutoutPanel] filter-image failed:", err);
     } finally {
       if (side === "front") setLoadingFront(false);
       else setLoadingBack(false);
