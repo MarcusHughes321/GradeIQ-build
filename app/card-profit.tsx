@@ -895,7 +895,6 @@ export default function CardProfitScreen() {
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={() => setIsEditingPrice(false)}
-                onBlur={() => setIsEditingPrice(false)}
               />
               <Pressable onPress={() => setIsEditingPrice(false)} hitSlop={10}>
                 <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
@@ -1341,7 +1340,7 @@ export default function CardProfitScreen() {
                       )}
                       <Text style={st.netProfitSub}>
                         {minProfitRow
-                          ? `after ${fmtLocal(effectiveRawLocal)} raw + ${fmtLocal(feeLocalAmount)} fee`
+                          ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"} + ${fmtLocal(feeLocalAmount)} fee`
                           : `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits`}
                       </Text>
                     </View>
