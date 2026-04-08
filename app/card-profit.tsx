@@ -11,7 +11,6 @@ import {
   Linking,
   Dimensions,
   TextInput,
-  Alert,
 } from "react-native";
 import Svg, { Polyline, Line, Circle, Text as SvgText } from "react-native-svg";
 import { Image } from "expo-image";
@@ -607,28 +606,20 @@ export default function CardProfitScreen() {
 
   // Price-paid override — user can manually enter what they paid for profit calcs
   const [priceOverrideInput, setPriceOverrideInput] = useState<string>("");
-  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [modalDraft, setModalDraft] = useState<string>("");
 
-  // On iOS use Alert.prompt (reliable native dialog). On other platforms fall back to inline input.
-  const promptForPrice = (currentValue?: string) => {
-    if (Platform.OS === "ios") {
-      Alert.prompt(
-        "How much did you pay?",
-        `Enter the price in ${currencySymbol}`,
-        (text: string) => {
-          const val = parseFloat(text);
-          if (!isNaN(val) && val > 0) {
-            setPriceOverrideInput(val.toFixed(2));
-          }
-        },
-        "plain-text",
-        currentValue ?? "",
-        "decimal-pad",
-      );
-    } else {
-      if (currentValue) setPriceOverrideInput(currentValue);
-      setIsEditingPrice(true);
+  const openPriceModal = (currentValue?: string) => {
+    setModalDraft(currentValue ?? "");
+    setShowPriceModal(true);
+  };
+
+  const confirmPriceModal = () => {
+    const val = parseFloat(modalDraft);
+    if (!isNaN(val) && val > 0) {
+      setPriceOverrideInput(val.toFixed(2));
     }
+    setShowPriceModal(false);
   };
 
   // Reset chart grade, fee and label whenever the company tab switches
@@ -736,6 +727,48 @@ export default function CardProfitScreen() {
 
   return (
     <View style={[st.container, { paddingTop: insets.top + webTop }]}>
+
+      {/* ── Price-paid entry modal ─────────────────────────────── */}
+      <Modal
+        visible={showPriceModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPriceModal(false)}
+      >
+        <Pressable style={st.priceModalOverlay} onPress={() => setShowPriceModal(false)}>
+          <Pressable style={st.priceModalCard} onPress={() => {}}>
+            <Text style={st.priceModalTitle}>How much did you pay?</Text>
+            <Text style={st.priceModalSub}>Enter the price in {currencySymbol}</Text>
+            <TextInput
+              style={st.priceModalInput}
+              value={modalDraft}
+              onChangeText={setModalDraft}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={Colors.textMuted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={confirmPriceModal}
+              selectTextOnFocus
+            />
+            <View style={st.priceModalBtns}>
+              <Pressable
+                onPress={() => setShowPriceModal(false)}
+                style={({ pressed }) => [st.priceModalBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={st.priceModalBtnTxtCancel}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmPriceModal}
+                style={({ pressed }) => [st.priceModalBtn, st.priceModalBtnConfirm, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={st.priceModalBtnTxtConfirm}>Confirm</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Navbar */}
       <View style={st.navBar}>
         <Pressable
@@ -903,34 +936,13 @@ export default function CardProfitScreen() {
           </View>
 
           {/* Price paid — separate editable row below */}
-          {/* On iOS the inline form is never shown — Alert.prompt handles input natively */}
-          {isEditingPrice && Platform.OS !== "ios" ? (
-            <View style={st.pricePaidEditRow}>
-              <Ionicons name="wallet-outline" size={13} color={Colors.textMuted} />
-              <Text style={st.heroPriceLabel}>How much did you pay?</Text>
-              <Text style={st.heroPriceCurrencySymbol}>{currencySymbol}</Text>
-              <TextInput
-                style={[st.heroPriceInput, { flex: 1 }]}
-                value={priceOverrideInput}
-                onChangeText={setPriceOverrideInput}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                placeholderTextColor={Colors.textMuted}
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={() => setIsEditingPrice(false)}
-              />
-              <Pressable onPress={() => setIsEditingPrice(false)} hitSlop={10}>
-                <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-              </Pressable>
-            </View>
-          ) : priceIsOverridden ? (
+          {priceIsOverridden ? (
             <View style={st.pricePaidSetRow}>
               <Ionicons name="wallet-outline" size={13} color={Colors.textMuted} />
               <Text style={st.heroPriceLabel}>You paid</Text>
               <Text style={[st.heroPriceValue, { marginLeft: 4 }]}>{fmtLocal(overrideParsed)}</Text>
               <Pressable
-                onPress={() => promptForPrice(overrideParsed.toFixed(2))}
+                onPress={() => openPriceModal(overrideParsed.toFixed(2))}
                 hitSlop={8}
                 style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, marginLeft: "auto" as any })}
               >
@@ -946,7 +958,7 @@ export default function CardProfitScreen() {
             </View>
           ) : (
             <Pressable
-              onPress={() => promptForPrice()}
+              onPress={() => openPriceModal()}
               style={({ pressed }) => [st.addPricePaidBtn, { opacity: pressed ? 0.7 : 1 }]}
             >
               <Ionicons name="add-circle-outline" size={15} color={Colors.textMuted} />
@@ -1324,12 +1336,7 @@ export default function CardProfitScreen() {
                   {/* Nudge — fee tier selected but no raw price entered */}
                   {selectedFeeOption && compId === selectedCompany && !hasEffectiveRawPrice && (
                     <Pressable
-                      onPress={() => {
-                        if (!priceOverrideInput && effectiveRawLocal > 0) {
-                          setPriceOverrideInput(effectiveRawLocal.toFixed(2));
-                        }
-                        setIsEditingPrice(true);
-                      }}
+                      onPress={() => openPriceModal(effectiveRawLocal > 0 ? effectiveRawLocal.toFixed(2) : "")}
                       style={({ pressed }) => [st.noPriceNudge, { opacity: pressed ? 0.75 : 1 }]}
                     >
                       <Ionicons name="pricetag-outline" size={14} color={Colors.textMuted} />
@@ -1574,6 +1581,73 @@ const st = StyleSheet.create({
     paddingVertical: 8,
     marginTop: 4,
   },
+  // Price-paid modal
+  priceModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+    padding: 24,
+  },
+  priceModalCard: {
+    width: "100%" as any,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  priceModalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+    textAlign: "center" as const,
+  },
+  priceModalSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    textAlign: "center" as const,
+  },
+  priceModalInput: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 28,
+    color: Colors.text,
+    textAlign: "center" as const,
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+    paddingVertical: 8,
+    marginVertical: 4,
+  },
+  priceModalBtns: {
+    flexDirection: "row" as const,
+    gap: 12,
+    marginTop: 4,
+  },
+  priceModalBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center" as const,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  priceModalBtnConfirm: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  priceModalBtnTxtCancel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.textMuted,
+  },
+  priceModalBtnTxtConfirm: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#fff",
+  },
   heroPriceLabel: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
@@ -1583,29 +1657,6 @@ const st = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.text,
-  },
-  heroPriceCurrencySymbol: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  heroPriceInput: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: Colors.text,
-    flex: 1,
-    paddingVertical: 0,
-    minWidth: 60,
-  },
-  pricePaidEditRow: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    gap: 8,
-    backgroundColor: Colors.background,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    marginTop: 2,
   },
   pricePaidSetRow: {
     flexDirection: "row" as const,
