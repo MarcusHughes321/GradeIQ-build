@@ -1113,6 +1113,11 @@ export default function CardProfitScreen() {
           // Use the tapped grade's detail for the chart (falls back to top grade)
           const chartDetail = effectiveChartKey ? ebay?.gradeDetails?.[effectiveChartKey] : undefined;
 
+          // Net profit box follows the tapped grade row; falls back to minimum profitable grade
+          const displayRow = chartGradeKey
+            ? (rows.find(r => r.ebayKey === chartGradeKey) ?? minProfitRow)
+            : minProfitRow;
+
           return (
             <View key={compId} style={st.companyCard}>
               {/* Column headers */}
@@ -1358,23 +1363,23 @@ export default function CardProfitScreen() {
                   {compId === selectedCompany && hasEffectiveRawPrice && ebay && (
                     <View style={[
                       st.netProfitBox,
-                      minProfitRow
-                        ? (minProfitRow.profit ?? 0) >= 0 ? st.netProfitBoxGreen : st.netProfitBoxRed
+                      displayRow
+                        ? (displayRow.profit ?? 0) >= 0 ? st.netProfitBoxGreen : st.netProfitBoxRed
                         : st.netProfitBoxRed,
                     ]}>
                       <Text style={st.netProfitLabel}>
-                        {minProfitRow ? `Net Profit at ${minProfitRow.label}` : "No profitable grade"}
+                        {displayRow ? `Net Profit at ${displayRow.label}` : "No profitable grade"}
                       </Text>
-                      {minProfitRow && (
+                      {displayRow && (
                         <Text style={[
                           st.netProfitValue,
-                          (minProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" },
+                          (displayRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" },
                         ]}>
-                          {fmtLocal(minProfitRow.profit ?? 0)}
+                          {fmtLocal(displayRow.profit ?? 0)}
                         </Text>
                       )}
                       <Text style={st.netProfitSub}>
-                        {minProfitRow
+                        {displayRow
                           ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtLocal(feeLocalAmount)} fee` : ""}`
                           : selectedFeeOption ? `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits` : "No profitable grade at this price"}
                       </Text>
