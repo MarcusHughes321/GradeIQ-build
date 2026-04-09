@@ -135,6 +135,18 @@ const COMPANY_SUBMIT_URL: Record<string, string> = {
   TAG:     "https://my.taggrading.com",
 };
 
+// Stamp badge overlay colours keyed by TCGdex stamp_type
+const STAMP_BADGE_COLORS: Record<string, string> = {
+  "set-logo":         "rgba(245,158,11,0.9)",   // amber  — prerelease
+  "gym-challenge":    "rgba(99,102,241,0.9)",    // indigo — gym challenge
+  "pre-release":      "rgba(245,158,11,0.9)",    // amber
+  "pokemon-center":   "rgba(59,130,246,0.9)",    // blue
+  "build-and-battle": "rgba(16,185,129,0.9)",    // green
+  "trick-or-trade":   "rgba(249,115,22,0.9)",    // orange
+  "staff":            "rgba(139,92,246,0.9)",     // purple
+  "league":           "rgba(236,72,153,0.9)",     // pink
+};
+
 // Grading fee tiers per company — mirrored from grading-fees.tsx
 type FeeCurrency = "USD" | "GBP";
 interface FeeOption { label: string; amount: number; currency: FeeCurrency; turnaround: string; }
@@ -909,17 +921,25 @@ export default function CardProfitScreen() {
             onPress={() => displayImage ? setImageFullscreen(true) : undefined}
             style={({ pressed }) => [st.heroImgWrap, { opacity: pressed && !!displayImage ? 0.85 : 1 }]}
           >
-            {displayImage ? (
-              <Image
-                source={{ uri: displayImage }}
-                style={st.heroImg}
-                contentFit="contain"
-              />
-            ) : (
-              <View style={[st.heroImg, st.heroImgPlaceholder]}>
-                <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
-              </View>
-            )}
+            <View style={st.heroImgContainer}>
+              {displayImage ? (
+                <Image
+                  source={{ uri: displayImage }}
+                  style={st.heroImg}
+                  contentFit="contain"
+                />
+              ) : (
+                <View style={[st.heroImg, st.heroImgPlaceholder]}>
+                  <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
+                </View>
+              )}
+              {!!selectedStampVariant && (
+                <View style={[st.stampImageBadge, { backgroundColor: STAMP_BADGE_COLORS[selectedStampVariant.stamp_type] ?? "rgba(255,60,49,0.85)" }]}>
+                  <Ionicons name="ribbon-outline" size={10} color="#fff" />
+                  <Text style={st.stampImageBadgeTxt}>{selectedStampVariant.display_name.toUpperCase()}</Text>
+                </View>
+              )}
+            </View>
             {!!displayImage && (
               <View style={st.heroZoomHint}>
                 <Ionicons name="expand-outline" size={12} color="rgba(255,255,255,0.7)" />
@@ -1714,6 +1734,31 @@ const st = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: "rgba(255,255,255,0.5)",
+  },
+  heroImgContainer: {
+    width: 180,
+    height: 252,
+    position: "relative",
+  },
+  stampImageBadge: {
+    position: "absolute",
+    bottom: 8,
+    left: 0,
+    right: 0,
+    marginHorizontal: 8,
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  stampImageBadgeTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 9,
+    color: "#fff",
+    letterSpacing: 0.5,
   },
   heroName: {
     fontFamily: "Inter_700Bold",
