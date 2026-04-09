@@ -327,6 +327,32 @@ async function initGradingFeedbackTable(): Promise<void> {
   } catch (e: any) {
     console.error("[corrections-log] Failed to create table:", e.message);
   }
+
+  // ── card_variants: stamp/promo variant catalog ─────────────────────────
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS card_variants (
+        id                    SERIAL PRIMARY KEY,
+        base_card_name        TEXT NOT NULL,
+        base_set_name         TEXT,
+        base_set_id           TEXT,
+        base_card_number      TEXT,
+        stamp_type            TEXT NOT NULL,
+        display_name          TEXT NOT NULL,
+        image_url             TEXT,
+        poketrace_search_term TEXT,
+        lang                  TEXT DEFAULT 'en',
+        cached_prices         JSONB,
+        prices_fetched_at     TIMESTAMPTZ,
+        notes                 TEXT,
+        created_at            TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_card_variants_lookup ON card_variants (LOWER(base_card_name))`);
+    console.log("[card-variants] DB table ready");
+  } catch (e: any) {
+    console.error("[card-variants] Failed to create table:", e.message);
+  }
 }
 
 async function writePriceHistorySnapshot(
@@ -4610,6 +4636,223 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
       return res.status(500).json({ error: "Failed to process admin response" });
     }
   });
+
+  // ── Card Variants API ──────────────────────────────────────────────────────
+
+  // Public: lookup variants for a card (name + optional setName)
+  app.get("/api/card-variants", async (req, res) => {
+    try {
+      const { name, setName } = req.query;
+      if (!name) return res.json([]);
+      const { rows } = await db.query(
+        `SELECT id, stamp_type, display_name, image_url, notes, prices_fetched_at
+           FROM card_variants
+          WHERE LOWER(base_card_name) = LOWER($1)
+            AND ($2::text IS NULL
+                 OR LOWER(base_set_name) ILIKE '%' || LOWER($2) || '%'
+                 OR LOWER($2) ILIKE '%' || LOWER(COALESCE(base_set_name,'')) || '%')
+          ORDER BY stamp_type`,
+        [String(name), setName ? String(setName) : null]
+      );
+      return res.json(rows);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public: get (or refresh) eBay prices for a specific variant
+  app.get("/api/card-variants/:id/prices", async (req, res) => {
+    try {
+      const variantId = parseInt(req.params.id, 10);
+      if (isNaN(variantId)) return res.status(400).json({ error: "Invalid id" });
+
+      const { rows } = await db.query<{
+        id: number; base_card_name: string; base_set_name: string | null;
+        base_card_number: string | null; poketrace_search_term: string | null;
+        cached_prices: any; prices_fetched_at: string | null;
+      }>(
+        `SELECT id, base_card_name, base_set_name, base_card_number,
+                poketrace_search_term, cached_prices, prices_fetched_at
+           FROM card_variants WHERE id = $1`,
+        [variantId]
+      );
+      if (!rows[0]) return res.status(404).json({ error: "Variant not found" });
+      const v = rows[0];
+
+      const VARIANT_TTL = 12 * 60 * 60 * 1000;
+      const isFresh = v.prices_fetched_at &&
+        Date.now() - new Date(v.prices_fetched_at).getTime() < VARIANT_TTL;
+      if (isFresh && v.cached_prices) return res.json({ ...v.cached_prices, fromVariantCache: true });
+
+      // Fetch fresh from PokeTrace using the variant-specific search term
+      const searchTerm = v.poketrace_search_term ||
+        [v.base_card_name, v.base_card_number?.split("/")[0]].filter(Boolean).join(" ");
+      const apiKey = process.env.POKETRACE_API_KEY;
+      if (!apiKey) return res.status(500).json({ error: "POKETRACE_API_KEY not configured" });
+
+      const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(searchTerm)}&market=US&limit=10`;
+      const resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return res.status(502).json({ error: `PokeTrace HTTP ${resp.status}` });
+
+      const data = await resp.json() as any;
+      const cards: any[] = data?.data || [];
+
+      // Find the best matching card that contains the stamp keyword
+      const stampKeyword = (v.poketrace_search_term || "").toLowerCase().split(" ").slice(-1)[0];
+      let ptCard = cards.find((c: any) =>
+        (c.variant || "").toLowerCase().includes(stampKeyword) ||
+        (c.name || "").toLowerCase().includes(stampKeyword)
+      ) || cards[0] || null;
+
+      const ebayPrices = ptCard?.prices?.ebay || {};
+      const gradeMap: Record<string, string> = {
+        PSA_10: "psa10", PSA_9: "psa9", PSA_8: "psa8", PSA_7: "psa7",
+        BGS_10: "bgs10", BGS_9_5: "bgs95", BGS_9: "bgs9", BGS_8_5: "bgs85", BGS_8: "bgs8",
+        ACE_10: "ace10", ACE_9: "ace9", ACE_8: "ace8",
+        TAG_10: "tag10", TAG_9: "tag9", TAG_8: "tag8",
+        CGC_10: "cgc10", CGC_9_5: "cgc95", CGC_9: "cgc9", CGC_8: "cgc8",
+      };
+      const graded: Record<string, number> = {};
+      const gradeDetails: Record<string, any> = {};
+      for (const [ptKey, ourKey] of Object.entries(gradeMap)) {
+        const gd = ebayPrices[ptKey];
+        const avg = gd?.avg;
+        graded[ourKey] = avg && avg > 0 ? Math.round(avg * 100) / 100 : 0;
+        if (gd) gradeDetails[ourKey] = { avg7d: gd.avg7d ?? null, avg30d: gd.avg30d ?? null, low: gd.low ?? null, high: gd.high ?? null, saleCount: gd.saleCount ?? null };
+      }
+      const rawAvg = ebayPrices["NEAR_MINT"]?.avg;
+      const result = {
+        psa10: 0, psa9: 0, psa8: 0, psa7: 0,
+        bgs10: 0, bgs95: 0, bgs9: 0, bgs85: 0, bgs8: 0,
+        ace10: 0, ace9: 0, ace8: 0, tag10: 0, tag9: 0, tag8: 0,
+        cgc10: 0, cgc95: 0, cgc9: 0, cgc8: 0,
+        raw: rawAvg && rawAvg > 0 ? Math.round(rawAvg * 100) / 100 : 0,
+        gradeDetails, fetchedAt: Date.now(), variantName: ptCard?.name, variantField: ptCard?.variant,
+        ...graded,
+      };
+
+      // Cache in card_variants row
+      await db.query(
+        `UPDATE card_variants SET cached_prices = $1, prices_fetched_at = NOW() WHERE id = $2`,
+        [JSON.stringify(result), variantId]
+      );
+      console.log(`[card-variants] Fetched prices for variant ${variantId} via "${searchTerm}" → ${ptCard ? `${ptCard.name} (${ptCard.variant})` : "no match"} | PSA10 $${result.psa10}`);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: list all variants (searchable)
+  app.get("/api/admin/card-variants", async (req, res) => {
+    try {
+      const { search } = req.query;
+      const { rows } = await db.query(
+        search
+          ? `SELECT * FROM card_variants WHERE LOWER(base_card_name) ILIKE $1 OR LOWER(display_name) ILIKE $1 ORDER BY base_card_name, stamp_type LIMIT 200`
+          : `SELECT * FROM card_variants ORDER BY base_card_name, stamp_type LIMIT 200`,
+        search ? [`%${String(search).toLowerCase()}%`] : []
+      );
+      return res.json(rows);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: create a variant
+  app.post("/api/admin/card-variants", async (req, res) => {
+    try {
+      const { base_card_name, base_set_name, base_set_id, base_card_number,
+              stamp_type, display_name, image_url, poketrace_search_term, notes } = req.body;
+      if (!base_card_name || !stamp_type || !display_name)
+        return res.status(400).json({ error: "base_card_name, stamp_type, and display_name are required" });
+      const { rows } = await db.query<{ id: number }>(
+        `INSERT INTO card_variants
+           (base_card_name, base_set_name, base_set_id, base_card_number, stamp_type, display_name, image_url, poketrace_search_term, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [base_card_name, base_set_name || null, base_set_id || null, base_card_number || null,
+         stamp_type, display_name, image_url || null, poketrace_search_term || null, notes || null]
+      );
+      return res.json({ id: rows[0].id, ok: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: update a variant
+  app.patch("/api/admin/card-variants/:id", async (req, res) => {
+    try {
+      const { display_name, image_url, poketrace_search_term, notes } = req.body;
+      await db.query(
+        `UPDATE card_variants
+            SET display_name          = COALESCE($1, display_name),
+                image_url             = COALESCE($2, image_url),
+                poketrace_search_term = COALESCE($3, poketrace_search_term),
+                notes                 = COALESCE($4, notes),
+                cached_prices         = NULL,
+                prices_fetched_at     = NULL
+          WHERE id = $5`,
+        [display_name || null, image_url || null, poketrace_search_term || null, notes || null, req.params.id]
+      );
+      return res.json({ ok: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: delete a variant
+  app.delete("/api/admin/card-variants/:id", async (req, res) => {
+    try {
+      await db.query(`DELETE FROM card_variants WHERE id = $1`, [req.params.id]);
+      return res.json({ ok: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: sync from TCGdex stamp endpoints
+  app.post("/api/admin/card-variants/sync-tcgdex", async (_req, res) => {
+    try {
+      const stampTypes = [
+        { tcgdex: "pre-release",      display: "Prerelease Stamp", type: "prerelease",       keyword: "prerelease" },
+        { tcgdex: "pokemon-center",   display: "Pokémon Centre",   type: "pokemon-center",   keyword: "pokemon center" },
+        { tcgdex: "staff",            display: "Staff Stamp",      type: "staff",            keyword: "prerelease staff" },
+        { tcgdex: "build-and-battle", display: "Build & Battle",   type: "build-and-battle", keyword: "build battle" },
+        { tcgdex: "trick-or-trade",   display: "Trick or Trade",   type: "trick-or-trade",   keyword: "trick or trade" },
+      ];
+      let added = 0; let skipped = 0;
+      for (const st of stampTypes) {
+        const resp = await fetch(`https://api.tcgdex.net/v2/en/cards?stamp=${encodeURIComponent(st.tcgdex)}&limit=1000`, {
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!resp.ok) continue;
+        const cards: any[] = await resp.json();
+        for (const card of cards) {
+          const name = card.name; if (!name) continue;
+          const number = card.localId || null;
+          const setName = card.set?.name || null;
+          const imageUrl = card.image ? `${card.image}/high.webp` : null;
+          const { rows: ex } = await db.query(
+            `SELECT id FROM card_variants WHERE LOWER(base_card_name) = LOWER($1) AND stamp_type = $2 AND (base_set_name IS NULL OR LOWER(base_set_name) = LOWER($3))`,
+            [name, st.type, setName || ""]
+          );
+          if (ex.length > 0) { skipped++; continue; }
+          const searchTerm = `${name}${number ? " " + number : ""} ${st.keyword}`;
+          await db.query(
+            `INSERT INTO card_variants (base_card_name, base_set_name, base_card_number, stamp_type, display_name, image_url, poketrace_search_term)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [name, setName, number, st.type, st.display, imageUrl, searchTerm]
+          );
+          added++;
+        }
+      }
+      return res.json({ ok: true, added, skipped });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── End Card Variants API ──────────────────────────────────────────────────
 
   interface GradingJob {
     id: string;

@@ -611,6 +611,41 @@ export default function CardProfitScreen() {
     setEbayRefreshing(false);
   };
 
+  // ── Stamp variants ───────────────────────────────────────────────────────
+  interface CardVariant {
+    id: number;
+    stamp_type: string;
+    display_name: string;
+    image_url: string | null;
+    notes: string | null;
+    prices_fetched_at: string | null;
+  }
+  const [selectedStampId, setSelectedStampId] = useState<number | null>(null);
+
+  const { data: stampVariants = [] } = useQuery<CardVariant[]>({
+    queryKey: ["card-variants", cardName, setName],
+    queryFn: () =>
+      apiRequest("GET", `/api/card-variants?name=${encodeURIComponent(cardName || "")}&setName=${encodeURIComponent(setName || "")}`)
+        .then(r => r.json()),
+    enabled: !!(cardName && setName),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const { data: stampEbayData, isLoading: stampLoading } = useQuery<EbayAllGrades>({
+    queryKey: ["card-variant-prices", selectedStampId],
+    queryFn: () =>
+      apiRequest("GET", `/api/card-variants/${selectedStampId}/prices`).then(r => r.json()),
+    enabled: selectedStampId !== null,
+    staleTime: 12 * 60 * 60 * 1000,
+  });
+
+  const selectedStampVariant = stampVariants.find(v => v.id === selectedStampId) ?? null;
+  const displayEbay: EbayAllGrades | undefined = (selectedStampId && stampEbayData) ? stampEbayData : ebay;
+  const displayImage: string | undefined = (selectedStampId && selectedStampVariant?.image_url) ? selectedStampVariant.image_url : imageUrl;
+  const displayLoading = selectedStampId ? stampLoading : isLoading;
+
+  const hasStampVariants = stampVariants.length > 0;
+
   const enabledCompanies: CompanyId[] =
     settings.enabledCompanies.length > 0
       ? settings.enabledCompanies
@@ -697,7 +732,7 @@ export default function CardProfitScreen() {
       if (!config) return null;
 
       const rows = config.grades.map(g => {
-        const ebayUSD = ebay ? ((ebay[g.ebayKey] as number | undefined) ?? 0) : 0;
+        const ebayUSD = displayEbay ? ((displayEbay[g.ebayKey] as number | undefined) ?? 0) : 0;
         const ebayLocal = ebayUSD > 0 ? Math.round(ebayUSD * currencyRate) : null;
         // When a fee tier is selected, deduct it from profit for this company only
         const feeDeduc = compId === selectedCompany ? feeLocalAmount : 0;
@@ -713,17 +748,17 @@ export default function CardProfitScreen() {
 
       return { compId, config, rows, minProfitRow };
     }).filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [enabledCompanies, ebay, effectiveRawLocal, hasEffectiveRawPrice, currencyRate, feeLocalAmount, selectedCompany]);
+  }, [enabledCompanies, displayEbay, effectiveRawLocal, hasEffectiveRawPrice, currencyRate, feeLocalAmount, selectedCompany]);
 
   // ── Market snapshot — liquidity across all enabled companies ────────────
   const marketSnapshot = useMemo(() => {
-    if (!ebay) return null; // hide only when prices haven't loaded at all
+    if (!displayEbay) return null; // hide only when prices haven't loaded at all
 
     const rows = COMPANY_ORDER
       .filter(id => enabledCompanies.includes(id))
       .map(compId => {
         const topKey = COMPANY_TOP_KEY[compId];
-        const detail = topKey ? ebay.gradeDetails?.[topKey as string] : undefined;
+        const detail = topKey ? displayEbay.gradeDetails?.[topKey as string] : undefined;
         const score = calcLiquidityScore(detail);
         return {
           compId,
@@ -742,7 +777,7 @@ export default function CardProfitScreen() {
     const overallBand  = liquidityBand(overallScore, best.saleCount);
 
     return { rows, totalSales, best, maxScore, overallScore, overallBand, hasData };
-  }, [ebay, enabledCompanies]);
+  }, [displayEbay, enabledCompanies]);
 
   return (
     <View style={[st.container, { paddingTop: insets.top + webTop }]}>
@@ -804,7 +839,7 @@ export default function CardProfitScreen() {
       </View>
 
       {/* Fullscreen image modal */}
-      {!!imageUrl && (
+      {!!displayImage && (
         <Modal
           visible={imageFullscreen}
           animationType="fade"
@@ -816,7 +851,7 @@ export default function CardProfitScreen() {
             <GestureDetector gesture={zoomGesture}>
               <Animated.View style={[{ flex: 1 }, zoomStyle]}>
                 <Image
-                  source={{ uri: hiresImageUrl || imageUrl }}
+                  source={{ uri: displayImage }}
                   style={{ flex: 1 }}
                   contentFit="contain"
                   transition={200}
@@ -855,12 +890,12 @@ export default function CardProfitScreen() {
         {/* Card hero — large centred image */}
         <View style={st.heroSection}>
           <Pressable
-            onPress={() => imageUrl ? setImageFullscreen(true) : undefined}
-            style={({ pressed }) => [st.heroImgWrap, { opacity: pressed && !!imageUrl ? 0.85 : 1 }]}
+            onPress={() => displayImage ? setImageFullscreen(true) : undefined}
+            style={({ pressed }) => [st.heroImgWrap, { opacity: pressed && !!displayImage ? 0.85 : 1 }]}
           >
-            {imageUrl ? (
+            {displayImage ? (
               <Image
-                source={{ uri: imageUrl }}
+                source={{ uri: displayImage }}
                 style={st.heroImg}
                 contentFit="contain"
               />
@@ -869,7 +904,7 @@ export default function CardProfitScreen() {
                 <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
               </View>
             )}
-            {!!imageUrl && (
+            {!!displayImage && (
               <View style={st.heroZoomHint}>
                 <Ionicons name="expand-outline" size={12} color="rgba(255,255,255,0.7)" />
                 <Text style={st.heroZoomHintTxt}>Tap to expand</Text>
@@ -896,7 +931,7 @@ export default function CardProfitScreen() {
             </View>
           )}
 
-          {/* Variant tabs */}
+          {/* Variant tabs — TCGPlayer print variants (holo/RH/normal) */}
           {hasVariantTabs && (
             <View style={st.variantTabRow}>
               {variantPrices.map(v => {
@@ -939,6 +974,37 @@ export default function CardProfitScreen() {
                   </Pressable>
                 );
               })}
+            </View>
+          )}
+
+          {/* Stamp variant selector — shows when known stamped versions exist */}
+          {hasStampVariants && (
+            <View style={st.stampRow}>
+              <Ionicons name="stamper-outline" size={12} color={Colors.textMuted} style={{ marginTop: 1 }} />
+              <View style={st.stampPills}>
+                <Pressable
+                  onPress={() => setSelectedStampId(null)}
+                  style={[st.stampPill, selectedStampId === null && st.stampPillActive]}
+                >
+                  <Text style={[st.stampPillText, selectedStampId === null && st.stampPillTextActive]}>
+                    Regular
+                  </Text>
+                </Pressable>
+                {stampVariants.map(v => {
+                  const isSelected = selectedStampId === v.id;
+                  return (
+                    <Pressable
+                      key={v.id}
+                      onPress={() => setSelectedStampId(isSelected ? null : v.id)}
+                      style={[st.stampPill, isSelected && st.stampPillActive]}
+                    >
+                      <Text style={[st.stampPillText, isSelected && st.stampPillTextActive]}>
+                        {v.display_name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           )}
 
@@ -1005,13 +1071,13 @@ export default function CardProfitScreen() {
         </Pressable>
 
         {/* Price fetch status */}
-        {isLoading && (
+        {displayLoading && (
           <View style={st.feedbackRow}>
             <ActivityIndicator color={Colors.primary} size="small" />
             <Text style={st.feedbackText}>Fetching last sold prices…</Text>
           </View>
         )}
-        {!isLoading && !!error && (
+        {!displayLoading && !!error && !selectedStampId && (
           <View style={st.feedbackRow}>
             <Ionicons name="alert-circle-outline" size={16} color={Colors.error} />
             <Text style={[st.feedbackText, { color: Colors.error, flex: 1 }]}>
@@ -1021,7 +1087,7 @@ export default function CardProfitScreen() {
         )}
 
         {/* ── Market Snapshot ─────────────────────────────────────── */}
-        {!isLoading && !error && !!marketSnapshot && (() => {
+        {!displayLoading && !error && !!marketSnapshot && (() => {
           // No-data state: prices loaded but PokeTrace has no saleCount stats
           if (!marketSnapshot.hasData) {
             return (
@@ -1040,7 +1106,7 @@ export default function CardProfitScreen() {
           }
 
           // Drive bar from the tapped grade row (effectiveChartKey), not just the top grade
-          const tappedDetail = effectiveChartKey ? ebay?.gradeDetails?.[effectiveChartKey] : undefined;
+          const tappedDetail = effectiveChartKey ? displayEbay?.gradeDetails?.[effectiveChartKey] : undefined;
           const activeScore = calcLiquidityScore(tappedDetail);
           const activeSaleCount = tappedDetail?.saleCount ?? 0;
           const activeBand = liquidityBand(activeScore, activeSaleCount);
@@ -1130,7 +1196,7 @@ export default function CardProfitScreen() {
         {/* Expanded company section */}
         {companies.filter(c => c.compId === selectedCompany).map(({ compId, config, rows, minProfitRow }) => {
           // Use the tapped grade's detail for the chart (falls back to top grade)
-          const chartDetail = effectiveChartKey ? ebay?.gradeDetails?.[effectiveChartKey] : undefined;
+          const chartDetail = effectiveChartKey ? displayEbay?.gradeDetails?.[effectiveChartKey] : undefined;
 
           // Net profit box follows the tapped grade row; falls back to minimum profitable grade
           const displayRow = chartGradeKey
@@ -1194,7 +1260,7 @@ export default function CardProfitScreen() {
                         )}
                       </View>
 
-                      {isLoading ? (
+                      {displayLoading ? (
                         <ActivityIndicator size="small" color={Colors.textMuted} style={{ flex: 2 }} />
                       ) : (
                         <Text style={[st.ebayPrice, { flex: 2 }]}>
@@ -1202,7 +1268,7 @@ export default function CardProfitScreen() {
                         </Text>
                       )}
 
-                      {isLoading ? (
+                      {displayLoading ? (
                         <View style={{ flex: 2 }} />
                       ) : hasEffectiveRawPrice && gr.profit !== null ? (
                         <Text style={[st.profitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
@@ -1228,7 +1294,7 @@ export default function CardProfitScreen() {
               })}
 
               {/* Trend chart — updates to whichever grade row was tapped */}
-              {!isLoading && (chartDetail || (historyData?.history?.length ?? 0) >= 3) && (
+              {!displayLoading && (chartDetail || (historyData?.history?.length ?? 0) >= 3) && (
                 <View style={st.chartContainer}>
                   <TrendChart
                     detail={chartDetail}
@@ -1240,7 +1306,7 @@ export default function CardProfitScreen() {
               )}
 
               {/* Company summary */}
-              {!isLoading && ebay && hasEffectiveRawPrice && (
+              {!displayLoading && displayEbay && hasEffectiveRawPrice && (
                 <View style={st.summaryRow}>
                   {minProfitRow ? (
                     <Text style={st.summaryTxt}>
@@ -1379,7 +1445,7 @@ export default function CardProfitScreen() {
                   )}
 
                   {/* Final Net Profit summary */}
-                  {compId === selectedCompany && hasEffectiveRawPrice && ebay && (
+                  {compId === selectedCompany && hasEffectiveRawPrice && displayEbay && (
                     <View style={[
                       st.netProfitBox,
                       displayRow
@@ -1423,17 +1489,17 @@ export default function CardProfitScreen() {
         })}
 
         {/* Stale data warning */}
-        {!isLoading && ebay?.isStale && ebay.fetchedAt && (
+        {!displayLoading && displayEbay?.isStale && displayEbay.fetchedAt && (
           <View style={[st.feedbackRow, { backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 8, marginTop: 4 }]}>
             <Ionicons name="time-outline" size={14} color="#f59e0b" />
             <Text style={[st.feedbackText, { color: "#f59e0b", flex: 1 }]}>
-              Showing archived prices from {Math.round((Date.now() - ebay.fetchedAt) / 86400000)} day{Math.round((Date.now() - ebay.fetchedAt) / 86400000) !== 1 ? "s" : ""} ago — live data temporarily unavailable
+              Showing archived prices from {Math.round((Date.now() - displayEbay.fetchedAt) / 86400000)} day{Math.round((Date.now() - displayEbay.fetchedAt) / 86400000) !== 1 ? "s" : ""} ago — live data temporarily unavailable
             </Text>
           </View>
         )}
 
         {/* Price flag trigger */}
-        {!isLoading && ebay && (
+        {!displayLoading && displayEbay && (
           flagSubmitted ? (
             <View style={st.flagConfirm}>
               <Ionicons name="checkmark-circle" size={15} color="#10B981" />
@@ -1460,7 +1526,7 @@ export default function CardProfitScreen() {
           <Text style={st.disclaimerTxt}>
             Last sold prices sourced from eBay · All prices in {currency}
             {ratesData?.updatedAt ? ` · Rates: ${ratesData.updatedAt}` : ""}
-            {!isLoading && ebay?.fetchedAt && !ebay.isStale ? ` · Updated ${Math.round((Date.now() - ebay.fetchedAt) / 3600000)}h ago` : ""}
+            {!displayLoading && displayEbay?.fetchedAt && !displayEbay.isStale ? ` · Updated ${Math.round((Date.now() - displayEbay.fetchedAt) / 3600000)}h ago` : ""}
           </Text>
         </View>
       </ScrollView>
@@ -1728,6 +1794,40 @@ const st = StyleSheet.create({
   },
   variantTabTextNormal: {
     color: Colors.text,
+    fontFamily: "Inter_600SemiBold",
+  },
+  stampRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    alignSelf: "center",
+    marginBottom: 10,
+    marginTop: -2,
+  },
+  stampPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  stampPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  stampPillActive: {
+    backgroundColor: "rgba(255,60,49,0.12)",
+    borderColor: Colors.primary,
+  },
+  stampPillText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  stampPillTextActive: {
+    color: Colors.primary,
     fontFamily: "Inter_600SemiBold",
   },
   heroPriceRow: {
