@@ -4190,6 +4190,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
            SELECT image_url FROM card_catalog
            WHERE LOWER(name) = LOWER(pf.card_name)
              AND lang = COALESCE(pf.card_lang, 'en')
+           ORDER BY
+             CASE WHEN pf.set_code IS NOT NULL AND set_id = pf.set_code THEN 0 ELSE 1 END,
+             CASE WHEN pf.card_number IS NOT NULL
+                   AND number = SPLIT_PART(pf.card_number, '/', 1) THEN 0 ELSE 1 END
            LIMIT 1
          ) cc ON true
          ${whereClause}
