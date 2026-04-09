@@ -284,7 +284,7 @@ export default function AdminCardVariants() {
 
           {!isLoading && variants.length === 0 && (
             <View style={styles.emptyState}>
-              <Ionicons name="stamper-outline" size={36} color={Colors.textMuted} />
+              <Ionicons name="ribbon-outline" size={36} color={Colors.textMuted} />
               <Text style={styles.emptyTxt}>No variants yet</Text>
               <Text style={styles.emptySubTxt}>Add one above or tap Sync to import from TCGdex</Text>
             </View>

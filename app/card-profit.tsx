@@ -980,7 +980,7 @@ export default function CardProfitScreen() {
           {/* Stamp variant selector — shows when known stamped versions exist */}
           {hasStampVariants && (
             <View style={st.stampRow}>
-              <Ionicons name="stamper-outline" size={12} color={Colors.textMuted} style={{ marginTop: 1 }} />
+              <Ionicons name="ribbon-outline" size={12} color={Colors.textMuted} style={{ marginTop: 1 }} />
               <View style={st.stampPills}>
                 <Pressable
                   onPress={() => setSelectedStampId(null)}

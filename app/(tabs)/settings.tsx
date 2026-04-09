@@ -299,7 +299,7 @@ export default function SettingsScreen() {
                 style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
               >
                 <View style={styles.menuRowLeft}>
-                  <Ionicons name="stamper-outline" size={20} color="#8b5cf6" />
+                  <Ionicons name="ribbon-outline" size={20} color="#8b5cf6" />
                   <Text style={styles.menuRowLabel}>Card Variants</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
