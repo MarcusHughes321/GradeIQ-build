@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Image,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -53,6 +54,7 @@ interface PriceFlag {
   suggested_card: string | null;
   created_at: string;
   resolved_at: string | null;
+  card_image_url: string | null;
 }
 
 const STATUS_CONFIG: Record<FlagStatus, { label: string; color: string; icon: keyof typeof Ionicons.glyphMap }> = {
@@ -287,17 +289,32 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
       </View>
 
       <ScrollView style={det.scroll} contentContainerStyle={det.scrollContent}>
-        {/* Card info */}
+        {/* Card image + info side by side */}
         <View style={det.section}>
           <Text style={det.sectionTitle}>Card Details</Text>
-          <View style={det.infoCard}>
-            <InfoRow label="Name" value={flag.card_name} />
-            <InfoRow label="Set" value={flag.set_name ?? "—"} />
-            {flag.set_code && <InfoRow label="Set Code" value={flag.set_code} />}
-            {flag.card_number && <InfoRow label="Number" value={flag.card_number} />}
-            <InfoRow label="Language" value={flag.card_lang === "ja" ? "Japanese" : "English"} />
-            <InfoRow label="Company" value={flag.company} />
-            <InfoRow label="Flagged" value={timeAgo(flag.created_at)} />
+          <View style={det.cardDetailRow}>
+            {flag.card_image_url ? (
+              <Image
+                source={{ uri: flag.card_image_url }}
+                style={det.cardImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={det.cardImagePlaceholder}>
+                <Ionicons name="image-outline" size={28} color={Colors.textMuted} />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <View style={det.infoCard}>
+                <InfoRow label="Name" value={flag.card_name} />
+                <InfoRow label="Set" value={flag.set_name ?? "—"} />
+                {flag.set_code && <InfoRow label="Set Code" value={flag.set_code} />}
+                {flag.card_number && <InfoRow label="Number" value={flag.card_number} />}
+                <InfoRow label="Language" value={flag.card_lang === "ja" ? "Japanese" : "English"} />
+                <InfoRow label="Company" value={flag.company} />
+                <InfoRow label="Flagged" value={timeAgo(flag.created_at)} />
+              </View>
+            </View>
           </View>
         </View>
 
@@ -865,6 +882,14 @@ const det = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 4 },
   section: { marginBottom: 16 },
+  cardDetailRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  cardImage: { width: 90, height: 126, borderRadius: 6 },
+  cardImagePlaceholder: {
+    width: 90, height: 126, borderRadius: 6,
+    backgroundColor: Colors.surface, borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    alignItems: "center", justifyContent: "center",
+  },
   sectionTitle: {
     fontFamily: "Inter_700Bold",
     fontSize: 11,

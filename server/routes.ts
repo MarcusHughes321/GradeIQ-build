@@ -679,23 +679,31 @@ ${gradeLines}
 
 User note: ${flag.user_note ?? "(none)"}${adminNote}
 
-The prices are sourced from PokeTrace, which searches eBay sold listings by card name and set. The most common reasons for wrong prices are:
-1. The search returned results for a different printing of the card (e.g. wrong set, wrong era, different holo variant)
-2. A name collision with another card that has a similar name
-3. The card is a special edition (1st edition, shadowless, etc.) being confused with a standard print
-4. For Japanese cards: the English name search may be pulling non-Japanese results
+The prices are sourced from PokeTrace, which searches eBay sold listings by card name. The MOST COMMON reason for wrong prices — accounting for the vast majority of cases — is that PokeTrace has returned data for the WRONG CARD, specifically a different printing or set that shares the same card name. The key causes to consider in order of likelihood:
 
-Analyse why the prices likely look wrong. Then suggest both a human-readable strategy AND a clean search term suitable for the PokeTrace API (which accepts simple card name + number searches, no exclusion operators).
+1. WRONG SET / ERA (most common): Same card name exists in multiple sets. e.g. "Dark Blastoise" appears in both Team Rocket (1st ed/unlimited, ~$9,500 PSA10) and Legendary Collection (~$380 PSA10). PokeTrace may return the wrong one. Other examples: Base Set vs Base Set 2 vs Legendary Collection, original WoTC sets vs later reprints.
+2. SPECIAL STAMP or VARIANT: The card has a special marking that dramatically affects value but PokeTrace is returning generic results:
+   - 1st Edition stamp: typically 3-10x more valuable than unlimited
+   - Shadowless (Base Set only): more valuable than shadowed prints
+   - Promo stamp: e.g. "STAFF", "PRERELEASE", "WINNER" stamped promos
+   - Pokémon Center stamp: exclusive retail variants (Japan and some Western markets)
+   - Build & Battle stamp: exclusive to sealed Build & Battle kits
+   - Prerelease stamp or regional exclusive stamps
+3. HOLO vs NON-HOLO CONFUSION: The card exists as both a holo and non-holo, and PokeTrace is blending the two or returning the wrong variant.
+4. NAME COLLISION: A different card with a very similar name is being returned (e.g. "Gengar" vs "Gengar EX" vs "Gengar VMAX").
+5. JAPANESE vs ENGLISH: For Japanese cards, the English name search may be pulling English card results instead of Japanese eBay sales.
 
-The cleanSearchTerm should be just the card name and ideally the set name to disambiguate, e.g. "Charizard Base Set" or "Gengar Legend Maker" — keep it concise and use only inclusion terms.
+Examine the set name, card number, and price level to determine which of these is most likely. Then suggest the most specific search term possible.
 
-If the corrections history below contains a similar card from the same set with a known data contamination issue (e.g. two sets sharing a card name/number, PokeTrace mixing up set data), flag this explicitly in your analysis and set confidence to "low" to trigger admin review rather than auto-apply.${correctionsContext}
+The cleanSearchTerm should be the card name plus enough context to distinguish the right printing — e.g. "Charizard Base Set", "Dark Blastoise Legendary Collection", "Pikachu Promo" — keep it concise and use only inclusion terms (no minus signs or exclusion operators).
+
+IMPORTANT: If the card has a special stamp or variant (1st Edition, Promo, Pokémon Center, Build & Battle, etc.) that is likely causing the price mismatch, set confidence to "low" to route this to admin review, since PokeTrace may not be able to distinguish these variants. Similarly, if a past correction below shows this is a known set-confusion pattern, set confidence to "low".${correctionsContext}
 
 Respond in this JSON format only:
 {
-  "analysis": "Your detailed analysis of why the prices are wrong (2-4 sentences). Reference any relevant past corrections if applicable.",
+  "analysis": "Your detailed analysis of why the prices are wrong (2-4 sentences). State specifically which cause you believe applies and why.",
   "correctedSearch": "Human-readable strategy for the admin to understand what went wrong and how to verify",
-  "cleanSearchTerm": "Simple search term for PokeTrace API, e.g. 'Gengar Legend Maker' (or null if no better search exists)",
+  "cleanSearchTerm": "Simple search term for PokeTrace API, e.g. 'Dark Blastoise Legendary Collection' (or null if no better search exists)",
   "confidence": "high|medium|low"
 }`;
 
@@ -4143,7 +4151,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ── Price flags admin: list flags ──────────────────────────────────────
+  // ── Price flags admin: count of flags needing review (lightweight) ────
+  app.get("/api/admin/price-flags/count", async (_req, res) => {
+    try {
+      const { rows } = await db.query<{ cnt: string }>(
+        `SELECT COUNT(*) AS cnt FROM price_flags WHERE status IN ('pending','needs_admin','ai_processing')`
+      );
+      return res.json({ needsReview: parseInt(rows[0]?.cnt ?? "0", 10) });
+    } catch (err: any) {
+      return res.status(500).json({ error: "Failed to count flags" });
+    }
+  });
+
   app.get("/api/admin/price-flags", async (req, res) => {
     try {
       const { status } = req.query;
@@ -4152,22 +4171,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status === "all") {
         whereClause = "";
       } else if (status === "completed") {
-        whereClause = `WHERE status IN ('resolved', 'no_fix')`;
+        whereClause = `WHERE pf.status IN ('resolved', 'no_fix')`;
       } else if (status && status !== "needs_admin") {
-        whereClause = `WHERE status = $1`;
+        whereClause = `WHERE pf.status = $1`;
         params = [status];
       } else {
-        whereClause = `WHERE status = 'needs_admin'`;
+        whereClause = `WHERE pf.status = 'needs_admin'`;
       }
       const { rows } = await db.query(
-        `SELECT id, card_name, set_name, set_code, card_number, card_lang, company,
-                flagged_grades, flagged_values, user_note, status,
-                ai_analysis, admin_response, corrected_search, clean_search_term,
-                correction_applied, resolution_method, created_at, resolved_at,
-                suggested_prices, suggested_card
-         FROM price_flags
+        `SELECT pf.id, pf.card_name, pf.set_name, pf.set_code, pf.card_number, pf.card_lang,
+                pf.company, pf.flagged_grades, pf.flagged_values, pf.user_note, pf.status,
+                pf.ai_analysis, pf.admin_response, pf.corrected_search, pf.clean_search_term,
+                pf.correction_applied, pf.resolution_method, pf.created_at, pf.resolved_at,
+                pf.suggested_prices, pf.suggested_card,
+                cc.image_url AS card_image_url
+         FROM price_flags pf
+         LEFT JOIN LATERAL (
+           SELECT image_url FROM card_catalog
+           WHERE LOWER(name) = LOWER(pf.card_name)
+             AND lang = COALESCE(pf.card_lang, 'en')
+           LIMIT 1
+         ) cc ON true
          ${whereClause}
-         ORDER BY created_at DESC
+         ORDER BY pf.created_at DESC
          LIMIT 100`,
         params
       );
@@ -4461,13 +4487,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return `${r.cache_key} | PSA10: $${d.psa10 ?? 0} | PSA9: $${d.psa9 ?? 0} | PSA8: $${d.psa8 ?? 0} | Raw: $${d.raw ?? 0}`;
         }).join("\n");
 
-        const scanPrompt = `You are a Pokemon TCG card price intelligence expert. You have deep knowledge of Pokemon card market values across all eras and sets.
+        const scanPrompt = `You are a Pokemon TCG card price intelligence expert with deep knowledge of card values across all sets, eras, and printings.
 
-Review these eBay sold price cache entries and identify any that look suspicious or incorrect. Use your Pokemon knowledge and the correction history below to spot:
-- Prices that seem far too high or too low for the card's known rarity/era
-- Cards where the price likely belongs to a different printing or set (data contamination)
-- Known problem patterns from the correction history (e.g. set confusion, name collisions)
-- Any other data quality issues${correctionsContext}
+Review these eBay sold price cache entries and identify any with suspicious or incorrect prices. The MOST COMMON cause of wrong prices in this system is PokeTrace returning data for the WRONG PRINTING — the same card name exists in multiple sets or with special variants that have very different values. Key patterns to spot:
+
+1. WRONG SET / REPRINT: A card name that exists across multiple sets (e.g. Base Set, Base Set 2, Legendary Collection all share many card names). The cache may have the expensive original when the app is tracking the cheap reprint, or vice versa.
+2. SPECIAL STAMP CONFUSION: 1st Edition vs Unlimited, Shadowless vs Shadowed, Promo stamps (STAFF, PRERELEASE, WINNER), Pokémon Center stamps, Build & Battle stamps. These dramatically affect value.
+3. HOLO vs NON-HOLO CONFUSION: Prices are way too high for what would be a common non-holo card, suggesting holo data bled in.
+4. IMPOSSIBLE GRADE RATIOS: PSA10 price is less than PSA9, or two grades are identical, or ratio between adjacent grades is unrealistic (>8x is suspicious).
+5. IMPLAUSIBLE VALUE FOR THE CARD: You know Pokemon card values — a common Base Set card shouldn't be $5,000 PSA10 unless it's a very specific variant.${correctionsContext}
 
 CACHE ENTRIES TO REVIEW:
 ${cardList}
@@ -4475,11 +4503,11 @@ ${cardList}
 Return a JSON array of ONLY the suspicious entries. Each entry:
 {
   "cacheKey": "exact cache key from the list",
-  "reason": "concise explanation of why this price looks wrong",
+  "reason": "concise explanation of which pattern applies and why the price looks wrong",
   "severity": "high|medium|low"
 }
 
-Return [] if all prices look reasonable. Only flag genuine concerns — do not flag cards where the price is simply high for a rare card.`;
+Return [] if all prices look reasonable. Only flag genuine data quality concerns — not cards that are legitimately expensive.`;
 
         try {
           const aiResp = await anthropic.messages.create({

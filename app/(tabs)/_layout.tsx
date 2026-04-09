@@ -1,14 +1,43 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Tabs } from "expo-router";
-import { Platform, View, StyleSheet } from "react-native";
+import { Platform, View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { BlurView } from "expo-blur";
 import { useGrading } from "@/lib/grading-context";
+import { useSubscription } from "@/lib/subscription";
+import { getApiUrl } from "@/lib/query-client";
+
+function useAdminFlagCount(isAdmin: boolean) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAdmin) { setCount(0); return; }
+
+    let cancelled = false;
+    const fetch_ = async () => {
+      try {
+        const url = new URL("/api/admin/price-flags/count", getApiUrl());
+        const res = await fetch(url.toString());
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setCount(body.needsReview ?? 0);
+      } catch { /* non-fatal */ }
+    };
+
+    fetch_();
+    const id = setInterval(fetch_, 60_000); // poll every 60s
+    return () => { cancelled = true; clearInterval(id); };
+  }, [isAdmin]);
+
+  return count;
+}
 
 export default function TabLayout() {
   const { hasCompletedJob, hasActiveJob } = useGrading();
+  const { isAdminMode } = useSubscription();
   const showHomeBadge = hasCompletedJob || hasActiveJob;
+  const flagCount = useAdminFlagCount(isAdminMode);
 
   return (
     <Tabs
@@ -86,7 +115,16 @@ export default function TabLayout() {
         options={{
           title: "Settings",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
+            <View>
+              <Ionicons name="settings-outline" size={size} color={color} />
+              {isAdminMode && flagCount > 0 && (
+                <View style={tabBadgeStyles.countBadge}>
+                  <Text style={tabBadgeStyles.countTxt}>
+                    {flagCount > 9 ? "9+" : String(flagCount)}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
         }}
       />
@@ -104,5 +142,25 @@ const tabBadgeStyles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1.5,
     borderColor: Colors.background,
+  },
+  countBadge: {
+    position: "absolute",
+    top: -5,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: Colors.background,
+  },
+  countTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 9,
+    color: "#fff",
+    lineHeight: 12,
   },
 });
