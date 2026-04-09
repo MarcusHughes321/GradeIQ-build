@@ -4155,7 +4155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/price-flags/count", async (_req, res) => {
     try {
       const { rows } = await db.query<{ cnt: string }>(
-        `SELECT COUNT(*) AS cnt FROM price_flags WHERE status IN ('pending','needs_admin','ai_processing')`
+        `SELECT COUNT(*) AS cnt FROM price_flags WHERE status = 'needs_admin'`
       );
       return res.json({ needsReview: parseInt(rows[0]?.cnt ?? "0", 10) });
     } catch (err: any) {
