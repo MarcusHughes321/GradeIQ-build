@@ -1031,12 +1031,29 @@ async function fetchEbayGradedPrices(
       const numMatches = (c: any) =>
         baseNum && (c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum);
 
-      // Priority: (number AND set) > number-only > set-only > hasGraded.
-      // Never fall back to cards[0] — a random wrong card is worse than no data.
+      // For the "regular" fetch we prefer the non-stamped card. PokeTrace sometimes
+      // returns a Prerelease Stamp (or Gym Challenge etc.) as the top result for a
+      // card that also exists in its unstamped form — we should prefer the unstamped.
+      const REGULAR_STAMP_KWS = ["prerelease", "stamp", "gym challenge", "gym-challenge",
+        "pokemon center", "pokemon centre", "build and battle", "trick or trade", "staff"];
+      const isStamped = (c: any) => {
+        const txt = ((c.variant || "") + " " + (c.name || "")).toLowerCase();
+        return REGULAR_STAMP_KWS.some(kw => txt.includes(kw));
+      };
+
+      // Priority: (number AND set, non-stamped) > (number AND set) > number-only non-stamped
+      //   > number-only > set-only non-stamped > set-only > hasGraded.
+      // Preferring non-stamped at each tier ensures the regular card price is shown
+      // for cards like Gengar 5/92 (Legend Maker) where PokeTrace lists the Prerelease
+      // Stamp as its first result. Falls back to stamped if no regular version exists.
       ptCard =
+        cards.find(c => numMatches(c) && setMatches(c) && !isStamped(c)) ||
         cards.find(c => numMatches(c) && setMatches(c)) ||
+        cards.find(c => numMatches(c) && !isStamped(c)) ||
         cards.find(c => numMatches(c)) ||
+        cards.find(c => setMatches(c) && !isStamped(c)) ||
         cards.find(c => setMatches(c)) ||
+        cards.find(c => c.hasGraded && !isStamped(c)) ||
         cards.find(c => c.hasGraded) ||
         null;
       break;
