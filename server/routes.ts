@@ -4639,70 +4639,116 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // ── Card Variants API ──────────────────────────────────────────────────────
 
-  // In-memory set of card names already checked against TCGdex this session
+  // In-memory set: "cardname|setname|number" keys — avoids repeated TCGdex lookups per session
   const tcgdexCheckedCards = new Set<string>();
 
-  const TCGDEX_STAMP_TYPES = [
-    { tcgdex: "pre-release",      display: "Prerelease Stamp", type: "prerelease",        keyword: "prerelease" },
-    { tcgdex: "pokemon-center",   display: "Pokémon Centre",   type: "pokemon-center",    keyword: "pokemon center" },
-    { tcgdex: "staff",            display: "Staff Stamp",      type: "staff",             keyword: "prerelease staff" },
-    { tcgdex: "build-and-battle", display: "Build & Battle",   type: "build-and-battle",  keyword: "build battle" },
-    { tcgdex: "trick-or-trade",   display: "Trick or Trade",   type: "trick-or-trade",    keyword: "trick or trade" },
-  ];
+  // Maps TCGdex stamp identifiers → display name + PokeTrace keyword
+  const STAMP_LABEL_MAP: Record<string, { display: string; keyword: string }> = {
+    "set-logo":         { display: "Prerelease Stamp",   keyword: "prerelease" },
+    "gym-challenge":    { display: "Gym Challenge",       keyword: "gym challenge" },
+    "pre-release":      { display: "Prerelease Stamp",    keyword: "prerelease" },
+    "pokemon-center":   { display: "Pokémon Centre",      keyword: "pokemon center" },
+    "build-and-battle": { display: "Build & Battle",      keyword: "build battle" },
+    "trick-or-trade":   { display: "Trick or Trade",      keyword: "trick or trade" },
+    "staff":            { display: "Staff Stamp",          keyword: "prerelease staff" },
+    "league":           { display: "League Promo",         keyword: "league promo" },
+  };
 
-  // Helper: fetch stamp variants for a card from TCGdex and upsert into DB
-  async function discoverCardVariants(cardName: string): Promise<void> {
-    await Promise.allSettled(
-      TCGDEX_STAMP_TYPES.map(async (st) => {
-        try {
-          const url = `https://api.tcgdex.net/v2/en/cards?name=${encodeURIComponent(cardName)}&stamp=${encodeURIComponent(st.tcgdex)}&limit=100`;
-          const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-          if (!resp.ok) return;
-          const cards: any[] = await resp.json();
-          for (const card of cards) {
-            if (!card.name || card.name.toLowerCase() !== cardName.toLowerCase()) continue;
-            const number = card.localId || null;
-            const variantSetName = card.set?.name || null;
-            const imageUrl = card.image ? `${card.image}/high.webp` : null;
-            const { rows: ex } = await db.query(
-              `SELECT id FROM card_variants WHERE LOWER(base_card_name) = LOWER($1) AND stamp_type = $2 AND LOWER(COALESCE(base_set_name,'')) = LOWER($3)`,
-              [cardName, st.type, variantSetName || ""]
-            );
-            if (ex.length > 0) continue;
-            const searchTerm = [cardName, number, st.keyword, variantSetName].filter(Boolean).join(" ");
-            await db.query(
-              `INSERT INTO card_variants (base_card_name, base_set_name, base_card_number, stamp_type, display_name, image_url, poketrace_search_term)
-               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-              [cardName, variantSetName, number, st.type, st.display, imageUrl, searchTerm]
-            );
-            console.log(`[card-variants] Auto-discovered ${st.display} for "${cardName}" (${variantSetName || "?"})`);
-          }
-        } catch (_) {}
-      })
-    );
+  // Helper: look up a specific card on TCGdex by set_id + localId, then
+  // parse variants_detailed for stamp entries and upsert them into card_variants.
+  async function discoverCardVariants(
+    cardName: string,
+    setName: string | null,
+    cardNumber: string | null
+  ): Promise<void> {
+    if (!cardNumber) return;
+    const localId = cardNumber.split("/")[0].trim();
+
+    // Find the TCGdex set_id from our card catalog (set_id = TCGdex set code, e.g. "ex12")
+    let setId: string | null = null;
+    if (setName) {
+      const { rows } = await db.query<{ set_id: string }>(
+        `SELECT set_id FROM card_catalog
+          WHERE lang = 'en'
+            AND LOWER(set_name) ILIKE $1
+            AND number = $2
+          LIMIT 1`,
+        [`%${setName.toLowerCase()}%`, localId]
+      );
+      setId = rows[0]?.set_id ?? null;
+    }
+
+    if (!setId) return;
+
+    // Fetch the individual card from TCGdex
+    const cardUrl = `https://api.tcgdex.net/v2/en/sets/${setId}/${localId}`;
+    let cardData: any;
+    try {
+      const resp = await fetch(cardUrl, { signal: AbortSignal.timeout(6000) });
+      if (!resp.ok) return;
+      cardData = await resp.json();
+    } catch (_) { return; }
+
+    const variantsDetailed: Array<{ type: string; size?: string; stamp?: string[] }> =
+      cardData.variants_detailed || [];
+    const imageUrl: string | null = cardData.image ? `${cardData.image}/high.webp` : null;
+
+    // Collect unique stamp identifiers
+    const seenStamps = new Set<string>();
+    for (const v of variantsDetailed) {
+      if (!v.stamp || v.stamp.length === 0) continue;
+      for (const stampId of v.stamp) {
+        if (seenStamps.has(stampId)) continue;
+        seenStamps.add(stampId);
+
+        const def = STAMP_LABEL_MAP[stampId] ?? { display: stampId, keyword: stampId };
+
+        // Skip if already in DB for this card + set + stamp combination
+        const { rows: ex } = await db.query(
+          `SELECT id FROM card_variants
+            WHERE LOWER(base_card_name) = LOWER($1)
+              AND stamp_type = $2
+              AND LOWER(COALESCE(base_set_name,'')) = LOWER($3)`,
+          [cardName, stampId, setName || ""]
+        );
+        if (ex.length > 0) continue;
+
+        const searchTerm = [cardName, localId, def.keyword, setName].filter(Boolean).join(" ");
+        await db.query(
+          `INSERT INTO card_variants
+             (base_card_name, base_set_name, base_card_number, stamp_type, display_name, image_url, poketrace_search_term)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [cardName, setName, localId, stampId, def.display, imageUrl, searchTerm]
+        );
+        console.log(`[card-variants] Auto-discovered "${def.display}" for "${cardName}" (${setName || "?"}) — stamp: ${stampId}`);
+      }
+    }
   }
 
-  // Public: lookup variants for a card — auto-discovers from TCGdex on first view
+  // Public: lookup variants for a card — auto-discovers from TCGdex per-card on first view
   app.get("/api/card-variants", async (req, res) => {
     try {
-      const { name } = req.query;
+      const { name, setName, cardNumber } = req.query;
       if (!name) return res.json([]);
-      const cardName = String(name);
-      const cacheKey = cardName.toLowerCase();
+      const cardName   = String(name);
+      const setNameStr = setName   ? String(setName)   : null;
+      const cardNumStr = cardNumber ? String(cardNumber) : null;
+      const cacheKey   = `${cardName.toLowerCase()}|${(setNameStr || "").toLowerCase()}|${(cardNumStr || "").toLowerCase()}`;
 
       const getRows = () =>
         db.query(
           `SELECT id, stamp_type, display_name, image_url, notes, prices_fetched_at
              FROM card_variants
             WHERE LOWER(base_card_name) = LOWER($1)
+              AND ($2::text IS NULL OR LOWER(COALESCE(base_set_name,'')) ILIKE '%' || LOWER($2) || '%')
             ORDER BY stamp_type`,
-          [cardName]
+          [cardName, setNameStr]
         ).then(r => r.rows);
 
-      // First view of this card this session — query TCGdex, then return results
+      // First view of this card+set combination → query TCGdex, then return
       if (!tcgdexCheckedCards.has(cacheKey)) {
         tcgdexCheckedCards.add(cacheKey);
-        await discoverCardVariants(cardName);
+        await discoverCardVariants(cardName, setNameStr, cardNumStr);
       }
 
       return res.json(await getRows());
