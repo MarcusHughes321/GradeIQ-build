@@ -4737,7 +4737,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
       const getRows = () =>
         db.query(
-          `SELECT id, stamp_type, display_name, image_url, notes, prices_fetched_at
+          `SELECT id, stamp_type, display_name, image_url, notes, prices_fetched_at, poketrace_search_term
              FROM card_variants
             WHERE LOWER(base_card_name) = LOWER($1)
               AND ($2::text IS NULL OR LOWER(COALESCE(base_set_name,'')) ILIKE '%' || LOWER($2) || '%')
@@ -4766,10 +4766,10 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
       const { rows } = await db.query<{
         id: number; base_card_name: string; base_set_name: string | null;
         base_card_number: string | null; poketrace_search_term: string | null;
-        cached_prices: any; prices_fetched_at: string | null;
+        stamp_type: string; cached_prices: any; prices_fetched_at: string | null;
       }>(
         `SELECT id, base_card_name, base_set_name, base_card_number,
-                poketrace_search_term, cached_prices, prices_fetched_at
+                poketrace_search_term, stamp_type, cached_prices, prices_fetched_at
            FROM card_variants WHERE id = $1`,
         [variantId]
       );
@@ -4794,12 +4794,22 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
       const data = await resp.json() as any;
       const cards: any[] = data?.data || [];
 
-      // Find the best matching card that contains the stamp keyword
-      const stampKeyword = (v.poketrace_search_term || "").toLowerCase().split(" ").slice(-1)[0];
-      let ptCard = cards.find((c: any) =>
-        (c.variant || "").toLowerCase().includes(stampKeyword) ||
-        (c.name || "").toLowerCase().includes(stampKeyword)
-      ) || cards[0] || null;
+      // Match PokeTrace result using stamp-type-specific keywords
+      const STAMP_MATCH_KEYWORDS: Record<string, string[]> = {
+        "set-logo":         ["prerelease", "stamp"],
+        "gym-challenge":    ["gym", "challenge"],
+        "pre-release":      ["prerelease"],
+        "pokemon-center":   ["center", "centre", "pokemon center"],
+        "build-and-battle": ["build", "battle"],
+        "trick-or-trade":   ["trick", "trade"],
+        "staff":            ["staff"],
+        "league":           ["league"],
+      };
+      const matchWords = STAMP_MATCH_KEYWORDS[v.stamp_type] ?? [v.stamp_type];
+      let ptCard = cards.find((c: any) => {
+        const text = ((c.variant || "") + " " + (c.name || "")).toLowerCase();
+        return matchWords.some(kw => text.includes(kw));
+      }) ?? cards[0] ?? null;
 
       const ebayPrices = ptCard?.prices?.ebay || {};
       const gradeMap: Record<string, string> = {

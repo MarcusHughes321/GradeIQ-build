@@ -619,6 +619,7 @@ export default function CardProfitScreen() {
     image_url: string | null;
     notes: string | null;
     prices_fetched_at: string | null;
+    poketrace_search_term: string | null;
   }
   const [selectedStampId, setSelectedStampId] = useState<number | null>(null);
 
@@ -724,10 +725,22 @@ export default function CardProfitScreen() {
     retry: 1,
   });
 
+  // When a stamp variant is active, use its PokeTrace search term as the eBay base query
+  const stampEbayBase: string | null = selectedStampVariant?.poketrace_search_term
+    ? selectedStampVariant.poketrace_search_term
+    : null;
+
   const buildEbayUrl = (gradeLabel: string) => {
-    const q = [gradeLabel, cardName, displayCardNumber ? `${displayCardNumber}` : null, setName, "pokemon"].filter(Boolean).join(" ");
-    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Complete=1&LH_Sold=1`;
+    const base = stampEbayBase
+      ? `${gradeLabel} ${stampEbayBase} pokemon`
+      : [gradeLabel, cardName, displayCardNumber ? `${displayCardNumber}` : null, setName, "pokemon"].filter(Boolean).join(" ");
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(base)}&LH_Complete=1&LH_Sold=1`;
   };
+
+  // Raw eBay "Find on eBay" search query — adapts to stamp variant
+  const rawEbayQuery = stampEbayBase
+    ? `${stampEbayBase} raw pokemon`
+    : [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
 
   const companies = useMemo(() => {
     return COMPANY_ORDER.filter(id => enabledCompanies.includes(id)).map(compId => {
@@ -1011,25 +1024,32 @@ export default function CardProfitScreen() {
             </View>
           )}
 
-          {/* Market price — read-only, same as original */}
-          <View style={st.heroPriceRow}>
-            <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
-            <Text style={st.heroPriceLabel}>{`Raw (${rawPriceLabel})`}</Text>
-            <Text style={[st.heroPriceValue, { marginLeft: 4 }]}>
-              {hasRawPrice ? fmtLocal(rawLocalVal) : "—"}
-            </Text>
-            <Pressable
-              onPress={() => {
-                const q = [cardName, displayCardNumber || null, setName, "Pokemon"].filter(Boolean).join(" ");
-                Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`);
-              }}
-              hitSlop={8}
-              style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row" as const, alignItems: "center" as const, gap: 3, marginLeft: "auto" as any })}
-            >
-              <Text style={st.rawEbayLink}>Find on eBay</Text>
-              <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
-            </Pressable>
-          </View>
+          {/* Market price — shows stamp variant raw eBay price when variant selected */}
+          {(() => {
+            const variantRawUSD = selectedStampId && stampEbayData?.raw ? stampEbayData.raw : 0;
+            const showVariantRaw = selectedStampId && variantRawUSD > 0;
+            const rawDisplay = showVariantRaw
+              ? fmtLocal(variantRawUSD)
+              : hasRawPrice ? fmtLocal(rawLocalVal) : "—";
+            const rawLabel = showVariantRaw
+              ? `Raw (eBay · ${selectedStampVariant?.display_name})`
+              : `Raw (${rawPriceLabel})`;
+            return (
+              <View style={st.heroPriceRow}>
+                <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
+                <Text style={st.heroPriceLabel}>{rawLabel}</Text>
+                <Text style={[st.heroPriceValue, { marginLeft: 4 }]}>{rawDisplay}</Text>
+                <Pressable
+                  onPress={() => Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(rawEbayQuery)}`)}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, flexDirection: "row" as const, alignItems: "center" as const, gap: 3, marginLeft: "auto" as any })}
+                >
+                  <Text style={st.rawEbayLink}>Find on eBay</Text>
+                  <Ionicons name="open-outline" size={10} color={Colors.textMuted} />
+                </Pressable>
+              </View>
+            );
+          })()}
 
           {/* Price paid — separate editable row below */}
           {priceIsOverridden ? (
