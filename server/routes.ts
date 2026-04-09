@@ -4639,22 +4639,73 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // ── Card Variants API ──────────────────────────────────────────────────────
 
-  // Public: lookup variants for a card (name + optional setName)
+  // In-memory set of card names already checked against TCGdex this session
+  const tcgdexCheckedCards = new Set<string>();
+
+  const TCGDEX_STAMP_TYPES = [
+    { tcgdex: "pre-release",      display: "Prerelease Stamp", type: "prerelease",        keyword: "prerelease" },
+    { tcgdex: "pokemon-center",   display: "Pokémon Centre",   type: "pokemon-center",    keyword: "pokemon center" },
+    { tcgdex: "staff",            display: "Staff Stamp",      type: "staff",             keyword: "prerelease staff" },
+    { tcgdex: "build-and-battle", display: "Build & Battle",   type: "build-and-battle",  keyword: "build battle" },
+    { tcgdex: "trick-or-trade",   display: "Trick or Trade",   type: "trick-or-trade",    keyword: "trick or trade" },
+  ];
+
+  // Helper: fetch stamp variants for a card from TCGdex and upsert into DB
+  async function discoverCardVariants(cardName: string): Promise<void> {
+    await Promise.allSettled(
+      TCGDEX_STAMP_TYPES.map(async (st) => {
+        try {
+          const url = `https://api.tcgdex.net/v2/en/cards?name=${encodeURIComponent(cardName)}&stamp=${encodeURIComponent(st.tcgdex)}&limit=100`;
+          const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (!resp.ok) return;
+          const cards: any[] = await resp.json();
+          for (const card of cards) {
+            if (!card.name || card.name.toLowerCase() !== cardName.toLowerCase()) continue;
+            const number = card.localId || null;
+            const variantSetName = card.set?.name || null;
+            const imageUrl = card.image ? `${card.image}/high.webp` : null;
+            const { rows: ex } = await db.query(
+              `SELECT id FROM card_variants WHERE LOWER(base_card_name) = LOWER($1) AND stamp_type = $2 AND LOWER(COALESCE(base_set_name,'')) = LOWER($3)`,
+              [cardName, st.type, variantSetName || ""]
+            );
+            if (ex.length > 0) continue;
+            const searchTerm = [cardName, number, st.keyword, variantSetName].filter(Boolean).join(" ");
+            await db.query(
+              `INSERT INTO card_variants (base_card_name, base_set_name, base_card_number, stamp_type, display_name, image_url, poketrace_search_term)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [cardName, variantSetName, number, st.type, st.display, imageUrl, searchTerm]
+            );
+            console.log(`[card-variants] Auto-discovered ${st.display} for "${cardName}" (${variantSetName || "?"})`);
+          }
+        } catch (_) {}
+      })
+    );
+  }
+
+  // Public: lookup variants for a card — auto-discovers from TCGdex on first view
   app.get("/api/card-variants", async (req, res) => {
     try {
-      const { name, setName } = req.query;
+      const { name } = req.query;
       if (!name) return res.json([]);
-      const { rows } = await db.query(
-        `SELECT id, stamp_type, display_name, image_url, notes, prices_fetched_at
-           FROM card_variants
-          WHERE LOWER(base_card_name) = LOWER($1)
-            AND ($2::text IS NULL
-                 OR LOWER(base_set_name) ILIKE '%' || LOWER($2) || '%'
-                 OR LOWER($2) ILIKE '%' || LOWER(COALESCE(base_set_name,'')) || '%')
-          ORDER BY stamp_type`,
-        [String(name), setName ? String(setName) : null]
-      );
-      return res.json(rows);
+      const cardName = String(name);
+      const cacheKey = cardName.toLowerCase();
+
+      const getRows = () =>
+        db.query(
+          `SELECT id, stamp_type, display_name, image_url, notes, prices_fetched_at
+             FROM card_variants
+            WHERE LOWER(base_card_name) = LOWER($1)
+            ORDER BY stamp_type`,
+          [cardName]
+        ).then(r => r.rows);
+
+      // First view of this card this session — query TCGdex, then return results
+      if (!tcgdexCheckedCards.has(cacheKey)) {
+        tcgdexCheckedCards.add(cacheKey);
+        await discoverCardVariants(cardName);
+      }
+
+      return res.json(await getRows());
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }

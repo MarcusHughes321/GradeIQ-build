@@ -623,11 +623,11 @@ export default function CardProfitScreen() {
   const [selectedStampId, setSelectedStampId] = useState<number | null>(null);
 
   const { data: stampVariants = [] } = useQuery<CardVariant[]>({
-    queryKey: ["card-variants", cardName, setName],
+    queryKey: ["card-variants", cardName],
     queryFn: () =>
-      apiRequest("GET", `/api/card-variants?name=${encodeURIComponent(cardName || "")}&setName=${encodeURIComponent(setName || "")}`)
+      apiRequest("GET", `/api/card-variants?name=${encodeURIComponent(cardName || "")}`)
         .then(r => r.json()),
-    enabled: !!(cardName && setName),
+    enabled: !!cardName,
     staleTime: 24 * 60 * 60 * 1000,
   });
 
