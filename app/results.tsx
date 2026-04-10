@@ -620,7 +620,6 @@ export default function ResultsScreen() {
     const setName = grading?.result?.setName || grading?.result?.setInfo;
     const cardNumber = grading?.result?.setNumber;
     if (!cardName || !setName) return;
-    if (!(isSubscribed || isAdminMode)) return;
     setEbayLoading(true);
     setEbayPrices(null);
     const params = new URLSearchParams({
