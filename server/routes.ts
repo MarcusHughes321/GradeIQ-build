@@ -1031,28 +1031,34 @@ async function fetchEbayGradedPrices(
       const numMatches = (c: any) =>
         baseNum && (c.cardNumber?.startsWith(baseNum + "/") || c.cardNumber === baseNum);
 
-      // For the "regular" fetch we prefer the non-stamped card. PokeTrace sometimes
-      // returns a Prerelease Stamp (or Gym Challenge etc.) as the top result for a
-      // card that also exists in its unstamped form — we should prefer the unstamped.
+      // For the "regular" fetch we prefer the non-stamped, non-reverse-holo card.
+      // PokeTrace sometimes returns a Prerelease Stamp as the top result for a card
+      // that also has an unstamped form. For vintage holo cards (e.g. Gengar 5/92
+      // from Legend Maker), the Prerelease Stamp is listed under "Reverse_Holofoil"
+      // while the real regular holo is listed under "Holofoil" — so we skip reverse
+      // holos first, then fall back if no non-reverse match exists.
       const REGULAR_STAMP_KWS = ["prerelease", "stamp", "gym challenge", "gym-challenge",
         "pokemon center", "pokemon centre", "build and battle", "trick or trade", "staff"];
       const isStamped = (c: any) => {
         const txt = ((c.variant || "") + " " + (c.name || "")).toLowerCase();
         return REGULAR_STAMP_KWS.some(kw => txt.includes(kw));
       };
+      const isReverseHolo = (c: any) =>
+        (c.variant || "").toLowerCase().includes("reverse");
 
-      // Priority: (number AND set, non-stamped) > (number AND set) > number-only non-stamped
-      //   > number-only > set-only non-stamped > set-only > hasGraded.
-      // Preferring non-stamped at each tier ensures the regular card price is shown
-      // for cards like Gengar 5/92 (Legend Maker) where PokeTrace lists the Prerelease
-      // Stamp as its first result. Falls back to stamped if no regular version exists.
+      // Priority ladder: prefer non-stamped AND non-reverse at each tier,
+      // gracefully degrading to reverse/stamped only when no better match exists.
       ptCard =
+        cards.find(c => numMatches(c) && setMatches(c) && !isStamped(c) && !isReverseHolo(c)) ||
         cards.find(c => numMatches(c) && setMatches(c) && !isStamped(c)) ||
         cards.find(c => numMatches(c) && setMatches(c)) ||
+        cards.find(c => numMatches(c) && !isStamped(c) && !isReverseHolo(c)) ||
         cards.find(c => numMatches(c) && !isStamped(c)) ||
         cards.find(c => numMatches(c)) ||
+        cards.find(c => setMatches(c) && !isStamped(c) && !isReverseHolo(c)) ||
         cards.find(c => setMatches(c) && !isStamped(c)) ||
         cards.find(c => setMatches(c)) ||
+        cards.find(c => c.hasGraded && !isStamped(c) && !isReverseHolo(c)) ||
         cards.find(c => c.hasGraded && !isStamped(c)) ||
         cards.find(c => c.hasGraded) ||
         null;
@@ -1098,7 +1104,7 @@ async function fetchEbayGradedPrices(
     ...graded,
   };
 
-  const matched = ptCard ? `${ptCard.name} ${ptCard.cardNumber} (${ptCard.set?.name})` : "no match";
+  const matched = ptCard ? `${ptCard.name} ${ptCard.cardNumber} [${ptCard.variant}] (${ptCard.set?.name})` : "no match";
   console.log(
     `[poketrace] ${cardIdStr} → ${matched} | PSA10 $${result.psa10} PSA9 $${result.psa9}` +
     ` BGS9.5 $${result.bgs95} ACE10 $${result.ace10} TAG10 $${result.tag10} Raw $${result.raw}`
