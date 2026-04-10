@@ -5023,7 +5023,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   const collectionJobs = new Map<string, CollectionJob>();
 
-  // Initialize collection scan usage table
+  // Initialize collection scan tables
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS collection_scan_usage (
@@ -5034,9 +5034,59 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
         PRIMARY KEY (device_id, month_key)
       )
     `);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS collection_jobs (
+        job_id       TEXT PRIMARY KEY,
+        device_id    TEXT NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'processing',
+        total_cards  INT NOT NULL DEFAULT 0,
+        cards        JSONB NOT NULL DEFAULT '[]',
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_collection_jobs_device ON collection_jobs(device_id, created_at DESC)`);
     console.log("[collection-scan] DB table ready");
   } catch (e: any) {
     console.error("[collection-scan] Failed to create usage table:", e.message);
+  }
+
+  async function saveJobToDB(job: CollectionJob, deviceId: string): Promise<void> {
+    try {
+      await db.query(
+        `INSERT INTO collection_jobs (job_id, device_id, status, total_cards, cards, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), NOW())
+         ON CONFLICT (job_id)
+         DO UPDATE SET status = $3, total_cards = $4, cards = $5, updated_at = NOW()`,
+        [job.id, deviceId, job.status, job.totalCards, JSON.stringify(job.cards), job.createdAt]
+      );
+    } catch (e: any) {
+      console.error("[collection-scan] Failed to save job to DB:", e.message);
+    }
+  }
+
+  async function loadJobFromDB(jobId: string): Promise<CollectionJob | null> {
+    try {
+      const { rows } = await db.query(
+        `SELECT job_id, status, total_cards, cards, EXTRACT(EPOCH FROM created_at)*1000 AS created_ms
+         FROM collection_jobs WHERE job_id = $1`,
+        [jobId]
+      );
+      if (!rows[0]) return null;
+      const r = rows[0];
+      const cards: CollectionCard[] = Array.isArray(r.cards) ? r.cards : JSON.parse(r.cards);
+      return {
+        id: r.job_id,
+        status: r.status,
+        cards,
+        totalCards: r.total_cards,
+        completedCards: cards.filter((c: CollectionCard) => c.status === "done" || c.status === "failed" || c.status === "limit_reached").length,
+        createdAt: Math.round(parseFloat(r.created_ms)),
+      };
+    } catch (e: any) {
+      console.error("[collection-scan] Failed to load job from DB:", e.message);
+      return null;
+    }
   }
 
   async function getMonthlyUsage(deviceId: string): Promise<number> {
@@ -5258,7 +5308,9 @@ Return ONLY the JSON object. No other text.`;
     if (successCount > 0) {
       try { await incrementMonthlyUsage(deviceId, successCount); } catch {}
     }
-    // Clean up job after 30 minutes
+    // Persist completed job to DB
+    await saveJobToDB(job, deviceId);
+    // Clean up from memory after 30 minutes (DB is the durable store)
     setTimeout(() => collectionJobs.delete(jobId), 30 * 60 * 1000);
   }
 
@@ -5290,6 +5342,8 @@ Return ONLY the JSON object. No other text.`;
         createdAt: Date.now(),
       };
       collectionJobs.set(jobId, job);
+      // Save initial processing state to DB so device can associate this jobId with itself
+      await saveJobToDB(job, deviceId);
 
       // Process async
       void processCollectionJob(jobId, cards, deviceId);
@@ -5301,8 +5355,51 @@ Return ONLY the JSON object. No other text.`;
     }
   });
 
-  app.get("/api/collection/job/:jobId", (req, res) => {
-    const job = collectionJobs.get(req.params.jobId);
+  app.get("/api/collection/jobs", async (req, res) => {
+    const { deviceId } = req.query as { deviceId?: string };
+    if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+    try {
+      const { rows } = await db.query(
+        `SELECT job_id, status, total_cards, cards, created_at
+         FROM collection_jobs
+         WHERE device_id = $1 AND status = 'completed'
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        [deviceId]
+      );
+      const jobs = rows.map((r) => {
+        const cards: CollectionCard[] = Array.isArray(r.cards) ? r.cards : JSON.parse(r.cards);
+        const doneCards = cards.filter((c) => c.status === "done");
+        const totalNM = doneCards.reduce((s, c) => s + (c.nmPriceUsd ?? 0), 0);
+        const totalCondition = doneCards.reduce((s, c) => s + (c.conditionPriceUsd ?? 0), 0);
+        const conditionCounts: Record<string, number> = {};
+        doneCards.forEach((c) => {
+          if (c.condition) conditionCounts[c.condition] = (conditionCounts[c.condition] ?? 0) + 1;
+        });
+        return {
+          jobId: r.job_id,
+          status: r.status,
+          totalCards: r.total_cards,
+          doneCards: doneCards.length,
+          totalNMUsd: totalNM,
+          totalConditionUsd: totalCondition,
+          conditionCounts,
+          createdAt: r.created_at,
+        };
+      });
+      return res.json({ jobs });
+    } catch (err: any) {
+      console.error("[collection/jobs] Error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/collection/job/:jobId", async (req, res) => {
+    let job = collectionJobs.get(req.params.jobId);
+    // Fall back to DB if not in memory (e.g. after server restart or 30-min expiry)
+    if (!job) {
+      job = await loadJobFromDB(req.params.jobId) ?? undefined;
+    }
     if (!job) return res.status(404).json({ error: "Job not found" });
     return res.json({
       status: job.status,
@@ -5312,9 +5409,29 @@ Return ONLY the JSON object. No other text.`;
     });
   });
 
+  app.delete("/api/collection/job/:jobId", async (req, res) => {
+    const { deviceId } = req.query as { deviceId?: string };
+    if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+    try {
+      await db.query(
+        `DELETE FROM collection_jobs WHERE job_id = $1 AND device_id = $2`,
+        [req.params.jobId, deviceId]
+      );
+      collectionJobs.delete(req.params.jobId);
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[collection/delete] Error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   app.put("/api/collection/job/:jobId/card/:idx", async (req, res) => {
     try {
-      const job = collectionJobs.get(req.params.jobId);
+      // Try memory first, fall back to DB
+      let job = collectionJobs.get(req.params.jobId);
+      if (!job) {
+        job = await loadJobFromDB(req.params.jobId) ?? undefined;
+      }
       if (!job) return res.status(404).json({ error: "Job not found" });
       const idx = parseInt(req.params.idx);
       const card = job.cards[idx];
@@ -5331,6 +5448,11 @@ Return ONLY the JSON object. No other text.`;
       const multiplier = CONDITION_MULTIPLIERS[card.condition || "Near Mint"] ?? 1.0;
       card.nmPriceUsd = nmPrice;
       card.conditionPriceUsd = nmPrice != null ? Math.round(nmPrice * multiplier * 100) / 100 : null;
+      // Persist the update — get deviceId from DB since we may not have it in memory
+      try {
+        const { rows } = await db.query(`SELECT device_id FROM collection_jobs WHERE job_id = $1`, [job.id]);
+        if (rows[0]) await saveJobToDB(job, rows[0].device_id);
+      } catch {}
       return res.json({ ok: true, card });
     } catch (err: any) {
       console.error("[collection/card-update] Error:", err.message);

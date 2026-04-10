@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import * as ImageManipulator from "expo-image-manipulator";
 import {
   View,
@@ -11,7 +11,7 @@ import {
   Animated,
   ActivityIndicator,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -31,8 +31,30 @@ interface CardSlot {
   backImage: string | null;
 }
 
+interface PastScan {
+  jobId: string;
+  status: string;
+  totalCards: number;
+  doneCards: number;
+  totalNMUsd: number;
+  totalConditionUsd: number;
+  conditionCounts: Record<string, number>;
+  createdAt: string;
+}
+
 function generateId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 5);
+}
+
+function formatScanDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: diffDays > 365 ? "numeric" : undefined });
 }
 
 async function getOrCreateDeviceId(): Promise<string> {
@@ -70,7 +92,50 @@ export default function CollectionScanScreen() {
   const [cameraCardIndex, setCameraCardIndex] = useState(0);
   const cameraFrontRef = useRef<string | null>(null);
 
+  const [pastScans, setPastScans] = useState<PastScan[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+
+  const fetchPastScans = useCallback(async () => {
+    try {
+      setLoadingHistory(true);
+      const deviceId = await getOrCreateDeviceId();
+      const base = getApiUrl();
+      const url = new URL("/api/collection/jobs", base);
+      url.searchParams.set("deviceId", deviceId);
+      const resp = await fetch(url.toString());
+      if (resp.ok) {
+        const data = await resp.json();
+        setPastScans(data.jobs ?? []);
+      }
+    } catch {}
+    finally { setLoadingHistory(false); }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchPastScans();
+    }, [fetchPastScans])
+  );
+
+  const deletePastScan = async (jobId: string) => {
+    Alert.alert("Delete Scan", "Remove this scan from your history?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete", style: "destructive", onPress: async () => {
+          try {
+            const deviceId = await getOrCreateDeviceId();
+            const base = getApiUrl();
+            const url = new URL(`/api/collection/job/${jobId}`, base);
+            url.searchParams.set("deviceId", deviceId);
+            await fetch(url.toString(), { method: "DELETE" });
+            setPastScans((prev) => prev.filter((s) => s.jobId !== jobId));
+          } catch {}
+        }
+      }
+    ]);
+  };
 
   const readyCards = cards.filter((c) => c.frontImage && c.backImage);
   const hasPartialCard = cameraSide === "back"; // mid-scan, front captured, back pending
@@ -343,7 +408,11 @@ export default function CollectionScanScreen() {
 
       {cards.length === 0 ? (
         // ── Empty state ──
-        <View style={styles.emptyWrap}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.emptyWrap}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.emptyIconWrap}>
             <Ionicons name="library-outline" size={40} color="#3B82F6" />
           </View>
@@ -373,7 +442,51 @@ export default function CollectionScanScreen() {
             <Ionicons name="images-outline" size={16} color={Colors.textSecondary} />
             <Text style={styles.galleryBtnText}>Import from gallery instead</Text>
           </Pressable>
-        </View>
+
+          {/* ── Recent Scans ── */}
+          {(loadingHistory || pastScans.length > 0) && (
+            <View style={styles.historySection}>
+              <Text style={styles.historySectionTitle}>Recent Scans</Text>
+              {loadingHistory && pastScans.length === 0 ? (
+                <ActivityIndicator size="small" color={Colors.textMuted} style={{ marginTop: 12 }} />
+              ) : (
+                pastScans.map((scan) => (
+                  <Pressable
+                    key={scan.jobId}
+                    style={({ pressed }) => [styles.historyRow, { opacity: pressed ? 0.75 : 1 }]}
+                    onPress={() => router.push({ pathname: "/collection-results", params: { jobId: scan.jobId } })}
+                    onLongPress={() => deletePastScan(scan.jobId)}
+                  >
+                    <View style={styles.historyIcon}>
+                      <Ionicons name="library-outline" size={18} color="#3B82F6" />
+                    </View>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <Text style={styles.historyDate}>{formatScanDate(scan.createdAt)}</Text>
+                        <Text style={styles.historyValue}>
+                          ${scan.totalConditionUsd.toFixed(2)}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.historyMeta}>{scan.doneCards} card{scan.doneCards !== 1 ? "s" : ""}</Text>
+                        {Object.entries(scan.conditionCounts).slice(0, 3).map(([cond, cnt]) => (
+                          <View key={cond} style={[styles.historyCondPill, { backgroundColor: CONDITION_COLORS[cond] + "22" }]}>
+                            <View style={[styles.historyCondDot, { backgroundColor: CONDITION_COLORS[cond] ?? "#888" }]} />
+                            <Text style={[styles.historyCondText, { color: CONDITION_COLORS[cond] ?? "#888" }]}>{cond.replace("Near Mint", "NM").replace("Light Played", "LP").replace("Heavy Played", "HP")} ×{cnt}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+                  </Pressable>
+                ))
+              )}
+              {pastScans.length > 0 && (
+                <Text style={styles.historyHint}>Long-press a scan to delete it</Text>
+              )}
+            </View>
+          )}
+        </ScrollView>
       ) : (
         // ── Cards captured ──
         <>
@@ -469,10 +582,11 @@ const styles = StyleSheet.create({
 
   // Empty state
   emptyWrap: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 32,
+    paddingVertical: 32,
     gap: 12,
   },
   emptyIconWrap: {
@@ -671,4 +785,69 @@ const styles = StyleSheet.create({
   stageLabel: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textMuted },
   stageLabelActive: { color: Colors.text, fontFamily: "Inter_500Medium" },
   stageLabelDone: { color: "#10B981" },
+
+  // History section
+  historySection: {
+    width: "100%",
+    marginTop: 8,
+    gap: 6,
+  },
+  historySectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  historyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    borderRadius: 14,
+    padding: 14,
+  },
+  historyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "rgba(59,130,246,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  historyDate: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  historyValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#3B82F6",
+  },
+  historyMeta: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  historyCondPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  historyCondDot: { width: 5, height: 5, borderRadius: 3 },
+  historyCondText: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  historyHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: 2,
+  },
 });
