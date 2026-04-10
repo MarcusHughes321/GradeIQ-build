@@ -28,7 +28,7 @@ import { ALL_COMPANIES, CURRENCIES } from "@/lib/settings";
 import type { CompanyId } from "@/lib/settings";
 import { useSubscription } from "@/lib/subscription";
 import ValuesUpgradeSheet from "@/components/ValuesUpgradeSheet";
-import BlurredValue from "@/components/BlurredValue";
+import { BlurredValue } from "@/components/BlurredValue";
 
 interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;

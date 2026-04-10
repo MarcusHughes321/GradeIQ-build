@@ -25,7 +25,7 @@ import type { CompanyId } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSubscription } from "@/lib/subscription";
 import ValuesUpgradeSheet from "@/components/ValuesUpgradeSheet";
-import BlurredValue from "@/components/BlurredValue";
+import { BlurredValue } from "@/components/BlurredValue";
 
 // Mirrors the config in values.tsx — top grade key and display label per company
 const PICKS_COMPANY_CONFIG: Record<CompanyId, { topEbayKey: string; topGradeLabel: string }> = {
