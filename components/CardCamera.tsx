@@ -33,6 +33,7 @@ interface CardCameraProps {
   isAngled?: boolean;
   isSlabMode?: boolean;
   stepLabel?: string;
+  fastMode?: boolean;
   onCapture: (uri: string) => void;
   onClose: () => void;
   deepGradeFlow?: {
@@ -50,7 +51,7 @@ const ANGLED_TARGET = 25;
 const ANGLED_THRESHOLD = 5;
 const BUBBLE_RANGE = 22;
 
-export default function CardCamera({ side, isAngled = false, isSlabMode = false, stepLabel, onCapture, onClose, deepGradeFlow }: CardCameraProps) {
+export default function CardCamera({ side, isAngled = false, isSlabMode = false, stepLabel, fastMode = false, onCapture, onClose, deepGradeFlow }: CardCameraProps) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturing, setCapturing] = useState(false);
@@ -262,21 +263,22 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   const handleCapture = async () => {
     if (!cameraRef.current || capturing || focusing) return;
 
-    // Soft tilt lock — warn instead of fire
-    if (!isLevel && accelStatus === "active" && !isAngled) {
-      showTiltWarningBanner();
-      return;
-    }
+    if (!fastMode) {
+      // Soft tilt lock — warn instead of fire
+      if (!isLevel && accelStatus === "active" && !isAngled) {
+        showTiltWarningBanner();
+        return;
+      }
 
-    // Show "Focusing..." state briefly to let the camera's autofocus system
-    // settle before firing the shutter. This is the single biggest factor in
-    // preventing motion blur and soft-focus photos on iPhone.
-    setFocusing(true);
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Show "Focusing..." state briefly to let the camera's autofocus system
+      // settle before firing the shutter.
+      setFocusing(true);
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      await new Promise(r => setTimeout(r, 600));
+      setFocusing(false);
     }
-    await new Promise(r => setTimeout(r, 600));
-    setFocusing(false);
 
     setCapturing(true);
     try {
@@ -430,7 +432,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   const guideH = isCorner ? 180 : isSlabMode ? 430 : GUIDE_FRAME_H;
 
   // Shutter is blocked when phone is actively shaking or when not level (for non-angled shots)
-  const isMotionBlocked = Platform.OS !== "web" && accelStatus === "active" && isShaking;
+  const isMotionBlocked = !fastMode && Platform.OS !== "web" && accelStatus === "active" && isShaking;
   const isShutterBlocked = capturing || focusing || isMotionBlocked;
 
   // Determine shutter ring / inner colour
@@ -455,19 +457,21 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
 
   const hintText = isMotionBlocked
     ? "Hold still…"
-    : deepGradeFlow
-      ? deepGradeFlow.stepSubtitle
-      : isAngled
-        ? isLevel
-          ? "Perfect angle! Take the photo"
-          : "Tilt bottom of phone down ~25\u00B0 to catch the light"
-        : isSlabMode
+    : fastMode
+      ? (side === "front" ? "Hold the front flat and fill the frame" : "Flip and photograph the back")
+      : deepGradeFlow
+        ? deepGradeFlow.stepSubtitle
+        : isAngled
           ? isLevel
-            ? "Slab is level. Take the photo!"
-            : "Hold phone flat over the slab"
-          : isLevel
-            ? "Phone is level. Take the photo!"
-            : "Hold phone flat and parallel to card";
+            ? "Perfect angle! Take the photo"
+            : "Tilt bottom of phone down ~25\u00B0 to catch the light"
+          : isSlabMode
+            ? isLevel
+              ? "Slab is level. Take the photo!"
+              : "Hold phone flat over the slab"
+            : isLevel
+              ? "Phone is level. Take the photo!"
+              : "Hold phone flat and parallel to card";
 
   return (
     <View style={styles.container}>

@@ -138,6 +138,14 @@ export default function CollectionResultsScreen() {
   const totalNMUsd = doneCards.reduce((sum, c) => sum + (c.nmPriceUsd ?? 0), 0);
   const totalConditionUsd = doneCards.reduce((sum, c) => sum + (c.conditionPriceUsd ?? 0), 0);
 
+  const conditionCounts = doneCards.reduce<Record<string, number>>((acc, c) => {
+    const cond = c.condition ?? "Unknown";
+    acc[cond] = (acc[cond] ?? 0) + 1;
+    return acc;
+  }, {});
+  const COND_ORDER = ["Mint", "Near Mint", "Light Played", "Played", "Heavy Played", "Damaged"];
+  const activeConditions = COND_ORDER.filter((c) => (conditionCounts[c] ?? 0) > 0);
+
   const openEdit = (card: CollectionCard) => {
     setEditCard(card);
     setEditName(card.cardName ?? "");
@@ -211,7 +219,7 @@ export default function CollectionResultsScreen() {
         URL.revokeObjectURL(url);
       } else {
         const path = `${FileSystem.cacheDirectory}${filename}`;
-        await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
+        await FileSystem.writeAsStringAsync(path, csv, { encoding: "utf8" as any });
         const canShare = await Sharing.isAvailableAsync();
         if (canShare) {
           await Sharing.shareAsync(path, { mimeType: "text/csv", dialogTitle: "Export Collection CSV" });
@@ -337,15 +345,20 @@ export default function CollectionResultsScreen() {
         </View>
       </View>
 
-      {/* Condition legend */}
-      <View style={st.legendRow}>
-        {Object.entries(CONDITION_SHORT).map(([cond, short]) => (
-          <View key={cond} style={st.legendItem}>
-            <View style={[st.legendDot, { backgroundColor: CONDITION_COLORS[cond] }]} />
-            <Text style={st.legendText}>{short}</Text>
-          </View>
-        ))}
-      </View>
+      {/* Condition breakdown */}
+      {activeConditions.length > 0 && (
+        <View style={st.condBreakdownRow}>
+          {activeConditions.map((cond) => (
+            <View key={cond} style={st.condBreakdownItem}>
+              <View style={[st.condBreakdownDot, { backgroundColor: CONDITION_COLORS[cond] }]} />
+              <Text style={[st.condBreakdownShort, { color: CONDITION_COLORS[cond] }]}>
+                {CONDITION_SHORT[cond]}
+              </Text>
+              <Text style={st.condBreakdownCount}>{conditionCounts[cond]}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Card list */}
       <FlatList
@@ -557,6 +570,40 @@ const st = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: Colors.textMuted,
+  },
+  condBreakdownRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
+    flexWrap: "wrap",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  condBreakdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  condBreakdownDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  condBreakdownShort: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+  },
+  condBreakdownCount: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   cardRow: {
     flexDirection: "row",

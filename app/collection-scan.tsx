@@ -237,56 +237,32 @@ export default function CollectionScanScreen() {
 
   // ── Camera View ────────────────────────────────────────────────────────────
   if (cameraActive && Platform.OS !== "web") {
-    const cardNum = cards.length + 1; // current card being photographed
-    const isFirstCard = cardNum === 1;
+    const cardNum = cards.length + 1;
+    const sideLabel = cameraSide === "front"
+      ? `Card ${cardNum}  ·  Front Side`
+      : `Card ${cardNum}  ·  Back Side`;
+
     return (
       <View style={styles.container}>
         <CardCamera
           side={cameraSide}
+          stepLabel={sideLabel}
+          fastMode
           onCapture={handleCameraCapture}
           onClose={handleCameraClose}
         />
 
-        {/* Card + side indicator — top centre */}
-        <View style={[styles.cameraHud, { top: insets.top + 12 }]}>
-          <View style={styles.cameraCardBadge}>
-            <Text style={styles.cameraCardBadgeNum}>Card {cardNum}</Text>
-            <View style={[styles.cameraCardSidePill, cameraSide === "back" && styles.cameraCardSidePillBack]}>
-              <Ionicons
-                name={cameraSide === "front" ? "scan-outline" : "swap-horizontal-outline"}
-                size={14}
-                color={cameraSide === "front" ? "#fff" : "#fff"}
-              />
-              <Text style={styles.cameraCardSidePillText}>
-                {cameraSide === "front" ? "Front Side" : "Back Side"}
-              </Text>
-            </View>
-          </View>
-          {cards.length > 0 && (
-            <View style={styles.cameraDoneCountBadge}>
-              <Text style={styles.cameraDoneCountText}>{cards.length} done</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Instruction text */}
-        <View style={[styles.cameraInstruction, { top: insets.top + 88 }]}>
-          <Text style={styles.cameraInstructionText}>
-            {cameraSide === "front"
-              ? "Hold the front of the card flat and fill the frame"
-              : "Flip the card and photograph the back"}
-          </Text>
-        </View>
-
-        {/* Done button — bottom */}
-        <View style={[styles.cameraDoneWrap, { bottom: insets.bottom + 24 }]}>
+        {/* Done / Cancel button pinned above the shutter */}
+        <View style={[styles.cameraDoneWrap, { bottom: insets.bottom + 112 }]}>
           <Pressable
             style={({ pressed }) => [styles.cameraDoneBtn, { opacity: pressed ? 0.85 : 1 }]}
             onPress={handleCameraClose}
           >
             <Ionicons name="checkmark-circle" size={20} color="#fff" />
             <Text style={styles.cameraDoneBtnText}>
-              {cards.length === 0 ? "Cancel" : `Done Scanning (${cards.length} card${cards.length !== 1 ? "s" : ""})`}
+              {cards.length === 0
+                ? "Cancel"
+                : `Done  ·  ${cards.length} card${cards.length !== 1 ? "s" : ""} captured`}
             </Text>
           </Pressable>
         </View>
@@ -633,74 +609,6 @@ const styles = StyleSheet.create({
   analyseBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff" },
 
   // Camera overlay UI
-  cameraHud: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    zIndex: 20,
-  },
-  cameraCardBadge: {
-    backgroundColor: "rgba(0,0,0,0.72)",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 6,
-    alignItems: "flex-start",
-  },
-  cameraCardBadgeNum: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    color: "#fff",
-    letterSpacing: 0.2,
-  },
-  cameraCardSidePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#3B82F6",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  cameraCardSidePillBack: {
-    backgroundColor: "#8B5CF6",
-  },
-  cameraCardSidePillText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: "#fff",
-  },
-  cameraDoneCountBadge: {
-    backgroundColor: "rgba(0,0,0,0.72)",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  cameraDoneCountText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: "#10B981",
-  },
-  cameraInstruction: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    alignItems: "center",
-    zIndex: 20,
-  },
-  cameraInstructionText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: "rgba(255,255,255,0.85)",
-    textAlign: "center",
-    backgroundColor: "rgba(0,0,0,0.45)",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
   cameraDoneWrap: {
     position: "absolute",
     left: 24,
