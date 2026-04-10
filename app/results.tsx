@@ -265,11 +265,12 @@ function LiquidityBar({ score, color }: { score: number; color: string }) {
 
 interface PricePoint { price_usd: number; recorded_at: string; }
 
-function TrendChart({ detail, history, currencySymbol, currencyRate }: {
+function TrendChart({ detail, history, currencySymbol, currencyRate, blurred = false }: {
   detail: GradeDetail | undefined;
   history: PricePoint[];
   currencySymbol: string;
   currencyRate: number;
+  blurred?: boolean;
 }) {
   const LABEL_W = 38;
   const svgW = Dimensions.get("window").width - 64 - LABEL_W;
@@ -308,12 +309,14 @@ function TrendChart({ detail, history, currencySymbol, currencyRate }: {
             <SvgText x={PAD.left} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="start" fontFamily="Inter_400Regular">{fmtDate(points[0].ts)}</SvgText>
             <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted} textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
           </Svg>
-          <PriceAxis high={fmt(maxV)} low={fmt(minV)} />
+          <BlurredValue blurred={blurred}><PriceAxis high={fmt(maxV)} low={fmt(minV)} /></BlurredValue>
         </View>
         {detail?.saleCount != null && (
-          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
-            {detail.saleCount.toLocaleString()} recorded sales{detail?.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
-          </Text>
+          <BlurredValue blurred={blurred}>
+            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+              {detail.saleCount.toLocaleString()} recorded sales{detail?.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+            </Text>
+          </BlurredValue>
         )}
       </View>
     );
@@ -349,12 +352,14 @@ function TrendChart({ detail, history, currencySymbol, currencyRate }: {
             </React.Fragment>
           ))}
         </Svg>
-        <PriceAxis high={fmt(maxV2)} low={fmt(minV2)} />
+        <BlurredValue blurred={blurred}><PriceAxis high={fmt(maxV2)} low={fmt(minV2)} /></BlurredValue>
       </View>
       {detail.saleCount != null && (
-        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
-          {detail.saleCount.toLocaleString()} recorded sales{detail.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
-        </Text>
+        <BlurredValue blurred={blurred}>
+          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+            {detail.saleCount.toLocaleString()} recorded sales{detail.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+          </Text>
+        </BlurredValue>
       )}
     </View>
   );
@@ -1921,6 +1926,7 @@ export default function ResultsScreen() {
                   history={historyData?.history ?? []}
                   currencySymbol={currencySymbol}
                   currencyRate={currencyRate}
+                  blurred={!hasAccess}
                 />
               </View>
             )}
@@ -1928,10 +1934,12 @@ export default function ResultsScreen() {
             {!ebayLoading && !!ebayPrices && hasEffectiveRawPrice && (
               <View style={styles.maSummaryRow}>
                 {minProfitRow ? (
-                  <Text style={styles.maSummaryTxt}>
-                    Min grade to profit:{" "}
-                    <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>{minProfitRow.label}</Text>
-                  </Text>
+                  <BlurredValue blurred={!hasAccess}>
+                    <Text style={styles.maSummaryTxt}>
+                      Min grade to profit:{" "}
+                      <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>{minProfitRow.label}</Text>
+                    </Text>
+                  </BlurredValue>
                 ) : (
                   <Text style={[styles.maSummaryTxt, { color: "#ef4444" }]}>No profitable grade at this raw price</Text>
                 )}

@@ -287,11 +287,13 @@ function TrendChart({
   history,
   currencySymbol,
   currencyRate,
+  blurred = false,
 }: {
   detail: GradeDetail | undefined;
   history: PricePoint[];
   currencySymbol: string;
   currencyRate: number;
+  blurred?: boolean;
 }) {
   // LABEL_W: dedicated column for price labels — kept fully outside the SVG
   const LABEL_W = 38;
@@ -361,13 +363,15 @@ function TrendChart({
             <SvgText x={PAD.left + chartW} y={H - 4} fontSize="9" fill={Colors.textMuted}
               textAnchor="end" fontFamily="Inter_400Regular">{fmtDate(points[points.length - 1].ts)}</SvgText>
           </Svg>
-          <PriceAxis high={fmt(maxV)} low={fmt(minV)} />
+          <BlurredValue blurred={blurred}><PriceAxis high={fmt(maxV)} low={fmt(minV)} /></BlurredValue>
         </View>
         {detail?.saleCount != null && (
-          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
-            {detail.saleCount.toLocaleString()} recorded sales
-            {detail?.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
-          </Text>
+          <BlurredValue blurred={blurred}>
+            <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+              {detail.saleCount.toLocaleString()} recorded sales
+              {detail?.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+            </Text>
+          </BlurredValue>
         )}
       </View>
     );
@@ -422,13 +426,15 @@ function TrendChart({
             </React.Fragment>
           ))}
         </Svg>
-        <PriceAxis high={fmt(maxV2)} low={fmt(minV2)} />
+        <BlurredValue blurred={blurred}><PriceAxis high={fmt(maxV2)} low={fmt(minV2)} /></BlurredValue>
       </View>
       {detail.saleCount != null && (
-        <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
-          {detail.saleCount.toLocaleString()} recorded sales
-          {detail.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
-        </Text>
+        <BlurredValue blurred={blurred}>
+          <Text style={{ fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, textAlign: "center", marginTop: 2 }}>
+            {detail.saleCount.toLocaleString()} recorded sales
+            {detail.lastUpdated ? ` · Updated ${new Date(detail.lastUpdated).toLocaleDateString()}` : ""}
+          </Text>
+        </BlurredValue>
       )}
     </View>
   );
@@ -1359,6 +1365,7 @@ export default function CardProfitScreen() {
                     history={historyData?.history ?? []}
                     currencySymbol={currencySymbol}
                     currencyRate={currencyRate}
+                    blurred={!hasAccess}
                   />
                 </View>
               )}
@@ -1367,12 +1374,14 @@ export default function CardProfitScreen() {
               {!displayLoading && displayEbay && hasEffectiveRawPrice && (
                 <View style={st.summaryRow}>
                   {minProfitRow ? (
-                    <Text style={st.summaryTxt}>
-                      Min grade to profit:{" "}
-                      <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>
-                        {minProfitRow.label}
+                    <BlurredValue blurred={!hasAccess}>
+                      <Text style={st.summaryTxt}>
+                        Min grade to profit:{" "}
+                        <Text style={{ color: "#f59e0b", fontFamily: "Inter_700Bold" }}>
+                          {minProfitRow.label}
+                        </Text>
                       </Text>
-                    </Text>
+                    </BlurredValue>
                   ) : (
                     <Text style={[st.summaryTxt, { color: "#ef4444" }]}>
                       No profitable grade at this raw price
