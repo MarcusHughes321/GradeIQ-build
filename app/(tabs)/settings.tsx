@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/query-client";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
@@ -22,6 +24,19 @@ export default function SettingsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const lastTapRef = useRef(0);
+
+  const { data: flagCountData } = useQuery<{ needsReview: number }>({
+    queryKey: ["/api/admin/price-flags/count"],
+    queryFn: async () => {
+      const url = new URL("/api/admin/price-flags/count", getApiUrl());
+      const res = await fetch(url.toString());
+      return res.json();
+    },
+    enabled: isAdminMode,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  const pendingFlagCount = flagCountData?.needsReview ?? 0;
 
   const handleVersionTap = useCallback(() => {
     const now = Date.now();
@@ -290,6 +305,11 @@ export default function SettingsScreen() {
                 <View style={styles.menuRowLeft}>
                   <Ionicons name="flag-outline" size={20} color="#F59E0B" />
                   <Text style={styles.menuRowLabel}>Price Flags</Text>
+                  {pendingFlagCount > 0 && (
+                    <View style={styles.flagBadge}>
+                      <Text style={styles.flagBadgeTxt}>{pendingFlagCount > 99 ? "99+" : pendingFlagCount}</Text>
+                    </View>
+                  )}
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
               </Pressable>
@@ -864,5 +884,20 @@ const styles = StyleSheet.create({
   },
   segmentBtnTextActive: {
     color: Colors.text,
+  },
+  flagBadge: {
+    backgroundColor: "#EF4444",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+    marginLeft: 6,
+  },
+  flagBadgeTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+    color: "#fff",
   },
 });
