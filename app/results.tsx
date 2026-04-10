@@ -1716,12 +1716,14 @@ export default function ResultsScreen() {
               <View style={{ gap: 10 }}>
                 <View style={styles.maSnapshotTopRow}>
                   <Text style={styles.maSnapshotLabel}>Liquidity</Text>
-                  <View style={[styles.maSnapshotBandChip, { backgroundColor: activeBand.color + "1A", borderColor: activeBand.color + "55" }]}>
-                    <View style={[styles.maSnapshotBandDot, { backgroundColor: activeBand.color }]} />
-                    <Text style={[styles.maSnapshotBandText, { color: activeBand.color }]}>{activeBand.label}</Text>
-                  </View>
+                  <BlurredValue blurred={!hasAccess}>
+                    <View style={[styles.maSnapshotBandChip, { backgroundColor: activeBand.color + "1A", borderColor: activeBand.color + "55" }]}>
+                      <View style={[styles.maSnapshotBandDot, { backgroundColor: activeBand.color }]} />
+                      <Text style={[styles.maSnapshotBandText, { color: activeBand.color }]}>{activeBand.label}</Text>
+                    </View>
+                  </BlurredValue>
                 </View>
-                <LiquidityBar score={activeScore} color={activeBand.color} />
+                <LiquidityBar score={hasAccess ? activeScore : 0} color={hasAccess ? activeBand.color : "#6b7280"} />
                 <View style={styles.maSnapshotSalesPills}>
                   <View style={[styles.maSnapshotSalesPill, { borderColor: companyColor + "99", backgroundColor: companyColor + "1A" }]}>
                     <Text style={[styles.maSnapshotSalesCo, { color: companyColor }]}>{activeGradeLabel}</Text>

@@ -1172,19 +1172,21 @@ export default function CardProfitScreen() {
               {/* Top row: label + band chip */}
               <View style={st.snapshotTopRow}>
                 <Text style={st.snapshotLabel}>Liquidity</Text>
-                <View style={[
-                  st.snapshotBandChip,
-                  { backgroundColor: activeBand.color + "1A", borderColor: activeBand.color + "55" },
-                ]}>
-                  <View style={[st.snapshotBandDot, { backgroundColor: activeBand.color }]} />
-                  <Text style={[st.snapshotBandText, { color: activeBand.color }]}>
-                    {activeBand.label}
-                  </Text>
-                </View>
+                <BlurredValue blurred={!hasAccess}>
+                  <View style={[
+                    st.snapshotBandChip,
+                    { backgroundColor: activeBand.color + "1A", borderColor: activeBand.color + "55" },
+                  ]}>
+                    <View style={[st.snapshotBandDot, { backgroundColor: activeBand.color }]} />
+                    <Text style={[st.snapshotBandText, { color: activeBand.color }]}>
+                      {activeBand.label}
+                    </Text>
+                  </View>
+                </BlurredValue>
               </View>
 
               {/* Animated liquid bar — reflects tapped grade */}
-              <LiquidityBar score={activeScore} color={activeBand.color} />
+              <LiquidityBar score={hasAccess ? activeScore : 0} color={hasAccess ? activeBand.color : "#6b7280"} />
 
               {/* Active grade pill + other-company pills */}
               <View style={st.snapshotSalesPills}>
