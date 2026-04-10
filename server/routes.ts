@@ -5059,25 +5059,50 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
     );
   }
 
+  /**
+   * Extract candidate set name variants to try, from the AI-supplied set name.
+   * The AI often adds era prefixes like "Scarlet & Violet: " or "Scarlet & Violet—"
+   * which don't appear in our DB. We produce multiple shorter forms to try.
+   */
+  function setNameCandidates(raw: string): string[] {
+    const candidates = new Set<string>();
+    candidates.add(raw.trim());
+    // Strip era prefix before ":" e.g. "Scarlet & Violet: Mega Evolution" → "Mega Evolution"
+    const colonIdx = raw.lastIndexOf(":");
+    if (colonIdx !== -1) candidates.add(raw.slice(colonIdx + 1).trim());
+    // Strip era prefix before "—" e.g. "Scarlet & Violet—Paldea Evolved" → "Paldea Evolved"
+    const dashIdx = raw.lastIndexOf("—");
+    if (dashIdx !== -1) candidates.add(raw.slice(dashIdx + 1).trim());
+    // Strip era prefix before " - " e.g. "Black & White - Boundaries Crossed" → "Boundaries Crossed"
+    const spaceDashIdx = raw.lastIndexOf(" - ");
+    if (spaceDashIdx !== -1) candidates.add(raw.slice(spaceDashIdx + 3).trim());
+    return [...candidates].filter(Boolean);
+  }
+
   async function lookupCardPrice(cardName: string, cardNumber: string, language: string, setName?: string): Promise<number | null> {
     try {
       const numPart = cardNumber.split("/")[0].replace(/^0+/, "").trim();
       const isJp = language === "ja" || language === "ko" || language === "zh";
 
       if (isJp) {
-        // Try with set name first if available
         if (setName) {
-          const { rows } = await db.query(
-            `SELECT price_eur::float as price FROM card_catalog
-             WHERE lang = $1
-             AND (LOWER(name) = LOWER($2) OR LOWER(name_en) = LOWER($2))
-             AND (LOWER(number) = LOWER($3) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($3))
-             AND LOWER(set_name) ILIKE $4
-             ORDER BY price_eur DESC NULLS LAST LIMIT 1`,
-            [language, cardName, numPart, `%${setName.toLowerCase()}%`]
-          );
-          if (rows[0]?.price) return rows[0].price;
+          for (const candidate of setNameCandidates(setName)) {
+            const { rows } = await db.query(
+              `SELECT price_eur::float as price FROM card_catalog
+               WHERE lang = $1
+               AND (LOWER(name) = LOWER($2) OR LOWER(name_en) = LOWER($2))
+               AND (LOWER(number) = LOWER($3) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($3))
+               AND LOWER(set_name) ILIKE $4
+               ORDER BY price_eur DESC NULLS LAST LIMIT 1`,
+              [language, cardName, numPart, `%${candidate.toLowerCase()}%`]
+            );
+            if (rows[0]?.price) {
+              console.log(`[collection-scan] JP price matched with set candidate "${candidate}"`);
+              return rows[0].price;
+            }
+          }
         }
+        // Fallback: name + number, no set filter
         const { rows } = await db.query(
           `SELECT price_eur::float as price FROM card_catalog
            WHERE lang = $1
@@ -5089,30 +5114,35 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
         return rows[0]?.price ?? null;
 
       } else {
-        // Priority 1: exact name + card number + set name (most specific)
+        // Priority 1: try each set name candidate (most specific match)
         if (setName) {
-          const { rows } = await db.query(
-            `SELECT price_usd::float as price FROM card_catalog
-             WHERE (lang IS NULL OR lang = 'en')
-             AND LOWER(name) = LOWER($1)
-             AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
-             AND LOWER(set_name) ILIKE $3
-             ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
-            [cardName, numPart, `%${setName.toLowerCase()}%`]
-          );
-          if (rows[0]?.price) return rows[0].price;
+          for (const candidate of setNameCandidates(setName)) {
+            const { rows } = await db.query(
+              `SELECT price_usd::float as price FROM card_catalog
+               WHERE (lang IS NULL OR lang = 'en')
+               AND LOWER(name) = LOWER($1)
+               AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
+               AND LOWER(set_name) ILIKE $3
+               ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
+              [cardName, numPart, `%${candidate.toLowerCase()}%`]
+            );
+            if (rows[0]?.price != null) {
+              console.log(`[collection-scan] EN price matched with set candidate "${candidate}"`);
+              return rows[0].price;
+            }
+          }
         }
 
-        // Priority 2: exact name + card number only
+        // Priority 2: exact name + card number only (no set — last resort)
         const { rows } = await db.query(
           `SELECT price_usd::float as price FROM card_catalog
            WHERE (lang IS NULL OR lang = 'en')
            AND LOWER(name) = LOWER($1)
            AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
-           ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
+           ORDER BY price_usd ASC NULLS LAST LIMIT 1`,
           [cardName, numPart]
         );
-        if (rows[0]?.price) return rows[0].price;
+        if (rows[0]?.price != null) return rows[0].price;
 
         // Priority 3: fuzzy name + card number
         const { rows: fuzzy } = await db.query(
@@ -5120,7 +5150,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
            WHERE (lang IS NULL OR lang = 'en')
            AND LOWER(name) ILIKE LOWER($1)
            AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
-           ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
+           ORDER BY price_usd ASC NULLS LAST LIMIT 1`,
           [`%${cardName}%`, numPart]
         );
         return fuzzy[0]?.price ?? null;

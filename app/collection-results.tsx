@@ -286,9 +286,6 @@ export default function CollectionResultsScreen() {
             <Text style={st.cardMeta} numberOfLines={1}>
               {[item.setName, item.cardNumber ? `#${item.cardNumber}` : null, LANG_LABELS[item.language ?? "en"]].filter(Boolean).join(" · ")}
             </Text>
-            {item.conditionNotes ? (
-              <Text style={st.cardNotes} numberOfLines={2}>{item.conditionNotes}</Text>
-            ) : null}
           </View>
           <View style={st.cardRowPrice}>
             <Text style={st.priceMain}>
