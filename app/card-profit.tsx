@@ -485,6 +485,7 @@ export default function CardProfitScreen() {
   // ── Price flag state ────────────────────────────────────────────────────
   const [flagSheetVisible, setFlagSheetVisible] = useState(false);
   const [flagSelectedGrades, setFlagSelectedGrades] = useState<Set<string>>(new Set());
+  const [flagRawPrice, setFlagRawPrice] = useState(false);
   const [flagNote, setFlagNote] = useState("");
   const [flagSubmitted, setFlagSubmitted] = useState(false);
   const [flagSubmitting, setFlagSubmitting] = useState(false);
@@ -1552,6 +1553,7 @@ export default function CardProfitScreen() {
             <Pressable
               onPress={() => {
                 setFlagSelectedGrades(new Set());
+                setFlagRawPrice(false);
                 setFlagNote("");
                 setFlagSheetVisible(true);
               }}
@@ -1579,19 +1581,45 @@ export default function CardProfitScreen() {
         visible={flagSheetVisible}
         animationType="slide"
         transparent
-        onRequestClose={() => setFlagSheetVisible(false)}
+        onRequestClose={() => { setFlagSheetVisible(false); setFlagRawPrice(false); }}
       >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <Pressable style={[{ flex: 1 }, st.flagOverlay]} onPress={() => setFlagSheetVisible(false)} />
+          <Pressable style={[{ flex: 1 }, st.flagOverlay]} onPress={() => { setFlagSheetVisible(false); setFlagRawPrice(false); }} />
           <View style={[st.flagSheet, { paddingBottom: insets.bottom + 16 }]}>
           <View style={st.flagSheetHandle} />
           <Text style={st.flagSheetTitle}>Which prices look off?</Text>
-          <Text style={st.flagSheetSub}>Select the grades that seem incorrect</Text>
+          <Text style={st.flagSheetSub}>Select everything that seems incorrect</Text>
 
           <ScrollView style={st.flagGradeList} scrollEnabled={false}>
+            {/* Raw price row */}
+            {hasRawPrice && (
+              <Pressable
+                onPress={() => setFlagRawPrice(p => !p)}
+                style={[st.flagGradeRow, flagRawPrice && st.flagGradeRowSelected, st.flagRawRow]}
+              >
+                <View style={[st.flagGradeCheck, flagRawPrice && st.flagGradeCheckSelected]}>
+                  {flagRawPrice && <Ionicons name="checkmark" size={12} color="#fff" />}
+                </View>
+                <View style={st.flagRawLabel}>
+                  <Text style={[st.flagGradeLabel, flagRawPrice && { color: Colors.text }]}>
+                    Raw ({rawPriceLabel})
+                  </Text>
+                  <Text style={st.flagRawSubLabel}>Market price</Text>
+                </View>
+                <Text style={st.flagGradeValue}>
+                  {fmtLocal(rawUSD)}
+                </Text>
+              </Pressable>
+            )}
+            {/* Divider between raw and graded */}
+            {hasRawPrice && (COMPANY_CONFIG[selectedCompany]?.grades ?? []).length > 0 && (
+              <View style={st.flagSectionDivider}>
+                <Text style={st.flagSectionDividerTxt}>GRADED (eBay)</Text>
+              </View>
+            )}
             {(COMPANY_CONFIG[selectedCompany]?.grades ?? []).map(g => {
               const ebayUSD = ebay ? ((ebay[g.ebayKey] as number | undefined) ?? 0) : 0;
               const isSelected = flagSelectedGrades.has(g.label);
@@ -1629,7 +1657,7 @@ export default function CardProfitScreen() {
 
           <Pressable
             onPress={async () => {
-              if (flagSelectedGrades.size === 0) return;
+              if (flagSelectedGrades.size === 0 && !flagRawPrice) return;
               setFlagSubmitting(true);
               try {
                 const ebayMap: Record<string, number> = {};
@@ -1638,6 +1666,11 @@ export default function CardProfitScreen() {
                     ebayMap[g.label] = ebay ? ((ebay[g.ebayKey] as number | undefined) ?? 0) : 0;
                   }
                 });
+                const allGrades = Array.from(flagSelectedGrades);
+                if (flagRawPrice) {
+                  allGrades.unshift(`Raw (${rawPriceLabel})`);
+                  ebayMap[`Raw (${rawPriceLabel})`] = rawUSD;
+                }
                 const url = new URL("/api/price-flags", getApiUrl());
                 await fetch(url.toString(), {
                   method: "POST",
@@ -1648,31 +1681,33 @@ export default function CardProfitScreen() {
                     cardNumber: cardNumber ?? null,
                     cardLang: lang ?? "en",
                     company: selectedCompany,
-                    flaggedGrades: Array.from(flagSelectedGrades),
+                    flaggedGrades: allGrades,
                     flaggedValues: ebayMap,
                     userNote: flagNote.trim() || null,
                   }),
                 });
                 setFlagSheetVisible(false);
                 setFlagSubmitted(true);
+                setFlagRawPrice(false);
               } catch {
-                // fail silently — not critical
                 setFlagSheetVisible(false);
+                setFlagRawPrice(false);
               } finally {
                 setFlagSubmitting(false);
               }
             }}
-            disabled={flagSelectedGrades.size === 0 || flagSubmitting}
+            disabled={(flagSelectedGrades.size === 0 && !flagRawPrice) || flagSubmitting}
             style={({ pressed }) => [
               st.flagSubmitBtn,
-              (flagSelectedGrades.size === 0 || flagSubmitting || pressed) && { opacity: 0.5 },
+              ((flagSelectedGrades.size === 0 && !flagRawPrice) || flagSubmitting || pressed) && { opacity: 0.5 },
             ]}
           >
             {flagSubmitting ? (
               <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={st.flagSubmitBtnTxt}>Flag {flagSelectedGrades.size > 0 ? flagSelectedGrades.size : ""} Price{flagSelectedGrades.size !== 1 ? "s" : ""}</Text>
-            )}
+            ) : (() => {
+              const total = flagSelectedGrades.size + (flagRawPrice ? 1 : 0);
+              return <Text style={st.flagSubmitBtnTxt}>Flag {total > 0 ? total : ""} Price{total !== 1 ? "s" : ""}</Text>;
+            })()}
           </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -2671,6 +2706,28 @@ const st = StyleSheet.create({
   flagGradeValue: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
+    color: Colors.textMuted,
+  },
+  flagRawRow: {
+    borderColor: "#F59E0B44",
+  },
+  flagRawLabel: {
+    flex: 1,
+    gap: 1,
+  },
+  flagRawSubLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  flagSectionDivider: {
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  flagSectionDividerTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    letterSpacing: 0.8,
     color: Colors.textMuted,
   },
   flagNoteInput: {
