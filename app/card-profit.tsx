@@ -1197,31 +1197,37 @@ export default function CardProfitScreen() {
               {/* Active grade pill + other-company pills */}
               <View style={st.snapshotSalesPills}>
                 {/* Always show active company's tapped grade */}
-                <View style={[
-                  st.snapshotSalesPill,
-                  { borderColor: companyColor + "99", backgroundColor: companyColor + "1A" },
-                ]}>
-                  <Text style={[st.snapshotSalesCo, { color: companyColor }]}>{activeGradeLabel}</Text>
-                  <Text style={[st.snapshotSalesCt, { color: Colors.text }]}>{activeSaleCount}</Text>
-                </View>
+                <BlurredValue blurred={!hasAccess}>
+                  <View style={[
+                    st.snapshotSalesPill,
+                    { borderColor: companyColor + "99", backgroundColor: companyColor + "1A" },
+                  ]}>
+                    <Text style={[st.snapshotSalesCo, { color: companyColor }]}>{activeGradeLabel}</Text>
+                    <Text style={[st.snapshotSalesCt, { color: Colors.text }]}>{activeSaleCount}</Text>
+                  </View>
+                </BlurredValue>
                 {/* Other companies — top grade saleCount */}
                 {marketSnapshot.rows
                   .filter(r => r.compId !== selectedCompany && r.saleCount > 0)
                   .map(r => (
-                    <View key={r.compId} style={st.snapshotSalesPill}>
-                      <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
-                      <Text style={st.snapshotSalesCt}>{r.saleCount}</Text>
-                    </View>
+                    <BlurredValue key={r.compId} blurred={!hasAccess}>
+                      <View style={st.snapshotSalesPill}>
+                        <Text style={[st.snapshotSalesCo, { color: r.color }]}>{r.label}</Text>
+                        <Text style={st.snapshotSalesCt}>{r.saleCount}</Text>
+                      </View>
+                    </BlurredValue>
                   ))
                 }
               </View>
 
               {/* Footer — reflects the tapped grade */}
-              <Text style={st.snapshotFooter}>
-                {activeSaleCount > 0
-                  ? `${activeSaleCount} recorded ${activeGradeLabel} sales in the last month`
-                  : `No recent sales data for ${activeGradeLabel}`}
-              </Text>
+              <BlurredValue blurred={!hasAccess}>
+                <Text style={st.snapshotFooter}>
+                  {activeSaleCount > 0
+                    ? `${activeSaleCount} recorded ${activeGradeLabel} sales in the last month`
+                    : `No recent sales data for ${activeGradeLabel}`}
+                </Text>
+              </BlurredValue>
             </View>
           );
         })()}
