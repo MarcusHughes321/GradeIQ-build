@@ -5218,14 +5218,54 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
     const optimizedFront = await optimizeImageForAI(frontBase64, 1024);
     const optimizedBack = await optimizeImageForAI(backBase64, 1024);
 
-    const prompt = `You are analyzing a Pokemon trading card to determine its identity and condition.
-Examine the front and back images carefully.
+    const setReference = getCurrentSetReference();
+    const symbolReference = generateSymbolReferenceForPrompt();
 
+    const prompt = `You are an expert Pokemon card identification and condition analyst. Examine the front and back images carefully.
+
+=== STEP 1: IDENTIFY THE POKEMON ===
+- READ the Pokemon name printed on the card (any language).
+- ALSO confirm using the artwork — visual features (colors, shape, face) are reliable even when text is hard to read.
+- Note any suffix: ex, EX, GX, V, VMAX, VSTAR, etc.
+- ALWAYS report the ENGLISH name even for non-English cards.
+- Japanese katakana key translations: リザードン=Charizard, ピカチュウ=Pikachu, ミュウツー=Mewtwo, ルカリオ=Lucario, レックウザ=Rayquaza, コロトック=Kricketune, ゲノセクト=Genesect
+- Korean Hangul key translations: 리자몽=Charizard, 피카츄=Pikachu, 뮤츠=Mewtwo, 루카리오=Lucario, 레쿠자=Rayquaza, 님피아=Sylveon, 블래키=Umbreon
+- Chinese key translations: 噴火龍=Charizard, 皮卡丘=Pikachu, 超夢=Mewtwo, 路卡利歐=Lucario, 烈空坐=Rayquaza
+
+=== STEP 2: READ THE CARD NUMBER ===
+- Find the number at the bottom of the card (usually bottom-left or bottom-right).
+- Format is typically "XXX/YYY" (e.g. "062/100"). Report it exactly as printed.
+- The denominator (YYY) is the set size — use it to verify the set in Step 3.
+- Secret rares have numbers ABOVE the set total (e.g. "125/094") — this is correct, do NOT change it.
+
+=== STEP 3: IDENTIFY THE SET ===
+- READ the set code printed near the card number (e.g. "sv2a", "PFL", "CRZ", "s8b").
+- IMPORTANT: Do NOT rely on your training data for set names — use ONLY the mapping below.
+- Do NOT add era prefixes like "Scarlet & Violet:" — report the set name exactly as it appears in the mapping.
+- For older WOTC-era cards without a printed set code, use the set symbol (small icon) and card design/border style.
+
+Symbol-to-set reference:
+${symbolReference}
+
+Set code to set name mapping:
+${setReference}
+
+If the set code is not in the mapping, report the code exactly as read — do NOT invent a set name.
+
+=== STEP 4: ASSESS CONDITION ===
+- Mint: Perfect, no visible flaws whatsoever
+- Near Mint: Very minor handling marks only, looks essentially new
+- Light Played: Light edge wear, minor surface marks, slightly worn corners
+- Played: Visible wear on edges/corners, moderate scratches, light creasing
+- Heavy Played: Heavy edge wear, creases, significant scratches or corner whitening
+- Damaged: Tears, heavy creasing, water damage, writing, or severe physical damage
+
+=== OUTPUT ===
 Return ONLY a valid JSON object with these exact fields:
 {
-  "cardName": "Pokemon name exactly as printed on the card",
-  "setName": "Full set name (e.g. Base Set, Scarlet & Violet, etc.)",
-  "cardNumber": "Card number exactly as printed (e.g. 4/102 or 025/098)",
+  "cardName": "English Pokemon name as identified",
+  "setName": "Set name from the mapping above — no era prefixes",
+  "cardNumber": "Card number exactly as printed",
   "language": "en",
   "condition": "Near Mint",
   "conditionNotes": "one sentence describing the main reason for this condition rating"
@@ -5234,19 +5274,11 @@ Return ONLY a valid JSON object with these exact fields:
 The "language" field must be exactly one of: en, ja, ko, zh
 The "condition" field must be exactly one of: Mint, Near Mint, Light Played, Played, Heavy Played, Damaged
 
-Condition definitions:
-- Mint: Perfect, no visible flaws whatsoever
-- Near Mint: Very minor handling marks only, looks essentially new
-- Light Played: Light edge wear, minor surface marks, slightly worn corners
-- Played: Visible wear on edges/corners, moderate scratches, light creasing
-- Heavy Played: Heavy edge wear, creases, significant scratches or corner whitening
-- Damaged: Tears, heavy creasing, water damage, writing, or severe physical damage
-
 Return ONLY the JSON object. No other text.`;
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 512,
+      max_tokens: 1024,
       messages: [
         {
           role: "user",
