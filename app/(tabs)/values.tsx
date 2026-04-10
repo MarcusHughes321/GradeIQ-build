@@ -28,6 +28,7 @@ import { ALL_COMPANIES, CURRENCIES } from "@/lib/settings";
 import type { CompanyId } from "@/lib/settings";
 import { useSubscription } from "@/lib/subscription";
 import ValuesUpgradeSheet from "@/components/ValuesUpgradeSheet";
+import BlurredValue from "@/components/BlurredValue";
 
 interface EbayAllGrades {
   psa10: number; psa9: number; psa8: number; psa7: number;
@@ -236,56 +237,48 @@ const TopPickCard = memo(({ item, index, onPress, topGradeLocal, topGradeProfit,
       </View>
       <View style={cardStyles.divider} />
 
-      {/* Raw TCGPlayer price — always visible */}
+      {/* Raw TCGPlayer price — blurred for free users */}
       <View style={cardStyles.row}>
         <Text style={cardStyles.label}>Raw</Text>
-        <Text style={cardStyles.value}>{sym}{rawLocal}</Text>
+        <BlurredValue blurred={!isSubscribed}>
+          <Text style={cardStyles.value}>{sym}{rawLocal}</Text>
+        </BlurredValue>
       </View>
 
-      {isSubscribed ? (
-        <>
-          {/* Top grade eBay last sold */}
-          <View style={cardStyles.row}>
-            <Text style={cardStyles.label}>{topGradeLabel}</Text>
-            {ebayLoading ? (
-              <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-            ) : topGradeLocal !== null ? (
-              <Text style={[cardStyles.graded, { color: Colors.text }]}>{sym}{topGradeLocal}</Text>
-            ) : (
-              <Text style={cardStyles.muted}>—</Text>
-            )}
-          </View>
+      {/* Top grade eBay last sold — blurred for free users */}
+      <View style={cardStyles.row}>
+        <Text style={cardStyles.label}>{topGradeLabel}</Text>
+        {ebayLoading ? (
+          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+        ) : topGradeLocal !== null ? (
+          <BlurredValue blurred={!isSubscribed}>
+            <Text style={[cardStyles.graded, { color: Colors.text }]}>{sym}{topGradeLocal}</Text>
+          </BlurredValue>
+        ) : (
+          <Text style={cardStyles.muted}>—</Text>
+        )}
+      </View>
 
-          {/* Top grade net profit */}
-          <View style={cardStyles.row}>
-            <Text style={cardStyles.label}>Profit</Text>
-            {ebayLoading ? (
-              <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
-            ) : topGradeProfit !== null ? (
-              <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
-                {topGradeProfit >= 0 ? "+" : "-"}{fmtProfit(Math.abs(topGradeProfit))}
-              </Text>
-            ) : (
-              <Text style={cardStyles.muted}>—</Text>
-            )}
-          </View>
+      {/* Top grade net profit — blurred for free users */}
+      <View style={cardStyles.row}>
+        <Text style={cardStyles.label}>Profit</Text>
+        {ebayLoading ? (
+          <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.65 }] }} />
+        ) : topGradeProfit !== null ? (
+          <BlurredValue blurred={!isSubscribed}>
+            <Text style={[cardStyles.graded, { color: topGradeProfit >= 0 ? "#22c55e" : "#ef4444" }]}>
+              {topGradeProfit >= 0 ? "+" : "-"}{fmtProfit(Math.abs(topGradeProfit))}
+            </Text>
+          </BlurredValue>
+        ) : (
+          <Text style={cardStyles.muted}>—</Text>
+        )}
+      </View>
 
-          {isStale && (
-            <Text style={[cardStyles.hint, { color: "#f59e0b", fontSize: 9 }]}>⏱ Archived prices</Text>
-          )}
-          <Text style={cardStyles.hint}>Tap for full breakdown</Text>
-        </>
-      ) : (
-        /* Free user — lock graded & profit */
-        <>
-          <View style={cardStyles.divider} />
-          <View style={[cardStyles.row, { justifyContent: "center" }]}>
-            <Ionicons name="lock-closed-outline" size={12} color={Colors.textMuted} />
-            <Text style={[cardStyles.muted, { marginLeft: 4, fontSize: 11 }]}>Pro only</Text>
-          </View>
-          <Text style={cardStyles.hint}>Tap to unlock</Text>
-        </>
+      {isStale && (
+        <Text style={[cardStyles.hint, { color: "#f59e0b", fontSize: 9 }]}>⏱ Archived prices</Text>
       )}
+      <Text style={cardStyles.hint}>Tap for full breakdown</Text>
     </Pressable>
   );
 });
@@ -608,7 +601,6 @@ export default function ValuesScreen() {
     rawPriceEUR?: number | null,
     lang?: string | null,
   ) => {
-    if (!hasAccess) { setShowUpgradeSheet(true); return; }
     router.push({
       pathname: "/card-profit",
       params: {
@@ -624,7 +616,7 @@ export default function ValuesScreen() {
         ...(lang ? { lang } : {}),
       },
     });
-  }, [hasAccess, effectivePicksCompany]);
+  }, [effectivePicksCompany]);
 
   const handleSetPress = useCallback((set: BrowseSet) => {
     router.push({
@@ -820,9 +812,7 @@ export default function ValuesScreen() {
               )}
             </View>
             <Text style={styles.topPicksSubtitle}>
-              {hasAccess
-                ? selectedLang === "ja" ? "Cardmarket EUR raw prices · eBay graded" : "Live raw market prices from TCGPlayer"
-                : "Subscribe to unlock graded prices & profit data"}
+              {selectedLang === "ja" ? "Cardmarket EUR raw prices · eBay graded" : "Live raw market prices from TCGPlayer"}
             </Text>
           </View>
         </View>

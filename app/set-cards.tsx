@@ -25,6 +25,7 @@ import type { CompanyId } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSubscription } from "@/lib/subscription";
 import ValuesUpgradeSheet from "@/components/ValuesUpgradeSheet";
+import BlurredValue from "@/components/BlurredValue";
 
 // Mirrors the config in values.tsx — top grade key and display label per company
 const PICKS_COMPANY_CONFIG: Record<CompanyId, { topEbayKey: string; topGradeLabel: string }> = {
@@ -132,56 +133,43 @@ const SetPickCard = memo(({ item, index, setName, onPress, currencySymbol, curre
       </View>
       <View style={styles.topCardDivider} />
 
-      {/* Graded price + profit — locked for free users */}
-      {isSubscribed ? (
-        ebayLoading ? (
-          <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 10 }} />
-        ) : (
-          <>
-            <View style={styles.topCardRow}>
-              <CompanyLabel company={picksCompany} fontSize={11} />
-              {topLocal != null ? (
-                <Text style={styles.topCardValue}>{currencySymbol}{topLocal}</Text>
-              ) : (
-                <Text style={styles.topCardMuted}>—</Text>
-              )}
-            </View>
-            <View style={styles.topCardRow}>
-              <Text style={styles.topCardLabel}>Raw</Text>
-              {rawLocal != null ? (
-                <Text style={styles.topCardMuted}>{currencySymbol}{rawLocal}</Text>
-              ) : (
-                <Text style={styles.topCardMuted}>—</Text>
-              )}
-            </View>
-            <View style={styles.topCardDivider} />
-            <View style={styles.topCardRow}>
-              <Text style={styles.topCardLabel}>Profit</Text>
-              {profitLocal != null ? (
-                <Text style={[styles.topCardProfit, { color: profitLocal >= 0 ? "#22c55e" : Colors.error }]}>
-                  {profitLocal >= 0 ? "+" : "-"}{fmtProfit(Math.abs(profitLocal))}
-                </Text>
-              ) : (
-                <Text style={styles.topCardMuted}>—</Text>
-              )}
-            </View>
-          </>
-        )
+      {/* Graded price + profit — all users see data, blurred for free */}
+      {ebayLoading ? (
+        <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 10 }} />
       ) : (
-        /* Free user: show raw price only, lock graded/profit */
         <>
+          <View style={styles.topCardRow}>
+            <CompanyLabel company={picksCompany} fontSize={11} />
+            {topLocal != null ? (
+              <BlurredValue blurred={!isSubscribed}>
+                <Text style={styles.topCardValue}>{currencySymbol}{topLocal}</Text>
+              </BlurredValue>
+            ) : (
+              <Text style={styles.topCardMuted}>—</Text>
+            )}
+          </View>
           <View style={styles.topCardRow}>
             <Text style={styles.topCardLabel}>Raw</Text>
             {rawLocal != null ? (
-              <Text style={styles.topCardMuted}>{currencySymbol}{rawLocal}</Text>
+              <BlurredValue blurred={!isSubscribed}>
+                <Text style={styles.topCardMuted}>{currencySymbol}{rawLocal}</Text>
+              </BlurredValue>
             ) : (
               <Text style={styles.topCardMuted}>—</Text>
             )}
           </View>
           <View style={styles.topCardDivider} />
-          <View style={[styles.topCardRow, { justifyContent: "center" }]}>
-            <Ionicons name="lock-closed-outline" size={12} color={Colors.textMuted} />
-            <Text style={[styles.topCardMuted, { marginLeft: 4, fontSize: 11 }]}>Pro only</Text>
+          <View style={styles.topCardRow}>
+            <Text style={styles.topCardLabel}>Profit</Text>
+            {profitLocal != null ? (
+              <BlurredValue blurred={!isSubscribed}>
+                <Text style={[styles.topCardProfit, { color: profitLocal >= 0 ? "#22c55e" : Colors.error }]}>
+                  {profitLocal >= 0 ? "+" : "-"}{fmtProfit(Math.abs(profitLocal))}
+                </Text>
+              </BlurredValue>
+            ) : (
+              <Text style={styles.topCardMuted}>—</Text>
+            )}
           </View>
         </>
       )}
@@ -432,7 +420,6 @@ export default function SetCardsScreen() {
   const resolvedSetTotal = setTotal || (allCards.length > 0 ? String(allCards.length) : "");
 
   const handleCardPress = (card: SetCard) => {
-    if (!hasAccess) { setShowUpgradeSheet(true); return; }
     const cardName = (isJapanese && card.nameEn) ? card.nameEn : card.name;
     const rawSetName = (isJapanese && card.setNameEn) ? card.setNameEn : (setName || "");
     router.push({
@@ -457,7 +444,6 @@ export default function SetCardsScreen() {
 
   // Navigate to card-profit from the Japanese top picks list
   const handleJpPickPress = (pick: JpPick) => {
-    if (!hasAccess) { setShowUpgradeSheet(true); return; }
     router.push({
       pathname: "/card-profit",
       params: {
@@ -516,16 +502,20 @@ export default function SetCardsScreen() {
           <Text style={styles.cardNumber} numberOfLines={1}>#{item.number}</Text>
         ) : null}
         {isJapanese && jpPriceEUR != null ? (
-          <Text style={styles.cardPrice} numberOfLines={1}>{fmtEurPrice(jpPriceEUR)}</Text>
+          <BlurredValue blurred={!hasAccess}>
+            <Text style={styles.cardPrice} numberOfLines={1}>{fmtEurPrice(jpPriceEUR)}</Text>
+          </BlurredValue>
         ) : item.price != null ? (
-          <View style={styles.gridPriceRow}>
-            <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
-            {hasMultipleVariants && isEnglish && (
-              <View style={styles.variantHint}>
-                <Ionicons name="layers-outline" size={10} color={Colors.textMuted} />
-              </View>
-            )}
-          </View>
+          <BlurredValue blurred={!hasAccess}>
+            <View style={styles.gridPriceRow}>
+              <Text style={styles.cardPrice} numberOfLines={1}>{fmtPrice(item.price)}</Text>
+              {hasMultipleVariants && isEnglish && (
+                <View style={styles.variantHint}>
+                  <Ionicons name="layers-outline" size={10} color={Colors.textMuted} />
+                </View>
+              )}
+            </View>
+          </BlurredValue>
         ) : null}
       </Pressable>
     );
