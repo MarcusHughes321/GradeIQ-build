@@ -35,6 +35,8 @@ import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { useSubscription } from "@/lib/subscription";
+import { BlurredValue } from "@/components/BlurredValue";
 import type { CompanyId } from "@/lib/settings";
 
 const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.92, AUD: 1.55, CAD: 1.38, JPY: 150 };
@@ -437,6 +439,8 @@ export default function CardProfitScreen() {
   const webTop = Platform.OS === "web" ? 67 : 0;
   const webBot = Platform.OS === "web" ? 34 : 0;
   const { settings } = useSettings();
+  const { isSubscribed, isAdminMode } = useSubscription();
+  const hasAccess = isSubscribed || isAdminMode;
 
   const { cardName, setName, cardNumber, setTotal, imageUrl, rawPriceUSD, rawPriceEUR, lang, edition, holoPrice, reverseHoloPrice, normalPrice, company: companyParam } = useLocalSearchParams<{
     cardId: string;
@@ -1059,7 +1063,9 @@ export default function CardProfitScreen() {
               <View style={st.heroPriceRow}>
                 <Ionicons name="pricetag-outline" size={13} color={Colors.textMuted} />
                 <Text style={st.heroPriceLabel}>{rawLabel}</Text>
-                <Text style={[st.heroPriceValue, { marginLeft: 4 }]}>{rawDisplay}</Text>
+                <BlurredValue blurred={!hasAccess}>
+                  <Text style={[st.heroPriceValue, { marginLeft: 4 }]}>{rawDisplay}</Text>
+                </BlurredValue>
                 <Pressable
                   onPress={() => Linking.openURL(`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(rawEbayQuery)}`)}
                   hitSlop={8}
@@ -1300,24 +1306,30 @@ export default function CardProfitScreen() {
                           </Text>
                         </View>
                         {detail?.saleCount != null && (
-                          <Text style={st.saleCountTxt}>{detail.saleCount} sales last month</Text>
+                          <BlurredValue blurred={!hasAccess}>
+                            <Text style={st.saleCountTxt}>{detail.saleCount} sales last month</Text>
+                          </BlurredValue>
                         )}
                       </View>
 
                       {displayLoading ? (
                         <ActivityIndicator size="small" color={Colors.textMuted} style={{ flex: 2 }} />
                       ) : (
-                        <Text style={[st.ebayPrice, { flex: 2 }]}>
-                          {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
-                        </Text>
+                        <BlurredValue blurred={!hasAccess && gr.ebayLocal !== null} containerStyle={{ flex: 2 }}>
+                          <Text style={[st.ebayPrice, { flex: 2 }]}>
+                            {gr.ebayLocal !== null ? fmtLocal(gr.ebayLocal) : "—"}
+                          </Text>
+                        </BlurredValue>
                       )}
 
                       {displayLoading ? (
                         <View style={{ flex: 2 }} />
                       ) : hasEffectiveRawPrice && gr.profit !== null ? (
-                        <Text style={[st.profitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
-                          {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), effectiveRawLocal)}
-                        </Text>
+                        <BlurredValue blurred={!hasAccess} containerStyle={{ flex: 2 }}>
+                          <Text style={[st.profitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
+                            {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), effectiveRawLocal)}
+                          </Text>
+                        </BlurredValue>
                       ) : (
                         <Text style={[st.mutedTxt, { flex: 2, textAlign: "right" }]}>—</Text>
                       )}
@@ -1465,9 +1477,11 @@ export default function CardProfitScreen() {
                       </View>
                       <View style={st.feeMetaRow}>
                         <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
-                        <Text style={st.feeMetaTxt}>
-                          {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above
-                        </Text>
+                        <BlurredValue blurred={!hasAccess}>
+                          <Text style={st.feeMetaTxt}>
+                            {selectedFeeOption.label} fee ({fmtLocal(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above
+                          </Text>
+                        </BlurredValue>
                       </View>
                     </View>
                   ) : (
@@ -1500,18 +1514,22 @@ export default function CardProfitScreen() {
                         {displayRow ? `Net Profit at ${displayRow.label}` : "No profitable grade"}
                       </Text>
                       {displayRow && (
-                        <Text style={[
-                          st.netProfitValue,
-                          (displayRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" },
-                        ]}>
-                          {fmtLocal(displayRow.profit ?? 0)}
-                        </Text>
+                        <BlurredValue blurred={!hasAccess}>
+                          <Text style={[
+                            st.netProfitValue,
+                            (displayRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" },
+                          ]}>
+                            {fmtLocal(displayRow.profit ?? 0)}
+                          </Text>
+                        </BlurredValue>
                       )}
-                      <Text style={st.netProfitSub}>
-                        {displayRow
-                          ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtLocal(feeLocalAmount)} fee` : ""}`
-                          : selectedFeeOption ? `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits` : "No profitable grade at this price"}
-                      </Text>
+                      <BlurredValue blurred={!hasAccess}>
+                        <Text style={st.netProfitSub}>
+                          {displayRow
+                            ? `after ${fmtLocal(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtLocal(feeLocalAmount)} fee` : ""}`
+                            : selectedFeeOption ? `fee of ${fmtLocal(feeLocalAmount)} exceeds all grade profits` : "No profitable grade at this price"}
+                        </Text>
+                      </BlurredValue>
                     </View>
                   )}
 

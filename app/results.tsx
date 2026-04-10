@@ -34,6 +34,7 @@ import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
 import CenteringTool from "@/components/CenteringTool";
 import CompanyLabel from "@/components/CompanyLabel";
+import { BlurredValue } from "@/components/BlurredValue";
 import DefectOverlay from "@/components/DefectOverlay";
 import DefectCutoutPanel from "@/components/DefectCutoutPanel";
 import ShareButton from "@/components/ShareCard";
@@ -366,6 +367,7 @@ export default function ResultsScreen() {
   const { settings, setCurrency } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
   const { isSubscribed, isGateEnabled, isAdminMode } = useSubscription();
+  const hasAccess = isSubscribed || isAdminMode;
   const [grading, setGrading] = useState<SavedGrading | null>(null);
   const [showFront, setShowFront] = useState(true);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
@@ -1682,27 +1684,7 @@ export default function ResultsScreen() {
             {ebayLoading && <ActivityIndicator size="small" color={Colors.textMuted} style={{ transform: [{ scale: 0.75 }] }} />}
           </View>
 
-          {isGateEnabled && !isSubscribed && !isAdminMode ? (
-            <View style={{ overflow: "hidden" as const, borderRadius: 12, minHeight: 120 }}>
-              <View style={styles.maSnapshotTopRow}>
-                <Text style={styles.maSnapshotLabel}>Liquidity</Text>
-                <View style={[styles.maSnapshotBandChip, { backgroundColor: "#6b728022", borderColor: "#6b728055" }]}>
-                  <View style={[styles.maSnapshotBandDot, { backgroundColor: "#6b7280" }]} />
-                  <Text style={[styles.maSnapshotBandText, { color: "#6b7280" }]}>---</Text>
-                </View>
-              </View>
-              <LiquidityBar score={0} color="#6b7280" />
-              <Pressable style={StyleSheet.absoluteFill} onPress={() => router.push("/paywall")}>
-                <BlurView intensity={40} tint="dark" style={styles.proBlurOverlay}>
-                  <View style={styles.proBlurContent}>
-                    <Ionicons name="lock-closed" size={20} color="#F59E0B" />
-                    <Text style={styles.proBlurTitle}>Pro Feature</Text>
-                    <Text style={styles.proBlurSubtitle}>Upgrade to see last sold prices & profit</Text>
-                  </View>
-                </BlurView>
-              </Pressable>
-            </View>
-          ) : !marketSnapshot ? (
+          {!marketSnapshot ? (
             ebayLoading ? (
               <View style={styles.ebayLoadingRow}>
                 <Text style={styles.ebayLoadingText}>Fetching sold prices…</Text>
@@ -1744,51 +1726,54 @@ export default function ResultsScreen() {
                 <View style={styles.maSnapshotSalesPills}>
                   <View style={[styles.maSnapshotSalesPill, { borderColor: companyColor + "99", backgroundColor: companyColor + "1A" }]}>
                     <Text style={[styles.maSnapshotSalesCo, { color: companyColor }]}>{activeGradeLabel}</Text>
-                    <Text style={[styles.maSnapshotSalesCt, { color: Colors.text }]}>{activeSaleCount}</Text>
+                    <BlurredValue blurred={!hasAccess}>
+                      <Text style={[styles.maSnapshotSalesCt, { color: Colors.text }]}>{activeSaleCount}</Text>
+                    </BlurredValue>
                   </View>
                   {marketSnapshot.rows
                     .filter(r => r.compId !== selectedProfitCompany && r.saleCount > 0)
                     .map(r => (
                       <View key={r.compId} style={styles.maSnapshotSalesPill}>
                         <Text style={[styles.maSnapshotSalesCo, { color: r.color }]}>{r.label}</Text>
-                        <Text style={styles.maSnapshotSalesCt}>{r.saleCount}</Text>
+                        <BlurredValue blurred={!hasAccess}>
+                          <Text style={styles.maSnapshotSalesCt}>{r.saleCount}</Text>
+                        </BlurredValue>
                       </View>
                     ))
                   }
                 </View>
-                <Text style={styles.maSnapshotFooter}>
-                  {marketSnapshot.totalSales > 0
-                    ? `${marketSnapshot.totalSales} total sales across all companies last month`
-                    : `No recent sales data available`}
-                </Text>
+                <BlurredValue blurred={!hasAccess && marketSnapshot.totalSales > 0}>
+                  <Text style={styles.maSnapshotFooter}>
+                    {marketSnapshot.totalSales > 0
+                      ? `${marketSnapshot.totalSales} total sales across all companies last month`
+                      : `No recent sales data available`}
+                  </Text>
+                </BlurredValue>
               </View>
             );
           })()}
         </View>
 
         {/* 2. Company pills */}
-        {(isSubscribed || isAdminMode || !isGateEnabled) && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.maCompanyPillRow}>
-            {enabledProfitCompanies.map(coId => {
-              const cfg = PROFIT_COMPANY_CONFIG[coId];
-              const isActive = selectedProfitCompany === coId;
-              return (
-                <Pressable
-                  key={coId}
-                  onPress={() => setSelectedProfitCompany(coId)}
-                  style={[styles.maCompanyPill, isActive && { borderColor: cfg.dotColor, backgroundColor: cfg.dotColor + "22" }]}
-                >
-                  <View style={[styles.maCompanyPillDot, { backgroundColor: cfg.dotColor }]} />
-                  <Text style={[styles.maCompanyPillLabel, isActive && { color: Colors.text }]}>{cfg.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.maCompanyPillRow}>
+          {enabledProfitCompanies.map(coId => {
+            const cfg = PROFIT_COMPANY_CONFIG[coId];
+            const isActive = selectedProfitCompany === coId;
+            return (
+              <Pressable
+                key={coId}
+                onPress={() => setSelectedProfitCompany(coId)}
+                style={[styles.maCompanyPill, isActive && { borderColor: cfg.dotColor, backgroundColor: cfg.dotColor + "22" }]}
+              >
+                <View style={[styles.maCompanyPillDot, { backgroundColor: cfg.dotColor }]} />
+                <Text style={[styles.maCompanyPillLabel, isActive && { color: Colors.text }]}>{cfg.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {/* 3. Grade table card */}
-        {(isSubscribed || isAdminMode || !isGateEnabled) && (
-          <View style={styles.maCompanyCard}>
+        <View style={styles.maCompanyCard}>
             <View style={styles.maTblHead}>
               <Text style={[styles.maTblHeadTxt, { flex: 2 }]}>Grade</Text>
               <Text style={[styles.maTblHeadTxt, { flex: 2, textAlign: "right" as const }]}>eBay Sold</Text>
@@ -1804,7 +1789,9 @@ export default function ResultsScreen() {
               <Text style={styles.maRawLabel}>Raw</Text>
               {(ebayPrices as any)?.raw > 0 ? (
                 <View style={[styles.maRawValueWrap, { flex: 1 }]}>
-                  <Text style={styles.maRawValue}>{fmtM((ebayPrices as any).raw)}</Text>
+                  <BlurredValue blurred={!hasAccess}>
+                    <Text style={styles.maRawValue}>{fmtM((ebayPrices as any).raw)}</Text>
+                  </BlurredValue>
                   <View style={styles.ebaySourceBadge}><Text style={styles.ebaySourceBadgeText}>eBay</Text></View>
                 </View>
               ) : cardValue?.rawValue && !cardValue.rawValue.includes("No value") ? (
@@ -1888,22 +1875,28 @@ export default function ResultsScreen() {
                         )}
                       </View>
                       {gr.detail?.saleCount != null && (
-                        <Text style={styles.maSaleCountTxt}>{gr.detail.saleCount} sales last month</Text>
+                        <BlurredValue blurred={!hasAccess}>
+                          <Text style={styles.maSaleCountTxt}>{gr.detail.saleCount} sales last month</Text>
+                        </BlurredValue>
                       )}
                     </View>
                     {ebayLoading ? (
                       <ActivityIndicator size="small" color={Colors.textMuted} style={{ flex: 2 }} />
                     ) : (
-                      <Text style={[styles.maEbayPrice, { flex: 2 }]}>
-                        {gr.ebayLocal !== null ? fmtSym(gr.ebayLocal) : "—"}
-                      </Text>
+                      <BlurredValue blurred={!hasAccess && gr.ebayLocal !== null} containerStyle={{ flex: 2 }}>
+                        <Text style={[styles.maEbayPrice, { flex: 2 }]}>
+                          {gr.ebayLocal !== null ? fmtSym(gr.ebayLocal) : "—"}
+                        </Text>
+                      </BlurredValue>
                     )}
                     {ebayLoading ? (
                       <View style={{ flex: 2 }} />
                     ) : hasEffectiveRawPrice && gr.profit !== null ? (
-                      <Text style={[styles.maProfitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
-                        {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), effectiveRawLocal)}
-                      </Text>
+                      <BlurredValue blurred={!hasAccess} containerStyle={{ flex: 2 }}>
+                        <Text style={[styles.maProfitVal, { flex: 2, color: isProfit ? "#22c55e" : "#ef4444" }]}>
+                          {isProfit ? "+" : "-"}{fmtProfit(Math.abs(gr.profit), effectiveRawLocal)}
+                        </Text>
+                      </BlurredValue>
                     ) : (
                       <Text style={[styles.maMutedTxt, { flex: 2, textAlign: "right" as const }]}>—</Text>
                     )}
@@ -1996,7 +1989,9 @@ export default function ResultsScreen() {
                     </View>
                     <View style={styles.maFeeMetaRow}>
                       <Ionicons name="remove-circle-outline" size={13} color={Colors.textMuted} />
-                      <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtSym(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above</Text>
+                      <BlurredValue blurred={!hasAccess}>
+                        <Text style={styles.maFeeMetaTxt}>{selectedFeeOption.label} fee ({fmtSym(feeLocalAmount)}{currency !== "USD" && selectedFeeOption.currency === "USD" ? ` · $${selectedFeeOption.amount}` : ""}) deducted from profit above</Text>
+                      </BlurredValue>
                     </View>
                   </View>
                 ) : (
@@ -2012,12 +2007,16 @@ export default function ResultsScreen() {
                     <Text style={styles.maNetProfitLabel}>
                       {`Net Profit at ${netProfitRow.label}`}
                     </Text>
-                    <Text style={[styles.maNetProfitValue, (netProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
-                      {fmtSym(netProfitRow.profit ?? 0)}
-                    </Text>
-                    <Text style={styles.maNetProfitSub}>
-                      {`after ${fmtSym(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtSym(feeLocalAmount)} fee` : ""}`}
-                    </Text>
+                    <BlurredValue blurred={!hasAccess}>
+                      <Text style={[styles.maNetProfitValue, (netProfitRow.profit ?? 0) >= 0 ? { color: "#22c55e" } : { color: "#ef4444" }]}>
+                        {fmtSym(netProfitRow.profit ?? 0)}
+                      </Text>
+                    </BlurredValue>
+                    <BlurredValue blurred={!hasAccess}>
+                      <Text style={styles.maNetProfitSub}>
+                        {`after ${fmtSym(effectiveRawLocal)} ${priceIsOverridden ? "you paid" : "raw"}${selectedFeeOption ? ` + ${fmtSym(feeLocalAmount)} fee` : ""}`}
+                      </Text>
+                    </BlurredValue>
                   </View>
                 )}
 
@@ -2037,7 +2036,6 @@ export default function ResultsScreen() {
 
             <Text style={styles.ebayDisclaimer}>Last qualifying eBay sale · excl. Best Offer · Profit = eBay minus raw</Text>
           </View>
-        )}
 
         <View style={styles.disclaimer}>
           <Ionicons name="information-circle" size={14} color={Colors.textMuted} />
