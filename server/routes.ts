@@ -5059,11 +5059,25 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
     );
   }
 
-  async function lookupCardPrice(cardName: string, cardNumber: string, language: string): Promise<number | null> {
+  async function lookupCardPrice(cardName: string, cardNumber: string, language: string, setName?: string): Promise<number | null> {
     try {
       const numPart = cardNumber.split("/")[0].replace(/^0+/, "").trim();
       const isJp = language === "ja" || language === "ko" || language === "zh";
+
       if (isJp) {
+        // Try with set name first if available
+        if (setName) {
+          const { rows } = await db.query(
+            `SELECT price_eur::float as price FROM card_catalog
+             WHERE lang = $1
+             AND (LOWER(name) = LOWER($2) OR LOWER(name_en) = LOWER($2))
+             AND (LOWER(number) = LOWER($3) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($3))
+             AND LOWER(set_name) ILIKE $4
+             ORDER BY price_eur DESC NULLS LAST LIMIT 1`,
+            [language, cardName, numPart, `%${setName.toLowerCase()}%`]
+          );
+          if (rows[0]?.price) return rows[0].price;
+        }
         const { rows } = await db.query(
           `SELECT price_eur::float as price FROM card_catalog
            WHERE lang = $1
@@ -5073,7 +5087,23 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
           [language, cardName, numPart]
         );
         return rows[0]?.price ?? null;
+
       } else {
+        // Priority 1: exact name + card number + set name (most specific)
+        if (setName) {
+          const { rows } = await db.query(
+            `SELECT price_usd::float as price FROM card_catalog
+             WHERE (lang IS NULL OR lang = 'en')
+             AND LOWER(name) = LOWER($1)
+             AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
+             AND LOWER(set_name) ILIKE $3
+             ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
+            [cardName, numPart, `%${setName.toLowerCase()}%`]
+          );
+          if (rows[0]?.price) return rows[0].price;
+        }
+
+        // Priority 2: exact name + card number only
         const { rows } = await db.query(
           `SELECT price_usd::float as price FROM card_catalog
            WHERE (lang IS NULL OR lang = 'en')
@@ -5083,7 +5113,8 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
           [cardName, numPart]
         );
         if (rows[0]?.price) return rows[0].price;
-        // Fallback: fuzzy name match
+
+        // Priority 3: fuzzy name + card number
         const { rows: fuzzy } = await db.query(
           `SELECT price_usd::float as price FROM card_catalog
            WHERE (lang IS NULL OR lang = 'en')
@@ -5173,7 +5204,7 @@ Return ONLY the JSON object. No other text.`;
       card.status = "processing";
       try {
         const result = await performConditionScan(cards[i].frontBase64, cards[i].backBase64, `[collection-scan:${jobId}:${i + 1}/${cards.length}]`);
-        const nmPrice = await lookupCardPrice(result.cardName, result.cardNumber, result.language);
+        const nmPrice = await lookupCardPrice(result.cardName, result.cardNumber, result.language, result.setName);
         const multiplier = CONDITION_MULTIPLIERS[result.condition] ?? 1.0;
         const conditionPrice = nmPrice != null ? Math.round(nmPrice * multiplier * 100) / 100 : null;
         card.cardName = result.cardName;
@@ -5266,7 +5297,7 @@ Return ONLY the JSON object. No other text.`;
       if (cardNumber) card.cardNumber = cardNumber;
       if (language) card.language = language;
       // Re-fetch price with updated details
-      const nmPrice = await lookupCardPrice(card.cardName || "", card.cardNumber || "", card.language || "en");
+      const nmPrice = await lookupCardPrice(card.cardName || "", card.cardNumber || "", card.language || "en", card.setName);
       const multiplier = CONDITION_MULTIPLIERS[card.condition || "Near Mint"] ?? 1.0;
       card.nmPriceUsd = nmPrice;
       card.conditionPriceUsd = nmPrice != null ? Math.round(nmPrice * multiplier * 100) / 100 : null;

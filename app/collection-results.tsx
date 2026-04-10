@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,14 @@ import {
   TextInput,
   KeyboardAvoidingView,
   ActivityIndicator,
+  Animated,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
@@ -93,6 +95,7 @@ export default function CollectionResultsScreen() {
   const [editLang, setEditLang] = useState("en");
   const [updating, setUpdating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [removedIndexes, setRemovedIndexes] = useState<Set<number>>(new Set());
 
   const { settings } = useSettings();
   const rates = useExchangeRates();
@@ -132,8 +135,13 @@ export default function CollectionResultsScreen() {
     fetchJob();
   }, [fetchJob]);
 
-  const doneCards = jobData?.cards.filter((c) => c.status === "done") ?? [];
+  const doneCards = (jobData?.cards.filter((c) => c.status === "done") ?? []).filter((c) => !removedIndexes.has(c.index));
   const failedCards = jobData?.cards.filter((c) => c.status === "failed" || c.status === "limit_reached") ?? [];
+
+  const removeCard = (index: number) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setRemovedIndexes((prev) => new Set([...prev, index]));
+  };
 
   const totalNMUsd = doneCards.reduce((sum, c) => sum + (c.nmPriceUsd ?? 0), 0);
   const totalConditionUsd = doneCards.reduce((sum, c) => sum + (c.conditionPriceUsd ?? 0), 0);
@@ -238,43 +246,67 @@ export default function CollectionResultsScreen() {
   const renderCard = ({ item, index }: { item: CollectionCard; index: number }) => {
     const condColor = CONDITION_COLORS[item.condition ?? ""] ?? Colors.textMuted;
     const condShort = CONDITION_SHORT[item.condition ?? ""] ?? "—";
-    const isJp = item.language === "ja" || item.language === "ko" || item.language === "zh";
+
+    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>, dragX: Animated.AnimatedInterpolation<number>) => {
+      const scale = dragX.interpolate({
+        inputRange: [-80, 0],
+        outputRange: [1, 0.5],
+        extrapolate: "clamp",
+      });
+      return (
+        <Pressable
+          style={st.swipeDeleteBtn}
+          onPress={() => removeCard(item.index)}
+        >
+          <Animated.View style={{ transform: [{ scale }] }}>
+            <Ionicons name="trash-outline" size={22} color="#fff" />
+          </Animated.View>
+        </Pressable>
+      );
+    };
 
     return (
-      <View style={st.cardRow}>
-        <View style={st.cardRowNum}>
-          <Text style={st.cardRowNumText}>{item.index + 1}</Text>
-        </View>
-        <View style={st.cardRowBody}>
-          <View style={st.cardRowTop}>
-            <Text style={st.cardName} numberOfLines={1}>{item.cardName ?? "Unknown Card"}</Text>
-            <View style={[st.condBadge, { backgroundColor: condColor + "22" }]}>
-              <Text style={[st.condBadgeText, { color: condColor }]}>{condShort}</Text>
-            </View>
+      <Swipeable
+        renderRightActions={renderRightActions}
+        onSwipeableOpen={() => removeCard(item.index)}
+        rightThreshold={60}
+        overshootRight={false}
+      >
+        <View style={st.cardRow}>
+          <View style={st.cardRowNum}>
+            <Text style={st.cardRowNumText}>{item.index + 1}</Text>
           </View>
-          <Text style={st.cardMeta} numberOfLines={1}>
-            {[item.setName, item.cardNumber ? `#${item.cardNumber}` : null, LANG_LABELS[item.language ?? "en"]].filter(Boolean).join(" · ")}
-          </Text>
-          {item.conditionNotes ? (
-            <Text style={st.cardNotes} numberOfLines={2}>{item.conditionNotes}</Text>
-          ) : null}
+          <View style={st.cardRowBody}>
+            <View style={st.cardRowTop}>
+              <Text style={st.cardName} numberOfLines={1}>{item.cardName ?? "Unknown Card"}</Text>
+              <View style={[st.condBadge, { backgroundColor: condColor + "22" }]}>
+                <Text style={[st.condBadgeText, { color: condColor }]}>{condShort}</Text>
+              </View>
+            </View>
+            <Text style={st.cardMeta} numberOfLines={1}>
+              {[item.setName, item.cardNumber ? `#${item.cardNumber}` : null, LANG_LABELS[item.language ?? "en"]].filter(Boolean).join(" · ")}
+            </Text>
+            {item.conditionNotes ? (
+              <Text style={st.cardNotes} numberOfLines={2}>{item.conditionNotes}</Text>
+            ) : null}
+          </View>
+          <View style={st.cardRowPrice}>
+            <Text style={st.priceMain}>
+              {item.conditionPriceUsd != null ? fmtPrice(item.conditionPriceUsd) : "—"}
+            </Text>
+            {item.nmPriceUsd != null && item.nmPriceUsd !== item.conditionPriceUsd ? (
+              <Text style={st.priceNM}>NM {fmtPrice(item.nmPriceUsd)}</Text>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={() => openEdit(item)}
+            style={({ pressed }) => [st.editBtn, { opacity: pressed ? 0.5 : 1 }]}
+            hitSlop={8}
+          >
+            <Ionicons name="create-outline" size={18} color={Colors.textMuted} />
+          </Pressable>
         </View>
-        <View style={st.cardRowPrice}>
-          <Text style={st.priceMain}>
-            {item.conditionPriceUsd != null ? fmtPrice(item.conditionPriceUsd) : "—"}
-          </Text>
-          {item.nmPriceUsd != null && item.nmPriceUsd !== item.conditionPriceUsd ? (
-            <Text style={st.priceNM}>NM {fmtPrice(item.nmPriceUsd)}</Text>
-          ) : null}
-        </View>
-        <Pressable
-          onPress={() => openEdit(item)}
-          style={({ pressed }) => [st.editBtn, { opacity: pressed ? 0.5 : 1 }]}
-          hitSlop={8}
-        >
-          <Ionicons name="create-outline" size={18} color={Colors.textMuted} />
-        </Pressable>
-      </View>
+      </Swipeable>
     );
   };
 
@@ -357,6 +389,14 @@ export default function CollectionResultsScreen() {
               <Text style={st.condBreakdownCount}>{conditionCounts[cond]}</Text>
             </View>
           ))}
+        </View>
+      )}
+
+      {/* Swipe hint */}
+      {doneCards.length > 0 && (
+        <View style={st.swipeHintRow}>
+          <Ionicons name="arrow-back-outline" size={12} color={Colors.textMuted} />
+          <Text style={st.swipeHintText}>Swipe left on a card to remove it from the report</Text>
         </View>
       )}
 
@@ -604,6 +644,28 @@ const st = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  swipeHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 2,
+  },
+  swipeHintText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  swipeDeleteBtn: {
+    backgroundColor: "#EF4444",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 72,
+    marginVertical: 0,
+    borderRadius: 12,
+    marginLeft: 8,
   },
   cardRow: {
     flexDirection: "row",

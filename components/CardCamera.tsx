@@ -290,11 +290,11 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
       if (photo?.uri) {
         const cropped = await cropToGuideFrame(photo.uri, photo.width, photo.height);
 
-        if (deepGradeFlow && Platform.OS !== "web") {
+        if ((deepGradeFlow || fastMode) && Platform.OS !== "web") {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
 
-        if (deepGradeFlow) {
+        if (deepGradeFlow || fastMode) {
           const msg = CAPTURE_MESSAGES[Math.floor(Math.random() * CAPTURE_MESSAGES.length)];
           setFeedbackMessage(msg);
           setShowCapturedFlash(true);
