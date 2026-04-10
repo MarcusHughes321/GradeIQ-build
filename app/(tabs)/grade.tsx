@@ -667,6 +667,22 @@ export default function GradeScreen() {
         )}
       </Pressable>
 
+      <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Collection Tools</Text>
+
+      <Pressable
+        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+        onPress={() => router.push("/collection-scan")}
+      >
+        <View style={[styles.hubIconWrap, styles.hubIconBlue]}>
+          <Ionicons name="library-outline" size={22} color="#3B82F6" />
+        </View>
+        <View style={styles.hubCardText}>
+          <Text style={styles.hubCardTitle}>Collection Scan</Text>
+          <Text style={styles.hubCardSub}>Condition check · CSV export · free</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+      </Pressable>
+
       <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Graded Slabs</Text>
 
       <Pressable
@@ -1325,6 +1341,7 @@ const styles = StyleSheet.create({
   hubIconAmber: { backgroundColor: "rgba(245,158,11,0.12)" },
   hubIconGreen: { backgroundColor: "rgba(16,185,129,0.12)" },
   hubIconPurple: { backgroundColor: "rgba(139,92,246,0.12)" },
+  hubIconBlue: { backgroundColor: "rgba(59,130,246,0.12)" },
   hubCardText: {
     flex: 1,
     gap: 2,

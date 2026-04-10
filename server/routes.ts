@@ -4984,6 +4984,301 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // ── End Card Variants API ──────────────────────────────────────────────────
 
+  // ── Collection Scan API ────────────────────────────────────────────────────
+
+  const CONDITION_MULTIPLIERS: Record<string, number> = {
+    "Mint": 1.0,
+    "Near Mint": 1.0,
+    "Light Played": 0.85,
+    "Played": 0.75,
+    "Heavy Played": 0.57,
+    "Damaged": 0.25,
+  };
+
+  const SESSION_CARD_LIMIT = 100;
+  const MONTHLY_CARD_LIMIT = 300;
+
+  interface CollectionCard {
+    index: number;
+    status: "pending" | "processing" | "done" | "failed" | "limit_reached";
+    cardName?: string;
+    setName?: string;
+    cardNumber?: string;
+    language?: string;
+    condition?: string;
+    conditionNotes?: string;
+    nmPriceUsd?: number | null;
+    conditionPriceUsd?: number | null;
+    error?: string;
+  }
+
+  interface CollectionJob {
+    id: string;
+    status: "processing" | "completed" | "failed";
+    cards: CollectionCard[];
+    totalCards: number;
+    completedCards: number;
+    createdAt: number;
+  }
+
+  const collectionJobs = new Map<string, CollectionJob>();
+
+  // Initialize collection scan usage table
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS collection_scan_usage (
+        device_id   TEXT NOT NULL,
+        month_key   TEXT NOT NULL,
+        cards_scanned INT NOT NULL DEFAULT 0,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (device_id, month_key)
+      )
+    `);
+    console.log("[collection-scan] DB table ready");
+  } catch (e: any) {
+    console.error("[collection-scan] Failed to create usage table:", e.message);
+  }
+
+  async function getMonthlyUsage(deviceId: string): Promise<number> {
+    const monthKey = new Date().toISOString().substring(0, 7);
+    const { rows } = await db.query(
+      `SELECT cards_scanned FROM collection_scan_usage WHERE device_id = $1 AND month_key = $2`,
+      [deviceId, monthKey]
+    );
+    return rows[0]?.cards_scanned ?? 0;
+  }
+
+  async function incrementMonthlyUsage(deviceId: string, count: number): Promise<void> {
+    const monthKey = new Date().toISOString().substring(0, 7);
+    await db.query(
+      `INSERT INTO collection_scan_usage (device_id, month_key, cards_scanned, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (device_id, month_key)
+       DO UPDATE SET cards_scanned = collection_scan_usage.cards_scanned + $3, updated_at = NOW()`,
+      [deviceId, monthKey, count]
+    );
+  }
+
+  async function lookupCardPrice(cardName: string, cardNumber: string, language: string): Promise<number | null> {
+    try {
+      const numPart = cardNumber.split("/")[0].replace(/^0+/, "").trim();
+      const isJp = language === "ja" || language === "ko" || language === "zh";
+      if (isJp) {
+        const { rows } = await db.query(
+          `SELECT price_eur::float as price FROM card_catalog
+           WHERE lang = $1
+           AND (LOWER(name) = LOWER($2) OR LOWER(name_en) = LOWER($2))
+           AND (LOWER(number) = LOWER($3) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($3))
+           ORDER BY price_eur DESC NULLS LAST LIMIT 1`,
+          [language, cardName, numPart]
+        );
+        return rows[0]?.price ?? null;
+      } else {
+        const { rows } = await db.query(
+          `SELECT price_usd::float as price FROM card_catalog
+           WHERE (lang IS NULL OR lang = 'en')
+           AND LOWER(name) = LOWER($1)
+           AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
+           ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
+          [cardName, numPart]
+        );
+        if (rows[0]?.price) return rows[0].price;
+        // Fallback: fuzzy name match
+        const { rows: fuzzy } = await db.query(
+          `SELECT price_usd::float as price FROM card_catalog
+           WHERE (lang IS NULL OR lang = 'en')
+           AND LOWER(name) ILIKE LOWER($1)
+           AND (LOWER(number) = LOWER($2) OR LOWER(SPLIT_PART(number, '/', 1)) = LOWER($2))
+           ORDER BY price_usd DESC NULLS LAST LIMIT 1`,
+          [`%${cardName}%`, numPart]
+        );
+        return fuzzy[0]?.price ?? null;
+      }
+    } catch (e: any) {
+      console.error("[collection-scan] Price lookup error:", e.message);
+      return null;
+    }
+  }
+
+  async function performConditionScan(frontBase64: string, backBase64: string, logPrefix: string): Promise<{
+    cardName: string; setName: string; cardNumber: string;
+    language: string; condition: string; conditionNotes: string;
+  }> {
+    const optimizedFront = await optimizeImageForAI(frontBase64, 1024);
+    const optimizedBack = await optimizeImageForAI(backBase64, 1024);
+
+    const prompt = `You are analyzing a Pokemon trading card to determine its identity and condition.
+Examine the front and back images carefully.
+
+Return ONLY a valid JSON object with these exact fields:
+{
+  "cardName": "Pokemon name exactly as printed on the card",
+  "setName": "Full set name (e.g. Base Set, Scarlet & Violet, etc.)",
+  "cardNumber": "Card number exactly as printed (e.g. 4/102 or 025/098)",
+  "language": "en",
+  "condition": "Near Mint",
+  "conditionNotes": "one sentence describing the main reason for this condition rating"
+}
+
+The "language" field must be exactly one of: en, ja, ko, zh
+The "condition" field must be exactly one of: Mint, Near Mint, Light Played, Played, Heavy Played, Damaged
+
+Condition definitions:
+- Mint: Perfect, no visible flaws whatsoever
+- Near Mint: Very minor handling marks only, looks essentially new
+- Light Played: Light edge wear, minor surface marks, slightly worn corners
+- Played: Visible wear on edges/corners, moderate scratches, light creasing
+- Heavy Played: Heavy edge wear, creases, significant scratches or corner whitening
+- Damaged: Tears, heavy creasing, water damage, writing, or severe physical damage
+
+Return ONLY the JSON object. No other text.`;
+
+    const response = await anthropic.messages.create({
+      model: "claude-3-5-haiku-20241022",
+      max_tokens: 512,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            toClaudeImage(optimizedFront),
+            toClaudeImage(optimizedBack),
+          ],
+        },
+      ],
+    });
+
+    const text = (response.content[0] as Anthropic.TextBlock)?.text || "";
+    console.log(`${logPrefix} Haiku raw response: ${text.substring(0, 200)}`);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON in AI response");
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      cardName: parsed.cardName || "Unknown Card",
+      setName: parsed.setName || "Unknown Set",
+      cardNumber: parsed.cardNumber || "?",
+      language: parsed.language || "en",
+      condition: parsed.condition || "Near Mint",
+      conditionNotes: parsed.conditionNotes || "",
+    };
+  }
+
+  async function processCollectionJob(jobId: string, cards: { frontBase64: string; backBase64: string }[], deviceId: string) {
+    const job = collectionJobs.get(jobId);
+    if (!job) return;
+    let successCount = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const card = job.cards[i];
+      if (card.status === "limit_reached") continue;
+      card.status = "processing";
+      try {
+        const result = await performConditionScan(cards[i].frontBase64, cards[i].backBase64, `[collection-scan:${jobId}:${i + 1}/${cards.length}]`);
+        const nmPrice = await lookupCardPrice(result.cardName, result.cardNumber, result.language);
+        const multiplier = CONDITION_MULTIPLIERS[result.condition] ?? 1.0;
+        const conditionPrice = nmPrice != null ? Math.round(nmPrice * multiplier * 100) / 100 : null;
+        card.cardName = result.cardName;
+        card.setName = result.setName;
+        card.cardNumber = result.cardNumber;
+        card.language = result.language;
+        card.condition = result.condition;
+        card.conditionNotes = result.conditionNotes;
+        card.nmPriceUsd = nmPrice;
+        card.conditionPriceUsd = conditionPrice;
+        card.status = "done";
+        successCount++;
+      } catch (err: any) {
+        console.error(`[collection-scan] Card ${i + 1} error:`, err.message);
+        card.status = "failed";
+        card.error = err.message;
+      }
+      job.completedCards++;
+    }
+    job.status = "completed";
+    if (successCount > 0) {
+      try { await incrementMonthlyUsage(deviceId, successCount); } catch {}
+    }
+    // Clean up job after 30 minutes
+    setTimeout(() => collectionJobs.delete(jobId), 30 * 60 * 1000);
+  }
+
+  app.post("/api/collection/job", async (req, res) => {
+    try {
+      const { deviceId, cards } = req.body as { deviceId?: string; cards?: { frontBase64: string; backBase64: string }[] };
+      if (!deviceId || !Array.isArray(cards) || cards.length === 0) {
+        return res.status(400).json({ error: "deviceId and cards[] are required" });
+      }
+      // Check monthly limit
+      let monthlyUsed = 0;
+      try { monthlyUsed = await getMonthlyUsage(deviceId); } catch {}
+      const monthlyRemaining = Math.max(0, MONTHLY_CARD_LIMIT - monthlyUsed);
+      // Apply limits
+      const sessionAllowed = Math.min(cards.length, SESSION_CARD_LIMIT, monthlyRemaining);
+
+      const jobId = Date.now().toString() + Math.random().toString(36).substr(2, 6);
+      const jobCards: CollectionCard[] = cards.map((_, i) => ({
+        index: i,
+        status: i < sessionAllowed ? "pending" : "limit_reached",
+      }));
+
+      const job: CollectionJob = {
+        id: jobId,
+        status: "processing",
+        cards: jobCards,
+        totalCards: sessionAllowed,
+        completedCards: 0,
+        createdAt: Date.now(),
+      };
+      collectionJobs.set(jobId, job);
+
+      // Process async
+      void processCollectionJob(jobId, cards, deviceId);
+
+      return res.json({ jobId, totalCards: sessionAllowed, limitedCount: cards.length - sessionAllowed });
+    } catch (err: any) {
+      console.error("[collection/job] Error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/collection/job/:jobId", (req, res) => {
+    const job = collectionJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    return res.json({
+      status: job.status,
+      totalCards: job.totalCards,
+      completedCards: job.completedCards,
+      cards: job.cards,
+    });
+  });
+
+  app.put("/api/collection/job/:jobId/card/:idx", async (req, res) => {
+    try {
+      const job = collectionJobs.get(req.params.jobId);
+      if (!job) return res.status(404).json({ error: "Job not found" });
+      const idx = parseInt(req.params.idx);
+      const card = job.cards[idx];
+      if (!card) return res.status(404).json({ error: "Card not found" });
+      const { cardName, setName, cardNumber, language } = req.body as {
+        cardName?: string; setName?: string; cardNumber?: string; language?: string;
+      };
+      if (cardName) card.cardName = cardName;
+      if (setName) card.setName = setName;
+      if (cardNumber) card.cardNumber = cardNumber;
+      if (language) card.language = language;
+      // Re-fetch price with updated details
+      const nmPrice = await lookupCardPrice(card.cardName || "", card.cardNumber || "", card.language || "en");
+      const multiplier = CONDITION_MULTIPLIERS[card.condition || "Near Mint"] ?? 1.0;
+      card.nmPriceUsd = nmPrice;
+      card.conditionPriceUsd = nmPrice != null ? Math.round(nmPrice * multiplier * 100) / 100 : null;
+      return res.json({ ok: true, card });
+    } catch (err: any) {
+      console.error("[collection/card-update] Error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── End Collection Scan API ────────────────────────────────────────────────
+
   interface GradingJob {
     id: string;
     status: "processing" | "completed" | "failed";

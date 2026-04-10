@@ -54,6 +54,7 @@ The app features a dark-themed interface using red (#FF3C31), black (#000000), w
 - **Grading History**: Stored locally via AsyncStorage.
 - **Customization**: Users can toggle grading companies.
 - **Share Results**: Branded shareable cards with Grade.IQ logo and grading details, supporting multiple social media formats via `react-native-view-shot` and `expo-sharing`.
+- **Collection Scan**: Lightweight condition-check feature (free). Scans front+back of multiple cards using Claude Haiku; returns condition (Mint/NM/LP/Played/HP/Damaged), card identity, and raw price with condition multiplier applied. Generates a CSV report for seller transactions. Rate-limited silently (100/session, 300/month) via `collection_scan_usage` DB table. Entry point in Grade hub under "Collection Tools". Screens: `app/collection-scan.tsx`, `app/collection-results.tsx`. Backend routes: `POST/GET /api/collection/job`, `PUT /api/collection/job/:jobId/card/:idx`.
 
 ## External Dependencies
 - **Anthropic Claude Sonnet 4-6**: For AI-powered image analysis and grading.
