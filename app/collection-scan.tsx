@@ -19,7 +19,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Colors from "@/constants/colors";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { getApiUrl } from "@/lib/query-client";
 import CardCamera from "@/components/CardCamera";
 
 const MAX_CARDS = 100;
@@ -65,17 +65,57 @@ export default function CollectionScanScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [bulkCameraActive, setBulkCameraActive] = useState(false);
-  const [bulkCameraSide, setBulkCameraSide] = useState<"front" | "back">("front");
-  const [bulkCameraCardIndex, setBulkCameraCardIndex] = useState(0);
-  const bulkCameraFrontRef = useRef<string | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraSide, setCameraSide] = useState<"front" | "back">("front");
+  const [cameraCardIndex, setCameraCardIndex] = useState(0);
+  const cameraFrontRef = useRef<string | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   const readyCards = cards.filter((c) => c.frontImage && c.backImage);
+  const hasPartialCard = cameraSide === "back"; // mid-scan, front captured, back pending
 
-  const selectMultipleImages = async () => {
-    if (loading) return;
+  const startCamera = () => {
+    if (Platform.OS === "web") {
+      Alert.alert("Not Available on Web", "Use the gallery import button on web.");
+      return;
+    }
+    const nextIdx = cards.length;
+    setCameraCardIndex(nextIdx);
+    setCameraSide("front");
+    cameraFrontRef.current = null;
+    setCameraActive(true);
+  };
+
+  const handleCameraCapture = (uri: string) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (cameraSide === "front") {
+      cameraFrontRef.current = uri;
+      setCameraSide("back");
+    } else {
+      const front = cameraFrontRef.current!;
+      const back = uri;
+      const newSlotId = generateId();
+      setCards((prev) => {
+        if (prev.length >= MAX_CARDS) return prev;
+        return [...prev, { id: newSlotId, frontImage: front, backImage: back }];
+      });
+      // Advance to next card
+      const nextIdx = cameraCardIndex + 1;
+      setCameraCardIndex(nextIdx);
+      setCameraSide("front");
+      cameraFrontRef.current = null;
+    }
+  };
+
+  const handleCameraClose = () => {
+    // If we were mid-card (front captured, back not yet), discard the partial
+    cameraFrontRef.current = null;
+    setCameraActive(false);
+    setCameraSide("front");
+  };
+
+  const selectFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Required", "Photo library access is needed.");
@@ -91,23 +131,14 @@ export default function CollectionScanScreen() {
     if (!result.canceled && result.assets.length > 0) {
       const newSlots: CardSlot[] = [];
       for (let i = 0; i < result.assets.length; i += 2) {
-        const slot: CardSlot = {
+        newSlots.push({
           id: generateId(),
           frontImage: result.assets[i]?.uri ?? null,
           backImage: result.assets[i + 1]?.uri ?? null,
-        };
-        newSlots.push(slot);
+        });
       }
-      setCards((prev) => {
-        const combined = [...prev, ...newSlots];
-        return combined.slice(0, MAX_CARDS);
-      });
+      setCards((prev) => [...prev, ...newSlots].slice(0, MAX_CARDS));
     }
-  };
-
-  const addEmptyCard = () => {
-    if (cards.length >= MAX_CARDS || loading) return;
-    setCards((prev) => [...prev, { id: generateId(), frontImage: null, backImage: null }]);
   };
 
   const removeCard = (id: string) => {
@@ -115,50 +146,10 @@ export default function CollectionScanScreen() {
   };
 
   const clearAll = () => {
-    Alert.alert("Clear All", "Remove all cards from this session?", [
+    Alert.alert("Clear All Cards", "Start over with an empty session?", [
       { text: "Cancel", style: "cancel" },
       { text: "Clear", style: "destructive", onPress: () => setCards([]) },
     ]);
-  };
-
-  const startBulkCamera = () => {
-    if (Platform.OS === "web") {
-      Alert.alert("Not Available", "Camera scanning is only available on mobile.");
-      return;
-    }
-    setBulkCameraCardIndex(0);
-    setBulkCameraSide("front");
-    bulkCameraFrontRef.current = null;
-    setBulkCameraActive(true);
-  };
-
-  const handleBulkCameraCapture = (uri: string) => {
-    if (bulkCameraSide === "front") {
-      bulkCameraFrontRef.current = uri;
-      setBulkCameraSide("back");
-    } else {
-      const front = bulkCameraFrontRef.current!;
-      const back = uri;
-      setCards((prev) => {
-        const updated = [...prev];
-        const existingIdx = updated.findIndex((c) => c.id === `cam_${bulkCameraCardIndex}`);
-        if (existingIdx >= 0) {
-          updated[existingIdx] = { ...updated[existingIdx], frontImage: front, backImage: back };
-        } else {
-          updated.push({ id: `cam_${bulkCameraCardIndex}`, frontImage: front, backImage: back });
-        }
-        return updated.slice(0, MAX_CARDS);
-      });
-      const nextIdx = bulkCameraCardIndex + 1;
-      setBulkCameraCardIndex(nextIdx);
-      setBulkCameraSide("front");
-      bulkCameraFrontRef.current = null;
-    }
-  };
-
-  const handleBulkCameraClose = () => {
-    setBulkCameraActive(false);
-    bulkCameraFrontRef.current = null;
   };
 
   const animateProgress = (to: number) => {
@@ -169,33 +160,9 @@ export default function CollectionScanScreen() {
     }).start();
   };
 
-  const pickImageForSlot = async (cardId: string, side: "front" | "back") => {
-    if (Platform.OS === "web") {
-      Alert.alert("Not Available", "Use the gallery import button to add images on web.");
-      return;
-    }
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission Required", "Photo library access is needed.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.9,
-    });
-    if (!result.canceled && result.assets[0]) {
-      const uri = result.assets[0].uri;
-      setCards((prev) =>
-        prev.map((c) => c.id === cardId ? { ...c, [side === "front" ? "frontImage" : "backImage"]: uri } : c)
-      );
-    }
-  };
-
   const startScan = async () => {
     if (readyCards.length === 0 || loading) return;
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLoading(true);
     setStageIndex(0);
     setCompletedCount(0);
@@ -203,7 +170,6 @@ export default function CollectionScanScreen() {
     animateProgress(0);
 
     try {
-      // Convert images to base64
       const cardPayloads: { frontBase64: string; backBase64: string }[] = [];
       for (const card of readyCards) {
         const frontResult = await ImageManipulator.manipulateAsync(
@@ -232,38 +198,29 @@ export default function CollectionScanScreen() {
         body: JSON.stringify({ deviceId, cards: cardPayloads }),
       });
       const data = await resp.json();
-      if (!resp.ok || !data.jobId) {
-        throw new Error(data.error || "Failed to start scan");
-      }
+      if (!resp.ok || !data.jobId) throw new Error(data.error || "Failed to start scan");
 
       const { jobId, totalCards } = data;
       setTotalToScan(totalCards);
       setStageIndex(2);
 
-      // Poll for progress
       pollingRef.current = setInterval(async () => {
         try {
           const pollUrl = new URL(`/api/collection/job/${jobId}`, getApiUrl()).toString();
           const pollResp = await fetch(pollUrl);
           const pollData = await pollResp.json();
-
           const completed = pollData.completedCards ?? 0;
           setCompletedCount(completed);
           const progress = totalCards > 0 ? completed / totalCards : 0;
           animateProgress(progress);
-
           if (progress > 0.4) setStageIndex(3);
           if (progress > 0.8) setStageIndex(4);
-
           if (pollData.status === "completed") {
             if (pollingRef.current) clearInterval(pollingRef.current);
             pollingRef.current = null;
             animateProgress(1);
             setLoading(false);
-            router.replace({
-              pathname: "/collection-results",
-              params: { jobId },
-            });
+            router.replace({ pathname: "/collection-results", params: { jobId } });
           } else if (pollData.status === "failed") {
             if (pollingRef.current) clearInterval(pollingRef.current);
             pollingRef.current = null;
@@ -278,50 +235,74 @@ export default function CollectionScanScreen() {
     }
   };
 
-  if (bulkCameraActive && Platform.OS !== "web") {
+  // ── Camera View ────────────────────────────────────────────────────────────
+  if (cameraActive && Platform.OS !== "web") {
+    const cardNum = cards.length + 1; // current card being photographed
+    const isFirstCard = cardNum === 1;
     return (
       <View style={styles.container}>
         <CardCamera
-          side={bulkCameraSide}
-          onCapture={handleBulkCameraCapture}
-          onClose={handleBulkCameraClose}
+          side={cameraSide}
+          onCapture={handleCameraCapture}
+          onClose={handleCameraClose}
         />
-        <View style={[styles.bulkCameraTopRow, { top: insets.top + 145 }]}>
-          <View style={styles.bulkCameraBanner}>
-            <Text style={styles.bulkCameraBannerText}>
-              Card {bulkCameraCardIndex + 1} — {bulkCameraSide === "front" ? "Front" : "Back"}
-            </Text>
+
+        {/* Card + side indicator — top centre */}
+        <View style={[styles.cameraHud, { top: insets.top + 12 }]}>
+          <View style={styles.cameraCardBadge}>
+            <Text style={styles.cameraCardBadgeNum}>Card {cardNum}</Text>
+            <View style={[styles.cameraCardSidePill, cameraSide === "back" && styles.cameraCardSidePillBack]}>
+              <Ionicons
+                name={cameraSide === "front" ? "scan-outline" : "swap-horizontal-outline"}
+                size={14}
+                color={cameraSide === "front" ? "#fff" : "#fff"}
+              />
+              <Text style={styles.cameraCardSidePillText}>
+                {cameraSide === "front" ? "Front Side" : "Back Side"}
+              </Text>
+            </View>
           </View>
-          <Pressable style={styles.bulkCameraDoneBtn} onPress={handleBulkCameraClose}>
-            <Text style={styles.bulkCameraDoneBtnText}>Done</Text>
-            <Ionicons name="arrow-forward" size={16} color="#fff" />
+          {cards.length > 0 && (
+            <View style={styles.cameraDoneCountBadge}>
+              <Text style={styles.cameraDoneCountText}>{cards.length} done</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Instruction text */}
+        <View style={[styles.cameraInstruction, { top: insets.top + 88 }]}>
+          <Text style={styles.cameraInstructionText}>
+            {cameraSide === "front"
+              ? "Hold the front of the card flat and fill the frame"
+              : "Flip the card and photograph the back"}
+          </Text>
+        </View>
+
+        {/* Done button — bottom */}
+        <View style={[styles.cameraDoneWrap, { bottom: insets.bottom + 24 }]}>
+          <Pressable
+            style={({ pressed }) => [styles.cameraDoneBtn, { opacity: pressed ? 0.85 : 1 }]}
+            onPress={handleCameraClose}
+          >
+            <Ionicons name="checkmark-circle" size={20} color="#fff" />
+            <Text style={styles.cameraDoneBtnText}>
+              {cards.length === 0 ? "Cancel" : `Done Scanning (${cards.length} card${cards.length !== 1 ? "s" : ""})`}
+            </Text>
           </Pressable>
         </View>
       </View>
     );
   }
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => { if (!loading) router.back(); }}
-          style={({ pressed }) => [styles.backBtn, { opacity: loading ? 0.3 : pressed ? 0.6 : 1 }]}
-          disabled={loading}
-        >
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Collection Scan</Text>
-        {cards.length > 0 && !loading ? (
-          <Pressable onPress={clearAll} style={({ pressed }) => [styles.clearBtn, { opacity: pressed ? 0.6 : 1 }]}>
-            <Ionicons name="trash-outline" size={18} color={Colors.primary} />
-          </Pressable>
-        ) : (
+  // ── Loading View ───────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+        <View style={styles.header}>
           <View style={{ width: 40 }} />
-        )}
-      </View>
-
-      {loading ? (
+          <Text style={styles.headerTitle}>Scanning Collection</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.loadingContainer}>
           <View style={styles.loadingCard}>
             <View style={styles.loadingIconWrap}>
@@ -330,11 +311,11 @@ export default function CollectionScanScreen() {
               </View>
               <ActivityIndicator color="#3B82F6" size="small" style={styles.loadingSpinner} />
             </View>
-            <Text style={styles.loadingTitle}>Scanning Collection</Text>
+            <Text style={styles.loadingTitle}>Analysing cards…</Text>
             <Text style={styles.loadingSubtitle}>
               {completedCount > 0
-                ? `${completedCount} of ${totalToScan} cards scanned`
-                : `Preparing ${totalToScan} card${totalToScan !== 1 ? "s" : ""}…`}
+                ? `${completedCount} of ${totalToScan} cards done`
+                : `Getting ${totalToScan} card${totalToScan !== 1 ? "s" : ""} ready…`}
             </Text>
             <View style={styles.progressBarBg}>
               <Animated.View
@@ -360,135 +341,118 @@ export default function CollectionScanScreen() {
             </View>
           </View>
         </View>
-      ) : (
-        <>
-          {/* Status bar */}
-          <View style={styles.statusBar}>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusNum}>{cards.length}</Text>
-              <Text style={styles.statusLabel}>Total</Text>
-            </View>
-            <View style={styles.statusDivider} />
-            <View style={styles.statusItem}>
-              <Text style={[styles.statusNum, { color: "#10B981" }]}>{readyCards.length}</Text>
-              <Text style={styles.statusLabel}>Ready</Text>
-            </View>
-            <View style={styles.statusDivider} />
-            <View style={styles.statusItem}>
-              <Text style={[styles.statusNum, { color: "#F59E0B" }]}>{cards.length - readyCards.length}</Text>
-              <Text style={styles.statusLabel}>Need Back</Text>
-            </View>
-          </View>
+      </View>
+    );
+  }
 
-          {/* Card list */}
+  // ── Main View ──────────────────────────────────────────────────────────────
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+        >
+          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Collection Scan</Text>
+        {cards.length > 0 ? (
+          <Pressable onPress={clearAll} style={({ pressed }) => [styles.headerAction, { opacity: pressed ? 0.6 : 1 }]}>
+            <Ionicons name="trash-outline" size={18} color={Colors.primary} />
+          </Pressable>
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
+      </View>
+
+      {cards.length === 0 ? (
+        // ── Empty state ──
+        <View style={styles.emptyWrap}>
+          <View style={styles.emptyIconWrap}>
+            <Ionicons name="library-outline" size={40} color="#3B82F6" />
+          </View>
+          <Text style={styles.emptyTitle}>Collection Scan</Text>
+          <Text style={styles.emptyDesc}>
+            Photograph the front and back of each card. We'll identify each one, check its condition, and build a priced CSV report for your records or a seller.
+          </Text>
+          <View style={styles.conditionLegend}>
+            {["Mint", "Near Mint", "Light Played", "Played", "Heavy Played", "Damaged"].map((c) => (
+              <View key={c} style={styles.condLegItem}>
+                <View style={[styles.condLegDot, { backgroundColor: CONDITION_COLORS[c] }]} />
+                <Text style={styles.condLegText}>{c}</Text>
+              </View>
+            ))}
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.startBtn, { opacity: pressed ? 0.85 : 1 }]}
+            onPress={startCamera}
+          >
+            <Ionicons name="camera-outline" size={20} color="#fff" />
+            <Text style={styles.startBtnText}>Start Scanning</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.galleryBtn, { opacity: pressed ? 0.7 : 1 }]}
+            onPress={selectFromGallery}
+          >
+            <Ionicons name="images-outline" size={16} color={Colors.textSecondary} />
+            <Text style={styles.galleryBtnText}>Import from gallery instead</Text>
+          </Pressable>
+        </View>
+      ) : (
+        // ── Cards captured ──
+        <>
+          <View style={styles.capturedHeader}>
+            <Text style={styles.capturedTitle}>
+              {readyCards.length} card{readyCards.length !== 1 ? "s" : ""} ready
+            </Text>
+            {hasPartialCard && (
+              <Text style={styles.capturedPartial}>+1 in progress</Text>
+            )}
+          </View>
           <ScrollView
             style={styles.cardList}
-            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 160 }}
+            contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 200 }}
             showsVerticalScrollIndicator={false}
           >
-            {cards.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="library-outline" size={40} color={Colors.textMuted} />
-                <Text style={styles.emptyTitle}>No cards yet</Text>
-                <Text style={styles.emptySub}>Use the camera or import from your gallery below</Text>
-              </View>
-            ) : (
-              cards.map((card, idx) => (
-                <View key={card.id} style={styles.cardRow}>
-                  <View style={styles.cardRowLeft}>
-                    <View style={styles.cardIndex}>
-                      <Text style={styles.cardIndexText}>{idx + 1}</Text>
-                    </View>
-                    <Pressable
-                      style={[styles.thumbSlot, card.frontImage && styles.thumbSlotFilled]}
-                      onPress={() => pickImageForSlot(card.id, "front")}
-                    >
-                      {card.frontImage ? (
-                        <Image source={{ uri: card.frontImage }} style={styles.thumb} contentFit="cover" />
-                      ) : (
-                        <View style={styles.thumbEmpty}>
-                          <Ionicons name="add" size={16} color={Colors.textMuted} />
-                          <Text style={styles.thumbLabel}>Front</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                    <Pressable
-                      style={[styles.thumbSlot, card.backImage && styles.thumbSlotFilled, !card.frontImage && styles.thumbSlotDisabled]}
-                      onPress={() => card.frontImage ? pickImageForSlot(card.id, "back") : null}
-                    >
-                      {card.backImage ? (
-                        <Image source={{ uri: card.backImage }} style={styles.thumb} contentFit="cover" />
-                      ) : (
-                        <View style={styles.thumbEmpty}>
-                          <Ionicons name="add" size={16} color={Colors.textMuted} />
-                          <Text style={styles.thumbLabel}>Back</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                    {card.frontImage && card.backImage ? (
-                      <View style={styles.readyBadge}>
-                        <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                      </View>
-                    ) : (
-                      <View style={styles.pendingBadge}>
-                        <Ionicons name="ellipse-outline" size={18} color={Colors.textMuted} />
-                      </View>
-                    )}
-                  </View>
-                  <Pressable
-                    onPress={() => removeCard(card.id)}
-                    style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.5 : 1 }]}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
-                  </Pressable>
+            {cards.map((card, idx) => (
+              <View key={card.id} style={styles.cardRow}>
+                <View style={styles.cardRowIndex}>
+                  <Text style={styles.cardRowIndexText}>{idx + 1}</Text>
                 </View>
-              ))
-            )}
-
-            {cards.length < MAX_CARDS && (
-              <Pressable
-                style={({ pressed }) => [styles.addCardBtn, { opacity: pressed ? 0.6 : 1 }]}
-                onPress={addEmptyCard}
-              >
-                <Ionicons name="add" size={18} color={Colors.textMuted} />
-                <Text style={styles.addCardBtnText}>Add card slot</Text>
-              </Pressable>
-            )}
+                <Image source={{ uri: card.frontImage! }} style={styles.cardThumb} contentFit="cover" />
+                <Image source={{ uri: card.backImage! }} style={styles.cardThumb} contentFit="cover" />
+                <View style={styles.cardRowReady}>
+                  <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                  <Text style={styles.cardRowReadyText}>Front & Back</Text>
+                </View>
+                <Pressable
+                  onPress={() => removeCard(card.id)}
+                  style={({ pressed }) => [styles.removeBtn, { opacity: pressed ? 0.5 : 1 }]}
+                  hitSlop={10}
+                >
+                  <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
+                </Pressable>
+              </View>
+            ))}
           </ScrollView>
 
-          {/* Bottom actions */}
-          <View style={[styles.bottomActions, { paddingBottom: insets.bottom + 16 }]}>
-            <View style={styles.bottomRow}>
-              <Pressable
-                style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
-                onPress={startBulkCamera}
-              >
-                <Ionicons name="camera-outline" size={20} color={Colors.text} />
-                <Text style={styles.actionBtnText}>Camera</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
-                onPress={selectMultipleImages}
-              >
-                <Ionicons name="images-outline" size={20} color={Colors.text} />
-                <Text style={styles.actionBtnText}>Gallery</Text>
-              </Pressable>
-            </View>
+          {/* Bottom bar */}
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
             <Pressable
-              style={({ pressed }) => [
-                styles.scanBtn,
-                readyCards.length === 0 && styles.scanBtnDisabled,
-                { opacity: pressed ? 0.85 : 1 },
-              ]}
+              style={({ pressed }) => [styles.scanMoreBtn, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={startCamera}
+            >
+              <Ionicons name="camera-outline" size={18} color={Colors.text} />
+              <Text style={styles.scanMoreBtnText}>Scan More</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.analyseBtn, { opacity: pressed ? 0.85 : 1 }]}
               onPress={startScan}
               disabled={readyCards.length === 0}
             >
-              <Ionicons name="library-outline" size={18} color={readyCards.length === 0 ? Colors.textMuted : "#fff"} />
-              <Text style={[styles.scanBtnText, readyCards.length === 0 && styles.scanBtnTextDisabled]}>
-                {readyCards.length === 0
-                  ? "Add cards to scan"
-                  : `Scan ${readyCards.length} card${readyCards.length !== 1 ? "s" : ""}`}
+              <Ionicons name="library-outline" size={18} color="#fff" />
+              <Text style={styles.analyseBtnText}>
+                Analyse {readyCards.length} Card{readyCards.length !== 1 ? "s" : ""}
               </Text>
             </Pressable>
           </View>
@@ -498,11 +462,17 @@ export default function CollectionScanScreen() {
   );
 }
 
+const CONDITION_COLORS: Record<string, string> = {
+  "Mint": "#10B981",
+  "Near Mint": "#3B82F6",
+  "Light Played": "#F59E0B",
+  "Played": "#F97316",
+  "Heavy Played": "#EF4444",
+  "Damaged": "#9CA3AF",
+};
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -511,10 +481,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.surfaceBorder,
   },
-  backBtn: {
-    width: 40,
-    alignItems: "flex-start",
-  },
+  backBtn: { width: 40, alignItems: "flex-start" },
   headerTitle: {
     flex: 1,
     fontFamily: "Inter_600SemiBold",
@@ -522,61 +489,81 @@ const styles = StyleSheet.create({
     color: Colors.text,
     textAlign: "center",
   },
-  clearBtn: {
-    width: 40,
-    alignItems: "flex-end",
-  },
-  statusBar: {
-    flexDirection: "row",
-    marginHorizontal: 16,
-    marginTop: 12,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 14,
-  },
-  statusItem: {
+  headerAction: { width: 40, alignItems: "flex-end" },
+
+  // Empty state
+  emptyWrap: {
     flex: 1,
-    alignItems: "center",
-    gap: 2,
-  },
-  statusNum: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 20,
-    color: Colors.text,
-  },
-  statusLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  statusDivider: {
-    width: 1,
-    backgroundColor: Colors.surfaceBorder,
-    marginVertical: 4,
-  },
-  cardList: {
-    flex: 1,
-  },
-  emptyState: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 60,
-    gap: 8,
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(59,130,246,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
   },
   emptyTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: Colors.textSecondary,
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    color: Colors.text,
   },
-  emptySub: {
+  emptyDesc: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.textMuted,
+    fontSize: 14,
+    color: Colors.textSecondary,
     textAlign: "center",
-    paddingHorizontal: 32,
+    lineHeight: 21,
   },
+  conditionLegend: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  condLegItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  condLegDot: { width: 8, height: 8, borderRadius: 4 },
+  condLegText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
+  startBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: "#3B82F6",
+    paddingVertical: 15,
+    paddingHorizontal: 40,
+    borderRadius: 14,
+    width: "100%",
+    marginTop: 4,
+  },
+  startBtnText: { fontFamily: "Inter_700Bold", fontSize: 16, color: "#fff" },
+  galleryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 8,
+  },
+  galleryBtnText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
+
+  // Captured cards list
+  capturedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  capturedTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: Colors.text },
+  capturedPartial: { fontFamily: "Inter_400Regular", fontSize: 12, color: "#F59E0B" },
+  cardList: { flex: 1 },
   cardRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -587,13 +574,7 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 10,
   },
-  cardRowLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  cardIndex: {
+  cardRowIndex: {
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -601,129 +582,152 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cardIndexText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-    color: Colors.textMuted,
+  cardRowIndexText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textMuted },
+  cardThumb: {
+    width: 44,
+    height: 62,
+    borderRadius: 5,
+    backgroundColor: Colors.surfaceLight,
   },
-  thumbSlot: {
-    width: 52,
-    height: 72,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    borderStyle: "dashed",
-    overflow: "hidden",
-  },
-  thumbSlotFilled: {
-    borderStyle: "solid",
-    borderColor: Colors.surfaceBorder,
-  },
-  thumbSlotDisabled: {
-    opacity: 0.4,
-  },
-  thumb: {
-    width: "100%",
-    height: "100%",
-  },
-  thumbEmpty: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-  },
-  thumbLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 9,
-    color: Colors.textMuted,
-  },
-  readyBadge: {
-    marginLeft: 4,
-  },
-  pendingBadge: {
-    marginLeft: 4,
-  },
-  removeBtn: {
-    padding: 4,
-  },
-  addCardBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    borderStyle: "dashed",
-  },
-  addCardBtnText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  bottomActions: {
+  cardRowReady: { flex: 1, flexDirection: "row", alignItems: "center", gap: 5 },
+  cardRowReadyText: { fontFamily: "Inter_500Medium", fontSize: 12, color: "#10B981" },
+  removeBtn: { padding: 4 },
+
+  // Bottom bar
+  bottomBar: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
+    flexDirection: "row",
+    gap: 10,
     padding: 16,
     paddingTop: 12,
     backgroundColor: Colors.background,
     borderTopWidth: 1,
     borderTopColor: Colors.surfaceBorder,
-    gap: 10,
   },
-  bottomRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  actionBtn: {
-    flex: 1,
+  scanMoreBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 11,
-    borderRadius: 10,
+    gap: 7,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    borderRadius: 12,
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
-  actionBtnText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.text,
-  },
-  scanBtn: {
+  scanMoreBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.text },
+  analyseBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 12,
     backgroundColor: "#3B82F6",
   },
-  scanBtnDisabled: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+  analyseBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: "#fff" },
+
+  // Camera overlay UI
+  cameraHud: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    zIndex: 20,
   },
-  scanBtnText: {
+  cameraCardBadge: {
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 6,
+    alignItems: "flex-start",
+  },
+  cameraCardBadgeNum: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: "#fff",
+    letterSpacing: 0.2,
+  },
+  cameraCardSidePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#3B82F6",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  cameraCardSidePillBack: {
+    backgroundColor: "#8B5CF6",
+  },
+  cameraCardSidePillText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
+  },
+  cameraDoneCountBadge: {
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  cameraDoneCountText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#10B981",
+  },
+  cameraInstruction: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    alignItems: "center",
+    zIndex: 20,
+  },
+  cameraInstructionText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: "rgba(255,255,255,0.85)",
+    textAlign: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  cameraDoneWrap: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    alignItems: "center",
+    zIndex: 20,
+  },
+  cameraDoneBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.3)",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 30,
+  },
+  cameraDoneBtnText: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: "#fff",
   },
-  scanBtnTextDisabled: {
-    color: Colors.textMuted,
-  },
+
   // Loading
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   loadingCard: {
     backgroundColor: Colors.surface,
     borderRadius: 20,
@@ -734,34 +738,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 16,
   },
-  loadingIconWrap: {
-    position: "relative",
-    marginBottom: 4,
-  },
+  loadingIconWrap: { position: "relative", marginBottom: 4 },
   loadingIconBg: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "rgba(59, 130, 246, 0.12)",
+    backgroundColor: "rgba(59,130,246,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  loadingSpinner: {
-    position: "absolute",
-    bottom: -4,
-    right: -4,
-  },
-  loadingTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: Colors.text,
-  },
-  loadingSubtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: "center",
-  },
+  loadingSpinner: { position: "absolute", bottom: -4, right: -4 },
+  loadingTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: Colors.text },
+  loadingSubtitle: { fontFamily: "Inter_400Regular", fontSize: 14, color: Colors.textSecondary, textAlign: "center" },
   progressBarBg: {
     width: "100%",
     height: 6,
@@ -769,66 +757,10 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     overflow: "hidden",
   },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#3B82F6",
-    borderRadius: 3,
-  },
-  stagesList: {
-    width: "100%",
-    gap: 10,
-    marginTop: 4,
-  },
-  stageRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  stageLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  stageLabelActive: {
-    color: Colors.text,
-    fontFamily: "Inter_500Medium",
-  },
-  stageLabelDone: {
-    color: "#10B981",
-  },
-  // Camera
-  bulkCameraTopRow: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    zIndex: 10,
-  },
-  bulkCameraBanner: {
-    backgroundColor: "rgba(0,0,0,0.75)",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  bulkCameraBannerText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#fff",
-  },
-  bulkCameraDoneBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  bulkCameraDoneBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#fff",
-  },
+  progressBarFill: { height: "100%", backgroundColor: "#3B82F6", borderRadius: 3 },
+  stagesList: { width: "100%", gap: 10, marginTop: 4 },
+  stageRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  stageLabel: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textMuted },
+  stageLabelActive: { color: Colors.text, fontFamily: "Inter_500Medium" },
+  stageLabelDone: { color: "#10B981" },
 });
