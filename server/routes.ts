@@ -4121,6 +4121,18 @@ function enforceGradingScales(result: any): any {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Temporary project download route — remove after download
+  app.get("/api/download-project", (req, res) => {
+    const file = path.join(__dirname, "gradeiq-download.tar.gz");
+    if (fs.existsSync(file)) {
+      res.setHeader("Content-Disposition", "attachment; filename=gradeiq.tar.gz");
+      res.setHeader("Content-Type", "application/gzip");
+      res.sendFile(file);
+    } else {
+      res.status(404).json({ error: "File not found" });
+    }
+  });
+
   // Ensure DB tables exist before any requests come in
   await initEbayPriceCacheTable();
   await initPriceHistoryTable();
