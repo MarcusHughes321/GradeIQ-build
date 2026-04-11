@@ -70,6 +70,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a9b6a0f7-3f67-4590-89a3-2aaa1e1691e7"
+      }
+    },
+    "owner": "marceustcg"
   }
 }
