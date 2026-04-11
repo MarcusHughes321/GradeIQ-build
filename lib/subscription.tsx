@@ -12,7 +12,7 @@ const FREE_MONTHLY_LIMIT = 3;
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
 
 const RC_API_KEY_IOS = process.env.EXPO_PUBLIC_RC_IOS_KEY || "appl_LEqJaUDWqGpXjrsgyQHtYaHyXRb";
-const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_RC_ANDROID_KEY || "";
+const RC_API_KEY_ANDROID = process.env.EXPO_PUBLIC_RC_ANDROID_KEY || "goog_PiUPqsdPMAiCwFMBwHsGxVHMyBS";
 
 export type SubscriptionTier = "free" | "curious" | "enthusiast" | "obsessed";
 
