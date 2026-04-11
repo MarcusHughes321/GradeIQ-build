@@ -24,7 +24,8 @@
       }
     },
     "android": {
-      "package": "com.myapp",
+      "package": "com.marceus.gradeiq",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
