@@ -248,38 +248,36 @@ export default function SettingsScreen() {
             : `Profit shown as both, e.g. +£150 (200%)`}
         </Text>
 
-        {(isSubscribed || isAdminMode) && (
-          <>
-            <View style={[styles.section, { marginTop: 32 }]}>
-              <Text style={styles.sectionTitle}>Currency</Text>
-              <Text style={styles.sectionSubtitle}>
-                Choose your preferred currency for market values
-              </Text>
-            </View>
-
-            <View style={styles.companyList}>
-              {CURRENCIES.map((c, i) => {
-                const selected = (settings.currency || "GBP") === c.code;
-                return (
-                  <React.Fragment key={c.code}>
-                    {i > 0 && <View style={styles.menuDivider} />}
-                    <Pressable
-                      onPress={() => setCurrency(c.code)}
-                      style={({ pressed }) => [styles.currencyRow, { opacity: pressed ? 0.7 : 1 }]}
-                    >
-                      <Text style={[styles.currencyLabel, selected && styles.currencySelected]}>{c.label}</Text>
-                      {selected && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
-                    </Pressable>
-                  </React.Fragment>
-                );
-              })}
-            </View>
-
-            <Text style={styles.hint}>
-              Changing currency will recalculate all card values when you return to the Home tab.
+        <>
+          <View style={[styles.section, { marginTop: 32 }]}>
+            <Text style={styles.sectionTitle}>Currency</Text>
+            <Text style={styles.sectionSubtitle}>
+              Choose your preferred currency for market values
             </Text>
-          </>
-        )}
+          </View>
+
+          <View style={styles.companyList}>
+            {CURRENCIES.map((c, i) => {
+              const selected = (settings.currency || "GBP") === c.code;
+              return (
+                <React.Fragment key={c.code}>
+                  {i > 0 && <View style={styles.menuDivider} />}
+                  <Pressable
+                    onPress={() => setCurrency(c.code)}
+                    style={({ pressed }) => [styles.currencyRow, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <Text style={[styles.currencyLabel, selected && styles.currencySelected]}>{c.label}</Text>
+                    {selected && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
+                  </Pressable>
+                </React.Fragment>
+              );
+            })}
+          </View>
+
+          <Text style={styles.hint}>
+            Changing currency will recalculate all card values when you return to the Home tab.
+          </Text>
+        </>
 
         {isAdminMode && (
           <>

@@ -20,7 +20,12 @@ import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
+import { useSettings } from "@/lib/settings-context";
+import { CURRENCIES } from "@/lib/settings";
+import { useQuery } from "@tanstack/react-query";
 import CardCamera from "@/components/CardCamera";
+
+const FALLBACK_RATES: Record<string, number> = { USD: 1, GBP: 0.79, EUR: 0.93, AUD: 1.55, CAD: 1.36, JPY: 151.6 };
 
 const MAX_CARDS = 100;
 const DEVICE_ID_KEY = "gradeiq_device_id";
@@ -96,6 +101,23 @@ export default function CollectionScanScreen() {
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+
+  const { settings } = useSettings();
+  const currency = settings.currency ?? "USD";
+  const currencyDef = CURRENCIES.find((c) => c.code === currency) ?? CURRENCIES[0];
+  const currencySymbol = currencyDef.symbol;
+  const { data: ratesData } = useQuery<Record<string, number>>({
+    queryKey: ["/api/exchange-rates"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const rates = ratesData ?? {};
+  const usdRate = rates["USD"] ?? 1;
+  const currencyRate = currency === "USD" ? 1 : (rates[currency] ?? FALLBACK_RATES[currency] ?? 1) / usdRate;
+
+  const fmtScanPrice = (usd: number) => {
+    const local = usd * currencyRate;
+    return currencySymbol === "¥" ? `${currencySymbol}${Math.round(local)}` : `${currencySymbol}${local.toFixed(2)}`;
+  };
 
   const fetchPastScans = useCallback(async () => {
     try {
@@ -469,7 +491,7 @@ export default function CollectionScanScreen() {
                       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                         <Text style={styles.historyDate}>{formatScanDate(scan.createdAt)}</Text>
                         <Text style={styles.historyValue}>
-                          ${scan.totalConditionUsd.toFixed(2)}
+                          {fmtScanPrice(scan.totalConditionUsd)}
                         </Text>
                       </View>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
