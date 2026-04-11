@@ -330,6 +330,21 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
     try {
       const { width: screenW, height: screenH } = Dimensions.get("window");
 
+      // Android cameras return raw sensor dimensions (often landscape) with EXIF rotation.
+      // Bake the EXIF rotation into the image first so crop coords are calculated correctly.
+      let workUri = uri;
+      let workW = photoW;
+      let workH = photoH;
+      if (Platform.OS === "android") {
+        const normalized = await ImageManipulator.manipulateAsync(uri, [], {
+          compress: 1,
+          format: ImageManipulator.SaveFormat.JPEG,
+        });
+        workUri = normalized.uri;
+        workW = normalized.width;
+        workH = normalized.height;
+      }
+
       const activeIsCorner = deepGradeFlow?.isCornerStep ?? false;
       const activeGuideW = activeIsCorner ? 180 : GUIDE_FRAME_W;
       const activeGuideH = activeIsCorner ? 180 : isSlabMode ? 430 : GUIDE_FRAME_H;
@@ -340,26 +355,26 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
       const frameY = (screenH - paddedH) / 2;
 
       const screenAspect = screenW / screenH;
-      const photoAspect = photoW / photoH;
+      const photoAspect = workW / workH;
 
       let scale: number, offsetX: number, offsetY: number;
       if (photoAspect > screenAspect) {
-        scale = photoH / screenH;
-        offsetX = (photoW - screenW * scale) / 2;
+        scale = workH / screenH;
+        offsetX = (workW - screenW * scale) / 2;
         offsetY = 0;
       } else {
-        scale = photoW / screenW;
+        scale = workW / screenW;
         offsetX = 0;
-        offsetY = (photoH - screenH * scale) / 2;
+        offsetY = (workH - screenH * scale) / 2;
       }
 
       const cropX = Math.max(0, Math.round(offsetX + frameX * scale));
       const cropY = Math.max(0, Math.round(offsetY + frameY * scale));
-      const cropW = Math.min(Math.round(paddedW * scale), photoW - cropX);
-      const cropH = Math.min(Math.round(paddedH * scale), photoH - cropY);
+      const cropW = Math.min(Math.round(paddedW * scale), workW - cropX);
+      const cropH = Math.min(Math.round(paddedH * scale), workH - cropY);
 
       const result = await ImageManipulator.manipulateAsync(
-        uri,
+        workUri,
         [{ crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } }],
         { compress: 0.97, format: ImageManipulator.SaveFormat.JPEG }
       );
