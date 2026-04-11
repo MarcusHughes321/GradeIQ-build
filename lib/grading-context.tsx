@@ -73,9 +73,14 @@ async function getBase64FromUri(uri: string): Promise<string> {
   const uploadMaxDim = __DEV__ ? 1024 : 2048;
   if (Platform.OS !== "web") {
     try {
+      // Android EXIF fix: rotate(0) forces a full decode respecting EXIF orientation
+      // so the re-encoded pixels are correctly oriented regardless of the original metadata.
+      const transforms: ImageManipulator.Action[] = Platform.OS === "android"
+        ? [{ rotate: 0 }, { resize: { width: uploadMaxDim } }]
+        : [{ resize: { width: uploadMaxDim } }];
       const result = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: uploadMaxDim } }],
+        transforms,
         { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       if (result.base64) {

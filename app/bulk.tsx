@@ -236,9 +236,13 @@ export default function BulkScreen() {
     if (uri.startsWith("data:")) return uri;
     if (Platform.OS !== "web") {
       try {
+        const dim = __DEV__ ? 1024 : 2048;
+        const transforms: ImageManipulator.Action[] = Platform.OS === "android"
+          ? [{ rotate: 0 }, { resize: { width: dim } }]
+          : [{ resize: { width: dim } }];
         const result = await ImageManipulator.manipulateAsync(
           uri,
-          [{ resize: { width: __DEV__ ? 1024 : 2048 } }],
+          transforms,
           { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         if (result.base64) return `data:image/jpeg;base64,${result.base64}`;

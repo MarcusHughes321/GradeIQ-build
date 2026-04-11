@@ -236,15 +236,20 @@ export default function CollectionScanScreen() {
 
     try {
       const cardPayloads: { frontBase64: string; backBase64: string }[] = [];
+      // On Android, camera images carry EXIF rotation that ImageManipulator does
+      // not always apply before a plain resize. Force a rotate(0) first which
+      // causes a full decode respecting EXIF, producing correctly-oriented pixels.
+      const orientTransforms: ImageManipulator.Action[] =
+        Platform.OS === "android" ? [{ rotate: 0 }] : [];
       for (const card of readyCards) {
         const frontResult = await ImageManipulator.manipulateAsync(
           card.frontImage!,
-          [{ resize: { width: 1024 } }],
+          [...orientTransforms, { resize: { width: 1024 } }],
           { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         const backResult = await ImageManipulator.manipulateAsync(
           card.backImage!,
-          [{ resize: { width: 1024 } }],
+          [...orientTransforms, { resize: { width: 1024 } }],
           { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         cardPayloads.push({
