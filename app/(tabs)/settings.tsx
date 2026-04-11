@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Platform, Switch, ScrollView, Pressable, Alert, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -24,6 +24,8 @@ export default function SettingsScreen() {
   const [syncing, setSyncing] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const lastTapRef = useRef(0);
+  const [adminModalVisible, setAdminModalVisible] = useState(false);
+  const [adminCodeInput, setAdminCodeInput] = useState("");
 
   const { data: flagCountData } = useQuery<{ needsReview: number }>({
     queryKey: ["/api/admin/price-flags/count"],
@@ -55,25 +57,8 @@ export default function SettingsScreen() {
             ]
           );
         } else {
-          Alert.prompt(
-            "Enter Admin Code",
-            "Enter the secret code to unlock unlimited access.",
-            [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Unlock",
-                onPress: (code?: string) => {
-                  if (code === "@dm!nM@rceus2026") {
-                    toggleAdminMode();
-                    Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
-                  } else {
-                    Alert.alert("Incorrect Code", "The code you entered is not valid.");
-                  }
-                },
-              },
-            ],
-            "secure-text"
-          );
+          setAdminCodeInput("");
+          setAdminModalVisible(true);
         }
       }
     } else {
@@ -522,6 +507,68 @@ export default function SettingsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* Admin code modal — replaces Alert.prompt which is iOS-only */}
+      <Modal
+        visible={adminModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAdminModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.7)" }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.adminModal}>
+            <Text style={styles.adminModalTitle}>Enter Admin Code</Text>
+            <Text style={styles.adminModalSubtitle}>Enter the secret code to unlock unlimited access.</Text>
+            <TextInput
+              style={styles.adminModalInput}
+              value={adminCodeInput}
+              onChangeText={setAdminCodeInput}
+              secureTextEntry
+              placeholder="Secret code"
+              placeholderTextColor={Colors.textMuted}
+              autoFocus
+              onSubmitEditing={() => {
+                if (adminCodeInput === "@dm!nM@rceus2026") {
+                  toggleAdminMode();
+                  setAdminModalVisible(false);
+                  setAdminCodeInput("");
+                  Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
+                } else {
+                  Alert.alert("Incorrect Code", "The code you entered is not valid.");
+                  setAdminCodeInput("");
+                }
+              }}
+            />
+            <View style={styles.adminModalBtns}>
+              <Pressable
+                onPress={() => { setAdminModalVisible(false); setAdminCodeInput(""); }}
+                style={({ pressed }) => [styles.adminModalBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.adminModalBtnCancel}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (adminCodeInput === "@dm!nM@rceus2026") {
+                    toggleAdminMode();
+                    setAdminModalVisible(false);
+                    setAdminCodeInput("");
+                    Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
+                  } else {
+                    Alert.alert("Incorrect Code", "The code you entered is not valid.");
+                    setAdminCodeInput("");
+                  }
+                }}
+                style={({ pressed }) => [styles.adminModalBtn, styles.adminModalBtnPrimary, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.adminModalBtnUnlock}>Unlock</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -896,6 +943,67 @@ const styles = StyleSheet.create({
   flagBadgeTxt: {
     fontFamily: "Inter_700Bold",
     fontSize: 11,
+    color: "#fff",
+  },
+  adminModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 32,
+    width: "100%",
+    maxWidth: 340,
+    gap: 12,
+  },
+  adminModalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+    textAlign: "center",
+  },
+  adminModalSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: "center",
+  },
+  adminModalInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.text,
+    marginTop: 4,
+  },
+  adminModalBtns: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  adminModalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  adminModalBtnPrimary: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  adminModalBtnCancel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: Colors.textSecondary,
+  },
+  adminModalBtnUnlock: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
     color: "#fff",
   },
 });

@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import Animated, {
-  useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence, Easing,
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence, Easing, withSpring,
 } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import {
   View,
   Text,
@@ -361,6 +362,77 @@ function TrendChart({ detail, history, currencySymbol, currencyRate, blurred = f
           </Text>
         </BlurredValue>
       )}
+    </View>
+  );
+}
+
+// ─── Cross-platform pinch-to-zoom wrapper ────────────────────────────────────
+// iOS: uses ScrollView's native maximumZoomScale. Android: uses GestureDetector
+// with Reanimated because ScrollView zoom props are iOS-only.
+function ZoomableView({ children }: { children: React.ReactNode }) {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const savedTx = useSharedValue(0);
+  const savedTy = useSharedValue(0);
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((e) => { scale.value = Math.max(1, Math.min(5, savedScale.value * e.scale)); })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+      if (scale.value < 1.05) {
+        scale.value = withSpring(1); savedScale.value = 1;
+        tx.value = withSpring(0); ty.value = withSpring(0);
+        savedTx.value = 0; savedTy.value = 0;
+      }
+    });
+
+  const pan = Gesture.Pan()
+    .minPointers(2)
+    .onUpdate((e) => {
+      if (scale.value > 1) {
+        tx.value = savedTx.value + e.translationX;
+        ty.value = savedTy.value + e.translationY;
+      }
+    })
+    .onEnd(() => { savedTx.value = tx.value; savedTy.value = ty.value; });
+
+  const doubleTap = Gesture.Tap().numberOfTaps(2).onEnd(() => {
+    scale.value = withSpring(1); savedScale.value = 1;
+    tx.value = withSpring(0); ty.value = withSpring(0);
+    savedTx.value = 0; savedTy.value = 0;
+  });
+
+  const combined = Gesture.Race(doubleTap, Gesture.Simultaneous(pinch, pan));
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }, { translateX: tx.value }, { translateY: ty.value }],
+  }));
+
+  if (Platform.OS !== "android") {
+    return (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, alignItems: "center", justifyContent: "center" }}
+        maximumZoomScale={5}
+        minimumZoomScale={1}
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        bouncesZoom={true}
+        centerContent={true}
+      >
+        {children}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <GestureDetector gesture={combined}>
+        <Animated.View style={[{ flex: 1, alignItems: "center", justifyContent: "center" }, animStyle]}>
+          {children}
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }
@@ -2237,17 +2309,7 @@ export default function ResultsScreen() {
             }}
             renderItem={({ item }) => (
               <View style={{ width: SCREEN_WIDTH }}>
-                <ScrollView
-                  ref={item.side === "front" ? zoomScrollRef : undefined}
-                  style={styles.zoomScrollView}
-                  contentContainerStyle={styles.zoomScrollContent}
-                  maximumZoomScale={5}
-                  minimumZoomScale={1}
-                  showsHorizontalScrollIndicator={false}
-                  showsVerticalScrollIndicator={false}
-                  bouncesZoom={true}
-                  centerContent={true}
-                >
+                <ZoomableView>
                   <View style={styles.modalImageWrap}>
                     <Image
                       source={{ uri: item.uri }}
@@ -2332,7 +2394,7 @@ export default function ResultsScreen() {
                       </View>
                     )}
                   </View>
-                </ScrollView>
+                </ZoomableView>
               </View>
             )}
           />
