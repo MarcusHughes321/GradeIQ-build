@@ -151,7 +151,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
             setTiltX(tx);
             setTiltY(ty);
             if (isAngledRef.current) {
-              const yInRange = Math.abs(ty + ANGLED_TARGET) <= ANGLED_THRESHOLD;
+              const yInRange = Math.abs(ty - ANGLED_TARGET) <= ANGLED_THRESHOLD;
               const xInRange = Math.abs(tx) <= LEVEL_THRESHOLD;
               setIsLevel(xInRange && yInRange);
             } else {
@@ -439,7 +439,7 @@ export default function CardCamera({ side, isAngled = false, isSlabMode = false,
   const levelColor = isLevel ? "#10B981" : isAngled ? angledAccentColor : Colors.primary;
 
   const bubbleX = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, tiltX * 2));
-  const rawBubbleY = isAngled ? -(tiltY + ANGLED_TARGET) * 2 : -tiltY * 2;
+  const rawBubbleY = isAngled ? -(tiltY - ANGLED_TARGET) * 2 : -tiltY * 2;
   const bubbleY = Math.max(-BUBBLE_RANGE, Math.min(BUBBLE_RANGE, rawBubbleY));
 
   const isCorner = deepGradeFlow?.isCornerStep ?? false;
