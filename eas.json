@@ -15,6 +15,9 @@
       }
     },
     "production": {
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "grade-iq.replit.app"
+      },
       "android": {
         "buildType": "app-bundle"
       }
