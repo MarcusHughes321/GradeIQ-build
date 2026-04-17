@@ -40,10 +40,10 @@ cd "$TMPDIR/repo"
 git config user.email "MarcusHughes321@gmail.com"
 git config user.name "MarcusHughes321"
 
-if git diff --quiet && git diff --staged --quiet; then
+git add --all
+if git diff --staged --quiet; then
   echo "Nothing to push - GitHub is already up to date"
 else
-  git add --all
   git commit -m "Grade.IQ v$VERSION"
   GIT_LFS_SKIP_PUSH=1 GIT_TERMINAL_PROMPT=0 git push origin main
   echo "Done! Successfully pushed v$VERSION to GitHub"

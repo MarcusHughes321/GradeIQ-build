@@ -62,6 +62,57 @@ function convertToClaudeContent(openAiContent: any[]): Anthropic.MessageParam["c
   });
 }
 
+function repairAndParseJSON(raw: string): any | null {
+  const attempt = (s: string): any | null => {
+    try { return JSON.parse(s); } catch { return null; }
+  };
+
+  let result = attempt(raw);
+  if (result !== null) return result;
+
+  let s = raw;
+
+  s = raw
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
+  result = attempt(s);
+  if (result !== null) return result;
+
+  s = raw.replace(/,(\s*[}\]])/g, '$1');
+  result = attempt(s);
+  if (result !== null) return result;
+
+  s = raw
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/,(\s*[}\]])/g, '$1');
+  result = attempt(s);
+  if (result !== null) return result;
+
+  for (let i = raw.length - 1; i > 10; i--) {
+    const ch = raw[i];
+    if (ch !== ',' && ch !== '}' && ch !== '"' && ch !== ']') continue;
+    const slice = raw.substring(0, i + (ch === ',' ? 0 : 1));
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (const c of slice) {
+      if (esc) { esc = false; continue; }
+      if (c === '\\') { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{' || c === '[') depth++;
+      if (c === '}' || c === ']') depth--;
+    }
+    if (depth === 1 && !inStr) {
+      result = attempt(slice + '}');
+      if (result !== null) return result;
+    }
+  }
+
+  return null;
+}
+
 const SET_CODE_TO_NAME: Record<string, string> = {};
 function initHardcodedSets() {
   for (const [code, name] of Object.entries(ENGLISH_SETS)) {
@@ -5635,7 +5686,8 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     let gradingResult: any;
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      gradingResult = JSON.parse(jsonMatch[0]);
+      gradingResult = repairAndParseJSON(jsonMatch[0]);
+      if (!gradingResult) throw new Error("Failed to parse AI response JSON (repair exhausted)");
     } else {
       throw new Error("No JSON found in AI response");
     }
@@ -5892,7 +5944,8 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     let gradingResult: any;
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      gradingResult = JSON.parse(jsonMatch[0]);
+      gradingResult = repairAndParseJSON(jsonMatch[0]);
+      if (!gradingResult) throw new Error("Failed to parse AI response JSON (repair exhausted)");
     } else {
       throw new Error("No JSON found in AI response");
     }
@@ -6100,14 +6153,11 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       const content = (gradingResponse.content[0] as Anthropic.TextBlock)?.text || "";
 
       let gradingResult;
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          gradingResult = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("No JSON found in response");
-        }
-      } catch (parseError) {
+      const jsonMatchReg = content.match(/\{[\s\S]*\}/);
+      if (jsonMatchReg) {
+        gradingResult = repairAndParseJSON(jsonMatchReg[0]);
+      }
+      if (!gradingResult) {
         return res.status(500).json({ error: "Failed to parse grading results", raw: content });
       }
 
@@ -6207,14 +6257,11 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
       const content = (response.content[0] as Anthropic.TextBlock)?.text || "";
 
       let result;
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          result = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("No JSON found in response");
-        }
-      } catch (parseError) {
+      const jsonMatchId = content.match(/\{[\s\S]*\}/);
+      if (jsonMatchId) {
+        result = repairAndParseJSON(jsonMatchId[0]);
+      }
+      if (!result) {
         return res.status(500).json({ error: "Failed to parse identification results", raw: content });
       }
 
@@ -8130,7 +8177,8 @@ RESPONSE FORMAT (JSON only, no markdown):
     const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("No JSON in crossover response");
 
-    const result = JSON.parse(jsonMatch[0]);
+    const result = repairAndParseJSON(jsonMatch[0]);
+    if (!result) throw new Error("Failed to parse crossover response JSON (repair exhausted)");
 
     if (!result.psa?.grade) throw new Error("Invalid crossover result structure");
 
