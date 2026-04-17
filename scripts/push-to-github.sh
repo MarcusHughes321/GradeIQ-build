@@ -1,5 +1,5 @@
 #!/bin/bash
-# Push current code to GitHub (fast - no full history)
+# Push current code to GitHub (fast - only changed files)
 # Usage: bash scripts/push-to-github.sh
 
 set -e
@@ -14,21 +14,37 @@ VERSION=$(node -p "require('./app.json').expo.version" 2>/dev/null || echo "unkn
 
 echo "Pushing Grade.IQ v$VERSION to GitHub..."
 
-# Create an orphan branch with just current files (no large history)
-git checkout --orphan _github_push 2>&1
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
 
-# Stage everything except attached_assets
-git add --all -- ':!attached_assets/' 2>&1
+# Shallow clone the current GitHub state
+echo "Fetching current GitHub state..."
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth=1 --quiet "$GITHUB_URL" "$TMPDIR/repo" 2>&1
 
-# Commit
-git commit -m "Grade.IQ v$VERSION" --quiet
+# Copy only source files (exclude large/unneeded dirs)
+echo "Copying updated source files..."
+for item in \
+  app app.json assets/grade-iq-logo.png assets/images \
+  assets/tier-icons babel.config.js components constants \
+  drizzle.config.ts eas.json eslint.config.js lib metro.config.js \
+  package.json patches public replit.md scripts server \
+  shared tsconfig.json .easignore .gitattributes .gitignore; do
+  if [ -e "/home/runner/workspace/$item" ]; then
+    mkdir -p "$TMPDIR/repo/$(dirname $item)"
+    cp -r "/home/runner/workspace/$item" "$TMPDIR/repo/$item"
+  fi
+done
 
-# Force push to GitHub main
-GIT_LFS_SKIP_PUSH=1 GIT_TERMINAL_PROMPT=0 git push --force "$GITHUB_URL" _github_push:main
-echo "✓ Successfully pushed to GitHub"
+# Commit and push only if there are changes
+cd "$TMPDIR/repo"
+git config user.email "MarcusHughes321@gmail.com"
+git config user.name "MarcusHughes321"
 
-# Switch back to main
-git checkout -f main 2>&1
-git branch -D _github_push 2>&1 || true
-
-echo "✓ Done! GitHub repo is up to date with v$VERSION"
+if git diff --quiet && git diff --staged --quiet; then
+  echo "Nothing to push - GitHub is already up to date"
+else
+  git add --all
+  git commit -m "Grade.IQ v$VERSION"
+  GIT_LFS_SKIP_PUSH=1 GIT_TERMINAL_PROMPT=0 git push origin main
+  echo "Done! Successfully pushed v$VERSION to GitHub"
+fi
