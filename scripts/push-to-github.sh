@@ -27,7 +27,7 @@ for item in \
   app app.json assets/grade-iq-logo.png assets/images \
   assets/tier-icons babel.config.js components constants \
   drizzle.config.ts eas.json eslint.config.js lib metro.config.js \
-  package.json patches public replit.md scripts server \
+  package.json package-lock.json patches public replit.md scripts server \
   shared tsconfig.json .easignore .gitattributes .gitignore; do
   if [ -e "/home/runner/workspace/$item" ]; then
     mkdir -p "$TMPDIR/repo/$(dirname $item)"
