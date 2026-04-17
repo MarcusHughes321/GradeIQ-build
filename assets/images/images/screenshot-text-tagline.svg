@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 30" width="600" height="30">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500&amp;display=swap');
+    </style>
+  </defs>
+  <text x="300" y="22" text-anchor="middle" font-family="Inter, sans-serif" font-weight="500" font-size="18" letter-spacing="0.5">
+    <tspan fill="#FF3C31">Built for the community, </tspan><tspan fill="#FFFFFF">by the community</tspan>
+  </text>
+</svg>
