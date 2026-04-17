@@ -31,6 +31,8 @@ for item in \
   shared tsconfig.json .easignore .gitattributes .gitignore; do
   if [ -e "/home/runner/workspace/$item" ]; then
     mkdir -p "$TMPDIR/repo/$(dirname $item)"
+    # Remove destination first so cp -r replaces instead of nesting inside existing dir
+    rm -rf "$TMPDIR/repo/$item"
     cp -r "/home/runner/workspace/$item" "$TMPDIR/repo/$item"
   fi
 done
