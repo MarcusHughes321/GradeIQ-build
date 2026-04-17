@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 90" width="600" height="90">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&amp;display=swap');
+    </style>
+  </defs>
+  <text x="300" y="30" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="28" fill="#FFFFFF" letter-spacing="-0.5">Deep Grade</text>
+  <text x="300" y="58" text-anchor="middle" font-family="Inter, sans-serif" font-weight="400" font-size="18" fill="#A0A0A0">12 image analysis for premium accuracy.</text>
+  <text x="300" y="80" text-anchor="middle" font-family="Inter, sans-serif" font-weight="400" font-size="15" fill="#666666">Front, back, angled shots &amp; corner close-ups.</text>
+</svg>
