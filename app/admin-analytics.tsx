@@ -79,6 +79,7 @@ export default function AdminAnalyticsScreen() {
   const daily: { day: string; count: string; cards: string }[] = data?.daily || [];
   const recent: { job_id: string; mode: string; card_count: number; status: string; created_at: string; duration_secs: number | null }[] = data?.recent || [];
   const rc: Record<string, number> | null = data?.rc ?? null;
+  const rcTiers: { curious: number; enthusiast: number; obsessed: number } | null = data?.rcTiers ?? null;
   const costs: { byMode: Record<string, number>; totalUsd: number } | null = data?.costs ?? null;
   const revenue: { mrrUsd: number; revenueUsd: number; profitUsd: number; marginPct: number } | null = data?.revenue ?? null;
 
@@ -161,6 +162,29 @@ export default function AdminAnalyticsScreen() {
                   ))}
                 </View>
               </View>
+
+              {rcTiers !== null && (
+                <>
+                  <Text style={styles.sectionTitle}>Subscribers by Tier</Text>
+                  <View style={styles.tiersCard}>
+                    {([
+                      { key: "curious", label: "Grade Curious", color: "#60A5FA", icon: "sparkles" as const },
+                      { key: "enthusiast", label: "Grade Enthusiast", color: "#F59E0B", icon: "flame" as const },
+                      { key: "obsessed", label: "Grade Obsessed", color: "#A78BFA", icon: "diamond" as const },
+                    ] as const).map((tier, i, arr) => (
+                      <View key={tier.key} style={[styles.tierRow, i < arr.length - 1 && styles.rowBorder]}>
+                        <View style={[styles.tierIconWrap, { backgroundColor: tier.color + "18" }]}>
+                          <Ionicons name={tier.icon} size={16} color={tier.color} />
+                        </View>
+                        <Text style={styles.tierLabel}>{tier.label}</Text>
+                        <Text style={[styles.tierCount, { color: tier.color }]}>
+                          {rcTiers[tier.key]}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              )}
 
               {revenue && costs && (
                 <>
@@ -493,5 +517,36 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 20,
     lineHeight: 16,
+  },
+  tiersCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    overflow: "hidden",
+  },
+  tierRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    paddingHorizontal: 16,
+  },
+  tierIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tierLabel: {
+    flex: 1,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  tierCount: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
   },
 });

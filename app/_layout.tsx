@@ -21,7 +21,7 @@ SplashScreen.preventAutoHideAsync();
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
 const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
 const WHATS_NEW_KEY = "gradeiq_whats_new_version";
-const CURRENT_VERSION = "1.0.7";
+const CURRENT_VERSION = "1.0.11";
 
 function RootLayoutNav() {
   useEffect(() => {

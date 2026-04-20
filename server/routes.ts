@@ -6952,7 +6952,7 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
         setName: c.set?.name || "",
         setId: c.set?.id || "",
         number: c.number || "",
-        imageUrl: c.images?.small || c.images?.large || null,
+        imageUrl: c.images?.large || c.images?.small || null,
       }));
 
       console.log(`[cards/search] Returning ${mapped.length} results`);
@@ -9179,6 +9179,18 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  app.post("/api/admin/verify", (req, res) => {
+    const { password } = req.body as { password?: string };
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) {
+      return res.status(500).json({ ok: false, error: "ADMIN_PASSWORD not configured" });
+    }
+    if (password && password === adminPassword) {
+      return res.json({ ok: true });
+    }
+    return res.status(401).json({ ok: false });
+  });
+
   async function fetchRCOverview() {
     const key = process.env.REVENUECAT_V2_KEY;
     const projectId = process.env.REVENUECAT_PROJECT_ID;
@@ -9193,6 +9205,48 @@ RESPONSE FORMAT (JSON only, no markdown):
       for (const item of json.metrics) m[item.id] = item.value;
       return m;
     } catch {
+      return null;
+    }
+  }
+
+  async function fetchRCTierBreakdown(): Promise<{ curious: number; enthusiast: number; obsessed: number } | null> {
+    const key = process.env.REVENUECAT_V2_KEY;
+    const projectId = process.env.REVENUECAT_PROJECT_ID;
+    if (!key || !projectId) return null;
+    try {
+      const tiers = { curious: 0, enthusiast: 0, obsessed: 0 };
+      let cursor: string | undefined;
+      let pages = 0;
+
+      while (pages < 10) {
+        const url = new URL(`https://api.revenuecat.com/v2/projects/${projectId}/customers`);
+        url.searchParams.set("limit", "200");
+        if (cursor) url.searchParams.set("starting_after", cursor);
+
+        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` } });
+        if (!r.ok) break;
+        const json = await r.json() as any;
+        const items: any[] = json.items ?? [];
+
+        for (const customer of items) {
+          const subs: Record<string, any> = customer.subscriptions ?? {};
+          for (const [productId, sub] of Object.entries(subs)) {
+            if (sub?.status !== "active") continue;
+            const id = productId.toLowerCase();
+            if (id.includes("curious")) tiers.curious++;
+            else if (id.includes("enthusiast")) tiers.enthusiast++;
+            else if (id.includes("obsessed")) tiers.obsessed++;
+          }
+        }
+
+        cursor = json.next_page ?? undefined;
+        pages++;
+        if (!cursor || items.length < 200) break;
+      }
+
+      return tiers;
+    } catch (e: any) {
+      console.error("[rc-tiers]", e.message);
       return null;
     }
   }
@@ -9247,7 +9301,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         `),
       ]);
 
-      const rcMetrics = await fetchRCOverview();
+      const [rcMetrics, rcTiers] = await Promise.all([fetchRCOverview(), fetchRCTierBreakdown()]);
 
       const costByMode: Record<string, number> = {};
       let totalCostUsd = 0;
@@ -9270,6 +9324,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         byMode: byMode.rows,
         recent: recent.rows,
         rc: rcMetrics,
+        rcTiers,
         costs: {
           byMode: costByMode,
           totalUsd: parseFloat(totalCostUsd.toFixed(2)),
@@ -9350,20 +9405,32 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // Fetch all cards for one set from Pokemon TCG API and return shaped rows
   async function fetchSetCardsFromApi(setId: string, setName: string): Promise<any[]> {
-    const resp = await fetch(
-      `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
-      { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
-    );
-    if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
-    const data = await resp.json() as any;
-    return (data?.data || []).map((c: any) => {
+    const allCards: any[] = [];
+    let page = 1;
+    while (true) {
+      const resp = await fetch(
+        `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${page}&select=id,name,number,rarity,images,tcgplayer`,
+        { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+      );
+      if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
+      const data = await resp.json() as any;
+      const pageCards: any[] = data?.data || [];
+      allCards.push(...pageCards);
+      // Stop when we've received all cards (totalCount is available in the response)
+      const totalCount: number = data?.totalCount ?? pageCards.length;
+      if (allCards.length >= totalCount || pageCards.length === 0) break;
+      page++;
+      // Polite delay between page fetches
+      await new Promise(r => setTimeout(r, 300));
+    }
+    return allCards.map((c: any) => {
       const tcgPrices = c.tcgplayer?.prices || {};
       return {
         id: c.id,
         name: c.name,
         number: c.number || "",
         rarity: c.rarity || null,
-        imageUrl: c.images?.small || c.images?.large || null,
+        imageUrl: c.images?.large || c.images?.small || null,
         price: pickBestTcgPrice(c.tcgplayer),
         prices: {
           holofoil: tcgPrices.holofoil?.market ?? null,
@@ -9399,9 +9466,9 @@ RESPONSE FORMAT (JSON only, no markdown):
            name             = EXCLUDED.name,
            number           = EXCLUDED.number,
            rarity           = EXCLUDED.rarity,
-           image_url        = EXCLUDED.image_url,
-           price_usd        = EXCLUDED.price_usd,
-           prices_json      = EXCLUDED.prices_json,
+           image_url        = COALESCE(EXCLUDED.image_url, card_catalog.image_url),
+           price_usd        = COALESCE(EXCLUDED.price_usd, card_catalog.price_usd),
+           prices_json      = COALESCE(EXCLUDED.prices_json, card_catalog.prices_json),
            price_updated_at = EXCLUDED.price_updated_at`,
         values
       );
@@ -10501,6 +10568,146 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // ── ME-series PokeTrace price fill ──────────────────────────────────────────
+  // pokemontcg.io has no TCGPlayer prices for newer ME sets (me2pt5, me3 etc.).
+  // PokeTrace has both TCGPlayer and eBay graded prices for them — this job
+  // fills the gap by searching PokeTrace per-card and upserting price_usd.
+  const ME_POKETRACE_SLUGS: Record<string, { slug: string; shortName: string }> = {
+    "me1":    { slug: "me-mega-evolution",    shortName: "Mega Evolution" },
+    "me2":    { slug: "me-phantasmal-flames", shortName: "Phantasmal Flames" },
+    "me2pt5": { slug: "me-ascended-heroes",   shortName: "Ascended Heroes" },
+    "me3":    { slug: "me03-perfect-order",   shortName: "Perfect Order" },
+  };
+
+  let mePriceFillRunning = false;
+
+  async function fillMeSetPricesFromPokeTrace(): Promise<void> {
+    if (mePriceFillRunning) { console.log("[me-prices] Fill already running — skipping"); return; }
+    mePriceFillRunning = true;
+    try {
+      const apiKey = process.env.POKETRACE_API_KEY;
+      if (!apiKey) { console.warn("[me-prices] No POKETRACE_API_KEY — skipping"); return; }
+
+      const targetSetIds = Object.keys(ME_POKETRACE_SLUGS);
+      const { rows: unpricedCards } = await db.query(
+        `SELECT card_id, set_id, set_name, name, number
+           FROM card_catalog
+          WHERE set_id = ANY($1) AND price_usd IS NULL AND name IS NOT NULL AND name <> ''
+                AND COALESCE(lang, 'en') = 'en'
+          ORDER BY set_id, number`,
+        [targetSetIds]
+      );
+
+      if (unpricedCards.length === 0) {
+        console.log("[me-prices] All ME set cards already priced — nothing to fill");
+        return;
+      }
+
+      console.log(`[me-prices] Fetching PokeTrace prices for ${unpricedCards.length} unpriced ME cards...`);
+      let priced = 0;
+      let notFound = 0;
+      const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      for (const card of unpricedCards as any[]) {
+        const meta = ME_POKETRACE_SLUGS[card.set_id];
+        if (!meta) continue;
+
+        const { slug: ptSlug, shortName } = meta;
+        const searchQuery = `${card.name} ${shortName}`;
+        const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(searchQuery)}&market=US&limit=10`;
+
+        try {
+          let resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(12000) });
+
+          if (resp.status === 429) {
+            const waitSec = Math.min(parseInt(resp.headers.get("retry-after") || "30", 10), 60);
+            console.warn(`[me-prices] 429 rate limit — waiting ${waitSec}s`);
+            await new Promise(r => setTimeout(r, waitSec * 1000));
+            resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(12000) });
+          }
+
+          if (!resp.ok) {
+            console.warn(`[me-prices] HTTP ${resp.status} for "${card.name}"`);
+            notFound++;
+            await new Promise(r => setTimeout(r, 500));
+            continue;
+          }
+
+          const data = await resp.json() as any;
+          const results: any[] = data?.data || [];
+
+          const baseNum = (card.number || "").split("/")[0].replace(/[^0-9]/g, "");
+          const slugMatch  = (c: any) => c.set?.slug === ptSlug;
+          const numMatch   = (c: any) => baseNum && (c.cardNumber?.split("/")[0] === baseNum || c.cardNumber === baseNum);
+          const nameMatch  = (c: any) => normalize(c.name || "") === normalize(card.name || "");
+          const notReverse = (c: any) => !(c.variant || "").toLowerCase().includes("reverse");
+
+          // Build candidate priority: prefer non-reverse, then anything from the set slug
+          const candidates =
+            results.filter(c => slugMatch(c) && numMatch(c) && notReverse(c)).concat(
+            results.filter(c => slugMatch(c) && numMatch(c))).concat(
+            results.filter(c => slugMatch(c) && nameMatch(c) && notReverse(c))).concat(
+            results.filter(c => slugMatch(c) && nameMatch(c))).concat(
+            results.filter(c => slugMatch(c)));
+          // Deduplicate by card ID
+          const seen = new Set<string>();
+          const ranked = candidates.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+
+          // Among candidates, pick the one with the best available price
+          const hasNM  = (c: any) => (c.prices?.tcgplayer?.NEAR_MINT?.avg ?? null) != null;
+          const hasEbayNM = (c: any) => (c.prices?.ebay?.NEAR_MINT?.avg ?? null) != null;
+          const match = ranked.find(c => hasNM(c)) || ranked.find(c => hasEbayNM(c)) || ranked[0];
+
+          if (!match) { notFound++; await new Promise(r => setTimeout(r, 200)); continue; }
+
+          const tcgpPrices = match.prices?.tcgplayer || {};
+          const ebayPrices = match.prices?.ebay || {};
+          // TCGPlayer NM is the preferred raw price; fall back to eBay NM raw if unavailable
+          const nmPrice: number | null = tcgpPrices.NEAR_MINT?.avg ?? ebayPrices.NEAR_MINT?.avg ?? null;
+          if (nmPrice == null) { notFound++; await new Promise(r => setTimeout(r, 200)); continue; }
+
+          const variantLower = (match.variant || "").toLowerCase();
+          const variantKey = variantLower.includes("reverse") ? "reverseHolofoil"
+                           : variantLower.includes("holo")    ? "holofoil"
+                           : "normal";
+          const pricesJson = {
+            [variantKey]: {
+              low: tcgpPrices.LIGHTLY_PLAYED?.avg ?? null,
+              mid: null,
+              high: null,
+              market: nmPrice,
+              directLow: null,
+            },
+          };
+
+          await db.query(
+            `UPDATE card_catalog SET price_usd = $1, prices_json = $2, price_updated_at = NOW() WHERE card_id = $3`,
+            [nmPrice, JSON.stringify(pricesJson), card.card_id]
+          );
+          priced++;
+        } catch (err: any) {
+          console.warn(`[me-prices] Error for "${card.name}" (${card.set_id}): ${err.message}`);
+          notFound++;
+        }
+
+        await new Promise(r => setTimeout(r, 250));
+      }
+
+      console.log(`[me-prices] Fill complete — priced: ${priced}, not found/no data: ${notFound}`);
+
+      const affectedSetIds = [...new Set<string>((unpricedCards as any[]).map(c => c.set_id))];
+      for (const sid of affectedSetIds) {
+        const { rows } = await db.query(
+          `SELECT COUNT(price_usd)::int AS priced FROM card_catalog WHERE set_id = $1 AND COALESCE(lang,'en')='en'`,
+          [sid]
+        );
+        upsertSetPriceStatus(sid, true, ((rows[0] as any)?.priced ?? 0) > 0);
+      }
+    } finally {
+      mePriceFillRunning = false;
+    }
+  }
+
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
   function scheduleDailyCardCatalogSync() {
     const now = new Date();
@@ -10512,6 +10719,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     console.log(`[card-catalog] Daily sync scheduled in ${delayMin} min`);
     setTimeout(async () => {
       await syncAllEnglishSets("prices-only");
+      await fillMeSetPricesFromPokeTrace();
       scheduleDailyCardCatalogSync();
     }, delay);
   }
@@ -10871,6 +11079,44 @@ RESPONSE FORMAT (JSON only, no markdown):
     } else {
       console.log(`[jp-catalog] JP catalog ready: ${jpCounts.size} sets, ${jpTotal} cards`);
     }
+
+    // Re-sync sets known to have been truncated at 250 cards (pagination bug now fixed).
+    // ME price fill runs AFTER so it can price any newly added cards in one pass.
+    void (async () => {
+      // me2pt5 included: orderBy=number caused alphabetical sorting which produced duplicate
+      // page-2 results — fixed by removing orderBy. Now fetches all 295 unique cards correctly.
+      const truncatedSets = ["swshp", "sm11", "sv1", "sv2", "sv4", "sv8", "swsh8", "me2pt5"];
+      for (const sid of truncatedSets) {
+        try {
+          const { rows } = await db.query(
+            `SELECT COUNT(*)::int AS n FROM card_catalog WHERE set_id = $1 AND COALESCE(lang,'en') = 'en'`,
+            [sid]
+          );
+          const dbCount: number = (rows[0] as any)?.n ?? 0;
+          // Fetch the set metadata to compare against API total
+          const apiResp = await fetch(`https://api.pokemontcg.io/v2/sets/${sid}`, { signal: AbortSignal.timeout(8000) });
+          if (!apiResp.ok) continue;
+          const apiSet = (await apiResp.json() as any)?.data;
+          const apiTotal: number = apiSet?.total ?? 0;
+          if (apiTotal > dbCount) {
+            console.log(`[card-catalog] ${sid}: DB has ${dbCount} cards, API has ${apiTotal} — re-syncing missing ${apiTotal - dbCount} cards...`);
+            const setName = apiSet?.name ?? sid;
+            const cards = await fetchSetCardsFromApi(sid, setName);
+            await upsertCardsForSet(cards);
+            const hasPrices = cards.some((c: any) => c.price != null);
+            upsertSetPriceStatus(sid, cards.length > 0, hasPrices);
+            setCardsCache.delete(`english:${sid}`);
+            console.log(`[card-catalog] ${sid}: re-sync complete (${cards.length} cards total)`);
+          }
+        } catch (err: any) {
+          console.warn(`[card-catalog] Re-sync check failed for ${sid}:`, err.message);
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      // Fill any ME-series cards that still have no price — runs after re-sync so newly
+      // added cards (e.g. me2pt5 SIR/MAR cards) are included in this pass.
+      await fillMeSetPricesFromPokeTrace();
+    })();
   })();
 
 
@@ -10963,7 +11209,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         setName: c.set?.name || "",
         setId: c.set?.id || "",
         number: c.number || "",
-        imageUrl: c.images?.small || c.images?.large || null,
+        imageUrl: c.images?.large || c.images?.small || null,
         rawPriceUSD: Math.round(c.bestPriceUSD * 100) / 100,
       }));
 
@@ -11379,21 +11625,31 @@ RESPONSE FORMAT (JSON only, no markdown):
       if (lang === "english") {
         if (isWotcEdition) {
           console.log(`[sets/cards] L3 API fetch (edition=${edition}): ${setId}`);
-          // Fetch from API and apply edition-specific price picking
-          const resp = await fetch(
-            `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
-            { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
-          );
-          if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
-          const data = await resp.json() as any;
-          cards = (data?.data || []).map((c: any) => {
+          // Fetch from API with pagination (sets can exceed 250 cards)
+          const wotcAll: any[] = [];
+          let wotcPage = 1;
+          while (true) {
+            const resp = await fetch(
+              `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${wotcPage}&select=id,name,number,rarity,images,tcgplayer`,
+              { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+            );
+            if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
+            const data = await resp.json() as any;
+            const pageData: any[] = data?.data || [];
+            wotcAll.push(...pageData);
+            const totalCount: number = data?.totalCount ?? pageData.length;
+            if (wotcAll.length >= totalCount || pageData.length === 0) break;
+            wotcPage++;
+            await new Promise(r => setTimeout(r, 300));
+          }
+          cards = wotcAll.map((c: any) => {
             const tcgPrices = c.tcgplayer?.prices || {};
             return {
               id: c.id,
               name: c.name,
               number: c.number || "",
               rarity: c.rarity || null,
-              imageUrl: c.images?.small || c.images?.large || null,
+              imageUrl: c.images?.large || c.images?.small || null,
               price: pickEditionTcgPrice(c.tcgplayer, edition),
               prices: {
                 holofoil: tcgPrices.holofoil?.market ?? null,

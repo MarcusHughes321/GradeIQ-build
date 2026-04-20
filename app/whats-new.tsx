@@ -1,165 +1,241 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Pressable,
   Platform,
+  FlatList,
+  Dimensions,
+  ListRenderItemInfo,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Colors from "@/constants/colors";
 
-const APP_VERSION = "1.0.7";
+const { width } = Dimensions.get("window");
 
-const RELEASES: {
-  version: string;
-  date: string;
-  items: { icon: keyof typeof Ionicons.glyphMap; color: string; title: string; desc: string }[];
-}[] = [
+type Slide = {
+  id: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  gradientColors: [string, string];
+  accentColor: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  isCta?: boolean;
+  bullets?: { icon: keyof typeof Ionicons.glyphMap; text: string }[];
+};
+
+const SLIDES: Slide[] = [
   {
-    version: "1.0.7",
-    date: "April 2026",
-    items: [
-      {
-        icon: "trophy-outline",
-        color: "#F59E0B",
-        title: "Top Grading Picks",
-        desc: "A curated feed of cards worth grading right now, ranked by profit potential. Each pick shows raw vs graded prices, estimated profit, and how quickly that grade sells.",
-      },
-      {
-        icon: "cash-outline",
-        color: "#10B981",
-        title: "Profit Analysis",
-        desc: "Tap any card to see real eBay sold prices for every grade — PSA, BGS, ACE, TAG and CGC — with 30-day averages, price ranges, and a trend sparkline.",
-      },
-      {
-        icon: "water-outline",
-        color: "#3B82F6",
-        title: "Liquidity Scores",
-        desc: "See how easily each grade sells. Tap a grade row and the liquidity bar, rating band and sale count all update to reflect that specific grade.",
-      },
-      {
-        icon: "albums-outline",
-        color: "#8B5CF6",
-        title: "Set Browser",
-        desc: "Browse any set and see live TCGPlayer prices per card, including Holo, Reverse Holo and Non-Holo variants side by side.",
-      },
+    id: "intro",
+    icon: "sparkles",
+    gradientColors: ["#8B5CF6", "#6D28D9"],
+    accentColor: "#8B5CF6",
+    title: "What's New",
+    subtitle: "Grade.IQ v1.0.11",
+    description:
+      "High-resolution card images across the whole app, plus the full Values hub to help you grade smarter and profit more.",
+  },
+  {
+    id: "top-picks",
+    icon: "trophy",
+    gradientColors: ["#F59E0B", "#B45309"],
+    accentColor: "#F59E0B",
+    title: "Top Grading Picks",
+    subtitle: "Curated daily, just for you",
+    description:
+      "A daily feed of cards scored by profit potential. Real eBay data, not guesswork — so you know exactly what you stand to make before you grade.",
+    bullets: [
+      { icon: "refresh", text: "Refreshed every day" },
+      { icon: "bar-chart", text: "Ranked by profit potential" },
+      { icon: "pricetag", text: "Raw vs graded price at a glance" },
     ],
   },
   {
-    version: "1.0.6",
-    date: "March 2026",
-    items: [
-      {
-        icon: "git-compare-outline",
-        color: "#8B5CF6",
-        title: "Crossover Monthly Limits",
-        desc: "Crossover grading is now available on all paid tiers — 10 per month on Curious, 25 on Enthusiast, and unlimited on Obsessed.",
-      },
-      {
-        icon: "shield-checkmark-outline",
-        color: "#F59E0B",
-        title: "Subscription Fixes",
-        desc: "Improved subscription detection after purchase, with smarter retry logic to prevent false 'free tier' downgrades.",
-      },
+    id: "profit",
+    icon: "trending-up",
+    gradientColors: ["#10B981", "#047857"],
+    accentColor: "#10B981",
+    title: "Full Profit Breakdown",
+    subtitle: "Real eBay sold prices",
+    description:
+      "Tap any card to see last-sold eBay prices for every grade — PSA, BGS, ACE, TAG and CGC — with 30-day averages, price ranges, and trend sparklines.",
+    bullets: [
+      { icon: "logo-usd", text: "Actual sold prices, not listings" },
+      { icon: "analytics", text: "30-day trends & price ranges" },
+      { icon: "calculator", text: "Grading cost factored in automatically" },
     ],
   },
   {
-    version: "1.0.5",
-    date: "February 2026",
-    items: [
-      {
-        icon: "layers-outline",
-        color: "#FF3C31",
-        title: "Background Grading",
-        desc: "Grade cards while browsing the rest of the app. A status banner on the Home tab keeps you updated.",
-      },
-      {
-        icon: "cube-outline",
-        color: "#F59E0B",
-        title: "Deep Grade Mode",
-        desc: "Submit up to 12 photos — front, back, angled shots, and 8 corner close-ups — for the highest accuracy analysis.",
-      },
-      {
-        icon: "people-outline",
-        color: "#10B981",
-        title: "Bulk Grading",
-        desc: "Grade up to 20 cards at once with parallel processing and average grade summaries.",
-      },
+    id: "liquidity",
+    icon: "water",
+    gradientColors: ["#3B82F6", "#1D4ED8"],
+    accentColor: "#3B82F6",
+    title: "Liquidity Scores",
+    subtitle: "Know before you grade",
+    description:
+      "Each grade shows a liquidity score and sale count so you know which grades actually sell — and which ones sit in your binder.",
+    bullets: [
+      { icon: "speedometer", text: "Liquidity score per grade" },
+      { icon: "people", text: "Real sale counts from eBay" },
+      { icon: "checkmark-circle", text: "Tap any grade row to update" },
     ],
+  },
+  {
+    id: "cta",
+    icon: "albums",
+    gradientColors: ["#FF3C31", "#B91C1C"],
+    accentColor: "#FF3C31",
+    title: "Your Grading\nIntelligence Hub",
+    subtitle: "All in the Values tab",
+    description:
+      "Browse sets, discover top picks, analyse profit margins, and make smarter grading decisions — everything in one place.",
+    isCta: true,
   },
 ];
 
-export default function WhatsNewScreen() {
+function SlideItem({ item, index }: { item: Slide; index: number }) {
   const insets = useSafeAreaInsets();
-  const webTopInset = Platform.OS === "web" ? 67 : 0;
-  const webBottomInset = Platform.OS === "web" ? 34 : 0;
+  const webTop = Platform.OS === "web" ? 67 : 0;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
-      <View style={styles.header}>
+    <View style={[styles.slide, { width, paddingTop: insets.top + webTop + 60 }]}>
+      <LinearGradient
+        colors={item.gradientColors}
+        style={styles.iconWrap}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Ionicons name={item.icon} size={52} color="#fff" />
+      </LinearGradient>
+
+      <Text style={[styles.subtitle, { color: item.accentColor }]}>{item.subtitle}</Text>
+      <Text style={styles.title}>{item.title}</Text>
+      <Text style={styles.description}>{item.description}</Text>
+
+      {item.bullets && (
+        <View style={styles.bullets}>
+          {item.bullets.map((b, i) => (
+            <View key={i} style={styles.bulletRow}>
+              <View style={[styles.bulletIcon, { backgroundColor: item.accentColor + "1A" }]}>
+                <Ionicons name={b.icon} size={15} color={item.accentColor} />
+              </View>
+              <Text style={styles.bulletText}>{b.text}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+export default function WhatsNewScreen() {
+  const insets = useSafeAreaInsets();
+  const webBottom = Platform.OS === "web" ? 34 : 0;
+  const flatListRef = useRef<FlatList<Slide>>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const { from } = useLocalSearchParams<{ from?: string }>();
+
+  const dismiss = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)");
+    }
+  };
+
+  const goToValues = () => {
+    if (router.canGoBack()) {
+      router.back();
+    }
+    setTimeout(() => router.push("/(tabs)/values"), 50);
+  };
+
+  const next = () => {
+    if (currentIndex < SLIDES.length - 1) {
+      flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      goToValues();
+    }
+  };
+
+  const isLast = currentIndex === SLIDES.length - 1;
+  const currentSlide = SLIDES[currentIndex];
+
+  return (
+    <View style={styles.container}>
+      <View style={[styles.topBar, { paddingTop: insets.top + (Platform.OS === "web" ? 67 : 0) + 12 }]}>
+        <View style={{ width: 52 }} />
+        <View style={styles.dots}>
+          {SLIDES.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.dot,
+                i === currentIndex && [styles.dotActive, { backgroundColor: currentSlide.accentColor }],
+              ]}
+            />
+          ))}
+        </View>
         <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}
+          onPress={dismiss}
+          style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
         >
-          <Ionicons name="chevron-back" size={24} color={Colors.text} />
+          <Text style={styles.skipText}>Skip</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>What's New</Text>
-        <View style={{ width: 32 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + webBottomInset + 40 }]}
-        showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior="never"
-        automaticallyAdjustContentInsets={false}
+      <FlatList<Slide>
+        ref={flatListRef}
+        data={SLIDES}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }: ListRenderItemInfo<Slide>) => (
+          <SlideItem item={item} index={index} />
+        )}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={(e) => {
+          const idx = Math.round(e.nativeEvent.contentOffset.x / width);
+          setCurrentIndex(idx);
+        }}
+        getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+        bounces={false}
+      />
+
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: insets.bottom + webBottom + 16 },
+        ]}
       >
-        <View style={styles.heroSection}>
-          <LinearGradient colors={["#8B5CF6", "#6D28D9"]} style={styles.heroBadge}>
-            <Ionicons name="sparkles" size={28} color="#fff" />
-          </LinearGradient>
-          <Text style={styles.heroTitle}>Version {APP_VERSION}</Text>
-          <Text style={styles.heroSubtitle}>
-            New features and improvements to make grading faster and smarter.
-          </Text>
-        </View>
-
-        {RELEASES.map((release, ri) => (
-          <View key={release.version} style={styles.releaseBlock}>
-            <View style={styles.releaseHeader}>
-              <View style={[styles.versionPill, ri === 0 && styles.versionPillLatest]}>
-                <Text style={[styles.versionPillText, ri === 0 && styles.versionPillTextLatest]}>
-                  v{release.version}
-                </Text>
-                {ri === 0 && (
-                  <View style={styles.latestBadge}>
-                    <Text style={styles.latestBadgeText}>Latest</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.releaseDate}>{release.date}</Text>
-            </View>
-
-            <View style={styles.itemsCard}>
-              {release.items.map((item, i) => (
-                <View key={i} style={[styles.itemRow, i < release.items.length - 1 && styles.itemRowBorder]}>
-                  <View style={[styles.itemIconWrap, { backgroundColor: item.color + "18" }]}>
-                    <Ionicons name={item.icon} size={20} color={item.color} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.itemTitle}>{item.title}</Text>
-                    <Text style={styles.itemDesc}>{item.desc}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        ))}
-      </ScrollView>
+        {isLast ? (
+          <Pressable
+            onPress={goToValues}
+            style={({ pressed }) => [styles.ctaBtn, { opacity: pressed ? 0.85 : 1, backgroundColor: currentSlide.accentColor }]}
+          >
+            <Text style={styles.ctaBtnText}>Explore Values</Text>
+            <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={next}
+            style={({ pressed }) => [
+              styles.nextBtn,
+              { opacity: pressed ? 0.85 : 1, borderColor: currentSlide.accentColor + "50" },
+            ]}
+          >
+            <Text style={[styles.nextBtnText, { color: currentSlide.accentColor }]}>Next</Text>
+            <Ionicons name="chevron-forward" size={18} color={currentSlide.accentColor} />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -169,137 +245,136 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  header: {
+  topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backBtn: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: Colors.text,
-  },
-  scroll: {
     paddingHorizontal: 20,
-    gap: 24,
+    paddingBottom: 8,
   },
-  heroSection: {
-    alignItems: "center",
-    paddingVertical: 16,
-    gap: 10,
-  },
-  heroBadge: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: Colors.text,
-    textAlign: "center",
-  },
-  heroSubtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: 10,
-  },
-  releaseBlock: {
-    gap: 10,
-  },
-  releaseHeader: {
+  dots: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  versionPill: {
-    flexDirection: "row",
-    alignItems: "center",
     gap: 6,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    alignItems: "center",
   },
-  versionPillLatest: {
-    backgroundColor: "rgba(139, 92, 246, 0.12)",
-    borderColor: "rgba(139, 92, 246, 0.3)",
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.surfaceBorder,
   },
-  versionPillText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 13,
-    color: Colors.textSecondary,
+  dotActive: {
+    width: 20,
+    borderRadius: 3,
+    height: 6,
   },
-  versionPillTextLatest: {
-    color: "#8B5CF6",
+  skipBtn: {
+    width: 52,
+    alignItems: "flex-end",
   },
-  latestBadge: {
-    backgroundColor: "#8B5CF6",
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  latestBadgeText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 9,
-    color: "#fff",
-    letterSpacing: 0.3,
-  },
-  releaseDate: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
+  skipText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
     color: Colors.textMuted,
   },
-  itemsCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    overflow: "hidden",
+  slide: {
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 20,
+    gap: 16,
   },
-  itemRow: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
-    padding: 14,
-  },
-  itemRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
-  },
-  itemIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+  iconWrap: {
+    width: 110,
+    height: 110,
+    borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
+    marginBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
   },
-  itemTitle: {
+  subtitle: {
     fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 28,
+    color: Colors.text,
+    textAlign: "center",
+    lineHeight: 34,
+  },
+  description: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  bullets: {
+    alignSelf: "stretch",
+    gap: 10,
+    marginTop: 8,
+  },
+  bulletRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  bulletIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bulletText: {
+    fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: Colors.text,
-    marginBottom: 3,
+    flex: 1,
   },
-  itemDesc: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: Colors.textSecondary,
-    lineHeight: 17,
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    alignItems: "stretch",
+  },
+  ctaBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    paddingVertical: 16,
+    gap: 4,
+  },
+  ctaBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: "#fff",
+  },
+  nextBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    paddingVertical: 16,
+    borderWidth: 1.5,
+    backgroundColor: Colors.surface,
+    gap: 4,
+  },
+  nextBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
   },
 });

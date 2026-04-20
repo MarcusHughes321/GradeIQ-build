@@ -26,6 +26,7 @@ export default function SettingsScreen() {
   const lastTapRef = useRef(0);
   const [adminModalVisible, setAdminModalVisible] = useState(false);
   const [adminCodeInput, setAdminCodeInput] = useState("");
+  const [adminVerifying, setAdminVerifying] = useState(false);
 
   const { data: flagCountData } = useQuery<{ needsReview: number }>({
     queryKey: ["/api/admin/price-flags/count"],
@@ -66,6 +67,32 @@ export default function SettingsScreen() {
     }
     lastTapRef.current = now;
   }, [tapCount, isAdminMode, toggleAdminMode]);
+  const verifyAdminCode = async () => {
+    if (!adminCodeInput.trim() || adminVerifying) return;
+    setAdminVerifying(true);
+    try {
+      const url = new URL("/api/admin/verify", getApiUrl());
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminCodeInput }),
+      });
+      if (res.ok) {
+        toggleAdminMode();
+        setAdminModalVisible(false);
+        setAdminCodeInput("");
+        Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
+      } else {
+        Alert.alert("Incorrect Code", "The code you entered is not valid.");
+        setAdminCodeInput("");
+      }
+    } catch {
+      Alert.alert("Error", "Could not verify code. Check your connection.");
+    } finally {
+      setAdminVerifying(false);
+    }
+  };
+
   const handleRestore = useCallback(async () => {
     if (!rcConfigured) {
       Alert.alert("Not Available", "Subscription management is only available on physical devices.");
@@ -530,17 +557,7 @@ export default function SettingsScreen() {
               placeholder="Secret code"
               placeholderTextColor={Colors.textMuted}
               autoFocus
-              onSubmitEditing={() => {
-                if (adminCodeInput === "@dm!nM@rceus2026") {
-                  toggleAdminMode();
-                  setAdminModalVisible(false);
-                  setAdminCodeInput("");
-                  Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
-                } else {
-                  Alert.alert("Incorrect Code", "The code you entered is not valid.");
-                  setAdminCodeInput("");
-                }
-              }}
+              onSubmitEditing={verifyAdminCode}
             />
             <View style={styles.adminModalBtns}>
               <Pressable
@@ -550,20 +567,13 @@ export default function SettingsScreen() {
                 <Text style={styles.adminModalBtnCancel}>Cancel</Text>
               </Pressable>
               <Pressable
-                onPress={() => {
-                  if (adminCodeInput === "@dm!nM@rceus2026") {
-                    toggleAdminMode();
-                    setAdminModalVisible(false);
-                    setAdminCodeInput("");
-                    Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
-                  } else {
-                    Alert.alert("Incorrect Code", "The code you entered is not valid.");
-                    setAdminCodeInput("");
-                  }
-                }}
+                onPress={verifyAdminCode}
                 style={({ pressed }) => [styles.adminModalBtn, styles.adminModalBtnPrimary, { opacity: pressed ? 0.7 : 1 }]}
               >
-                <Text style={styles.adminModalBtnUnlock}>Unlock</Text>
+                {adminVerifying
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.adminModalBtnUnlock}>Unlock</Text>
+                }
               </Pressable>
             </View>
           </View>
