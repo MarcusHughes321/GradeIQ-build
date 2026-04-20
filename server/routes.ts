@@ -10556,6 +10556,146 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // ── ME-series PokeTrace price fill ──────────────────────────────────────────
+  // pokemontcg.io has no TCGPlayer prices for newer ME sets (me2pt5, me3 etc.).
+  // PokeTrace has both TCGPlayer and eBay graded prices for them — this job
+  // fills the gap by searching PokeTrace per-card and upserting price_usd.
+  const ME_POKETRACE_SLUGS: Record<string, { slug: string; shortName: string }> = {
+    "me1":    { slug: "me-mega-evolution",    shortName: "Mega Evolution" },
+    "me2":    { slug: "me-phantasmal-flames", shortName: "Phantasmal Flames" },
+    "me2pt5": { slug: "me-ascended-heroes",   shortName: "Ascended Heroes" },
+    "me3":    { slug: "me03-perfect-order",   shortName: "Perfect Order" },
+  };
+
+  let mePriceFillRunning = false;
+
+  async function fillMeSetPricesFromPokeTrace(): Promise<void> {
+    if (mePriceFillRunning) { console.log("[me-prices] Fill already running — skipping"); return; }
+    mePriceFillRunning = true;
+    try {
+      const apiKey = process.env.POKETRACE_API_KEY;
+      if (!apiKey) { console.warn("[me-prices] No POKETRACE_API_KEY — skipping"); return; }
+
+      const targetSetIds = Object.keys(ME_POKETRACE_SLUGS);
+      const { rows: unpricedCards } = await db.query(
+        `SELECT card_id, set_id, set_name, name, number
+           FROM card_catalog
+          WHERE set_id = ANY($1) AND price_usd IS NULL AND name IS NOT NULL AND name <> ''
+                AND COALESCE(lang, 'en') = 'en'
+          ORDER BY set_id, number`,
+        [targetSetIds]
+      );
+
+      if (unpricedCards.length === 0) {
+        console.log("[me-prices] All ME set cards already priced — nothing to fill");
+        return;
+      }
+
+      console.log(`[me-prices] Fetching PokeTrace prices for ${unpricedCards.length} unpriced ME cards...`);
+      let priced = 0;
+      let notFound = 0;
+      const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      for (const card of unpricedCards as any[]) {
+        const meta = ME_POKETRACE_SLUGS[card.set_id];
+        if (!meta) continue;
+
+        const { slug: ptSlug, shortName } = meta;
+        const searchQuery = `${card.name} ${shortName}`;
+        const url = `https://api.poketrace.com/v1/cards?search=${encodeURIComponent(searchQuery)}&market=US&limit=10`;
+
+        try {
+          let resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(12000) });
+
+          if (resp.status === 429) {
+            const waitSec = Math.min(parseInt(resp.headers.get("retry-after") || "30", 10), 60);
+            console.warn(`[me-prices] 429 rate limit — waiting ${waitSec}s`);
+            await new Promise(r => setTimeout(r, waitSec * 1000));
+            resp = await fetch(url, { headers: { "X-API-Key": apiKey }, signal: AbortSignal.timeout(12000) });
+          }
+
+          if (!resp.ok) {
+            console.warn(`[me-prices] HTTP ${resp.status} for "${card.name}"`);
+            notFound++;
+            await new Promise(r => setTimeout(r, 500));
+            continue;
+          }
+
+          const data = await resp.json() as any;
+          const results: any[] = data?.data || [];
+
+          const baseNum = (card.number || "").split("/")[0].replace(/[^0-9]/g, "");
+          const slugMatch  = (c: any) => c.set?.slug === ptSlug;
+          const numMatch   = (c: any) => baseNum && (c.cardNumber?.split("/")[0] === baseNum || c.cardNumber === baseNum);
+          const nameMatch  = (c: any) => normalize(c.name || "") === normalize(card.name || "");
+          const notReverse = (c: any) => !(c.variant || "").toLowerCase().includes("reverse");
+
+          // Build candidate priority: prefer non-reverse, then anything from the set slug
+          const candidates =
+            results.filter(c => slugMatch(c) && numMatch(c) && notReverse(c)).concat(
+            results.filter(c => slugMatch(c) && numMatch(c))).concat(
+            results.filter(c => slugMatch(c) && nameMatch(c) && notReverse(c))).concat(
+            results.filter(c => slugMatch(c) && nameMatch(c))).concat(
+            results.filter(c => slugMatch(c)));
+          // Deduplicate by card ID
+          const seen = new Set<string>();
+          const ranked = candidates.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+
+          // Among candidates, pick the one with the best available price
+          const hasNM  = (c: any) => (c.prices?.tcgplayer?.NEAR_MINT?.avg ?? null) != null;
+          const hasEbayNM = (c: any) => (c.prices?.ebay?.NEAR_MINT?.avg ?? null) != null;
+          const match = ranked.find(c => hasNM(c)) || ranked.find(c => hasEbayNM(c)) || ranked[0];
+
+          if (!match) { notFound++; await new Promise(r => setTimeout(r, 200)); continue; }
+
+          const tcgpPrices = match.prices?.tcgplayer || {};
+          const ebayPrices = match.prices?.ebay || {};
+          // TCGPlayer NM is the preferred raw price; fall back to eBay NM raw if unavailable
+          const nmPrice: number | null = tcgpPrices.NEAR_MINT?.avg ?? ebayPrices.NEAR_MINT?.avg ?? null;
+          if (nmPrice == null) { notFound++; await new Promise(r => setTimeout(r, 200)); continue; }
+
+          const variantLower = (match.variant || "").toLowerCase();
+          const variantKey = variantLower.includes("reverse") ? "reverseHolofoil"
+                           : variantLower.includes("holo")    ? "holofoil"
+                           : "normal";
+          const pricesJson = {
+            [variantKey]: {
+              low: tcgpPrices.LIGHTLY_PLAYED?.avg ?? null,
+              mid: null,
+              high: null,
+              market: nmPrice,
+              directLow: null,
+            },
+          };
+
+          await db.query(
+            `UPDATE card_catalog SET price_usd = $1, prices_json = $2, price_updated_at = NOW() WHERE card_id = $3`,
+            [nmPrice, JSON.stringify(pricesJson), card.card_id]
+          );
+          priced++;
+        } catch (err: any) {
+          console.warn(`[me-prices] Error for "${card.name}" (${card.set_id}): ${err.message}`);
+          notFound++;
+        }
+
+        await new Promise(r => setTimeout(r, 250));
+      }
+
+      console.log(`[me-prices] Fill complete — priced: ${priced}, not found/no data: ${notFound}`);
+
+      const affectedSetIds = [...new Set<string>((unpricedCards as any[]).map(c => c.set_id))];
+      for (const sid of affectedSetIds) {
+        const { rows } = await db.query(
+          `SELECT COUNT(price_usd)::int AS priced FROM card_catalog WHERE set_id = $1 AND COALESCE(lang,'en')='en'`,
+          [sid]
+        );
+        upsertSetPriceStatus(sid, true, ((rows[0] as any)?.priced ?? 0) > 0);
+      }
+    } finally {
+      mePriceFillRunning = false;
+    }
+  }
+
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
   function scheduleDailyCardCatalogSync() {
     const now = new Date();
@@ -10567,6 +10707,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     console.log(`[card-catalog] Daily sync scheduled in ${delayMin} min`);
     setTimeout(async () => {
       await syncAllEnglishSets("prices-only");
+      await fillMeSetPricesFromPokeTrace();
       scheduleDailyCardCatalogSync();
     }, delay);
   }
@@ -10926,6 +11067,9 @@ RESPONSE FORMAT (JSON only, no markdown):
     } else {
       console.log(`[jp-catalog] JP catalog ready: ${jpCounts.size} sets, ${jpTotal} cards`);
     }
+
+    // Fill any ME-series cards that still have no price (runs once, ~90s for 374 cards)
+    void fillMeSetPricesFromPokeTrace();
   })();
 
 
