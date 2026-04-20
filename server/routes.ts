@@ -9405,13 +9405,25 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // Fetch all cards for one set from Pokemon TCG API and return shaped rows
   async function fetchSetCardsFromApi(setId: string, setName: string): Promise<any[]> {
-    const resp = await fetch(
-      `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
-      { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
-    );
-    if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
-    const data = await resp.json() as any;
-    return (data?.data || []).map((c: any) => {
+    const allCards: any[] = [];
+    let page = 1;
+    while (true) {
+      const resp = await fetch(
+        `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${page}&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
+        { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+      );
+      if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
+      const data = await resp.json() as any;
+      const pageCards: any[] = data?.data || [];
+      allCards.push(...pageCards);
+      // Stop when we've received all cards (totalCount is available in the response)
+      const totalCount: number = data?.totalCount ?? pageCards.length;
+      if (allCards.length >= totalCount || pageCards.length === 0) break;
+      page++;
+      // Polite delay between page fetches
+      await new Promise(r => setTimeout(r, 300));
+    }
+    return allCards.map((c: any) => {
       const tcgPrices = c.tcgplayer?.prices || {};
       return {
         id: c.id,
@@ -11070,6 +11082,38 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     // Fill any ME-series cards that still have no price (runs once, ~90s for 374 cards)
     void fillMeSetPricesFromPokeTrace();
+
+    // Re-sync sets known to have been truncated at 250 cards (pagination bug now fixed)
+    void (async () => {
+      const truncatedSets = ["swshp", "sm11", "sv1", "sv2", "sv4", "sv8", "swsh8", "me2pt5"];
+      for (const sid of truncatedSets) {
+        try {
+          const { rows } = await db.query(
+            `SELECT COUNT(*)::int AS n FROM card_catalog WHERE set_id = $1 AND COALESCE(lang,'en') = 'en'`,
+            [sid]
+          );
+          const dbCount: number = (rows[0] as any)?.n ?? 0;
+          // Fetch the set metadata to compare against API total
+          const apiResp = await fetch(`https://api.pokemontcg.io/v2/sets/${sid}`, { signal: AbortSignal.timeout(8000) });
+          if (!apiResp.ok) continue;
+          const apiSet = (await apiResp.json() as any)?.data;
+          const apiTotal: number = apiSet?.total ?? 0;
+          if (apiTotal > dbCount) {
+            console.log(`[card-catalog] ${sid}: DB has ${dbCount} cards, API has ${apiTotal} — re-syncing missing ${apiTotal - dbCount} cards...`);
+            const setName = apiSet?.name ?? sid;
+            const cards = await fetchSetCardsFromApi(sid, setName);
+            await upsertCardsForSet(cards);
+            const hasPrices = cards.some((c: any) => c.price != null);
+            upsertSetPriceStatus(sid, cards.length > 0, hasPrices);
+            setCardsCache.delete(`english:${sid}`);
+            console.log(`[card-catalog] ${sid}: re-sync complete (${cards.length} cards total)`);
+          }
+        } catch (err: any) {
+          console.warn(`[card-catalog] Re-sync check failed for ${sid}:`, err.message);
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+    })();
   })();
 
 
@@ -11578,14 +11622,24 @@ RESPONSE FORMAT (JSON only, no markdown):
       if (lang === "english") {
         if (isWotcEdition) {
           console.log(`[sets/cards] L3 API fetch (edition=${edition}): ${setId}`);
-          // Fetch from API and apply edition-specific price picking
-          const resp = await fetch(
-            `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
-            { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) }
-          );
-          if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
-          const data = await resp.json() as any;
-          cards = (data?.data || []).map((c: any) => {
+          // Fetch from API with pagination (sets can exceed 250 cards)
+          const wotcAll: any[] = [];
+          let wotcPage = 1;
+          while (true) {
+            const resp = await fetch(
+              `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${wotcPage}&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
+              { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
+            );
+            if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
+            const data = await resp.json() as any;
+            const pageData: any[] = data?.data || [];
+            wotcAll.push(...pageData);
+            const totalCount: number = data?.totalCount ?? pageData.length;
+            if (wotcAll.length >= totalCount || pageData.length === 0) break;
+            wotcPage++;
+            await new Promise(r => setTimeout(r, 300));
+          }
+          cards = wotcAll.map((c: any) => {
             const tcgPrices = c.tcgplayer?.prices || {};
             return {
               id: c.id,
