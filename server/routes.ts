@@ -9197,6 +9197,48 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  async function fetchRCTierBreakdown(): Promise<{ curious: number; enthusiast: number; obsessed: number } | null> {
+    const key = process.env.REVENUECAT_V2_KEY;
+    const projectId = process.env.REVENUECAT_PROJECT_ID;
+    if (!key || !projectId) return null;
+    try {
+      const tiers = { curious: 0, enthusiast: 0, obsessed: 0 };
+      let cursor: string | undefined;
+      let pages = 0;
+
+      while (pages < 10) {
+        const url = new URL(`https://api.revenuecat.com/v2/projects/${projectId}/customers`);
+        url.searchParams.set("limit", "200");
+        if (cursor) url.searchParams.set("starting_after", cursor);
+
+        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` } });
+        if (!r.ok) break;
+        const json = await r.json() as any;
+        const items: any[] = json.items ?? [];
+
+        for (const customer of items) {
+          const subs: Record<string, any> = customer.subscriptions ?? {};
+          for (const [productId, sub] of Object.entries(subs)) {
+            if (sub?.status !== "active") continue;
+            const id = productId.toLowerCase();
+            if (id.includes("curious")) tiers.curious++;
+            else if (id.includes("enthusiast")) tiers.enthusiast++;
+            else if (id.includes("obsessed")) tiers.obsessed++;
+          }
+        }
+
+        cursor = json.next_page ?? undefined;
+        pages++;
+        if (!cursor || items.length < 200) break;
+      }
+
+      return tiers;
+    } catch (e: any) {
+      console.error("[rc-tiers]", e.message);
+      return null;
+    }
+  }
+
   const COST_PER_GRADE_USD: Record<string, number> = {
     quick: 0.018,
     deep: 0.040,
@@ -9247,7 +9289,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         `),
       ]);
 
-      const rcMetrics = await fetchRCOverview();
+      const [rcMetrics, rcTiers] = await Promise.all([fetchRCOverview(), fetchRCTierBreakdown()]);
 
       const costByMode: Record<string, number> = {};
       let totalCostUsd = 0;
@@ -9270,6 +9312,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         byMode: byMode.rows,
         recent: recent.rows,
         rc: rcMetrics,
+        rcTiers,
         costs: {
           byMode: costByMode,
           totalUsd: parseFloat(totalCostUsd.toFixed(2)),

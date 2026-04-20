@@ -531,7 +531,7 @@ export default function SettingsScreen() {
               placeholderTextColor={Colors.textMuted}
               autoFocus
               onSubmitEditing={() => {
-                if (adminCodeInput === "@dm!nM@rceus2026") {
+                if (adminCodeInput === "admin") {
                   toggleAdminMode();
                   setAdminModalVisible(false);
                   setAdminCodeInput("");
@@ -551,7 +551,7 @@ export default function SettingsScreen() {
               </Pressable>
               <Pressable
                 onPress={() => {
-                  if (adminCodeInput === "@dm!nM@rceus2026") {
+                  if (adminCodeInput === "admin") {
                     toggleAdminMode();
                     setAdminModalVisible(false);
                     setAdminCodeInput("");
