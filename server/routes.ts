@@ -9466,9 +9466,9 @@ RESPONSE FORMAT (JSON only, no markdown):
            name             = EXCLUDED.name,
            number           = EXCLUDED.number,
            rarity           = EXCLUDED.rarity,
-           image_url        = EXCLUDED.image_url,
-           price_usd        = EXCLUDED.price_usd,
-           prices_json      = EXCLUDED.prices_json,
+           image_url        = COALESCE(EXCLUDED.image_url, card_catalog.image_url),
+           price_usd        = COALESCE(EXCLUDED.price_usd, card_catalog.price_usd),
+           prices_json      = COALESCE(EXCLUDED.prices_json, card_catalog.prices_json),
            price_updated_at = EXCLUDED.price_updated_at`,
         values
       );
@@ -11085,7 +11085,9 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     // Re-sync sets known to have been truncated at 250 cards (pagination bug now fixed)
     void (async () => {
-      const truncatedSets = ["swshp", "sm11", "sv1", "sv2", "sv4", "sv8", "swsh8", "me2pt5"];
+      // me2pt5 removed: pokemontcg.io API has a bug returning duplicate page-2 cards;
+      // actual unique count is 250 (matches our DB). Re-syncing it would wipe PokeTrace prices.
+      const truncatedSets = ["swshp", "sm11", "sv1", "sv2", "sv4", "sv8", "swsh8"];
       for (const sid of truncatedSets) {
         try {
           const { rows } = await db.query(
