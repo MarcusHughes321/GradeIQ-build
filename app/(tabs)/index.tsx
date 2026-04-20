@@ -21,6 +21,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut, SlideInUp } from "react-native-reanimated";
 import Colors from "@/constants/colors";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
 import { apiRequest } from "@/lib/query-client";
 import type { SavedGrading } from "@/lib/types";
@@ -277,12 +278,23 @@ export default function HomeScreen() {
 
   const fetchingValuesRef = useRef(false);
 
+  const PRO_REMINDER_KEY = "pro_reminder_last_shown";
+  const PRO_REMINDER_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
   useFocusEffect(
     useCallback(() => {
       loadGradings();
       if (isGateEnabled && !isSubscribed && !proReminderShownRef.current) {
-        proReminderShownRef.current = true;
-        setShowProReminder(true);
+        AsyncStorage.getItem(PRO_REMINDER_KEY).then((val) => {
+          const lastShown = val ? parseInt(val, 10) : 0;
+          if (Date.now() - lastShown >= PRO_REMINDER_COOLDOWN_MS) {
+            proReminderShownRef.current = true;
+            setShowProReminder(true);
+            AsyncStorage.setItem(PRO_REMINDER_KEY, String(Date.now()));
+          } else {
+            proReminderShownRef.current = true; // suppress for this session too
+          }
+        });
       }
     }, [isGateEnabled, isSubscribed])
   );
