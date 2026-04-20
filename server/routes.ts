@@ -9179,6 +9179,18 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  app.post("/api/admin/verify", (req, res) => {
+    const { password } = req.body as { password?: string };
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) {
+      return res.status(500).json({ ok: false, error: "ADMIN_PASSWORD not configured" });
+    }
+    if (password && password === adminPassword) {
+      return res.json({ ok: true });
+    }
+    return res.status(401).json({ ok: false });
+  });
+
   async function fetchRCOverview() {
     const key = process.env.REVENUECAT_V2_KEY;
     const projectId = process.env.REVENUECAT_PROJECT_ID;
