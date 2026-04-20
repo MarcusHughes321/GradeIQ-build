@@ -9409,7 +9409,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     let page = 1;
     while (true) {
       const resp = await fetch(
-        `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${page}&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
+        `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${page}&select=id,name,number,rarity,images,tcgplayer`,
         { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
       );
       if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
@@ -11080,14 +11080,12 @@ RESPONSE FORMAT (JSON only, no markdown):
       console.log(`[jp-catalog] JP catalog ready: ${jpCounts.size} sets, ${jpTotal} cards`);
     }
 
-    // Fill any ME-series cards that still have no price (runs once, ~90s for 374 cards)
-    void fillMeSetPricesFromPokeTrace();
-
-    // Re-sync sets known to have been truncated at 250 cards (pagination bug now fixed)
+    // Re-sync sets known to have been truncated at 250 cards (pagination bug now fixed).
+    // ME price fill runs AFTER so it can price any newly added cards in one pass.
     void (async () => {
-      // me2pt5 removed: pokemontcg.io API has a bug returning duplicate page-2 cards;
-      // actual unique count is 250 (matches our DB). Re-syncing it would wipe PokeTrace prices.
-      const truncatedSets = ["swshp", "sm11", "sv1", "sv2", "sv4", "sv8", "swsh8"];
+      // me2pt5 included: orderBy=number caused alphabetical sorting which produced duplicate
+      // page-2 results — fixed by removing orderBy. Now fetches all 295 unique cards correctly.
+      const truncatedSets = ["swshp", "sm11", "sv1", "sv2", "sv4", "sv8", "swsh8", "me2pt5"];
       for (const sid of truncatedSets) {
         try {
           const { rows } = await db.query(
@@ -11115,6 +11113,9 @@ RESPONSE FORMAT (JSON only, no markdown):
         }
         await new Promise(r => setTimeout(r, 500));
       }
+      // Fill any ME-series cards that still have no price — runs after re-sync so newly
+      // added cards (e.g. me2pt5 SIR/MAR cards) are included in this pass.
+      await fillMeSetPricesFromPokeTrace();
     })();
   })();
 
@@ -11629,7 +11630,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           let wotcPage = 1;
           while (true) {
             const resp = await fetch(
-              `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${wotcPage}&select=id,name,number,rarity,images,tcgplayer&orderBy=number`,
+              `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(setId)}&pageSize=250&page=${wotcPage}&select=id,name,number,rarity,images,tcgplayer`,
               { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) }
             );
             if (!resp.ok) throw new Error(`Pokemon TCG API returned ${resp.status}`);
