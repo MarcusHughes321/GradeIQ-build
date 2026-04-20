@@ -6952,7 +6952,7 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
         setName: c.set?.name || "",
         setId: c.set?.id || "",
         number: c.number || "",
-        imageUrl: c.images?.small || c.images?.large || null,
+        imageUrl: c.images?.large || c.images?.small || null,
       }));
 
       console.log(`[cards/search] Returning ${mapped.length} results`);
@@ -9418,7 +9418,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         name: c.name,
         number: c.number || "",
         rarity: c.rarity || null,
-        imageUrl: c.images?.small || c.images?.large || null,
+        imageUrl: c.images?.large || c.images?.small || null,
         price: pickBestTcgPrice(c.tcgplayer),
         prices: {
           holofoil: tcgPrices.holofoil?.market ?? null,
@@ -11018,7 +11018,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         setName: c.set?.name || "",
         setId: c.set?.id || "",
         number: c.number || "",
-        imageUrl: c.images?.small || c.images?.large || null,
+        imageUrl: c.images?.large || c.images?.small || null,
         rawPriceUSD: Math.round(c.bestPriceUSD * 100) / 100,
       }));
 
@@ -11448,7 +11448,7 @@ RESPONSE FORMAT (JSON only, no markdown):
               name: c.name,
               number: c.number || "",
               rarity: c.rarity || null,
-              imageUrl: c.images?.small || c.images?.large || null,
+              imageUrl: c.images?.large || c.images?.small || null,
               price: pickEditionTcgPrice(c.tcgplayer, edition),
               prices: {
                 holofoil: tcgPrices.holofoil?.market ?? null,
