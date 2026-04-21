@@ -11,7 +11,6 @@ import {
   Dimensions,
   TextInput,
   RefreshControl,
-  Modal,
   ActivityIndicator,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
@@ -19,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeIn, FadeOut, SlideInUp } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
 import { apiRequest } from "@/lib/query-client";
@@ -211,14 +210,13 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [sortMode, setSortMode] = useState<"recent" | "value-high" | "value-low" | "a-z" | "z-a">("recent");
-  const [showProReminder, setShowProReminder] = useState(false);
   const { settings } = useSettings();
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
   const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
-  const proReminderShownRef = useRef(false);
+
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -280,11 +278,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadGradings();
-      if (isGateEnabled && !isSubscribed && !proReminderShownRef.current) {
-        proReminderShownRef.current = true;
-        setShowProReminder(true);
-      }
-    }, [isGateEnabled, isSubscribed])
+    }, [])
   );
 
   useEffect(() => {
@@ -753,152 +747,10 @@ export default function HomeScreen() {
         }
       />
 
-      {showProReminder && (
-        <Modal transparent animationType="fade" visible={showProReminder} onRequestClose={() => setShowProReminder(false)}>
-          <View style={proStyles.overlay}>
-            <Animated.View entering={SlideInUp.duration(400).springify()} style={proStyles.card}>
-              <LinearGradient
-                colors={["#1a1200", "#1a0a00", "#000000"]}
-                style={proStyles.cardGradient}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-              >
-                <View style={proStyles.iconWrap}>
-                  <Ionicons name="diamond" size={40} color="#F59E0B" />
-                </View>
-
-                <Text style={proStyles.title}>Upgrade Your Grading</Text>
-                <Text style={proStyles.subtitle}>
-                  Choose from flexible plans starting at just £2.99/month to unlock more grades and features.
-                </Text>
-
-                <View style={proStyles.features}>
-                  {[
-                    { icon: "checkmark-circle" as const, text: `${remainingGrades ?? 0} of ${monthlyLimit} grades remaining this month` },
-                    { icon: "sparkles" as const, text: "Grade Curious: 15 grades/month — \u00a32.99" },
-                    { icon: "flame" as const, text: "Grade Enthusiast: 50 grades/month — \u00a35.99" },
-                    { icon: "diamond" as const, text: "Grade Obsessed: Unlimited — \u00a39.99" },
-                  ].map((f) => (
-                    <View key={f.text} style={proStyles.featureRow}>
-                      <Ionicons name={f.icon} size={18} color="#F59E0B" />
-                      <Text style={proStyles.featureText}>{f.text}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <Pressable
-                  onPress={() => { setShowProReminder(false); router.push("/paywall"); }}
-                  style={({ pressed }) => [proStyles.upgradeBtn, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
-                >
-                  <Text style={proStyles.upgradeBtnText}>View Pro Plans</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#000" />
-                </Pressable>
-
-                <Pressable
-                  onPress={() => setShowProReminder(false)}
-                  style={({ pressed }) => [proStyles.dismissBtn, { opacity: pressed ? 0.5 : 0.7 }]}
-                >
-                  <Text style={proStyles.dismissText}>Continue with free plan</Text>
-                </Pressable>
-              </LinearGradient>
-            </Animated.View>
-          </View>
-        </Modal>
-      )}
     </View>
   );
 }
 
-const proStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 380,
-    borderRadius: 24,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.25)",
-  },
-  cardGradient: {
-    padding: 32,
-    alignItems: "center",
-    gap: 16,
-  },
-  iconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: "rgba(245,158,11,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  title: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 26,
-    color: "#fff",
-    textAlign: "center",
-  },
-  subtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: "rgba(255,255,255,0.65)",
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  features: {
-    width: "100%",
-    gap: 10,
-    marginTop: 4,
-  },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.15)",
-  },
-  featureText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: "#fff",
-    flex: 1,
-  },
-  upgradeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    width: "100%",
-    paddingVertical: 16,
-    borderRadius: 14,
-    backgroundColor: "#F59E0B",
-    marginTop: 8,
-  },
-  upgradeBtnText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    color: "#000",
-  },
-  dismissBtn: {
-    paddingVertical: 8,
-  },
-  dismissText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: "rgba(255,255,255,0.5)",
-  },
-});
 
 const styles = StyleSheet.create({
   container: {

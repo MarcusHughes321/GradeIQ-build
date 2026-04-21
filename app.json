@@ -2,7 +2,7 @@
   "expo": {
     "name": "Grade.IQ",
     "slug": "gradeiq",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "gradeiq",
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.marceus.gradeiq",
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -37,6 +37,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./plugins/withAndroidBackup",
       [
         "expo-router",
         {
