@@ -318,7 +318,7 @@ export default function SetCardsScreen() {
   // For English: fetch eBay prices for the top 15 by TCGPlayer price
   const top15Key = top15.map(c => c.id).join(",");
   useEffect(() => {
-    if (!top15Key || isJapanese) return;
+    if (!top15Key || isJapanese || !setName) return;
     let cancelled = false;
     setEbayPricesLoading(true);
     setEbayPricesMap({});
@@ -328,7 +328,7 @@ export default function SetCardsScreen() {
       for (const card of top15) {
         if (cancelled) break;
         try {
-          const params = new URLSearchParams({ name: card.name, setName: setName || "" });
+          const params = new URLSearchParams({ name: card.name, setName });
           if (card.number) params.set("cardNumber", card.number);
           const url = new URL(`/api/ebay-all-grades?${params}`, getApiUrl());
           const resp = await fetch(url.toString());

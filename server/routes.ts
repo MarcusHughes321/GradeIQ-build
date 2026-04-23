@@ -4171,6 +4171,32 @@ function enforceGradingScales(result: any): any {
   return result;
 }
 
+// ── Startup repair: fix any card_catalog / top_picks rows with blank set_name ─
+async function repairEmptySetNames(): Promise<void> {
+  // Hardcoded corrections for sets that historically ended up with blank names
+  const SET_NAME_MAP: Record<string, string> = {
+    swsh2:  "Rebel Clash",
+    base3:  "Fossil",
+    dpp:    "DP Black Star Promos",
+  };
+  try {
+    for (const [setId, setName] of Object.entries(SET_NAME_MAP)) {
+      const { rowCount: cc } = await db.query(
+        `UPDATE card_catalog SET set_name = $1 WHERE set_id = $2 AND (set_name IS NULL OR set_name = '')`,
+        [setName, setId]
+      );
+      if ((cc ?? 0) > 0) console.log(`[repair] Fixed ${cc} card_catalog rows for ${setId} → "${setName}"`);
+      const { rowCount: tp } = await db.query(
+        `UPDATE top_picks_precomputed SET set_name = $1 WHERE set_id = $2 AND (set_name IS NULL OR set_name = '')`,
+        [setName, setId]
+      );
+      if ((tp ?? 0) > 0) console.log(`[repair] Fixed ${tp} top_picks_precomputed rows for ${setId} → "${setName}"`);
+    }
+  } catch (e: any) {
+    console.warn("[repair] repairEmptySetNames failed:", e.message);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure DB tables exist before any requests come in
   await initEbayPriceCacheTable();
@@ -4179,6 +4205,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await initCardCatalogTable();
   await initTopPicksPrecomputedTable();
   await initGradingFeedbackTable();
+  // Non-blocking: repair any rows that historically ended up with blank set names
+  void repairEmptySetNames();
 
   // Pre-fetch today's exchange rates on startup (non-blocking)
   void getExchangeRates();
@@ -10842,6 +10870,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // Background task: sample cards per English set to determine TCGPlayer price availability
   // Processes sets that haven't been checked yet OR whose status is older than PRICE_STATUS_TTL
+  // ME-series sets use PokeTrace prices (not TCGPlayer), so we check card_catalog for those.
+  const ME_SERIES_SET_IDS = new Set(["me1", "me2", "me2pt5", "me3"]);
   async function backgroundPrePopulatePriceStatus(sets: CachedSet[]) {
     const PRICE_TYPES = ["holofoil", "reverseHolofoil", "normal", "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"];
     const stale = sets.filter(s => {
@@ -10852,6 +10882,19 @@ RESPONSE FORMAT (JSON only, no markdown):
     console.log(`[price-status] Pre-populating ${stale.length} sets in background...`);
     for (const s of stale) {
       try {
+        // ME-series sets have PokeTrace prices stored in card_catalog, not TCGPlayer prices.
+        // Check card_catalog directly so we don't incorrectly mark them as having no prices.
+        if (ME_SERIES_SET_IDS.has(s.id)) {
+          const { rows } = await db.query<{ cnt: string }>(
+            `SELECT COUNT(*) AS cnt FROM card_catalog WHERE set_id = $1 AND price_usd IS NOT NULL AND price_usd > 0`,
+            [s.id]
+          );
+          const hasCards = (s.printedTotal || s.total) > 0;
+          const hasPrices = parseInt(rows[0]?.cnt ?? "0", 10) > 0;
+          upsertSetPriceStatus(s.id, hasCards, hasPrices);
+          await new Promise(r => setTimeout(r, 50));
+          continue;
+        }
         const resp = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(s.id)}&pageSize=10&select=id,tcgplayer`,
           { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(8000) }
@@ -11458,14 +11501,14 @@ RESPONSE FORMAT (JSON only, no markdown):
   // Returns last eBay sold price for PSA 10/9, BGS 9.5/9, ACE 10, TAG 10, CGC 10, raw.
   app.get("/api/ebay-all-grades", async (req, res) => {
     const { name, setName, cardNumber, edition } = req.query;
-    if (!name || !setName) {
-      return res.status(400).json({ error: "name and setName query params required" });
+    if (!name) {
+      return res.status(400).json({ error: "name query param required" });
     }
     const editionVal = edition === "1st" || edition === "unlimited" ? edition : null;
     try {
       const { fetchedAt, isStale, ...grades } = await fetchEbayGradedPrices(
         String(name),
-        String(setName),
+        setName ? String(setName) : "",
         cardNumber ? String(cardNumber) : undefined,
         editionVal
       );
