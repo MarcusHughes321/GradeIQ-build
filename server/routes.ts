@@ -8188,6 +8188,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         model: "claude-sonnet-4-6",
         max_tokens: 6000,
         temperature: 0.2,
+        timeout: 120_000, // 2-minute hard cap on Claude API call
         messages: [
           {
             role: "user",
@@ -8652,8 +8653,15 @@ RESPONSE FORMAT (JSON only, no markdown):
       res.json({ jobId });
 
       (async () => {
+        const CROSSOVER_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutes absolute ceiling
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Crossover grading timed out — please try again.")), CROSSOVER_TIMEOUT_MS)
+        );
         try {
-          const result = await performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData);
+          const result = await Promise.race([
+            performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData),
+            timeoutPromise,
+          ]);
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -8879,6 +8887,11 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
     }
+    // Auto-fail jobs that have been processing for over 10 minutes
+    if (job.status === "processing" && job.createdAt && Date.now() - job.createdAt > 10 * 60 * 1000) {
+      job.status = "failed";
+      job.error = "Grading timed out — please try again.";
+    }
     respondWithJob(res, job);
   });
 
@@ -8886,6 +8899,11 @@ RESPONSE FORMAT (JSON only, no markdown):
     const job = gradingJobs.get(req.params.id);
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
+    }
+    // Auto-fail jobs that have been processing for over 5 minutes (handles server restarts / hangs)
+    if (job.status === "processing" && job.createdAt && Date.now() - job.createdAt > 5 * 60 * 1000) {
+      job.status = "failed";
+      job.error = "Crossover grading timed out — please try again.";
     }
     respondWithJob(res, job);
   });
