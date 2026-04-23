@@ -10842,6 +10842,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // Background task: sample cards per English set to determine TCGPlayer price availability
   // Processes sets that haven't been checked yet OR whose status is older than PRICE_STATUS_TTL
+  // ME-series sets use PokeTrace prices (not TCGPlayer), so we check card_catalog for those.
+  const ME_SERIES_SET_IDS = new Set(["me1", "me2", "me2pt5", "me3"]);
   async function backgroundPrePopulatePriceStatus(sets: CachedSet[]) {
     const PRICE_TYPES = ["holofoil", "reverseHolofoil", "normal", "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"];
     const stale = sets.filter(s => {
@@ -10852,6 +10854,19 @@ RESPONSE FORMAT (JSON only, no markdown):
     console.log(`[price-status] Pre-populating ${stale.length} sets in background...`);
     for (const s of stale) {
       try {
+        // ME-series sets have PokeTrace prices stored in card_catalog, not TCGPlayer prices.
+        // Check card_catalog directly so we don't incorrectly mark them as having no prices.
+        if (ME_SERIES_SET_IDS.has(s.id)) {
+          const { rows } = await db.query<{ cnt: string }>(
+            `SELECT COUNT(*) AS cnt FROM card_catalog WHERE set_id = $1 AND price_usd IS NOT NULL AND price_usd > 0`,
+            [s.id]
+          );
+          const hasCards = (s.printedTotal || s.total) > 0;
+          const hasPrices = parseInt(rows[0]?.cnt ?? "0", 10) > 0;
+          upsertSetPriceStatus(s.id, hasCards, hasPrices);
+          await new Promise(r => setTimeout(r, 50));
+          continue;
+        }
         const resp = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=set.id:${encodeURIComponent(s.id)}&pageSize=10&select=id,tcgplayer`,
           { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(8000) }
