@@ -30,6 +30,87 @@ async function completeGradeEvent(jobId: string, status: "completed" | "failed")
     console.error("[analytics] Failed to complete grade event:", e);
   }
 }
+
+// ─── SERVER-SIDE USAGE TRACKING ───────────────────────────────────────────
+
+function getYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function getServerUsage(rcUserId: string): Promise<{ quickCount: number; deepCount: number; crossoverCount: number }> {
+  if (!rcUserId) return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
+  try {
+    const result = await db.query(
+      "SELECT quick_count, deep_count, crossover_count FROM usage_tracking WHERE rc_user_id = $1 AND year_month = $2",
+      [rcUserId, getYearMonth()]
+    );
+    if (!result.rows.length) return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
+    const r = result.rows[0];
+    return { quickCount: r.quick_count, deepCount: r.deep_count, crossoverCount: r.crossover_count };
+  } catch {
+    return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
+  }
+}
+
+async function recordServerUsage(rcUserId: string, type: "quick" | "deep" | "crossover"): Promise<void> {
+  if (!rcUserId) return;
+  try {
+    const col = type === "quick" ? "quick_count" : type === "deep" ? "deep_count" : "crossover_count";
+    await db.query(
+      `INSERT INTO usage_tracking (rc_user_id, year_month, ${col})
+       VALUES ($1, $2, 1)
+       ON CONFLICT (rc_user_id, year_month)
+       DO UPDATE SET ${col} = usage_tracking.${col} + 1, updated_at = NOW()`,
+      [rcUserId, getYearMonth()]
+    );
+  } catch (e) {
+    console.error("[usage] Failed to record server usage:", e);
+  }
+}
+
+async function checkHasPaidEntitlement(rcUserId: string): Promise<boolean> {
+  try {
+    const key = process.env.REVENUECAT_SECRET_KEY;
+    if (!key || !rcUserId) return false;
+    const resp = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(rcUserId)}`, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) return false;
+    const data = await resp.json() as any;
+    return !!data?.subscriber?.entitlements?.["Grade.IQ Pro"];
+  } catch {
+    return false;
+  }
+}
+
+async function isAdminUser(rcUserId: string): Promise<boolean> {
+  if (!rcUserId) return false;
+  try {
+    const result = await db.query("SELECT 1 FROM admin_users WHERE rc_user_id = $1", [rcUserId]);
+    return result.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// Returns an error message string if over quota, or null if the request should be allowed.
+async function enforceServerQuota(
+  rcUserId: string,
+  type: "quick" | "deep" | "crossover"
+): Promise<string | null> {
+  if (!rcUserId) return null;
+  if (await isAdminUser(rcUserId)) return null;
+  const usage = await getServerUsage(rcUserId);
+  const count = type === "quick" ? usage.quickCount : type === "deep" ? usage.deepCount : usage.crossoverCount;
+  const freeLimits: Record<string, number> = { quick: 3, deep: 0, crossover: 0 };
+  const freeLimit = freeLimits[type] ?? 0;
+  if (count < freeLimit) return null;
+  const hasPaid = await checkHasPaidEntitlement(rcUserId);
+  if (hasPaid) return null;
+  return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
+}
 import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
 
 const anthropic = new Anthropic({
@@ -8633,10 +8714,13 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/crossover-grade-job", async (req, res) => {
     try {
-      const { slabImage, slabBackImage, pushToken, certData } = req.body;
+      const { slabImage, slabBackImage, pushToken, certData, rcUserId } = req.body;
       if (!slabImage) {
         return res.status(400).json({ error: "slabImage is required" });
       }
+
+      const quotaError = await enforceServerQuota(rcUserId, "crossover");
+      if (quotaError) return res.status(429).json({ error: quotaError, quotaExceeded: true });
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
       console.log(`[crossover-grade-job] Creating job ${jobId}${certData ? ` (cert: ${certData.company} #${certData.certNumber})` : ""}`);
@@ -8653,7 +8737,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       res.json({ jobId });
 
       (async () => {
-        const CROSSOVER_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutes absolute ceiling
+        const CROSSOVER_TIMEOUT_MS = 4 * 60 * 1000;
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Crossover grading timed out — please try again.")), CROSSOVER_TIMEOUT_MS)
         );
@@ -8665,6 +8749,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
+          await recordServerUsage(rcUserId, "crossover");
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -8686,12 +8771,22 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  app.get("/api/usage", async (req, res) => {
+    const rcUserId = req.query.rcUserId as string;
+    if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
+    const usage = await getServerUsage(rcUserId);
+    res.json({ yearMonth: getYearMonth(), ...usage });
+  });
+
   app.post("/api/grade-job", async (req, res) => {
     try {
-      const { frontImage, backImage, pushToken } = req.body;
+      const { frontImage, backImage, pushToken, rcUserId } = req.body;
       if (!frontImage || !backImage) {
         return res.status(400).json({ error: "Both front and back images required" });
       }
+
+      const quotaError = await enforceServerQuota(rcUserId, "quick");
+      if (quotaError) return res.status(429).json({ error: quotaError, quotaExceeded: true });
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
       console.log(`[grade-job] Creating job ${jobId}, pushToken: ${pushToken ? pushToken.substring(0, 20) + "..." : "none"}`);
@@ -8713,6 +8808,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
+          await recordServerUsage(rcUserId, "quick");
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -8814,10 +8910,13 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/deep-grade-job", async (req, res) => {
     try {
-      const { frontImage, backImage, angledImage, angledBackImage, frontCorners, backCorners, pushToken } = req.body;
+      const { frontImage, backImage, angledImage, angledBackImage, frontCorners, backCorners, pushToken, rcUserId } = req.body;
       if (!frontImage || !backImage || !angledImage) {
         return res.status(400).json({ error: "Front, back, and angled images are all required" });
       }
+
+      const quotaError = await enforceServerQuota(rcUserId, "deep");
+      if (quotaError) return res.status(429).json({ error: quotaError, quotaExceeded: true });
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
       console.log(`[deep-grade-job] Creating job ${jobId}, pushToken: ${pushToken ? pushToken.substring(0, 20) + "..." : "none"}, frontCorners: ${frontCorners?.length || 0}, backCorners: ${backCorners?.length || 0}`);
@@ -8839,6 +8938,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
+          await recordServerUsage(rcUserId, "deep");
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";

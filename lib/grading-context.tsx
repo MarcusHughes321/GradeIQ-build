@@ -7,6 +7,17 @@ import { apiRequest } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
+import { useSubscription } from "@/lib/subscription";
+
+function parseQuotaError(error: any): string | null {
+  try {
+    const msg: string = error?.message ?? "";
+    if (!msg.startsWith("429:")) return null;
+    const json = JSON.parse(msg.slice(4).trim());
+    if (json?.quotaExceeded && json?.error) return json.error;
+  } catch {}
+  return null;
+}
 
 export type GradingJobStatus = "processing" | "completed" | "failed";
 
@@ -180,6 +191,7 @@ if (Platform.OS !== "web") {
 }
 
 export function GradingProvider({ children }: { children: ReactNode }) {
+  const { rcAppUserId } = useSubscription();
   const [activeJob, setActiveJob] = useState<GradingJob | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
@@ -384,6 +396,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const resp = await withSubmitTimeout(apiRequest("POST", "/api/grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
+        rcUserId: rcAppUserId || undefined,
       }), 60_000);
 
       const { jobId: serverJobId } = await resp.json();
@@ -420,13 +433,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 
+      const errorMessage = parseQuotaError(error) ?? (error.message || "Unknown error");
       setActiveJob(prev =>
         prev && prev.id === localJobId
-          ? { ...prev, status: "failed", error: error.message || "Unknown error" }
+          ? { ...prev, status: "failed", error: errorMessage }
           : prev
       );
     }
-  }, [pollJobStatus, stopPolling]);
+  }, [pollJobStatus, stopPolling, rcAppUserId]);
 
   const submitDeepGrading = useCallback(async (
     frontImage: string,
@@ -477,6 +491,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         angledBackImage: angledBackBase64,
         frontCorners: frontCornerBase64,
         backCorners: backCornerBase64,
+        rcUserId: rcAppUserId || undefined,
       }), 90_000);
 
       const { jobId: serverJobId } = await resp.json();
@@ -513,13 +528,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 
+      const errorMessage = parseQuotaError(error) ?? (error.message || "Unknown error");
       setActiveJob(prev =>
         prev && prev.id === localJobId
-          ? { ...prev, status: "failed", error: error.message || "Unknown error" }
+          ? { ...prev, status: "failed", error: errorMessage }
           : prev
       );
     }
-  }, [pollJobStatus, stopPolling]);
+  }, [pollJobStatus, stopPolling, rcAppUserId]);
 
   const submitCrossoverGrading = useCallback(async (
     slabFrontImage: string,
@@ -553,6 +569,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         slabImage: slabFrontBase64,
         slabBackImage: slabBackBase64,
         ...(certData ? { certData } : {}),
+        rcUserId: rcAppUserId || undefined,
       }), 60_000);
 
       const { jobId: serverJobId } = await resp.json();
@@ -589,13 +606,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 
+      const errorMessage = parseQuotaError(error) ?? (error.message || "Unknown error");
       setActiveJob(prev =>
         prev && prev.id === localJobId
-          ? { ...prev, status: "failed", error: error.message || "Unknown error" }
+          ? { ...prev, status: "failed", error: errorMessage }
           : prev
       );
     }
-  }, [pollJobStatus, stopPolling]);
+  }, [pollJobStatus, stopPolling, rcAppUserId]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
