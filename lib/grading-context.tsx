@@ -264,26 +264,46 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           try { await recordUsageRef.current(1); } catch {}
         }
 
-        const saved = await saveGrading(frontImage, backImage, result, extraImages);
+        // Strip corner images before saving — they're large base64 blobs (can
+        // exceed Android's AsyncStorage 2MB limit) and are not shown in history.
+        const extraImagesForStorage = extraImages
+          ? {
+              angledFrontImage: extraImages.angledFrontImage,
+              angledBackImage: extraImages.angledBackImage,
+              isDeepGrade: extraImages.isDeepGrade,
+              // frontCornerImages / backCornerImages intentionally omitted
+            }
+          : undefined;
 
-        (async () => {
-          try {
-            const userSettings = await getSettings();
-            const vResp = await apiRequest("POST", "/api/card-value", {
-              cardName: result.cardName,
-              setName: result.setName || result.setInfo,
-              setNumber: result.setNumber,
-              psaGrade: result.psa.grade,
-              bgsGrade: result.beckett.overallGrade,
-              aceGrade: result.ace.overallGrade,
-              tagGrade: result.tag?.overallGrade,
-              cgcGrade: result.cgc?.grade,
-              currency: userSettings.currency || "GBP",
-            });
-            const vData = await vResp.json();
-            await updateGrading(saved.id, { result: { ...result, cardValue: vData } });
-          } catch {}
-        })();
+        let saved: any;
+        try {
+          saved = await saveGrading(frontImage, backImage, result, extraImagesForStorage);
+        } catch (saveErr) {
+          // If saving fails (e.g. storage full), still show the result to the user.
+          console.warn("[grading] saveGrading failed, showing result without saving:", saveErr);
+          saved = { id: `unsaved_${Date.now()}`, frontImage, backImage, result, timestamp: Date.now() };
+        }
+
+        if (saved.id && !saved.id.startsWith("unsaved_")) {
+          (async () => {
+            try {
+              const userSettings = await getSettings();
+              const vResp = await apiRequest("POST", "/api/card-value", {
+                cardName: result.cardName,
+                setName: result.setName || result.setInfo,
+                setNumber: result.setNumber,
+                psaGrade: result.psa.grade,
+                bgsGrade: result.beckett.overallGrade,
+                aceGrade: result.ace.overallGrade,
+                tagGrade: result.tag?.overallGrade,
+                cgcGrade: result.cgc?.grade,
+                currency: userSettings.currency || "GBP",
+              });
+              const vData = await vResp.json();
+              await updateGrading(saved.id, { result: { ...result, cardValue: vData } });
+            } catch {}
+          })();
+        }
 
         if (Platform.OS !== "web") {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
