@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform, AppState, type AppStateStatus } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
+import { getApiUrl } from "@/lib/query-client";
 
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
@@ -253,6 +254,42 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(ADMIN_KEY, next ? "enabled" : "disabled");
   }, [isAdminMode]);
 
+  const syncServerUsage = async (rcUserId: string) => {
+    if (!rcUserId) return;
+    try {
+      const url = new URL(`/api/usage?rcUserId=${encodeURIComponent(rcUserId)}`, getApiUrl());
+      const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+      if (!resp.ok) return;
+      const data = await resp.json() as { quickCount: number; deepCount: number; crossoverCount: number };
+      const [local, localDeep, localCrossover] = await Promise.all([
+        getMonthlyUsage(),
+        getDeepMonthlyUsage(),
+        getCrossoverMonthlyUsage(),
+      ]);
+      const serverQuick = data.quickCount ?? 0;
+      const serverDeep = data.deepCount ?? 0;
+      const serverCrossover = data.crossoverCount ?? 0;
+      if (serverQuick > local.count) {
+        const updated = { month: getMonthKey(), count: serverQuick };
+        await saveMonthlyUsage(updated);
+        setMonthlyUsageCount(serverQuick);
+      }
+      if (serverDeep > localDeep.count) {
+        const updated = { month: getMonthKey(), count: serverDeep };
+        await saveDeepMonthlyUsage(updated);
+        setDeepMonthlyUsageCount(serverDeep);
+      }
+      if (serverCrossover > localCrossover.count) {
+        const updated = { month: getMonthKey(), count: serverCrossover };
+        await saveCrossoverMonthlyUsage(updated);
+        setCrossoverMonthlyUsageCount(serverCrossover);
+      }
+      console.log("[subscription] Server usage synced:", { serverQuick, serverDeep, serverCrossover });
+    } catch (e) {
+      console.log("[subscription] Server usage sync failed (non-critical):", e);
+    }
+  };
+
   const initRevenueCat = async () => {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
@@ -282,6 +319,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
+      syncServerUsage(userId).catch(() => {});
 
       // RC pushes real-time updates whenever entitlement status changes
       // (e.g. immediately after a purchase completes or a subscription renews)
