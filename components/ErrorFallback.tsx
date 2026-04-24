@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { reloadAppAsync } from "expo";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   View,
@@ -7,6 +8,7 @@ import {
   ScrollView,
   Text,
   Modal,
+  Alert,
   useColorScheme,
   Platform,
 } from "react-native";
@@ -41,6 +43,30 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
       console.error("Failed to restart app:", restartError);
       resetError();
     }
+  };
+
+  const handleResetApp = () => {
+    Alert.alert(
+      "Reset App",
+      "This will clear your navigation state and restart the app. Your grading history will be preserved. Use this if the app keeps crashing on startup.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const allKeys = await AsyncStorage.getAllKeys();
+              const keysToRemove = allKeys.filter(
+                k => k.includes("navigation") || k.includes("expo-router") || k.includes("react-navigation")
+              );
+              if (keysToRemove.length > 0) await AsyncStorage.multiRemove(keysToRemove);
+            } catch {}
+            try { await reloadAppAsync(); } catch { resetError(); }
+          },
+        },
+      ]
+    );
   };
 
   const formatErrorDetails = (): string => {
@@ -99,6 +125,18 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         >
           <Text style={[styles.buttonText, { color: theme.buttonText }]}>
             Try Again
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleResetApp}
+          style={({ pressed }) => [
+            styles.resetButton,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}
+        >
+          <Text style={[styles.resetButtonText, { color: theme.textSecondary }]}>
+            Still crashing? Reset app
           </Text>
         </Pressable>
       </View>
@@ -235,6 +273,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
     fontSize: 16,
+  },
+  resetButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    textAlign: "center",
+    textDecorationLine: "underline",
   },
   modalOverlay: {
     flex: 1,

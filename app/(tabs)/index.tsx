@@ -158,6 +158,7 @@ function computeStats(gradings: SavedGrading[]): PortfolioStats | null {
   let totalPSA = 0, totalBGS = 0, totalACE = 0, totalTAG = 0, totalCGC = 0;
   let cardsWithValues = 0;
   for (const g of gradings) {
+    if (!g?.result?.psa || !g?.result?.beckett || !g?.result?.ace) continue;
     sumPSA += g.result.psa.grade;
     sumBGS += g.result.beckett.overallGrade;
     sumACE += g.result.ace.overallGrade;
@@ -228,9 +229,9 @@ export default function HomeScreen() {
     const cv = g.result.cardValue;
     const vals: number[] = [];
     if (ep) {
-      if (enabledCompanies.includes("PSA")) { const v = getGradePrice(ep, "psa", g.result.psa.grade); if (v !== null) vals.push(v); }
-      if (enabledCompanies.includes("Beckett")) { const v = getGradePrice(ep, "bgs", g.result.beckett.overallGrade); if (v !== null) vals.push(v); }
-      if (enabledCompanies.includes("Ace")) { const v = getGradePrice(ep, "ace", g.result.ace.overallGrade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("PSA") && g.result.psa) { const v = getGradePrice(ep, "psa", g.result.psa.grade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("Beckett") && g.result.beckett) { const v = getGradePrice(ep, "bgs", g.result.beckett.overallGrade); if (v !== null) vals.push(v); }
+      if (enabledCompanies.includes("Ace") && g.result.ace) { const v = getGradePrice(ep, "ace", g.result.ace.overallGrade); if (v !== null) vals.push(v); }
       if (enabledCompanies.includes("TAG") && g.result.tag) { const v = getGradePrice(ep, "tag", g.result.tag.overallGrade); if (v !== null) vals.push(v); }
       if (enabledCompanies.includes("CGC") && g.result.cgc) { const v = getGradePrice(ep, "cgc", g.result.cgc.grade); if (v !== null) vals.push(v); }
     } else if (cv) {
