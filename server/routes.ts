@@ -8778,6 +8778,87 @@ RESPONSE FORMAT (JSON only, no markdown):
     res.json({ yearMonth: getYearMonth(), ...usage });
   });
 
+  // ─── GRADING HISTORY SYNC ─────────────────────────────────────────────────
+
+  app.get("/api/history", async (req, res) => {
+    const rcUserId = req.query.rcUserId as string;
+    if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
+    try {
+      const result = await db.query(
+        `SELECT local_id, result_json, timestamp, is_deep_grade, is_crossover
+         FROM grading_history
+         WHERE rc_user_id = $1
+         ORDER BY timestamp DESC
+         LIMIT 100`,
+        [rcUserId]
+      );
+      const rows = result.rows.map((r: any) => ({
+        id: r.local_id,
+        result: r.result_json,
+        timestamp: r.timestamp,
+        isDeepGrade: r.is_deep_grade,
+        isCrossover: r.is_crossover,
+      }));
+      res.json(rows);
+    } catch (e: any) {
+      console.error("[history] GET failed:", e.message);
+      res.status(500).json({ error: "Failed to fetch history" });
+    }
+  });
+
+  app.post("/api/history", async (req, res) => {
+    const { rcUserId, localId, result, timestamp, isDeepGrade, isCrossover } = req.body;
+    if (!rcUserId || !localId || !result) return res.status(400).json({ error: "rcUserId, localId, result required" });
+    try {
+      await db.query(
+        `INSERT INTO grading_history (rc_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (rc_user_id, local_id) DO NOTHING`,
+        [rcUserId, localId, JSON.stringify(result), timestamp || Date.now(), !!isDeepGrade, !!isCrossover]
+      );
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[history] POST failed:", e.message);
+      res.status(500).json({ error: "Failed to save grading" });
+    }
+  });
+
+  app.post("/api/history/bulk", async (req, res) => {
+    const { rcUserId, gradings } = req.body;
+    if (!rcUserId || !Array.isArray(gradings)) return res.status(400).json({ error: "rcUserId and gradings array required" });
+    try {
+      for (const g of gradings) {
+        if (!g.localId || !g.result) continue;
+        await db.query(
+          `INSERT INTO grading_history (rc_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (rc_user_id, local_id) DO NOTHING`,
+          [rcUserId, g.localId, JSON.stringify(g.result), g.timestamp || Date.now(), !!g.isDeepGrade, !!g.isCrossover]
+        );
+      }
+      res.json({ ok: true, count: gradings.length });
+    } catch (e: any) {
+      console.error("[history] POST /bulk failed:", e.message);
+      res.status(500).json({ error: "Failed to bulk save gradings" });
+    }
+  });
+
+  app.delete("/api/history/:localId", async (req, res) => {
+    const { localId } = req.params;
+    const rcUserId = req.query.rcUserId as string;
+    if (!rcUserId || !localId) return res.status(400).json({ error: "rcUserId and localId required" });
+    try {
+      await db.query(
+        "DELETE FROM grading_history WHERE rc_user_id = $1 AND local_id = $2",
+        [rcUserId, localId]
+      );
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[history] DELETE failed:", e.message);
+      res.status(500).json({ error: "Failed to delete grading" });
+    }
+  });
+
   app.post("/api/grade-job", async (req, res) => {
     try {
       const { frontImage, backImage, pushToken, rcUserId } = req.body;

@@ -63,3 +63,28 @@ export async function updateGrading(id: string, updates: Partial<SavedGrading>):
 export async function clearAllGradings(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEY);
 }
+
+export async function saveServerGrading(serverGrading: {
+  id: string;
+  result: any;
+  timestamp: number;
+  isDeepGrade?: boolean;
+  isCrossover?: boolean;
+}): Promise<void> {
+  const existing = await getGradings();
+  if (existing.some(g => g.id === serverGrading.id)) return;
+  const record: SavedGrading = {
+    id: serverGrading.id,
+    frontImage: "",
+    backImage: "",
+    result: serverGrading.result,
+    timestamp: serverGrading.timestamp,
+    ...(serverGrading.isDeepGrade ? { isDeepGrade: true } : {}),
+  };
+  existing.unshift(record);
+  existing.sort((a, b) => b.timestamp - a.timestamp);
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  } catch {
+  }
+}
