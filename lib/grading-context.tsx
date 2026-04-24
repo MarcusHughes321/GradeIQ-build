@@ -8,6 +8,7 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
+import { uploadGrading } from "@/lib/server-history";
 
 function parseQuotaError(error: any): string | null {
   try {
@@ -294,6 +295,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           // If saving fails (e.g. storage full), still show the result to the user.
           console.warn("[grading] saveGrading failed, showing result without saving:", saveErr);
           saved = { id: `unsaved_${Date.now()}`, frontImage, backImage, result, timestamp: Date.now() };
+        }
+
+        if (saved.id && !saved.id.startsWith("unsaved_") && rcAppUserId) {
+          uploadGrading(rcAppUserId, saved).catch(() => {});
         }
 
         if (saved.id && !saved.id.startsWith("unsaved_")) {

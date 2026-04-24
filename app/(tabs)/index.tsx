@@ -21,6 +21,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
+import { deleteServerGrading } from "@/lib/server-history";
 import { apiRequest } from "@/lib/query-client";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
@@ -215,7 +216,7 @@ export default function HomeScreen() {
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
 
 
@@ -346,6 +347,9 @@ export default function HomeScreen() {
 
   const handleDelete = async (id: string) => {
     await deleteGrading(id);
+    if (rcAppUserId) {
+      deleteServerGrading(rcAppUserId, id).catch(() => {});
+    }
     loadGradings();
   };
 

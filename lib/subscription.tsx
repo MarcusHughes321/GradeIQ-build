@@ -3,6 +3,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform, AppState, type AppStateStatus } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 import { getApiUrl } from "@/lib/query-client";
+import { fetchServerHistory, uploadBulkGradings } from "@/lib/server-history";
+import { getGradings, saveServerGrading } from "@/lib/storage";
 
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
@@ -290,6 +292,31 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const syncHistoryWithServer = async (rcUserId: string) => {
+    if (!rcUserId) return;
+    try {
+      const [localGradings, serverGradings] = await Promise.all([
+        getGradings(),
+        fetchServerHistory(rcUserId),
+      ]);
+      const localIds = new Set(localGradings.map(g => g.id));
+      const serverIds = new Set(serverGradings.map(g => g.id));
+      const newFromServer = serverGradings.filter(g => !localIds.has(g.id));
+      for (const sg of newFromServer) {
+        await saveServerGrading(sg);
+      }
+      const missingOnServer = localGradings.filter(g => g?.id && !serverIds.has(g.id));
+      if (missingOnServer.length > 0) {
+        uploadBulkGradings(rcUserId, missingOnServer).catch(() => {});
+      }
+      if (newFromServer.length > 0) {
+        console.log(`[history] Restored ${newFromServer.length} grades from server`);
+      }
+    } catch (e) {
+      console.log("[history] Sync failed (non-critical):", e);
+    }
+  };
+
   const initRevenueCat = async () => {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
@@ -320,6 +347,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
       syncServerUsage(userId).catch(() => {});
+      syncHistoryWithServer(userId).catch(() => {});
 
       // RC pushes real-time updates whenever entitlement status changes
       // (e.g. immediately after a purchase completes or a subscription renews)
