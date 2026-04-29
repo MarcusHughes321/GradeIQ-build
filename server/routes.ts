@@ -7,6 +7,64 @@ import sharp from "sharp";
 import { parse as parseHtml } from "node-html-parser";
 import { Pool } from "pg";
 
+// ─── SET IMAGE DISK CACHE ────────────────────────────────────────────────────
+// Downloads and permanently caches set logos + symbols on disk so the client
+// always fetches from our server instead of the external Pokémon TCG / TCGdex CDNs.
+
+const SET_IMG_CACHE_DIR = path.join(__dirname, "set-image-cache");
+if (!fs.existsSync(SET_IMG_CACHE_DIR)) {
+  fs.mkdirSync(SET_IMG_CACHE_DIR, { recursive: true });
+}
+
+function imgUrlToFilename(url: string): string {
+  return Buffer.from(url).toString("base64url");
+}
+
+async function getOrFetchSetImage(url: string): Promise<{ data: Buffer; contentType: string } | null> {
+  const filename = imgUrlToFilename(url);
+  const filepath = path.join(SET_IMG_CACHE_DIR, filename);
+  if (fs.existsSync(filepath)) {
+    const data = fs.readFileSync(filepath);
+    const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || "png";
+    const contentType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "svg" ? "image/svg+xml" : "image/png";
+    return { data, contentType };
+  }
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(12_000) });
+    if (!resp.ok) return null;
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    const contentType = resp.headers.get("content-type") || "image/png";
+    fs.writeFileSync(filepath, buffer);
+    return { data: buffer, contentType };
+  } catch {
+    return null;
+  }
+}
+
+async function prewarmSetImages(urls: string[]): Promise<void> {
+  const toFetch = urls.filter(u => u && !fs.existsSync(path.join(SET_IMG_CACHE_DIR, imgUrlToFilename(u))));
+  if (toFetch.length === 0) return;
+  console.log(`[set-img-cache] Pre-warming ${toFetch.length} new images...`);
+  let downloaded = 0;
+  for (const url of toFetch) {
+    try {
+      const result = await getOrFetchSetImage(url);
+      if (result) downloaded++;
+      if (downloaded > 0 && downloaded % 20 === 0) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } catch {}
+  }
+  console.log(`[set-img-cache] Downloaded ${downloaded}/${toFetch.length} images`);
+}
+
+function proxifyImageUrl(req: any, url: string | null | undefined): string | null {
+  if (!url) return null;
+  const base = `${req.protocol}://${req.get("host")}`;
+  return `${base}/api/set-img?u=${encodeURIComponent(url)}`;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 
 async function logGradeEvent(jobId: string, mode: string, cardCount = 1): Promise<void> {
@@ -1503,6 +1561,9 @@ async function fetchAndCacheSets(): Promise<void> {
     setsLastFetched = Date.now();
     console.log(`[set-cache] Cached ${cachedSets.length} sets`);
     mergeApiSetsIntoLookup(cachedSets);
+    // Pre-warm image cache in background (non-blocking)
+    const imageUrls = cachedSets.flatMap(s => [s.logo, s.symbol]).filter(Boolean) as string[];
+    prewarmSetImages(imageUrls).catch(() => {});
   } catch (e: any) {
     console.log(`[set-cache] Failed to fetch sets: ${e?.message}`);
   }
@@ -8778,6 +8839,20 @@ RESPONSE FORMAT (JSON only, no markdown):
     res.json({ yearMonth: getYearMonth(), ...usage });
   });
 
+  // ─── SET IMAGE PROXY (serves cached set logos + symbols from disk) ──────────
+  app.get("/api/set-img", async (req, res) => {
+    const url = req.query.u as string;
+    if (!url) return res.status(400).end();
+    const cached = await getOrFetchSetImage(url);
+    if (!cached) return res.status(404).end();
+    res.set({
+      "Content-Type": cached.contentType,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Length": String(cached.data.length),
+    });
+    res.end(cached.data);
+  });
+
   // ─── GRADING HISTORY SYNC ─────────────────────────────────────────────────
 
   app.get("/api/history", async (req, res) => {
@@ -11377,8 +11452,8 @@ RESPONSE FORMAT (JSON only, no markdown):
             series: s.series,
             cardCount: s.printedTotal || s.total,
             releaseDate: s.releaseDate,
-            logo: s.logo || null,
-            symbol: s.symbol || null,
+            logo: proxifyImageUrl(req, s.logo || null),
+            symbol: proxifyImageUrl(req, s.symbol || null),
             // All English sets from the Pokemon TCG API have card data
             hasCardData: (s.printedTotal || s.total) > 0,
             // null = not yet determined; true/false = checked (from DB or background task)
@@ -11775,11 +11850,15 @@ RESPONSE FORMAT (JSON only, no markdown):
         const dbCount = dbCardCounts.get(s.id) ?? 0;
         return {
           ...s,
+          logo: proxifyImageUrl(req, s.logo ?? null),
           cardCount: dbCount > 0 ? dbCount : s.cardCount,
           hasPrices: status ? status.hasPrices : null,
           hasCardData: dbCount > 0 ? true : (status ? status.hasCards : null),
         };
       });
+      // Also pre-warm Japanese set images in background
+      const jpUrls = sets.map((s: any) => s.logo).filter(Boolean) as string[];
+      prewarmSetImages(jpUrls).catch(() => {});
       res.json({ sets: enriched });
     } catch (err: any) {
       console.error("[sets/japanese] Error:", err.message);
@@ -11790,7 +11869,10 @@ RESPONSE FORMAT (JSON only, no markdown):
   app.get("/api/sets/korean", async (req, res) => {
     try {
       const sets = await buildTcgdexSetList("ko");
-      res.json({ sets });
+      const proxied = sets.map((s: any) => ({ ...s, logo: proxifyImageUrl(req, s.logo ?? null) }));
+      const koUrls = sets.map((s: any) => s.logo).filter(Boolean) as string[];
+      prewarmSetImages(koUrls).catch(() => {});
+      res.json({ sets: proxied });
     } catch (err: any) {
       console.error("[sets/korean] Error:", err.message);
       res.status(500).json({ error: err.message });
