@@ -4339,8 +4339,77 @@ async function repairEmptySetNames(): Promise<void> {
   }
 }
 
+async function initUsageTrackingTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS usage_tracking (
+        id              SERIAL PRIMARY KEY,
+        rc_user_id      VARCHAR NOT NULL,
+        year_month      VARCHAR NOT NULL,
+        quick_count     INTEGER NOT NULL DEFAULT 0,
+        deep_count      INTEGER NOT NULL DEFAULT 0,
+        crossover_count INTEGER NOT NULL DEFAULT 0,
+        updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT usage_tracking_user_month_unique UNIQUE (rc_user_id, year_month)
+      )
+    `);
+    console.log("[usage] usage_tracking table ready");
+  } catch (e: any) {
+    console.error("[usage] Failed to init usage_tracking:", e.message);
+  }
+}
+
+async function initAdminUsersTable(): Promise<void> {
+  const SEEDED_ADMIN_IDS: Array<{ rcUserId: string; note: string }> = [
+    { rcUserId: "$RCAnonymousID:4257e3bd35f1455a827f8d965e21434a", note: "Marcus iOS" },
+    { rcUserId: "$RCAnonymousID:6fcbd255d306411a8c77772ac9cb9c60", note: "Marcus Android" },
+  ];
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        rc_user_id VARCHAR PRIMARY KEY,
+        note       TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    for (const admin of SEEDED_ADMIN_IDS) {
+      await db.query(
+        `INSERT INTO admin_users (rc_user_id, note) VALUES ($1, $2) ON CONFLICT (rc_user_id) DO NOTHING`,
+        [admin.rcUserId, admin.note]
+      );
+    }
+    console.log("[admin] admin_users table ready and seeded");
+  } catch (e: any) {
+    console.error("[admin] Failed to init admin_users:", e.message);
+  }
+}
+
+async function initGradingHistoryTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS grading_history (
+        id            SERIAL PRIMARY KEY,
+        rc_user_id    VARCHAR NOT NULL,
+        local_id      VARCHAR NOT NULL,
+        result_json   JSONB NOT NULL,
+        timestamp     BIGINT NOT NULL,
+        is_deep_grade BOOLEAN NOT NULL DEFAULT FALSE,
+        is_crossover  BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT grading_history_user_local_unique UNIQUE (rc_user_id, local_id)
+      )
+    `);
+    console.log("[history] grading_history table ready");
+  } catch (e: any) {
+    console.error("[history] Failed to init grading_history:", e.message);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure DB tables exist before any requests come in
+  await initUsageTrackingTable();
+  await initAdminUsersTable();
+  await initGradingHistoryTable();
   await initEbayPriceCacheTable();
   await initPriceHistoryTable();
   await initSetPriceStatusTable();
@@ -9491,6 +9560,29 @@ RESPONSE FORMAT (JSON only, no markdown):
       return res.json({ ok: true });
     }
     return res.status(401).json({ ok: false });
+  });
+
+  // Registers the caller's RC user ID as an admin permanently (requires admin password).
+  // Called by the app immediately after admin mode is successfully verified.
+  app.post("/api/admin/register-device", async (req, res) => {
+    const { password, rcUserId } = req.body as { password?: string; rcUserId?: string };
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword || !password || password !== adminPassword) {
+      return res.status(401).json({ ok: false });
+    }
+    if (!rcUserId) return res.status(400).json({ ok: false, error: "rcUserId required" });
+    try {
+      await db.query(
+        `INSERT INTO admin_users (rc_user_id, note) VALUES ($1, 'self-registered via app')
+         ON CONFLICT (rc_user_id) DO NOTHING`,
+        [rcUserId]
+      );
+      console.log(`[admin] Registered device as admin: ${rcUserId}`);
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[admin] register-device failed:", e.message);
+      res.status(500).json({ ok: false });
+    }
   });
 
   async function fetchRCOverview() {

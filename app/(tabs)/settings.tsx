@@ -81,6 +81,15 @@ export default function SettingsScreen() {
         toggleAdminMode();
         setAdminModalVisible(false);
         setAdminCodeInput("");
+        // Register this device's RC user ID as a permanent admin bypass on the server
+        if (rcAppUserId) {
+          const regUrl = new URL("/api/admin/register-device", getApiUrl());
+          fetch(regUrl.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: adminCodeInput, rcUserId: rcAppUserId }),
+          }).catch(() => {});
+        }
         Alert.alert("Admin Mode Enabled", "You now have unlimited grading access.");
       } else {
         Alert.alert("Incorrect Code", "The code you entered is not valid.");
