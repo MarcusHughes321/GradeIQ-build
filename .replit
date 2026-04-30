@@ -6,9 +6,9 @@ channel = "stable-24_05"
 packages = ["libheif"]
 
 [deployment]
-deploymentTarget = "cloudrun"
+deploymentTarget = "vm"
 build = ["sh", "-c", "npm run expo:static:build && npm run server:build"]
-run = ["npm", "run", "server:prod"]
+run = ["sh", "-c", "PORT=8081 npm run server:prod"]
 
 [[ports]]
 localPort = 5000
