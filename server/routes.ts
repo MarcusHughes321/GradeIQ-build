@@ -11,7 +11,7 @@ import { Pool } from "pg";
 // Downloads and permanently caches set logos + symbols on disk so the client
 // always fetches from our server instead of the external Pokémon TCG / TCGdex CDNs.
 
-const SET_IMG_CACHE_DIR = path.join(__dirname, "set-image-cache");
+const SET_IMG_CACHE_DIR = path.join(process.cwd(), "server", "set-image-cache");
 if (!fs.existsSync(SET_IMG_CACHE_DIR)) {
   fs.mkdirSync(SET_IMG_CACHE_DIR, { recursive: true });
 }
