@@ -9603,41 +9603,65 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
+  // Cache tier breakdown for 10 minutes to avoid 100+ API calls per request
+  let rcTiersCache: { data: { curious: number; enthusiast: number; obsessed: number }; ts: number } | null = null;
+  const RC_TIERS_CACHE_TTL = 10 * 60 * 1000;
+
   async function fetchRCTierBreakdown(): Promise<{ curious: number; enthusiast: number; obsessed: number } | null> {
-    const key = process.env.REVENUECAT_V2_KEY;
+    if (rcTiersCache && Date.now() - rcTiersCache.ts < RC_TIERS_CACHE_TTL) {
+      return rcTiersCache.data;
+    }
+
+    const v2Key = process.env.REVENUECAT_V2_KEY;
+    const secretKey = process.env.REVENUECAT_SECRET_KEY;
     const projectId = process.env.REVENUECAT_PROJECT_ID;
-    if (!key || !projectId) return null;
+    if (!v2Key || !secretKey || !projectId) return null;
+
     try {
       const tiers = { curious: 0, enthusiast: 0, obsessed: 0 };
+
+      // Step 1: Get all customer IDs via the V2 customers list endpoint
+      const customerIds: string[] = [];
       let cursor: string | undefined;
       let pages = 0;
-
       while (pages < 10) {
         const url = new URL(`https://api.revenuecat.com/v2/projects/${projectId}/customers`);
         url.searchParams.set("limit", "200");
         if (cursor) url.searchParams.set("starting_after", cursor);
-
-        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` } });
+        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${v2Key}` } });
         if (!r.ok) break;
         const json = await r.json() as any;
         const items: any[] = json.items ?? [];
-
-        for (const customer of items) {
-          const subs: Record<string, any> = customer.subscriptions ?? {};
-          for (const [productId, sub] of Object.entries(subs)) {
-            if (sub?.status !== "active") continue;
-            const id = productId.toLowerCase();
-            if (id.includes("curious")) tiers.curious++;
-            else if (id.includes("enthusiast")) tiers.enthusiast++;
-            else if (id.includes("obsessed")) tiers.obsessed++;
-          }
-        }
-
+        customerIds.push(...items.map((c: any) => c.id).filter(Boolean));
         cursor = json.next_page ?? undefined;
         pages++;
         if (!cursor || items.length < 200) break;
       }
 
+      // Step 2: Use RC v1 REST API per subscriber — it returns entitlements with product_identifier
+      // Process in batches of 10 to avoid hammering the API
+      for (let i = 0; i < Math.min(customerIds.length, 1000); i += 10) {
+        const batch = customerIds.slice(i, i + 10);
+        await Promise.all(batch.map(async (customerId) => {
+          try {
+            const r = await fetch(
+              `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(customerId)}`,
+              { headers: { Authorization: `Bearer ${secretKey}` } }
+            );
+            if (!r.ok) return;
+            const data = await r.json() as any;
+            const entitlements: Record<string, any> = data.subscriber?.entitlements ?? {};
+            for (const [, ent] of Object.entries(entitlements)) {
+              const productId = ((ent as any).product_identifier ?? "").toLowerCase();
+              if (productId.includes("curious")) tiers.curious++;
+              else if (productId.includes("enthusiast")) tiers.enthusiast++;
+              else if (productId.includes("obsessed")) tiers.obsessed++;
+            }
+          } catch {}
+        }));
+      }
+
+      rcTiersCache = { data: tiers, ts: Date.now() };
       return tiers;
     } catch (e: any) {
       console.error("[rc-tiers]", e.message);
