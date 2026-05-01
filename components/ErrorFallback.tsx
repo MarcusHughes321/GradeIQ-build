@@ -47,20 +47,16 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const handleResetApp = () => {
     Alert.alert(
-      "Reset App",
-      "This will clear your navigation state and restart the app. Your grading history will be preserved. Use this if the app keeps crashing on startup.",
+      "Clear App Data & Restart",
+      "This clears all local app data and restarts fresh. Your grading history is safely backed up on our servers and will be automatically restored when the app loads.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Reset",
+          text: "Clear & Restart",
           style: "destructive",
           onPress: async () => {
             try {
-              const allKeys = await AsyncStorage.getAllKeys();
-              const keysToRemove = allKeys.filter(
-                k => k.includes("navigation") || k.includes("expo-router") || k.includes("react-navigation")
-              );
-              if (keysToRemove.length > 0) await AsyncStorage.multiRemove(keysToRemove);
+              await AsyncStorage.clear();
             } catch {}
             try { await reloadAppAsync(); } catch { resetError(); }
           },
@@ -136,7 +132,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           ]}
         >
           <Text style={[styles.resetButtonText, { color: theme.textSecondary }]}>
-            Still crashing? Reset app
+            Still crashing? Clear data &amp; restart
           </Text>
         </Pressable>
       </View>
