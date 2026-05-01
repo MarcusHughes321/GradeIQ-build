@@ -12668,19 +12668,25 @@ Found 1 card — looking up current market data now.`;
           const setWords = (card.set || "").toLowerCase().split(/\s+/).filter((w: string) => w.length >= 4);
           if (!baseName || setWords.length === 0) continue;
 
+          // Split card name into words and require each to appear in DB name (handles "Mega X" prefix mismatches)
+          const nameWords = baseName.split(/\s+/).filter((w: string) => w.length >= 2);
+
           try {
-            const setConditions = setWords.map((_: string, i: number) => `LOWER(set_name) LIKE $${i + 2}`);
+            const nameConditions = nameWords.map((_: string, i: number) => `LOWER(name) LIKE $${i + 1}`);
+            const setParamStart = nameWords.length + 1;
+            // Use AND for set words so "Phantasmal Flames" won't match "Obsidian Flames" (only has "flames", not "phantasmal")
+            const setConditions = setWords.map((_: string, i: number) => `LOWER(set_name) LIKE $${setParamStart + i}`);
             const catalogRes = await db.query(
               `SELECT name, set_name, number, image_url, rarity
                FROM card_catalog
                WHERE lang = 'en'
-                 AND LOWER(name) LIKE $1
-                 AND (${setConditions.join(" OR ")})
+                 AND (${nameConditions.join(" AND ")})
+                 AND (${setConditions.join(" AND ")})
                ORDER BY
                  CASE WHEN number ~ '^[0-9]+' THEN CAST(split_part(number,'/',1) AS INT) ELSE 9999 END,
                  number
                LIMIT 12`,
-              [`%${baseName}%`, ...setWords.map((w: string) => `%${w}%`)]
+              [...nameWords.map((w: string) => `%${w}%`), ...setWords.map((w: string) => `%${w}%`)]
             );
 
             if (catalogRes.rows.length >= 2) {
