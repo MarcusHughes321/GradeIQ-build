@@ -34,21 +34,11 @@ type CardResult = {
   saleCount: number | null;
   avg7d: number | null;
   avg30d: number | null;
-  // Research mode multi-tier prices
   rawGbp: number | null;
   psa10Gbp: number | null;
   psa9Gbp: number | null;
   gradingUpside: number | null;
-  // Full eBay all-grades data — pre-populates Profit screen cache
   allGrades?: Record<string, unknown> | null;
-};
-
-type DisambiguationCard = {
-  name: string;
-  set: string;
-  number: string | null;
-  imageUrl: string | null;
-  rarity: string | null;
 };
 
 type AdvisorResponse = {
@@ -57,7 +47,6 @@ type AdvisorResponse = {
   totalMarketGbp: number;
   offeredGbp: number | null;
   pctOfMarket: number | null;
-  disambiguationCards?: DisambiguationCard[];
 };
 
 type Message = {
@@ -77,13 +66,12 @@ const SUGGESTIONS = [
   "Should I buy a raw 1st Edition Blastoise or get it graded first?",
 ];
 
-// Strip markdown bold/italic/headers so the AI reply renders cleanly as plain text
 function stripMarkdown(text: string): string {
   return text
-    .replace(/\*\*(.+?)\*\*/g, "$1")   // **bold** → bold
-    .replace(/\*(.+?)\*/g, "$1")        // *italic* → italic
-    .replace(/^#{1,6}\s+/gm, "")        // ## Heading → Heading
-    .replace(/^[-*]\s+/gm, "• ")        // - bullet → • bullet
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*]\s+/gm, "• ")
     .trim();
 }
 
@@ -125,11 +113,7 @@ function CardTile({ card, onPress }: { card: CardResult; onPress?: () => void })
     >
       <View style={styles.cardImageWrap}>
         {card.imageUrl ? (
-          <Image
-            source={{ uri: card.imageUrl }}
-            style={styles.cardImage}
-            contentFit="contain"
-          />
+          <Image source={{ uri: card.imageUrl }} style={styles.cardImage} contentFit="contain" />
         ) : (
           <View style={[styles.cardImage, styles.cardImageFallback]}>
             <Ionicons name="card-outline" size={28} color={Colors.textMuted} />
@@ -144,7 +128,6 @@ function CardTile({ card, onPress }: { card: CardResult; onPress?: () => void })
         {card.set ? <Text style={styles.cardSet} numberOfLines={1}>{card.set}</Text> : null}
 
         {card.isRaw ? (
-          // Research mode: show price tiers
           card.rawGbp != null || card.psa10Gbp != null ? (
             <View style={styles.researchPrices}>
               {card.rawGbp != null && (
@@ -173,7 +156,6 @@ function CardTile({ card, onPress }: { card: CardResult; onPress?: () => void })
             <Text style={styles.cardNoPrice}>No price data</Text>
           )
         ) : (
-          // Deal mode: show single grade price
           card.marketValueGbp != null ? (
             <View>
               <View style={styles.cardPriceRow}>
@@ -200,63 +182,15 @@ function CardTile({ card, onPress }: { card: CardResult; onPress?: () => void })
   );
 }
 
-function DisambiguationPicker({
-  cards,
-  onSelect,
-}: {
-  cards: DisambiguationCard[];
-  onSelect: (card: DisambiguationCard) => void;
-}) {
-  return (
-    <View style={styles.disambigWrap}>
-      <FlatList
-        data={cards}
-        keyExtractor={(_, i) => String(i)}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.disambigList}
-        renderItem={({ item }) => (
-          <Pressable
-            style={({ pressed }) => [styles.disambigCard, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onSelect(item);
-            }}
-          >
-            {item.imageUrl ? (
-              <Image
-                source={{ uri: item.imageUrl }}
-                style={styles.disambigImage}
-                contentFit="contain"
-              />
-            ) : (
-              <View style={[styles.disambigImage, styles.disambigImageFallback]}>
-                <Ionicons name="card-outline" size={24} color={Colors.textMuted} />
-              </View>
-            )}
-            <Text style={styles.disambigName} numberOfLines={2}>{item.name}</Text>
-            {item.number ? (
-              <Text style={styles.disambigNumber}>#{item.number}</Text>
-            ) : null}
-          </Pressable>
-        )}
-      />
-    </View>
-  );
-}
-
 function AssistantMessage({
   msg,
-  onSelectCard,
   onRetry,
 }: {
   msg: Message;
-  onSelectCard?: (card: DisambiguationCard) => void;
   onRetry?: (text: string) => void;
 }) {
   const qc = useQueryClient();
   const d = msg.data;
-  const hasDisambiguation = d?.disambiguationCards && d.disambiguationCards.length > 0;
 
   if (msg.isError) {
     return (
@@ -288,13 +222,6 @@ function AssistantMessage({
       <View style={styles.aiBubble}>
         <Text style={styles.aiText}>{stripMarkdown(msg.text)}</Text>
 
-        {hasDisambiguation && onSelectCard && (
-          <DisambiguationPicker
-            cards={d!.disambiguationCards!}
-            onSelect={onSelectCard}
-          />
-        )}
-
         {d && d.cards.length > 0 && (
           <View style={styles.cardsSection}>
             <View style={styles.cardsDivider} />
@@ -306,8 +233,6 @@ function AssistantMessage({
                   card={card}
                   onPress={card.name && card.set ? () => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    // Pre-populate the Profit screen's React Query cache with
-                    // already-fetched price data so it shows instantly
                     if (card.allGrades) {
                       qc.setQueryData(
                         ["ebay-all-grades", card.name, card.set ?? "", card.number ?? "", null],
@@ -369,46 +294,30 @@ export default function DealAdvisorScreen() {
     content: m.text,
   }));
 
-  const lastUserMessage = messages.find((m) => m.role === "user")?.text ?? "";
-
-  // Last confirmed card from conversation (used to avoid re-triggering disambiguation on follow-ups)
-  const lastConfirmedCard = messages.find(
-    (m) => m.role === "assistant" && m.data?.cards && m.data.cards.length === 1,
-  )?.data?.cards[0];
-
   const postToAdvisor = useCallback(async (
     text: string,
     currentHistory: { role: string; content: string }[],
-    selected?: DisambiguationCard,
-    hint?: { name: string; set: string | null; number: string | null },
   ): Promise<AdvisorResponse> => {
     const url = new URL("/api/deal-advisor", getApiUrl());
-    const body: Record<string, unknown> = { message: text, history: currentHistory };
-    if (selected) body.selectedCard = selected;
-    if (hint) body.hintCard = hint;
-    const MAX_ATTEMPTS = 3;
+    const MAX_ATTEMPTS = 2;
     let lastErr: Error = new Error("Unknown error");
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, 1200 * attempt));
-      }
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 45000);
+      const timeout = setTimeout(() => controller.abort(), 50000);
       try {
         const res = await fetch(url.toString(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ message: text, history: currentHistory }),
           signal: controller.signal,
         });
         clearTimeout(timeout);
-        if (res.ok) {
-          return (await res.json()) as AdvisorResponse;
-        }
+        if (res.ok) return (await res.json()) as AdvisorResponse;
         const status = res.status;
         await res.text().catch(() => "");
         lastErr = new Error(`HTTP ${status}`);
-        if (status >= 400 && status < 500 && status !== 404) break;
+        if (status >= 400 && status < 500) break;
       } catch (e: any) {
         clearTimeout(timeout);
         if (e?.name === "AbortError") throw e;
@@ -426,22 +335,12 @@ export default function DealAdvisorScreen() {
     Keyboard.dismiss();
     setInput("");
 
-    const userMsg: Message = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      text: trimmed,
-    };
+    const userMsg: Message = { id: `u-${Date.now()}`, role: "user", text: trimmed };
     setMessages((prev) => [userMsg, ...prev]);
     setLoading(true);
 
-    // If we already know which card the conversation is about, pass it as a hint
-    // so the server can skip the Claude parse step (halves response time)
-    const hint = lastConfirmedCard
-      ? { name: lastConfirmedCard.name, set: lastConfirmedCard.set, number: lastConfirmedCard.number }
-      : undefined;
-
     try {
-      const data = await postToAdvisor(trimmed, history, undefined, hint);
+      const data = await postToAdvisor(trimmed, history);
       setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
     } catch (e: any) {
       const isTimeout = e?.name === "AbortError";
@@ -453,31 +352,7 @@ export default function DealAdvisorScreen() {
     } finally {
       setLoading(false);
     }
-  }, [loading, history, lastConfirmedCard, postToAdvisor]);
-
-  const sendWithCard = useCallback(async (selected: DisambiguationCard) => {
-    if (loading) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setLoading(true);
-
-    const label = `${selected.name}${selected.number ? ` (#${selected.number})` : ""}`;
-    const confirmMsg: Message = { id: `u-${Date.now()}`, role: "user", text: label };
-    setMessages((prev) => [confirmMsg, ...prev]);
-
-    try {
-      const data = await postToAdvisor(lastUserMessage || label, history, selected);
-      setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
-    } catch (e: any) {
-      const isTimeout = e?.name === "AbortError";
-      const errText = isTimeout
-        ? "That took too long — tap Retry or try again."
-        : "Couldn't reach the server. Tap Retry to try again.";
-      console.error("[CardAdvisor] sendWithCard error:", e?.message, e?.name);
-      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText, isError: true, retryText: lastUserMessage || label }, ...prev]);
-    } finally {
-      setLoading(false);
-    }
-  }, [loading, history, lastUserMessage, postToAdvisor]);
+  }, [loading, history, postToAdvisor]);
 
   const renderItem = ({ item }: { item: Message }) => {
     if (item.role === "user") {
@@ -492,7 +367,6 @@ export default function DealAdvisorScreen() {
     return (
       <AssistantMessage
         msg={item}
-        onSelectCard={sendWithCard}
         onRetry={(text) => {
           setMessages((prev) => prev.filter((m) => m.id !== item.id));
           send(text);
@@ -543,10 +417,7 @@ export default function DealAdvisorScreen() {
           return renderItem({ item });
         }}
         inverted
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: 16, paddingTop: 8 },
-        ]}
+        contentContainerStyle={[styles.listContent, { paddingBottom: 16, paddingTop: 8 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         ListFooterComponent={showEmpty ? (
@@ -612,394 +483,72 @@ const styles = StyleSheet.create({
   },
   backBtn: { width: 40, justifyContent: "center" },
   headerCenter: { flex: 1, alignItems: "center" },
-  headerTitle: {
-    fontSize: 17,
-    fontFamily: "Inter_700Bold",
-    color: Colors.text,
-  },
-  headerSub: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-    marginTop: 1,
-  },
+  headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: Colors.text },
+  headerSub: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 1 },
 
-  listContent: {
-    paddingHorizontal: 16,
-  },
+  listContent: { paddingHorizontal: 16 },
 
-  // User bubble
-  userBubbleWrap: {
-    alignItems: "flex-end",
-    marginVertical: 6,
-  },
-  userBubble: {
-    backgroundColor: Colors.primary,
-    borderRadius: 18,
-    borderBottomRightRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    maxWidth: "82%",
-  },
-  userText: {
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    color: "#fff",
-    lineHeight: 21,
-  },
+  userBubbleWrap: { alignItems: "flex-end", marginVertical: 6 },
+  userBubble: { backgroundColor: Colors.primary, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10, maxWidth: "78%" },
+  userText: { fontSize: 15, fontFamily: "Inter_400Regular", color: "#fff", lineHeight: 21 },
 
-  // AI bubble
-  aiBubbleWrap: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginVertical: 8,
-    gap: 10,
-  },
-  aiAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primary + "20",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.primary + "40",
-    marginTop: 2,
-  },
-  aiAvatarText: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    color: Colors.primary,
-  },
-  aiBubble: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    borderTopLeftRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  aiText: {
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    color: Colors.text,
-    lineHeight: 22,
-  },
-  retryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 10,
-    alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(255,60,49,0.12)",
-    borderRadius: 8,
-  },
-  retryBtnText: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.primary,
-  },
-  loadingBubble: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 14,
-  },
-  loadingText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-  },
+  aiBubbleWrap: { flexDirection: "row", alignItems: "flex-start", marginVertical: 6, gap: 10 },
+  aiAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center", marginTop: 2, flexShrink: 0 },
+  aiAvatarText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#fff" },
+  aiBubble: { flex: 1, backgroundColor: Colors.surface, borderRadius: 16, padding: 14 },
+  aiText: { fontSize: 15, fontFamily: "Inter_400Regular", color: Colors.text, lineHeight: 22 },
 
-  // Cards section inside AI bubble
+  loadingBubble: { flexDirection: "row", alignItems: "center", gap: 10 },
+  loadingText: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+
+  retryBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.surface },
+  retryBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.primary },
+
   cardsSection: { marginTop: 12 },
-  cardsDivider: {
-    height: 1,
-    backgroundColor: Colors.surfaceBorder,
-    marginBottom: 12,
-  },
-  cardsHeader: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
+  cardsDivider: { height: 1, backgroundColor: Colors.surfaceBorder, marginBottom: 10 },
+  cardsHeader: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
   cardsList: { gap: 8 },
 
-  // Card tile
-  cardTile: {
-    flexDirection: "row",
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    padding: 10,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  cardImageWrap: { position: "relative", width: 56, alignItems: "center" },
-  cardImage: { width: 56, height: 78, borderRadius: 4 },
-  cardImageFallback: {
-    backgroundColor: Colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gradePill: {
-    position: "absolute",
-    bottom: -4,
-    left: "50%",
-    transform: [{ translateX: -20 }],
-    borderRadius: 8,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    minWidth: 40,
-    alignItems: "center",
-  },
-  gradePillText: {
-    fontSize: 9,
-    fontFamily: "Inter_700Bold",
-    color: "#fff",
-    textAlign: "center",
-  },
-  cardInfo: { flex: 1, paddingTop: 2, paddingLeft: 2 },
-  cardName: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.text,
-    lineHeight: 18,
-  },
-  cardSet: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  cardPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 6 },
-  cardPrice: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: "#34D399",
-  },
-  cardAvg: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-  },
-  cardNoPrice: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-    marginTop: 6,
-    fontStyle: "italic",
-  },
-  cardSales: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  // Disambiguation picker
-  disambigWrap: {
-    marginTop: 12,
-  },
-  disambigList: {
-    gap: 8,
-    paddingBottom: 4,
-  },
-  disambigCard: {
-    width: 100,
-    backgroundColor: Colors.background,
-    borderRadius: 10,
-    padding: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  disambigImage: {
-    width: 84,
-    height: 116,
-    borderRadius: 6,
-  },
-  disambigImageFallback: {
-    backgroundColor: "rgba(255,255,255,0.05)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  disambigName: {
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-    color: Colors.text,
-    textAlign: "center",
-    marginTop: 6,
-    lineHeight: 14,
-  },
-  disambigNumber: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
+  cardTile: { flexDirection: "row", backgroundColor: Colors.background, borderRadius: 12, padding: 10, gap: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  cardImageWrap: { position: "relative" },
+  cardImage: { width: 56, height: 78, borderRadius: 6 },
+  cardImageFallback: { backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center" },
+  gradePill: { position: "absolute", bottom: -4, left: -4, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
+  gradePillText: { fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" },
+  cardInfo: { flex: 1, justifyContent: "center", gap: 3 },
+  cardName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: Colors.text },
+  cardSet: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  cardPriceRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  cardPrice: { fontSize: 18, fontFamily: "Inter_700Bold", color: Colors.text },
+  cardAvg: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  cardSales: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 2 },
+  cardNoPrice: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 4 },
 
-  researchPrices: {
-    marginTop: 6,
-    gap: 3,
-  },
-  researchRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  researchLabel: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-  },
-  researchValue: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.text,
-  },
+  researchPrices: { marginTop: 4, gap: 3 },
+  researchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  researchLabel: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  researchValue: { fontSize: 13, fontFamily: "Inter_700Bold", color: Colors.text },
 
-  // Summary box
-  summaryBox: {
-    marginTop: 12,
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    gap: 6,
-  },
-  summaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  summaryLabel: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textSecondary,
-  },
-  summaryValue: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: "#34D399",
-  },
+  summaryBox: { marginTop: 12, backgroundColor: Colors.background, borderRadius: 12, padding: 12, gap: 8, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  summaryLabel: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  summaryValue: { fontSize: 16, fontFamily: "Inter_700Bold", color: Colors.text },
 
-  // Deal score pill
-  scorePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    flex: 1,
-    justifyContent: "center",
-  },
-  scoreNum: {
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-  },
-  scoreLabel: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-  },
+  scorePill: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  scoreNum: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  scoreLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
-  // Empty state
-  emptyWrap: {
-    paddingTop: 40,
-    paddingBottom: 20,
-    alignItems: "center",
-  },
-  emptyIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.primary + "15",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.primary + "30",
-  },
-  emptyTitle: {
-    fontSize: 22,
-    fontFamily: "Inter_700Bold",
-    color: Colors.text,
-    marginBottom: 8,
-  },
-  emptySub: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: 16,
-    marginBottom: 28,
-  },
-  suggestionsLabel: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 12,
-    alignSelf: "flex-start",
-  },
-  suggestions: { gap: 8, width: "100%" },
-  suggestionChip: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  suggestionText: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.text,
-    lineHeight: 18,
-  },
-
-  // Input bar
-  inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.surfaceBorder,
-    backgroundColor: Colors.background,
-    gap: 10,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    color: Colors.text,
-    maxHeight: 120,
-  },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  inputBar: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder, backgroundColor: Colors.background },
+  input: { flex: 1, backgroundColor: Colors.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, fontFamily: "Inter_400Regular", color: Colors.text, maxHeight: 120, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
   sendBtnDisabled: { opacity: 0.4 },
+
+  emptyWrap: { paddingVertical: 40, paddingHorizontal: 4 },
+  emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 16 },
+  emptyTitle: { fontSize: 22, fontFamily: "Inter_700Bold", color: Colors.text, textAlign: "center", marginBottom: 8 },
+  emptySub: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", lineHeight: 21, marginBottom: 24 },
+  suggestionsLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
+  suggestions: { gap: 8 },
+  suggestionChip: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  suggestionText: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.text, lineHeight: 20 },
 });
