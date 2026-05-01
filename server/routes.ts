@@ -12597,12 +12597,18 @@ For each card or graded slab mentioned, output ONE JSON object in the array. Inc
 - "ptSearchQuery": concise search string optimised for eBay price lookup (e.g. "Charizard Base Set", "Umbreon VMAX Alternate Art", "Pikachu Illustrator")
 
 If the user asks about a card without specifying grade, assume raw (isRaw: true, grade: null).
-If the card is a Special Illustration Rare (SIR) or Secret Rare, include that in ptSearchQuery.
+
+IMPORTANT for ptSearchQuery: use ONLY the card's actual name and set name. Do NOT include rarity designations (SIR, SAR, Secret Rare, Full Art, Alt Art, Special Illustration Rare, Rainbow Rare, Gold, etc.) — these are rarity tiers, not card names. For example:
+- "Charizard ex SIR from Obsidian Flames" → ptSearchQuery: "Charizard ex Obsidian Flames"
+- "Umbreon VMAX Alt Art" → ptSearchQuery: "Umbreon VMAX Evolving Skies"
+- "Pikachu Illustrator" → ptSearchQuery: "Pikachu Illustrator"
+
+Also: modern card names use lowercase "ex" (e.g. "Charizard ex"), not "EX" or "GX".
 
 Output ONLY the JSON array between <CARDS> and </CARDS> tags, then one brief sentence confirming what you found.
 
 Example:
-<CARDS>[{"name":"Mega Charizard EX","set":"Phantom Forces","number":null,"grade":null,"company":null,"isRaw":true,"ptSearchQuery":"Mega Charizard EX Phantom Forces"}]</CARDS>
+<CARDS>[{"name":"Charizard ex","set":"Obsidian Flames","number":null,"grade":null,"company":null,"isRaw":true,"ptSearchQuery":"Charizard ex Obsidian Flames"}]</CARDS>
 Found 1 card — looking up current market data now.`;
 
       const parseResp = await anthropic.messages.create({
@@ -12631,43 +12637,64 @@ Found 1 card — looking up current market data now.`;
         let marketValueUsd: number | null = null;
         let gradeDetails: any = null;
         let imageUrl: string | null = null;
+        let psa10Usd: number | null = null;
+        let psa9Usd: number | null = null;
+        let rawUsd: number | null = null;
         const key = gradeKey(card.company, card.grade, card.isRaw);
 
         // Price lookup via PokeTrace
         try {
+          // Strip rarity designations from the search query — PokeTrace uses card names, not rarity tiers
+          const rarityPattern = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;
+          const rawQuery = card.ptSearchQuery || `${card.name} ${card.set || ""}`.trim();
+          const cleanQuery = rawQuery.replace(rarityPattern, "").replace(/\s+/g, " ").trim();
           const prices = await fetchEbayGradedPrices(
-            card.ptSearchQuery || `${card.name} ${card.set || ""}`.trim(),
+            cleanQuery,
             card.set || "",
             card.number || "",
             null
           );
-          if (prices && prices[key as keyof EbayAllGrades] !== undefined) {
-            marketValueUsd = (prices[key as keyof EbayAllGrades] as number) || null;
+          if (prices) {
+            // Always capture raw + graded tiers for context
+            rawUsd = prices.raw > 0 ? prices.raw : null;
+            psa10Usd = prices.psa10 > 0 ? prices.psa10 : null;
+            psa9Usd = prices.psa9 > 0 ? prices.psa9 : null;
+
+            if (card.isRaw) {
+              // Research mode: prefer raw price for main value, fall back to PSA 10 as reference
+              marketValueUsd = rawUsd ?? psa10Usd;
+              gradeDetails = (prices as any)?.gradeDetails?.["raw"] ?? (prices as any)?.gradeDetails?.["psa10"] ?? null;
+            } else {
+              const val = (prices[key as keyof EbayAllGrades] as number);
+              marketValueUsd = val > 0 ? val : null;
+              gradeDetails = (prices as any)?.gradeDetails?.[key] ?? null;
+            }
           }
-          gradeDetails = (prices as any)?.gradeDetails?.[key] ?? null;
         } catch (e: any) {
           console.warn(`[deal-advisor] Price lookup failed for ${card.name}:`, e.message);
         }
 
-        // Image lookup from card_catalog
+        // Image lookup from card_catalog — try exact match then fuzzy on first word(s)
         try {
           const searchName = (card.name || "").trim().toLowerCase();
+          // Strip variant suffixes (ex, EX, SIR, etc.) for broader image match
+          const baseName = searchName.replace(/\b(ex|gx|v|vmax|vstar|sir|full art|alt art|special illustration)\b/gi, "").trim();
           const imgRes = await db.query(
             `SELECT image_url FROM card_catalog
              WHERE lang = 'en'
-               AND LOWER(name) = $1
+               AND (LOWER(name) = $1 OR LOWER(name) = $2)
              ORDER BY card_updated_at DESC NULLS LAST
              LIMIT 1`,
-            [searchName]
+            [searchName, baseName]
           );
           if (imgRes.rows.length === 0 && searchName) {
             const fuzzyRes = await db.query(
               `SELECT image_url FROM card_catalog
                WHERE lang = 'en'
-                 AND LOWER(name) LIKE $1
+                 AND (LOWER(name) LIKE $1 OR LOWER(name) LIKE $2)
                ORDER BY card_updated_at DESC NULLS LAST
                LIMIT 1`,
-              [`${searchName}%`]
+              [`${searchName}%`, `${baseName}%`]
             );
             imageUrl = fuzzyRes.rows[0]?.image_url ?? null;
           } else {
@@ -12676,6 +12703,13 @@ Found 1 card — looking up current market data now.`;
         } catch (e: any) {
           console.warn(`[deal-advisor] Image lookup failed for ${card.name}:`, e.message);
         }
+
+        const psa10Gbp = psa10Usd != null ? parseFloat((psa10Usd * GBP_PER_USD).toFixed(2)) : null;
+        const psa9Gbp = psa9Usd != null ? parseFloat((psa9Usd * GBP_PER_USD).toFixed(2)) : null;
+        const rawGbp = rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null;
+        const gradingUpside = psa10Usd != null && rawUsd != null && rawUsd > 0
+          ? parseFloat((psa10Usd / rawUsd).toFixed(1))
+          : null;
 
         return {
           name: card.name,
@@ -12691,6 +12725,11 @@ Found 1 card — looking up current market data now.`;
           saleCount: gradeDetails?.saleCount ?? null,
           avg7d: gradeDetails?.avg7d ?? null,
           avg30d: gradeDetails?.avg30d ?? null,
+          // Extra tiers for research mode
+          psa10Gbp,
+          psa9Gbp,
+          rawGbp,
+          gradingUpside,
         };
       }));
 
@@ -12703,10 +12742,20 @@ Found 1 card — looking up current market data now.`;
 
       // ── Step 3: Ask Claude for deal verdict with real price context ────────
       const priceLines = enrichedCards.map((c: any) => {
-        const grade = c.isRaw ? "raw" : `${c.company || ""} ${c.grade || ""}`.trim();
-        const valStr = c.marketValueGbp != null
-          ? `£${c.marketValueGbp} (7d avg: ${c.avg7d != null ? `£${(c.avg7d * GBP_PER_USD).toFixed(0)}` : "n/a"}, ${c.saleCount ?? "?"} recent sales)`
-          : "price data unavailable";
+        const grade = c.isRaw ? "raw/ungraded" : `${c.company || ""} ${c.grade || ""}`.trim();
+        let valStr: string;
+        if (c.isRaw) {
+          const parts: string[] = [];
+          if (c.rawGbp != null) parts.push(`Raw eBay: £${c.rawGbp} (${c.saleCount ?? "?"} recent sales)`);
+          if (c.psa10Gbp != null) parts.push(`PSA 10: £${c.psa10Gbp}`);
+          if (c.psa9Gbp != null) parts.push(`PSA 9: £${c.psa9Gbp}`);
+          if (c.gradingUpside != null) parts.push(`Grading upside: ${c.gradingUpside}x`);
+          valStr = parts.length > 0 ? parts.join(", ") : "price data unavailable";
+        } else {
+          valStr = c.marketValueGbp != null
+            ? `£${c.marketValueGbp} (7d avg: ${c.avg7d != null ? `£${(c.avg7d * GBP_PER_USD).toFixed(0)}` : "n/a"}, ${c.saleCount ?? "?"} recent sales)`
+            : "price data unavailable";
+        }
         return `• ${c.name}${c.set ? ` (${c.set})` : ""} ${grade}: ${valStr}`;
       }).join("\n");
 
