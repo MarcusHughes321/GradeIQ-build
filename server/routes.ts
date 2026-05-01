@@ -9984,7 +9984,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         prevMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
       }
 
-      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult] = await Promise.all([
+      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult, aiAllTimeResult] = await Promise.all([
         fetchRCTierBreakdown(),
         db.query(`SELECT key, value FROM admin_settings`),
         db.query(
@@ -9997,6 +9997,8 @@ RESPONSE FORMAT (JSON only, no markdown):
            WHERE month = ANY($1) GROUP BY month`,
           [prevMonths]
         ),
+        // All-time AI spend across every month ever logged
+        db.query(`SELECT SUM(cost_usd) AS total, COUNT(*) AS calls FROM ai_cost_log`),
       ]);
 
       const settings: Record<string, string> = {};
@@ -10005,8 +10007,25 @@ RESPONSE FORMAT (JSON only, no markdown):
       // Apple Small Business Programme = 15%, standard = 30%. Configurable so you can adjust.
       const platformFeePct = parseFloat(settings["platform_fee_pct"] ?? "15");
       const PLATFORM_FEE = platformFeePct / 100;
-      // Total dev/build costs invested to date (one-time, entered manually)
-      const devCostToDateGbp = parseFloat(settings["dev_cost_to_date_gbp"] ?? "0");
+      // Months the app has been in development (drives Replit + Apple licence cost calculations)
+      const monthsBuilding = parseFloat(settings["months_building"] ?? "0");
+      // Any other costs not covered above (one-off purchases, external tools, etc.)
+      const otherCostsGbp = parseFloat(settings["other_costs_gbp"] ?? "0");
+
+      // ── Cost history breakdown ──────────────────────────────────────────────
+      // AI costs: pulled directly from the database (automatic)
+      const aiAllTimeUsd = parseFloat(aiAllTimeResult.rows[0]?.total ?? "0") || 0;
+      const aiAllTimeCalls = parseInt(aiAllTimeResult.rows[0]?.calls ?? "0") || 0;
+      const aiTotalGbp = aiAllTimeUsd * GBP_PER_USD;
+      // Replit: monthly rate × months building
+      const replitTotalGbp = monthsBuilding > 0 ? monthsBuilding * replitCostGbp : 0;
+      // Apple Developer Programme: £99/year — count full years (e.g. 13 months = 2 × £99)
+      const appleLicenceGbp = monthsBuilding > 0 ? Math.ceil(monthsBuilding / 12) * 99 : 0;
+      // Google Play: $25 one-time registration = ~£20 (only count once if months > 0)
+      const GOOGLE_PLAY_GBP = 19.82;
+      const googlePlayGbp = monthsBuilding > 0 ? GOOGLE_PLAY_GBP : 0;
+      // RevenueCat: free under $2500 MRR — no cost to track yet
+      const totalInvestedGbp = aiTotalGbp + replitTotalGbp + appleLicenceGbp + googlePlayGbp + otherCostsGbp;
 
       const curious = rcTiers?.curious ?? 0;
       const enthusiast = rcTiers?.enthusiast ?? 0;
@@ -10033,9 +10052,9 @@ RESPONSE FORMAT (JSON only, no markdown):
       const totalMonthlyCostsGbp = aiCurrentGbp + replitCostGbp;
       const profitGbp = netMrrGbp - totalMonthlyCostsGbp;
       const marginPct = netMrrGbp > 0 ? Math.round((profitGbp / netMrrGbp) * 100) : 0;
-      // Months until cumulative dev costs are recovered at current profit rate
-      const breakevenMonths = devCostToDateGbp > 0 && profitGbp > 0
-        ? Math.ceil(devCostToDateGbp / profitGbp)
+      // Months until total investment is recovered at current monthly profit rate
+      const breakevenMonths = totalInvestedGbp > 0 && profitGbp > 0
+        ? Math.ceil(totalInvestedGbp / profitGbp)
         : null;
 
       const totalGrades = aiCurrentCalls;
@@ -10058,7 +10077,16 @@ RESPONSE FORMAT (JSON only, no markdown):
           replitMonthlyGbp: replitCostGbp,
           totalGbp: parseFloat(totalMonthlyCostsGbp.toFixed(2)),
           aiCallsThisMonth: aiCurrentCalls,
-          devCostToDateGbp,
+        },
+        costsToDate: {
+          monthsBuilding,
+          aiTotalGbp: parseFloat(aiTotalGbp.toFixed(2)),
+          aiAllTimeCalls,
+          replitTotalGbp: parseFloat(replitTotalGbp.toFixed(2)),
+          appleLicenceGbp: parseFloat(appleLicenceGbp.toFixed(2)),
+          googlePlayGbp: parseFloat(googlePlayGbp.toFixed(2)),
+          otherCostsGbp: parseFloat(otherCostsGbp.toFixed(2)),
+          totalInvestedGbp: parseFloat(totalInvestedGbp.toFixed(2)),
         },
         pl: {
           profitGbp: parseFloat(profitGbp.toFixed(2)),
