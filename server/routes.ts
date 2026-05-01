@@ -9604,10 +9604,12 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   // Cache tier breakdown for 10 minutes to avoid 100+ API calls per request
-  let rcTiersCache: { data: { curious: number; enthusiast: number; obsessed: number }; ts: number } | null = null;
+  let rcTiersCache: { data: RCTiers; ts: number } | null = null;
   const RC_TIERS_CACHE_TTL = 10 * 60 * 1000;
 
-  async function fetchRCTierBreakdown(): Promise<{ curious: number; enthusiast: number; obsessed: number } | null> {
+  type RCTiers = { curious: number; enthusiast: number; obsessed: number; other: number; productIds: string[] };
+
+  async function fetchRCTierBreakdown(): Promise<RCTiers | null> {
     if (rcTiersCache && Date.now() - rcTiersCache.ts < RC_TIERS_CACHE_TTL) {
       return rcTiersCache.data;
     }
@@ -9618,7 +9620,8 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!v2Key || !secretKey || !projectId) return null;
 
     try {
-      const tiers = { curious: 0, enthusiast: 0, obsessed: 0 };
+      const tiers: RCTiers = { curious: 0, enthusiast: 0, obsessed: 0, other: 0, productIds: [] };
+      const seenProductIds = new Set<string>();
 
       // Step 1: Get all customer IDs via the V2 customers list endpoint
       const customerIds: string[] = [];
@@ -9653,13 +9656,20 @@ RESPONSE FORMAT (JSON only, no markdown):
             const entitlements: Record<string, any> = data.subscriber?.entitlements ?? {};
             for (const [, ent] of Object.entries(entitlements)) {
               const productId = ((ent as any).product_identifier ?? "").toLowerCase();
+              if (!productId) continue;
+              seenProductIds.add(productId);
               if (productId.includes("curious")) tiers.curious++;
               else if (productId.includes("enthusiast")) tiers.enthusiast++;
               else if (productId.includes("obsessed")) tiers.obsessed++;
+              else tiers.other++;
             }
           } catch {}
         }));
       }
+
+      tiers.productIds = Array.from(seenProductIds).sort();
+      console.log("[rc-tiers] Breakdown:", { curious: tiers.curious, enthusiast: tiers.enthusiast, obsessed: tiers.obsessed, other: tiers.other });
+      console.log("[rc-tiers] All product IDs found:", tiers.productIds);
 
       rcTiersCache = { data: tiers, ts: Date.now() };
       return tiers;
