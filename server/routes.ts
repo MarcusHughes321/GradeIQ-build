@@ -12628,8 +12628,8 @@ Found 1 card — looking up current market data now.`;
         }];
       } else {
         parseResp = await anthropic.messages.create({
-          model: "claude-sonnet-4-6",
-          max_tokens: 800,
+          model: "claude-haiku-4-5",
+          max_tokens: 500,
           system: parseSystem,
           messages: [...history, { role: "user", content: message }],
         });
@@ -12858,8 +12858,8 @@ Notes:
 - Be direct — give a clear recommendation, not watered-down "it depends" answers`;
 
       const adviceResp = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 600,
+        model: "claude-haiku-4-5",
+        max_tokens: 400,
         system: adviceSystem,
         messages: [...history, { role: "user", content: message }],
       });
@@ -12871,7 +12871,7 @@ Notes:
       // Log AI costs (parseResp may be null if selectedCard was provided)
       const totalInput = (parseResp?.usage?.input_tokens ?? 0) + adviceResp.usage.input_tokens;
       const totalOutput = (parseResp?.usage?.output_tokens ?? 0) + adviceResp.usage.output_tokens;
-      logAiCost("deal_advisor", "claude-sonnet-4-6", totalInput, totalOutput);
+      logAiCost("deal_advisor", "claude-haiku-4-5", totalInput, totalOutput);
 
       res.json({
         reply,
