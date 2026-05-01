@@ -62,6 +62,8 @@ type Message = {
   role: "user" | "assistant";
   text: string;
   data?: AdvisorResponse;
+  isError?: boolean;
+  retryText?: string;
 };
 
 const SUGGESTIONS = [
@@ -243,12 +245,36 @@ function DisambiguationPicker({
 function AssistantMessage({
   msg,
   onSelectCard,
+  onRetry,
 }: {
   msg: Message;
   onSelectCard?: (card: DisambiguationCard) => void;
+  onRetry?: (text: string) => void;
 }) {
   const d = msg.data;
   const hasDisambiguation = d?.disambiguationCards && d.disambiguationCards.length > 0;
+
+  if (msg.isError) {
+    return (
+      <View style={styles.aiBubbleWrap}>
+        <View style={[styles.aiAvatar, { backgroundColor: "#3a1a1a" }]}>
+          <Ionicons name="warning-outline" size={14} color="#ff6b6b" />
+        </View>
+        <View style={[styles.aiBubble, { borderWidth: 1, borderColor: "#3a1a1a" }]}>
+          <Text style={[styles.aiText, { color: "#ff8080" }]}>{msg.text}</Text>
+          {onRetry && msg.retryText && (
+            <Pressable
+              onPress={() => onRetry(msg.retryText!)}
+              style={({ pressed }) => [styles.retryBtn, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Ionicons name="refresh" size={13} color={Colors.primary} />
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.aiBubbleWrap}>
@@ -343,27 +369,39 @@ export default function DealAdvisorScreen() {
     currentHistory: { role: string; content: string }[],
     selected?: DisambiguationCard,
   ): Promise<AdvisorResponse> => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
-    try {
-      const url = new URL("/api/deal-advisor", getApiUrl());
-      const body: Record<string, unknown> = { message: text, history: currentHistory };
-      if (selected) body.selectedCard = selected;
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${errText.substring(0, 100)}`);
+    const url = new URL("/api/deal-advisor", getApiUrl());
+    const body: Record<string, unknown> = { message: text, history: currentHistory };
+    if (selected) body.selectedCard = selected;
+    const MAX_ATTEMPTS = 3;
+    let lastErr: Error = new Error("Unknown error");
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 1200 * attempt));
       }
-      const data = await res.json();
-      return data as AdvisorResponse;
-    } finally {
-      clearTimeout(timeout);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
+      try {
+        const res = await fetch(url.toString(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          return (await res.json()) as AdvisorResponse;
+        }
+        const status = res.status;
+        await res.text().catch(() => "");
+        lastErr = new Error(`HTTP ${status}`);
+        if (status >= 400 && status < 500 && status !== 404) break;
+      } catch (e: any) {
+        clearTimeout(timeout);
+        if (e?.name === "AbortError") throw e;
+        lastErr = e instanceof Error ? e : new Error(String(e));
+      }
     }
+    throw lastErr;
   }, []);
 
   const send = useCallback(async (text: string) => {
@@ -388,10 +426,10 @@ export default function DealAdvisorScreen() {
     } catch (e: any) {
       const isTimeout = e?.name === "AbortError";
       const errText = isTimeout
-        ? "That took too long to respond. Try again — it might just be a slow connection."
-        : `Something went wrong: ${e?.message ?? "unknown error"}`;
+        ? "That took too long — tap Retry or try again."
+        : "Couldn't reach the server. Tap Retry to try again.";
       console.error("[CardAdvisor] send error:", e?.message, e?.name);
-      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText }, ...prev]);
+      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText, isError: true, retryText: trimmed }, ...prev]);
     } finally {
       setLoading(false);
     }
@@ -412,10 +450,10 @@ export default function DealAdvisorScreen() {
     } catch (e: any) {
       const isTimeout = e?.name === "AbortError";
       const errText = isTimeout
-        ? "That took too long. Try again."
-        : `Something went wrong: ${e?.message ?? "unknown error"}`;
+        ? "That took too long — tap Retry or try again."
+        : "Couldn't reach the server. Tap Retry to try again.";
       console.error("[CardAdvisor] sendWithCard error:", e?.message, e?.name);
-      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText }, ...prev]);
+      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText, isError: true, retryText: lastUserMessage || label }, ...prev]);
     } finally {
       setLoading(false);
     }
@@ -431,7 +469,16 @@ export default function DealAdvisorScreen() {
         </View>
       );
     }
-    return <AssistantMessage msg={item} onSelectCard={sendWithCard} />;
+    return (
+      <AssistantMessage
+        msg={item}
+        onSelectCard={sendWithCard}
+        onRetry={(text) => {
+          setMessages((prev) => prev.filter((m) => m.id !== item.id));
+          send(text);
+        }}
+      />
+    );
   };
 
   const showEmpty = messages.length === 0 && !loading;
@@ -619,6 +666,22 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: Colors.text,
     lineHeight: 22,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(255,60,49,0.12)",
+    borderRadius: 8,
+  },
+  retryBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.primary,
   },
   loadingBubble: {
     flexDirection: "row",
