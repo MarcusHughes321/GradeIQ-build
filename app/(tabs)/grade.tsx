@@ -687,6 +687,20 @@ export default function GradeScreen() {
         <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </Pressable>
 
+      <Pressable
+        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+        onPress={() => router.push("/deal-advisor")}
+      >
+        <View style={[styles.hubIconWrap, { backgroundColor: "#F59E0B20" }]}>
+          <Ionicons name="chatbubbles-outline" size={22} color="#F59E0B" />
+        </View>
+        <View style={styles.hubCardText}>
+          <Text style={styles.hubCardTitle}>Deal Advisor</Text>
+          <Text style={styles.hubCardSub}>AI analysis · real eBay prices</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+      </Pressable>
+
       <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Graded Slabs</Text>
 
       <Pressable

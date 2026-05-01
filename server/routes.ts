@@ -12560,6 +12560,200 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  // ── Deal Advisor ─────────────────────────────────────────────────────────
+  // Converts company + grade number → PokeTrace price key (e.g. PSA 10 → psa10)
+  function gradeKey(company: string, grade: number | string, isRaw: boolean): string {
+    if (isRaw) return "raw";
+    const co = (company || "").toLowerCase().replace(/[^a-z]/g, "");
+    const g = String(grade ?? "").replace(".", "");
+    if (co === "psa") return `psa${g}`;
+    if (co === "bgs" || co === "beckett") return `bgs${g}`;
+    if (co === "ace") return `ace${g}`;
+    if (co === "tag") return `tag${g}`;
+    if (co === "cgc") return `cgc${g}`;
+    return "raw";
+  }
+
+  app.post("/api/deal-advisor", async (req, res) => {
+    try {
+      const { message, history = [] } = req.body as {
+        message: string;
+        history: { role: "user" | "assistant"; content: string }[];
+      };
+      if (!message?.trim()) return res.status(400).json({ error: "message required" });
+
+      const GBP_PER_USD = 0.79;
+
+      // ── Step 1: Identify cards from deal description ──────────────────────
+      const parseSystem = `You are a Pokemon TCG deal parsing assistant. Extract structured card data from the user's message.
+
+For each card or graded slab mentioned, output ONE JSON object in the array. Include:
+- "name": card name (e.g. "Charizard", "Pikachu Illustrator")
+- "set": set name if mentioned or inferrable (e.g. "Base Set", "Fossil", "Neo Genesis")
+- "number": card number if mentioned (e.g. "4" or "4/102")
+- "grade": numeric grade if graded (10, 9.5, 9, 8 etc.) or null if raw
+- "company": grading company if applicable ("PSA", "BGS", "ACE", "TAG", "CGC") or null
+- "isRaw": true only if explicitly ungraded/raw
+- "ptSearchQuery": concise search string for price lookup (e.g. "Charizard Base Set", "Pikachu Illustrator")
+
+Output ONLY the JSON array between <CARDS> and </CARDS> tags, then one brief sentence confirming what you found.
+
+Example:
+<CARDS>[{"name":"Charizard","set":"Base Set","number":"4","grade":10,"company":"PSA","isRaw":false,"ptSearchQuery":"Charizard Base Set"}]</CARDS>
+Got it — I've spotted 1 card in your deal.`;
+
+      const parseResp = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 800,
+        system: parseSystem,
+        messages: [...history, { role: "user", content: message }],
+      });
+
+      const parseText = parseResp.content[0]?.type === "text" ? (parseResp.content[0] as any).text : "";
+      const cardsMatch = parseText.match(/<CARDS>([\s\S]*?)<\/CARDS>/);
+      let identifiedCards: any[] = [];
+      if (cardsMatch) {
+        try { identifiedCards = JSON.parse(cardsMatch[1]); } catch {}
+      }
+
+      // Extract offered price from message (£ or $)
+      const gbpMatch = message.match(/£\s*([\d,]+(?:\.\d{1,2})?)/);
+      const usdMatch = message.match(/\$\s*([\d,]+(?:\.\d{1,2})?)/);
+      const offeredGbp = gbpMatch ? parseFloat(gbpMatch[1].replace(/,/g, "")) : null;
+      const offeredUsd = usdMatch ? parseFloat(usdMatch[1].replace(/,/g, "")) : null;
+      const offeredInGbp = offeredGbp ?? (offeredUsd != null ? offeredUsd * GBP_PER_USD : null);
+
+      // ── Step 2: Look up prices + images in parallel ───────────────────────
+      const enrichedCards = await Promise.all(identifiedCards.map(async (card: any) => {
+        let marketValueUsd: number | null = null;
+        let gradeDetails: any = null;
+        let imageUrl: string | null = null;
+        const key = gradeKey(card.company, card.grade, card.isRaw);
+
+        // Price lookup via PokeTrace
+        try {
+          const prices = await fetchEbayGradedPrices(
+            card.ptSearchQuery || `${card.name} ${card.set || ""}`.trim(),
+            card.set || "",
+            card.number || "",
+            null
+          );
+          if (prices && prices[key as keyof EbayAllGrades] !== undefined) {
+            marketValueUsd = (prices[key as keyof EbayAllGrades] as number) || null;
+          }
+          gradeDetails = (prices as any)?.gradeDetails?.[key] ?? null;
+        } catch (e: any) {
+          console.warn(`[deal-advisor] Price lookup failed for ${card.name}:`, e.message);
+        }
+
+        // Image lookup from card_catalog
+        try {
+          const searchName = (card.name || "").trim().toLowerCase();
+          const imgRes = await db.query(
+            `SELECT image_url FROM card_catalog
+             WHERE lang = 'en'
+               AND LOWER(name) = $1
+             ORDER BY card_updated_at DESC NULLS LAST
+             LIMIT 1`,
+            [searchName]
+          );
+          if (imgRes.rows.length === 0 && searchName) {
+            const fuzzyRes = await db.query(
+              `SELECT image_url FROM card_catalog
+               WHERE lang = 'en'
+                 AND LOWER(name) LIKE $1
+               ORDER BY card_updated_at DESC NULLS LAST
+               LIMIT 1`,
+              [`${searchName}%`]
+            );
+            imageUrl = fuzzyRes.rows[0]?.image_url ?? null;
+          } else {
+            imageUrl = imgRes.rows[0]?.image_url ?? null;
+          }
+        } catch (e: any) {
+          console.warn(`[deal-advisor] Image lookup failed for ${card.name}:`, e.message);
+        }
+
+        return {
+          name: card.name,
+          set: card.set || null,
+          number: card.number || null,
+          grade: card.grade || null,
+          company: card.company || null,
+          isRaw: card.isRaw ?? false,
+          gradeKey: key,
+          imageUrl,
+          marketValueUsd,
+          marketValueGbp: marketValueUsd != null ? parseFloat((marketValueUsd * GBP_PER_USD).toFixed(2)) : null,
+          saleCount: gradeDetails?.saleCount ?? null,
+          avg7d: gradeDetails?.avg7d ?? null,
+          avg30d: gradeDetails?.avg30d ?? null,
+        };
+      }));
+
+      // Totals
+      const totalMarketUsd = enrichedCards.reduce((s: number, c: any) => s + (c.marketValueUsd || 0), 0);
+      const totalMarketGbp = parseFloat((totalMarketUsd * GBP_PER_USD).toFixed(2));
+      const pctOfMarket = offeredInGbp != null && totalMarketGbp > 0
+        ? Math.round((offeredInGbp / totalMarketGbp) * 100)
+        : null;
+
+      // ── Step 3: Ask Claude for deal verdict with real price context ────────
+      const priceLines = enrichedCards.map((c: any) => {
+        const grade = c.isRaw ? "raw" : `${c.company || ""} ${c.grade || ""}`.trim();
+        const valStr = c.marketValueGbp != null
+          ? `£${c.marketValueGbp} (7d avg: ${c.avg7d != null ? `£${(c.avg7d * GBP_PER_USD).toFixed(0)}` : "n/a"}, ${c.saleCount ?? "?"} recent sales)`
+          : "price data unavailable";
+        return `• ${c.name}${c.set ? ` (${c.set})` : ""} ${grade}: ${valStr}`;
+      }).join("\n");
+
+      const adviceSystem = `You are an expert Pokemon TCG deal advisor helping a collector evaluate a deal.
+
+Real eBay last-sold market data:
+${priceLines || "No price data found."}
+
+Combined market value: ${totalMarketGbp > 0 ? `£${totalMarketGbp}` : "unknown"}
+${offeredInGbp != null ? `Offered price: £${offeredInGbp}` : ""}
+${pctOfMarket != null ? `That's ${pctOfMarket}% of market value` : ""}
+
+Give a clear, conversational verdict. Include:
+1. Whether this is a good deal (for buyer or seller) and why
+2. Any cards that are particularly well or poorly priced
+3. A negotiation tip if relevant
+4. Note any cards where you couldn't find price data
+
+Keep it concise (3-5 short paragraphs max). Use British English. Don't repeat all the raw numbers — the user can see those in the card breakdown. Focus on your judgment.`;
+
+      const adviceResp = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 600,
+        system: adviceSystem,
+        messages: [...history, { role: "user", content: message }],
+      });
+
+      const reply = adviceResp.content[0]?.type === "text"
+        ? (adviceResp.content[0] as any).text
+        : "Unable to generate advice at this time.";
+
+      // Log AI costs
+      const totalInput = parseResp.usage.input_tokens + adviceResp.usage.input_tokens;
+      const totalOutput = parseResp.usage.output_tokens + adviceResp.usage.output_tokens;
+      logAiCost("deal_advisor", "claude-sonnet-4-6", totalInput, totalOutput);
+
+      res.json({
+        reply,
+        cards: enrichedCards,
+        totalMarketUsd: parseFloat(totalMarketUsd.toFixed(2)),
+        totalMarketGbp,
+        offeredGbp: offeredInGbp,
+        pctOfMarket,
+      });
+    } catch (e: any) {
+      console.error("[deal-advisor] Error:", e.message);
+      res.status(500).json({ error: "Failed to process deal" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
