@@ -51,10 +51,11 @@ type Message = {
 };
 
 const SUGGESTIONS = [
-  "Someone's offered me £500 for a PSA 10 Base Set Charizard",
-  "Is £200 a fair price for a BGS 9.5 Pikachu Illustrator?",
-  "They want £150 for a PSA 9 Blastoise Base Set — good deal?",
-  "Selling 3 PSA 10s: Umbreon, Espeon, and Flareon VMAX for £800",
+  "Is a Mega Charizard SIR from Paradox Rift worth buying right now?",
+  "Someone offered me £500 for a PSA 10 Base Set Charizard — good deal?",
+  "What's the investment outlook for Umbreon VMAX Alternate Art?",
+  "How liquid is a BGS 9.5 Pikachu Illustrator and what's it worth?",
+  "Should I buy a raw 1st Edition Blastoise or get it graded first?",
 ];
 
 function DealScorePill({ pct }: { pct: number }) {
@@ -257,8 +258,8 @@ export default function DealAdvisorScreen() {
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Deal Advisor</Text>
-          <Text style={styles.headerSub}>AI-powered deal analysis</Text>
+          <Text style={styles.headerTitle}>Card Advisor</Text>
+          <Text style={styles.headerSub}>Prices · market trends · deal analysis</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -296,9 +297,9 @@ export default function DealAdvisorScreen() {
             <View style={styles.emptyIcon}>
               <Ionicons name="chatbubbles-outline" size={40} color={Colors.primary} />
             </View>
-            <Text style={styles.emptyTitle}>Deal Advisor</Text>
+            <Text style={styles.emptyTitle}>Card Advisor</Text>
             <Text style={styles.emptySub}>
-              Describe any deal — cards, slabs, grades, and the price offered — and I'll tell you if it's worth it using real eBay last-sold data.
+              Ask anything about Pokemon TCG cards — whether a deal is fair, if a card is likely to rise in value, how liquid it is, or whether it's worth buying right now. I use real eBay last-sold data.
             </Text>
             <Text style={styles.suggestionsLabel}>Try asking…</Text>
             <View style={styles.suggestions}>
@@ -323,7 +324,7 @@ export default function DealAdvisorScreen() {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="Describe the deal…"
+          placeholder="Ask about a card, deal, or investment…"
           placeholderTextColor={Colors.textMuted}
           multiline
           maxLength={800}
