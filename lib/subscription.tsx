@@ -303,7 +303,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const serverIds = new Set(serverGradings.map(g => g.id));
       const newFromServer = serverGradings.filter(g => !localIds.has(g.id));
       for (const sg of newFromServer) {
-        await saveServerGrading(sg);
+        const makeUrl = (id: string | null | undefined) =>
+          id ? new URL(`/api/grading-image/${encodeURIComponent(id)}`, getApiUrl()).toString() : null;
+        await saveServerGrading({
+          ...sg,
+          frontImageUrl: makeUrl(sg.frontImageId),
+          backImageUrl: makeUrl(sg.backImageId),
+        });
       }
       const missingOnServer = localGradings.filter(g => g?.id && !serverIds.has(g.id));
       if (missingOnServer.length > 0) {

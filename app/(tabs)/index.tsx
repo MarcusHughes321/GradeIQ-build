@@ -96,7 +96,7 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
         </View>
         <View style={styles.histBottomRow}>
-          <Image source={{ uri: item.frontImage }} style={styles.thumbnail} contentFit="cover" />
+          <Image source={{ uri: item.frontImage || item.frontImageUrl || "" }} style={styles.thumbnail} contentFit="cover" />
           <View style={styles.historyInfo}>
             <Text style={styles.histSetInfo} numberOfLines={1}>
               {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}

@@ -57,6 +57,8 @@ export interface ServerGrading {
   timestamp: number;
   isDeepGrade: boolean;
   isCrossover: boolean;
+  frontImageId?: string | null;
+  backImageId?: string | null;
 }
 
 export async function fetchServerHistory(rcUserId: string): Promise<ServerGrading[]> {
@@ -71,6 +73,38 @@ export async function fetchServerHistory(rcUserId: string): Promise<ServerGradin
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
+  }
+}
+
+export async function uploadGradingImages(
+  rcUserId: string,
+  localId: string,
+  frontB64: string | null,
+  backB64: string | null,
+): Promise<{ frontImageUrl: string | null; backImageUrl: string | null }> {
+  if (!rcUserId || !localId || (!frontB64 && !backB64)) {
+    return { frontImageUrl: null, backImageUrl: null };
+  }
+  try {
+    const body: Record<string, string> = { rcUserId };
+    if (frontB64) body.frontB64 = frontB64;
+    if (backB64) body.backB64 = backB64;
+    const resp = await fetch(apiUrl(`/api/history/${encodeURIComponent(localId)}/images`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resp.ok) return { frontImageUrl: null, backImageUrl: null };
+    const data = await resp.json();
+    const makeUrl = (id: string | null) =>
+      id ? apiUrl(`/api/grading-image/${encodeURIComponent(id)}`) : null;
+    return {
+      frontImageUrl: makeUrl(data.frontImageId ?? null),
+      backImageUrl: makeUrl(data.backImageId ?? null),
+    };
+  } catch {
+    return { frontImageUrl: null, backImageUrl: null };
   }
 }
 
