@@ -12585,22 +12585,25 @@ RESPONSE FORMAT (JSON only, no markdown):
       const GBP_PER_USD = 0.79;
 
       // ── Step 1: Identify cards from deal description ──────────────────────
-      const parseSystem = `You are a Pokemon TCG deal parsing assistant. Extract structured card data from the user's message.
+      const parseSystem = `You are a Pokemon TCG card identification assistant. Extract structured card data from the user's message. The user may be asking about a deal, a potential purchase, an investment, or general market research — identify any Pokemon cards mentioned regardless of context.
 
 For each card or graded slab mentioned, output ONE JSON object in the array. Include:
-- "name": card name (e.g. "Charizard", "Pikachu Illustrator")
-- "set": set name if mentioned or inferrable (e.g. "Base Set", "Fossil", "Neo Genesis")
+- "name": card name (e.g. "Charizard", "Umbreon VMAX", "Pikachu Illustrator", "Mega Charizard EX")
+- "set": set name if mentioned or inferrable (e.g. "Base Set", "Paradox Rift", "Phantom Forces", "Neo Genesis")
 - "number": card number if mentioned (e.g. "4" or "4/102")
-- "grade": numeric grade if graded (10, 9.5, 9, 8 etc.) or null if raw
-- "company": grading company if applicable ("PSA", "BGS", "ACE", "TAG", "CGC") or null
-- "isRaw": true only if explicitly ungraded/raw
-- "ptSearchQuery": concise search string for price lookup (e.g. "Charizard Base Set", "Pikachu Illustrator")
+- "grade": numeric grade if graded (10, 9.5, 9, 8 etc.) or null if raw/ungraded
+- "company": grading company if applicable ("PSA", "BGS", "ACE", "TAG", "CGC") or null if raw/ungraded
+- "isRaw": true if the card is ungraded/raw or if grading status is not specified
+- "ptSearchQuery": concise search string optimised for eBay price lookup (e.g. "Charizard Base Set", "Umbreon VMAX Alternate Art", "Pikachu Illustrator")
+
+If the user asks about a card without specifying grade, assume raw (isRaw: true, grade: null).
+If the card is a Special Illustration Rare (SIR) or Secret Rare, include that in ptSearchQuery.
 
 Output ONLY the JSON array between <CARDS> and </CARDS> tags, then one brief sentence confirming what you found.
 
 Example:
-<CARDS>[{"name":"Charizard","set":"Base Set","number":"4","grade":10,"company":"PSA","isRaw":false,"ptSearchQuery":"Charizard Base Set"}]</CARDS>
-Got it — I've spotted 1 card in your deal.`;
+<CARDS>[{"name":"Mega Charizard EX","set":"Phantom Forces","number":null,"grade":null,"company":null,"isRaw":true,"ptSearchQuery":"Mega Charizard EX Phantom Forces"}]</CARDS>
+Found 1 card — looking up current market data now.`;
 
       const parseResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
@@ -12707,22 +12710,30 @@ Got it — I've spotted 1 card in your deal.`;
         return `• ${c.name}${c.set ? ` (${c.set})` : ""} ${grade}: ${valStr}`;
       }).join("\n");
 
-      const adviceSystem = `You are an expert Pokemon TCG deal advisor helping a collector evaluate a deal.
+      const isDealQuery = offeredInGbp != null;
+
+      const adviceSystem = `You are an expert Pokemon TCG card market analyst and advisor. You help collectors with deal evaluation, market research, investment analysis, and buying decisions.
 
 Real eBay last-sold market data:
-${priceLines || "No price data found."}
+${priceLines || "No price data found — give your best analysis based on your knowledge."}
 
-Combined market value: ${totalMarketGbp > 0 ? `£${totalMarketGbp}` : "unknown"}
-${offeredInGbp != null ? `Offered price: £${offeredInGbp}` : ""}
+${totalMarketGbp > 0 ? `Combined market value: £${totalMarketGbp}` : ""}
+${isDealQuery ? `Offered price: £${offeredInGbp}` : ""}
 ${pctOfMarket != null ? `That's ${pctOfMarket}% of market value` : ""}
 
-Give a clear, conversational verdict. Include:
-1. Whether this is a good deal (for buyer or seller) and why
-2. Any cards that are particularly well or poorly priced
-3. A negotiation tip if relevant
-4. Note any cards where you couldn't find price data
+${isDealQuery ? `This is a deal evaluation query. Give a clear verdict on whether the deal is fair for buyer or seller, and why. Include a negotiation tip if relevant.` : `This is a market research query. Cover what is relevant to the user's question, which may include any of:
+- Current market value and recent price trends (use the data above; if unavailable, use your knowledge)
+- Investment outlook: is this card likely to appreciate, hold, or depreciate? Consider factors like set popularity, print run, character/artwork demand, sealed product availability, and broader hobby trends
+- Liquidity: how easy is this card to sell? Use sale count from the data — many recent sales = liquid market, few = illiquid
+- Grading economics: is it worth grading? Factor in grading fees, grade probability, and value uplift
+- Buying recommendation: should the user buy now, wait, or avoid?`}
 
-Keep it concise (3-5 short paragraphs max). Use British English. Don't repeat all the raw numbers — the user can see those in the card breakdown. Focus on your judgment.`;
+Notes:
+- Use British English
+- Keep responses concise but insightful (3-5 short paragraphs max)
+- Don't just repeat the raw numbers — the user can see those in the card breakdown. Add real insight and judgement
+- If price data is missing for a card, note it but still give your best analysis from your knowledge
+- Be direct — give a clear recommendation, not watered-down "it depends" answers`;
 
       const adviceResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
