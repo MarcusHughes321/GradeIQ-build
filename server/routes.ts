@@ -12576,9 +12576,10 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/deal-advisor", async (req, res) => {
     try {
-      const { message, history = [] } = req.body as {
+      const { message, history = [], selectedCard = null } = req.body as {
         message: string;
         history: { role: "user" | "assistant"; content: string }[];
+        selectedCard?: { name: string; set: string | null; number: string | null; imageUrl: string | null } | null;
       };
       if (!message?.trim()) return res.status(400).json({ error: "message required" });
 
@@ -12611,18 +12612,32 @@ Example:
 <CARDS>[{"name":"Charizard ex","set":"Obsidian Flames","number":null,"grade":null,"company":null,"isRaw":true,"ptSearchQuery":"Charizard ex Obsidian Flames"}]</CARDS>
 Found 1 card — looking up current market data now.`;
 
-      const parseResp = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 800,
-        system: parseSystem,
-        messages: [...history, { role: "user", content: message }],
-      });
-
-      const parseText = parseResp.content[0]?.type === "text" ? (parseResp.content[0] as any).text : "";
-      const cardsMatch = parseText.match(/<CARDS>([\s\S]*?)<\/CARDS>/);
       let identifiedCards: any[] = [];
-      if (cardsMatch) {
-        try { identifiedCards = JSON.parse(cardsMatch[1]); } catch {}
+      let parseResp: any = null;
+
+      if (selectedCard) {
+        // User selected from disambiguation picker — skip Claude parse entirely
+        identifiedCards = [{
+          name: selectedCard.name,
+          set: selectedCard.set,
+          number: selectedCard.number,
+          grade: null,
+          company: null,
+          isRaw: true,
+          ptSearchQuery: [selectedCard.name, selectedCard.set].filter(Boolean).join(" "),
+        }];
+      } else {
+        parseResp = await anthropic.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 800,
+          system: parseSystem,
+          messages: [...history, { role: "user", content: message }],
+        });
+        const parseText = parseResp.content[0]?.type === "text" ? (parseResp.content[0] as any).text : "";
+        const cardsMatch = parseText.match(/<CARDS>([\s\S]*?)<\/CARDS>/);
+        if (cardsMatch) {
+          try { identifiedCards = JSON.parse(cardsMatch[1]); } catch {}
+        }
       }
 
       // Extract offered price from message (£ or $)
@@ -12631,6 +12646,64 @@ Found 1 card — looking up current market data now.`;
       const offeredGbp = gbpMatch ? parseFloat(gbpMatch[1].replace(/,/g, "")) : null;
       const offeredUsd = usdMatch ? parseFloat(usdMatch[1].replace(/,/g, "")) : null;
       const offeredInGbp = offeredGbp ?? (offeredUsd != null ? offeredUsd * GBP_PER_USD : null);
+
+      // ── Step 1.5: Disambiguation — check catalog for ambiguous cards ────────
+      // Only run if user didn't already select a specific card
+      if (!selectedCard && identifiedCards.length > 0) {
+        for (const card of identifiedCards) {
+          // Strip rarity terms from the name for catalog search
+          const rarityRe = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;
+          const baseName = (card.name || "").toLowerCase().replace(rarityRe, "").replace(/\s+/g, " ").trim();
+          // Extract meaningful words from set name (4+ chars)
+          const setWords = (card.set || "").toLowerCase().split(/\s+/).filter((w: string) => w.length >= 4);
+          if (!baseName || setWords.length === 0) continue;
+
+          try {
+            const setConditions = setWords.map((_: string, i: number) => `LOWER(set_name) LIKE $${i + 2}`);
+            const catalogRes = await db.query(
+              `SELECT name, set_name, number, image_url, rarity
+               FROM card_catalog
+               WHERE lang = 'en'
+                 AND LOWER(name) LIKE $1
+                 AND (${setConditions.join(" OR ")})
+               ORDER BY
+                 CASE WHEN number ~ '^[0-9]+' THEN CAST(split_part(number,'/',1) AS INT) ELSE 9999 END,
+                 number
+               LIMIT 12`,
+              [`%${baseName}%`, ...setWords.map((w: string) => `%${w}%`)]
+            );
+
+            if (catalogRes.rows.length >= 2) {
+              // Multiple cards found — return disambiguation picker
+              const setName = catalogRes.rows[0]?.set_name || card.set || "that set";
+              return res.json({
+                reply: `I found ${catalogRes.rows.length} ${card.name} cards from ${setName} — tap the one you mean:`,
+                cards: [],
+                totalMarketGbp: 0,
+                offeredGbp: null,
+                pctOfMarket: null,
+                disambiguationCards: catalogRes.rows.map((r: any) => ({
+                  name: r.name,
+                  set: r.set_name,
+                  number: r.number,
+                  imageUrl: r.image_url,
+                  rarity: r.rarity,
+                })),
+              });
+            }
+
+            // Single catalog match — update the card with the confirmed name/number
+            if (catalogRes.rows.length === 1) {
+              card.name = catalogRes.rows[0].name;
+              card.number = catalogRes.rows[0].number;
+              card.set = catalogRes.rows[0].set_name;
+              card.ptSearchQuery = [catalogRes.rows[0].name, catalogRes.rows[0].set_name].filter(Boolean).join(" ");
+            }
+          } catch (e: any) {
+            console.warn(`[deal-advisor] Catalog disambiguation failed:`, e.message);
+          }
+        }
+      }
 
       // ── Step 2: Look up prices + images in parallel ───────────────────────
       const enrichedCards = await Promise.all(identifiedCards.map(async (card: any) => {
@@ -12795,9 +12868,9 @@ Notes:
         ? (adviceResp.content[0] as any).text
         : "Unable to generate advice at this time.";
 
-      // Log AI costs
-      const totalInput = parseResp.usage.input_tokens + adviceResp.usage.input_tokens;
-      const totalOutput = parseResp.usage.output_tokens + adviceResp.usage.output_tokens;
+      // Log AI costs (parseResp may be null if selectedCard was provided)
+      const totalInput = (parseResp?.usage?.input_tokens ?? 0) + adviceResp.usage.input_tokens;
+      const totalOutput = (parseResp?.usage?.output_tokens ?? 0) + adviceResp.usage.output_tokens;
       logAiCost("deal_advisor", "claude-sonnet-4-6", totalInput, totalOutput);
 
       res.json({

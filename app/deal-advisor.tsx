@@ -40,12 +40,21 @@ type CardResult = {
   gradingUpside: number | null;
 };
 
+type DisambiguationCard = {
+  name: string;
+  set: string;
+  number: string | null;
+  imageUrl: string | null;
+  rarity: string | null;
+};
+
 type AdvisorResponse = {
   reply: string;
   cards: CardResult[];
   totalMarketGbp: number;
   offeredGbp: number | null;
   pctOfMarket: number | null;
+  disambiguationCards?: DisambiguationCard[];
 };
 
 type Message = {
@@ -167,8 +176,61 @@ function CardTile({ card }: { card: CardResult }) {
   );
 }
 
-function AssistantMessage({ msg }: { msg: Message }) {
+function DisambiguationPicker({
+  cards,
+  onSelect,
+}: {
+  cards: DisambiguationCard[];
+  onSelect: (card: DisambiguationCard) => void;
+}) {
+  return (
+    <View style={styles.disambigWrap}>
+      <FlatList
+        data={cards}
+        keyExtractor={(_, i) => String(i)}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.disambigList}
+        renderItem={({ item }) => (
+          <Pressable
+            style={({ pressed }) => [styles.disambigCard, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              onSelect(item);
+            }}
+          >
+            {item.imageUrl ? (
+              <Image
+                source={{ uri: item.imageUrl }}
+                style={styles.disambigImage}
+                contentFit="contain"
+              />
+            ) : (
+              <View style={[styles.disambigImage, styles.disambigImageFallback]}>
+                <Ionicons name="card-outline" size={24} color={Colors.textMuted} />
+              </View>
+            )}
+            <Text style={styles.disambigName} numberOfLines={2}>{item.name}</Text>
+            {item.number ? (
+              <Text style={styles.disambigNumber}>#{item.number}</Text>
+            ) : null}
+          </Pressable>
+        )}
+      />
+    </View>
+  );
+}
+
+function AssistantMessage({
+  msg,
+  onSelectCard,
+}: {
+  msg: Message;
+  onSelectCard?: (card: DisambiguationCard) => void;
+}) {
   const d = msg.data;
+  const hasDisambiguation = d?.disambiguationCards && d.disambiguationCards.length > 0;
+
   return (
     <View style={styles.aiBubbleWrap}>
       <View style={styles.aiAvatar}>
@@ -176,6 +238,13 @@ function AssistantMessage({ msg }: { msg: Message }) {
       </View>
       <View style={styles.aiBubble}>
         <Text style={styles.aiText}>{msg.text}</Text>
+
+        {hasDisambiguation && onSelectCard && (
+          <DisambiguationPicker
+            cards={d!.disambiguationCards!}
+            onSelect={onSelectCard}
+          />
+        )}
 
         {d && d.cards.length > 0 && (
           <View style={styles.cardsSection}>
@@ -226,6 +295,25 @@ export default function DealAdvisorScreen() {
     content: m.text,
   }));
 
+  const lastUserMessage = messages.find((m) => m.role === "user")?.text ?? "";
+
+  const postToAdvisor = useCallback(async (
+    text: string,
+    currentHistory: { role: string; content: string }[],
+    selected?: DisambiguationCard,
+  ) => {
+    const url = new URL("/api/deal-advisor", getApiUrl());
+    const body: Record<string, unknown> = { message: text, history: currentHistory };
+    if (selected) body.selectedCard = selected;
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json() as Promise<AdvisorResponse>;
+  }, []);
+
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
@@ -243,33 +331,34 @@ export default function DealAdvisorScreen() {
     setLoading(true);
 
     try {
-      const url = new URL("/api/deal-advisor", getApiUrl());
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, history }),
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data: AdvisorResponse = await res.json();
-
-      const aiMsg: Message = {
-        id: `a-${Date.now()}`,
-        role: "assistant",
-        text: data.reply,
-        data,
-      };
-      setMessages((prev) => [aiMsg, ...prev]);
-    } catch (e) {
-      const errMsg: Message = {
-        id: `e-${Date.now()}`,
-        role: "assistant",
-        text: "Sorry, I couldn't process that deal right now. Please try again.",
-      };
-      setMessages((prev) => [errMsg, ...prev]);
+      const data = await postToAdvisor(trimmed, history);
+      setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
+    } catch {
+      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: "Something went wrong. Please try again." }, ...prev]);
     } finally {
       setLoading(false);
     }
-  }, [loading, history]);
+  }, [loading, history, postToAdvisor]);
+
+  const sendWithCard = useCallback(async (selected: DisambiguationCard) => {
+    if (loading) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLoading(true);
+
+    // Show a subtle user confirmation bubble
+    const label = `${selected.name}${selected.number ? ` (#${selected.number})` : ""}`;
+    const confirmMsg: Message = { id: `u-${Date.now()}`, role: "user", text: label };
+    setMessages((prev) => [confirmMsg, ...prev]);
+
+    try {
+      const data = await postToAdvisor(lastUserMessage || label, history, selected);
+      setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
+    } catch {
+      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: "Something went wrong. Please try again." }, ...prev]);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, history, lastUserMessage, postToAdvisor]);
 
   const renderItem = ({ item }: { item: Message }) => {
     if (item.role === "user") {
@@ -281,7 +370,7 @@ export default function DealAdvisorScreen() {
         </View>
       );
     }
-    return <AssistantMessage msg={item} />;
+    return <AssistantMessage msg={item} onSelectCard={sendWithCard} />;
   };
 
   const showEmpty = messages.length === 0 && !loading;
@@ -570,6 +659,48 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 2,
   },
+  // Disambiguation picker
+  disambigWrap: {
+    marginTop: 12,
+  },
+  disambigList: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  disambigCard: {
+    width: 100,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    padding: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  disambigImage: {
+    width: 84,
+    height: 116,
+    borderRadius: 6,
+  },
+  disambigImageFallback: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  disambigName: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: Colors.text,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 14,
+  },
+  disambigNumber: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+
   researchPrices: {
     marginTop: 6,
     gap: 3,
