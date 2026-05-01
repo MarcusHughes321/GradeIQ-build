@@ -3,8 +3,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform, AppState, type AppStateStatus } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 import { getApiUrl } from "@/lib/query-client";
-import { fetchServerHistory, uploadBulkGradings } from "@/lib/server-history";
-import { getGradings, saveServerGrading } from "@/lib/storage";
+import { fetchServerHistory, uploadBulkGradings, uploadGradingImages } from "@/lib/server-history";
+import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
+import * as FileSystem from "expo-file-system/legacy";
 
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
@@ -323,6 +324,45 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const retroactiveImageUpload = async (rcUserId: string) => {
+    if (!rcUserId || Platform.OS === "web") return;
+    try {
+      const gradings = await getGradings();
+      // Find grades that have local images but haven't been uploaded yet
+      const needsUpload = gradings.filter(
+        g => g.id && (g.frontImage || g.backImage) && !g.frontImageUrl && !g.backImageUrl
+      ).slice(0, 30); // Cap at 30 to avoid long startup delays
+      if (needsUpload.length === 0) return;
+      console.log(`[history] Retroactive image upload: ${needsUpload.length} grades need backup`);
+      for (const grading of needsUpload) {
+        try {
+          const readSafe = async (uri: string): Promise<string | null> => {
+            if (!uri) return null;
+            try {
+              const info = await FileSystem.getInfoAsync(uri);
+              if (!info.exists) return null;
+              return await FileSystem.readAsStringAsync(uri, { encoding: "base64" as any });
+            } catch { return null; }
+          };
+          const [frontB64, backB64] = await Promise.all([
+            readSafe(grading.frontImage),
+            readSafe(grading.backImage),
+          ]);
+          if (!frontB64 && !backB64) continue;
+          const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64);
+          if (urls.frontImageUrl || urls.backImageUrl) {
+            await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
+            console.log(`[history] Backed up images for grade ${grading.id}`);
+          }
+        } catch (e) {
+          console.log(`[history] Failed to backup images for ${grading.id}:`, e);
+        }
+      }
+    } catch (e) {
+      console.log("[history] Retroactive image upload failed (non-critical):", e);
+    }
+  };
+
   const initRevenueCat = async () => {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
@@ -353,7 +393,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
       syncServerUsage(userId).catch(() => {});
-      syncHistoryWithServer(userId).catch(() => {});
+      // After history sync, retroactively upload any local images not yet backed up
+      syncHistoryWithServer(userId)
+        .catch(() => {})
+        .finally(() => { retroactiveImageUpload(userId).catch(() => {}); });
 
       // RC pushes real-time updates whenever entitlement status changes
       // (e.g. immediately after a purchase completes or a subscription renews)

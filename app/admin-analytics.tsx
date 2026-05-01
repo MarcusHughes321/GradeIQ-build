@@ -83,6 +83,10 @@ export default function AdminAnalyticsScreen() {
   const [activeTab, setActiveTab] = useState<"stats" | "finance">("stats");
   const [editingReplit, setEditingReplit] = useState(false);
   const [replitCostInput, setReplitCostInput] = useState("");
+  const [editingPlatformFee, setEditingPlatformFee] = useState(false);
+  const [platformFeeInput, setPlatformFeeInput] = useState("");
+  const [editingDevCost, setEditingDevCost] = useState(false);
+  const [devCostInput, setDevCostInput] = useState("");
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -110,6 +114,26 @@ export default function AdminAnalyticsScreen() {
       await saveSetting("replit_monthly_gbp", val.toFixed(2));
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
       setEditingReplit(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const savePlatformFee = async () => {
+    const val = parseFloat(platformFeeInput);
+    if (isNaN(val) || val < 0 || val > 100) { Alert.alert("Invalid", "Enter a percentage between 0 and 100"); return; }
+    try {
+      await saveSetting("platform_fee_pct", val.toFixed(1));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingPlatformFee(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const saveDevCost = async () => {
+    const val = parseFloat(devCostInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter a valid amount in GBP"); return; }
+    try {
+      await saveSetting("dev_cost_to_date_gbp", val.toFixed(2));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingDevCost(false);
     } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
@@ -189,10 +213,37 @@ export default function AdminAnalyticsScreen() {
                     </View>
                     <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.grossMrrGbp.toFixed(2)}</Text>
                   </View>
-                  <View style={[styles.profitRow, styles.rowBorder]}>
-                    <Text style={styles.profitLabel}>Platform Fee (15%)</Text>
-                    <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.platformFeeGbp.toFixed(2)}</Text>
-                  </View>
+                  <Pressable
+                    onPress={() => {
+                      setPlatformFeeInput(fin.revenue.platformFeePct.toString());
+                      setEditingPlatformFee(true);
+                    }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>Platform Fee ({fin.revenue.platformFeePct}%)</Text>
+                      <Text style={styles.profitSub}>Apple SBP=15% · Standard=30% · Tap to edit</Text>
+                    </View>
+                    {editingPlatformFee ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <TextInput
+                          style={[styles.finInput, { width: 50 }]}
+                          value={platformFeeInput}
+                          onChangeText={setPlatformFeeInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={savePlatformFee}
+                          onSubmitEditing={savePlatformFee}
+                        />
+                        <Text style={styles.profitValue}>%</Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.platformFeeGbp.toFixed(2)}</Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
                   {fin.revenue.rcFeeGbp > 0 && (
                     <View style={[styles.profitRow, styles.rowBorder]}>
                       <Text style={styles.profitLabel}>RevenueCat Fee (1%)</Text>
@@ -254,8 +305,41 @@ export default function AdminAnalyticsScreen() {
                       </View>
                     )}
                   </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setDevCostInput(fin.costs.devCostToDateGbp.toString());
+                      setEditingDevCost(true);
+                    }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>Dev Cost to Date</Text>
+                      <Text style={styles.profitSub}>Total invested building the app · Tap to edit</Text>
+                    </View>
+                    {editingDevCost ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.profitValue}>£</Text>
+                        <TextInput
+                          style={styles.finInput}
+                          value={devCostInput}
+                          onChangeText={setDevCostInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={saveDevCost}
+                          onSubmitEditing={saveDevCost}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: fin.costs.devCostToDateGbp > 0 ? "#F87171" : Colors.textMuted }]}>
+                          {fin.costs.devCostToDateGbp > 0 ? `-£${fin.costs.devCostToDateGbp.toFixed(2)}` : "Not set"}
+                        </Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
                   <View style={styles.profitRow}>
-                    <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Total Costs</Text>
+                    <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Monthly Costs</Text>
                     <Text style={[styles.profitValue, { color: "#F87171", fontSize: 18 }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
                   </View>
                 </View>
@@ -278,10 +362,18 @@ export default function AdminAnalyticsScreen() {
                     <Text style={styles.profitLabel}>Net MRR</Text>
                     <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.netMrrGbp.toFixed(2)}</Text>
                   </View>
-                  <View style={styles.profitRow}>
-                    <Text style={styles.profitLabel}>Total Costs</Text>
+                  <View style={[styles.profitRow, fin.pl.breakevenMonths !== null ? styles.rowBorder : {}]}>
+                    <Text style={styles.profitLabel}>Monthly Costs</Text>
                     <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
                   </View>
+                  {fin.pl.breakevenMonths !== null && (
+                    <View style={styles.profitRow}>
+                      <Text style={styles.profitLabel}>Dev Cost Payback</Text>
+                      <Text style={[styles.profitValue, { color: "#F59E0B" }]}>
+                        {fin.pl.breakevenMonths} month{fin.pl.breakevenMonths !== 1 ? "s" : ""}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* ── Per-grade economics ── */}
