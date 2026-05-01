@@ -15,6 +15,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
@@ -38,6 +39,8 @@ type CardResult = {
   psa10Gbp: number | null;
   psa9Gbp: number | null;
   gradingUpside: number | null;
+  // Full eBay all-grades data — pre-populates Profit screen cache
+  allGrades?: Record<string, unknown> | null;
 };
 
 type DisambiguationCard = {
@@ -251,6 +254,7 @@ function AssistantMessage({
   onSelectCard?: (card: DisambiguationCard) => void;
   onRetry?: (text: string) => void;
 }) {
+  const qc = useQueryClient();
   const d = msg.data;
   const hasDisambiguation = d?.disambiguationCards && d.disambiguationCards.length > 0;
 
@@ -302,6 +306,14 @@ function AssistantMessage({
                   card={card}
                   onPress={card.name && card.set ? () => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    // Pre-populate the Profit screen's React Query cache with
+                    // already-fetched price data so it shows instantly
+                    if (card.allGrades) {
+                      qc.setQueryData(
+                        ["ebay-all-grades", card.name, card.set ?? "", card.number ?? "", null],
+                        card.allGrades,
+                      );
+                    }
                     router.push({
                       pathname: "/card-profit",
                       params: {

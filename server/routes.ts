@@ -12638,25 +12638,31 @@ Found 1 card — looking up current market data now.`;
           ptSearchQuery: [selectedCard.name, selectedCard.set].filter(Boolean).join(" "),
         }];
       } else if (hintCard) {
-        // Follow-up message — card already identified, extract only the company + grade from the message
-        const companyRe = /\b(PSA|BGS|Beckett|ACE|TAG|CGC)\b/i;
-        const gradeRe = /\b(10|9\.5|9|8\.5|8|7)\b/;
-        const companyMatch = message.match(companyRe);
-        const gradeMatch = message.match(gradeRe);
-        const company = companyMatch
-          ? companyMatch[1].toUpperCase().replace("BECKETT", "BGS")
-          : null;
-        // Default to grade 10 when company is named but grade isn't specified
-        const grade = gradeMatch ? parseFloat(gradeMatch[1]) : (company ? 10 : null);
-        identifiedCards = [{
-          name: hintCard.name,
-          set: hintCard.set,
-          number: hintCard.number,
-          grade,
-          company,
-          isRaw: company == null,
-          ptSearchQuery: [hintCard.name, hintCard.set].filter(Boolean).join(" "),
-        }];
+        // ── Follow-up message: card already identified + prices already in history ──
+        // Skip price lookup entirely — just ask Claude once using the full conversation
+        // history which already contains the price data from previous responses.
+        const followUpSystem = `You are an expert Pokemon TCG card market analyst and advisor. You are having an ongoing conversation about ${hintCard.name}${hintCard.set ? ` from ${hintCard.set}` : ""}. Your previous response(s) already contain real eBay last-sold price data for this card — use that data to answer the follow-up question. Be concise and direct (2-3 paragraphs max). Use British English.`;
+
+        const followUpResp = await anthropic.messages.create({
+          model: "claude-haiku-4-5",
+          max_tokens: 350,
+          system: followUpSystem,
+          messages: [...history, { role: "user", content: message }],
+        });
+        const followUpReply = followUpResp.content[0]?.type === "text"
+          ? (followUpResp.content[0] as any).text
+          : "Unable to answer at this time.";
+
+        logAiCost("deal_advisor", "claude-haiku-4-5", followUpResp.usage.input_tokens, followUpResp.usage.output_tokens);
+
+        return res.json({
+          reply: followUpReply,
+          cards: [],
+          totalMarketUsd: 0,
+          totalMarketGbp: 0,
+          offeredGbp: null,
+          pctOfMarket: null,
+        });
       } else {
         parseResp = await anthropic.messages.create({
           model: "claude-haiku-4-5",
@@ -12767,6 +12773,7 @@ Found 1 card — looking up current market data now.`;
         const key = gradeKey(card.company, card.grade, card.isRaw);
 
         // Price lookup via PokeTrace
+        let allGradesFull: any = null;
         try {
           // Strip rarity designations from the search query — PokeTrace uses card names, not rarity tiers
           const rarityPattern = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;
@@ -12779,6 +12786,7 @@ Found 1 card — looking up current market data now.`;
             null
           );
           if (prices) {
+            allGradesFull = prices; // preserve full response for Profit screen cache
             // Always capture raw + graded tiers for context
             rawUsd = prices.raw > 0 ? prices.raw : null;
             psa10Usd = prices.psa10 > 0 ? prices.psa10 : null;
@@ -12854,6 +12862,8 @@ Found 1 card — looking up current market data now.`;
           psa9Gbp,
           rawGbp,
           gradingUpside,
+          // Full grades data — for Profit screen cache pre-population (avoids re-fetch)
+          allGrades: allGradesFull,
         };
       }));
 
