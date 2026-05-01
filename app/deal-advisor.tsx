@@ -301,17 +301,28 @@ export default function DealAdvisorScreen() {
     text: string,
     currentHistory: { role: string; content: string }[],
     selected?: DisambiguationCard,
-  ) => {
-    const url = new URL("/api/deal-advisor", getApiUrl());
-    const body: Record<string, unknown> = { message: text, history: currentHistory };
-    if (selected) body.selectedCard = selected;
-    const res = await fetch(url.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`${res.status}`);
-    return res.json() as Promise<AdvisorResponse>;
+  ): Promise<AdvisorResponse> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    try {
+      const url = new URL("/api/deal-advisor", getApiUrl());
+      const body: Record<string, unknown> = { message: text, history: currentHistory };
+      if (selected) body.selectedCard = selected;
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${errText.substring(0, 100)}`);
+      }
+      const data = await res.json();
+      return data as AdvisorResponse;
+    } finally {
+      clearTimeout(timeout);
+    }
   }, []);
 
   const send = useCallback(async (text: string) => {
@@ -333,8 +344,13 @@ export default function DealAdvisorScreen() {
     try {
       const data = await postToAdvisor(trimmed, history);
       setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
-    } catch {
-      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: "Something went wrong. Please try again." }, ...prev]);
+    } catch (e: any) {
+      const isTimeout = e?.name === "AbortError";
+      const errText = isTimeout
+        ? "That took too long to respond. Try again — it might just be a slow connection."
+        : `Something went wrong: ${e?.message ?? "unknown error"}`;
+      console.error("[CardAdvisor] send error:", e?.message, e?.name);
+      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText }, ...prev]);
     } finally {
       setLoading(false);
     }
@@ -345,7 +361,6 @@ export default function DealAdvisorScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLoading(true);
 
-    // Show a subtle user confirmation bubble
     const label = `${selected.name}${selected.number ? ` (#${selected.number})` : ""}`;
     const confirmMsg: Message = { id: `u-${Date.now()}`, role: "user", text: label };
     setMessages((prev) => [confirmMsg, ...prev]);
@@ -353,8 +368,13 @@ export default function DealAdvisorScreen() {
     try {
       const data = await postToAdvisor(lastUserMessage || label, history, selected);
       setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
-    } catch {
-      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: "Something went wrong. Please try again." }, ...prev]);
+    } catch (e: any) {
+      const isTimeout = e?.name === "AbortError";
+      const errText = isTimeout
+        ? "That took too long. Try again."
+        : `Something went wrong: ${e?.message ?? "unknown error"}`;
+      console.error("[CardAdvisor] sendWithCard error:", e?.message, e?.name);
+      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText }, ...prev]);
     } finally {
       setLoading(false);
     }
