@@ -198,12 +198,20 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
   const notificationsEnabled = useRef(false);
   const scheduledNotifId = useRef<string | null>(null);
+  const pendingUploadsRef = useRef<SavedGrading[]>([]);
 
   useEffect(() => {
     requestNotificationPermission().then((granted) => {
       notificationsEnabled.current = granted;
     });
   }, []);
+
+  useEffect(() => {
+    if (!rcAppUserId || pendingUploadsRef.current.length === 0) return;
+    const pending = [...pendingUploadsRef.current];
+    pendingUploadsRef.current = [];
+    pending.forEach(g => uploadGrading(rcAppUserId, g).catch(() => {}));
+  }, [rcAppUserId]);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -297,8 +305,12 @@ export function GradingProvider({ children }: { children: ReactNode }) {
           saved = { id: `unsaved_${Date.now()}`, frontImage, backImage, result, timestamp: Date.now() };
         }
 
-        if (saved.id && !saved.id.startsWith("unsaved_") && rcAppUserId) {
-          uploadGrading(rcAppUserId, saved).catch(() => {});
+        if (saved.id && !saved.id.startsWith("unsaved_")) {
+          if (rcAppUserId) {
+            uploadGrading(rcAppUserId, saved).catch(() => {});
+          } else {
+            pendingUploadsRef.current.push(saved);
+          }
         }
 
         if (saved.id && !saved.id.startsWith("unsaved_")) {
