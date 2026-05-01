@@ -61,7 +61,10 @@ async function prewarmSetImages(urls: string[]): Promise<void> {
 
 function proxifyImageUrl(req: any, url: string | null | undefined): string | null {
   if (!url) return null;
-  const base = `${req.protocol}://${req.get("host")}`;
+  // Prefer X-Forwarded-Proto/Host so HTTPS is preserved when behind Replit's reverse proxy
+  const protocol = req.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
+  const host = req.get("x-forwarded-host") || req.get("host");
+  const base = `${protocol}://${host}`;
   return `${base}/api/set-img?u=${encodeURIComponent(url)}`;
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,6 +174,9 @@ async function enforceServerQuota(
   return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
 }
 import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
+
+// Pre-computed sorted unique set names for Card Advisor prompts
+const ADVISOR_CUSTOM_SET_NAMES = [...new Set(Object.values(ENGLISH_SETS))].sort();
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -12586,11 +12592,15 @@ RESPONSE FORMAT (JSON only, no markdown):
       const GBP_PER_USD = 0.79;
 
       // ── Step 1: Identify cards from deal description ──────────────────────
+      const customSetsNote = `IMPORTANT — This app includes custom and fan-made Pokemon TCG sets that are NOT in the official database. When a user mentions a set name, use their exact words — DO NOT rename or correct it to an official set. Known custom sets include: ${ADVISOR_CUSTOM_SET_NAMES.join(", ")}.`;
+
       const parseSystem = `You are a Pokemon TCG card identification assistant. Extract structured card data from the user's message. The user may be asking about a deal, a potential purchase, an investment, or general market research — identify any Pokemon cards mentioned regardless of context.
+
+${customSetsNote}
 
 For each card or graded slab mentioned, output ONE JSON object in the array. Include:
 - "name": card name (e.g. "Charizard", "Umbreon VMAX", "Pikachu Illustrator", "Mega Charizard EX")
-- "set": set name if mentioned or inferrable (e.g. "Base Set", "Paradox Rift", "Phantom Forces", "Neo Genesis")
+- "set": set name if mentioned or inferrable — use the user's EXACT set name, never correct it
 - "number": card number if mentioned (e.g. "4" or "4/102")
 - "grade": numeric grade if graded (10, 9.5, 9, 8 etc.) or null if raw/ungraded
 - "company": grading company if applicable ("PSA", "BGS", "ACE", "TAG", "CGC") or null if raw/ungraded
@@ -12834,7 +12844,11 @@ Found 1 card — looking up current market data now.`;
 
       const isDealQuery = offeredInGbp != null;
 
+      const customSetsAdviceNote = `IMPORTANT — This app tracks several newer and custom Pokemon TCG sets that you may not have in your training data. These are REAL, physical sets with genuine market value. Known sets include: ${ADVISOR_CUSTOM_SET_NAMES.join(", ")}. If a user mentions one of these sets and no eBay price data is available, acknowledge it as a real set and give your best market analysis rather than questioning whether it exists.`;
+
       const adviceSystem = `You are an expert Pokemon TCG card market analyst and advisor. You help collectors with deal evaluation, market research, investment analysis, and buying decisions.
+
+${customSetsAdviceNote}
 
 Real eBay last-sold market data:
 ${priceLines || "No price data found — give your best analysis based on your knowledge."}
