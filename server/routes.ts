@@ -10007,25 +10007,27 @@ RESPONSE FORMAT (JSON only, no markdown):
       // Apple Small Business Programme = 15%, standard = 30%. Configurable so you can adjust.
       const platformFeePct = parseFloat(settings["platform_fee_pct"] ?? "15");
       const PLATFORM_FEE = platformFeePct / 100;
-      // Months the app has been in development (drives Replit + Apple licence cost calculations)
-      const monthsBuilding = parseFloat(settings["months_building"] ?? "0");
-      // Any other costs not covered above (one-off purchases, external tools, etc.)
-      const otherCostsGbp = parseFloat(settings["other_costs_gbp"] ?? "0");
+      // PokeTrace: monthly API cost (ongoing — included in monthly P&L)
+      const poktraceMonthlyGbp = parseFloat(settings["poketrace_monthly_gbp"] ?? "15");
 
-      // ── Cost history breakdown ──────────────────────────────────────────────
-      // AI costs: pulled directly from the database (automatic)
+      // ── Cost history breakdown (individual real amounts, not calculated from months) ──
+      // AI costs: pulled directly from the database (automatic, exact)
       const aiAllTimeUsd = parseFloat(aiAllTimeResult.rows[0]?.total ?? "0") || 0;
       const aiAllTimeCalls = parseInt(aiAllTimeResult.rows[0]?.calls ?? "0") || 0;
       const aiTotalGbp = aiAllTimeUsd * GBP_PER_USD;
-      // Replit: monthly rate × months building
-      const replitTotalGbp = monthsBuilding > 0 ? monthsBuilding * replitCostGbp : 0;
-      // Apple Developer Programme: £99/year — count full years (e.g. 13 months = 2 × £99)
-      const appleLicenceGbp = monthsBuilding > 0 ? Math.ceil(monthsBuilding / 12) * 99 : 0;
-      // Google Play: $25 one-time registration = ~£20 (only count once if months > 0)
-      const GOOGLE_PLAY_GBP = 19.82;
-      const googlePlayGbp = monthsBuilding > 0 ? GOOGLE_PLAY_GBP : 0;
-      // RevenueCat: free under $2500 MRR — no cost to track yet
-      const totalInvestedGbp = aiTotalGbp + replitTotalGbp + appleLicenceGbp + googlePlayGbp + otherCostsGbp;
+      // Replit: actual total paid (from bank statements — varies by agent usage)
+      const replitTotalGbp = parseFloat(settings["replit_total_gbp"] ?? "0");
+      // Apple Developer Programme: actual amount paid
+      const appleLicenceGbp = parseFloat(settings["apple_licence_gbp"] ?? "0");
+      // Google Play: one-time registration fee
+      const googlePlayGbp = parseFloat(settings["google_play_gbp"] ?? "0");
+      // PokeTrace historical: months used × monthly rate
+      const poktraceMonthsUsed = parseFloat(settings["poketrace_months_used"] ?? "0");
+      const poketraceTotalGbp = poktraceMonthsUsed * poktraceMonthlyGbp;
+      // Any other costs (one-offs, tools, assets, etc.)
+      const otherCostsGbp = parseFloat(settings["other_costs_gbp"] ?? "0");
+      // RevenueCat: free under $2500 MRR — £0 so far
+      const totalInvestedGbp = aiTotalGbp + replitTotalGbp + appleLicenceGbp + googlePlayGbp + poketraceTotalGbp + otherCostsGbp;
 
       const curious = rcTiers?.curious ?? 0;
       const enthusiast = rcTiers?.enthusiast ?? 0;
@@ -10049,7 +10051,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         ? (prevTotals.reduce((a: number, b: number) => a + b, 0) / prevTotals.length) * GBP_PER_USD
         : null;
 
-      const totalMonthlyCostsGbp = aiCurrentGbp + replitCostGbp;
+      const totalMonthlyCostsGbp = aiCurrentGbp + replitCostGbp + poktraceMonthlyGbp;
       const profitGbp = netMrrGbp - totalMonthlyCostsGbp;
       const marginPct = netMrrGbp > 0 ? Math.round((profitGbp / netMrrGbp) * 100) : 0;
       // Months until total investment is recovered at current monthly profit rate
@@ -10075,16 +10077,19 @@ RESPONSE FORMAT (JSON only, no markdown):
           aiThisMonthGbp: parseFloat(aiCurrentGbp.toFixed(2)),
           ai3MonthAvgGbp: ai3MonthAvgGbp !== null ? parseFloat(ai3MonthAvgGbp.toFixed(2)) : null,
           replitMonthlyGbp: replitCostGbp,
+          poktraceMonthlyGbp: parseFloat(poktraceMonthlyGbp.toFixed(2)),
           totalGbp: parseFloat(totalMonthlyCostsGbp.toFixed(2)),
           aiCallsThisMonth: aiCurrentCalls,
         },
         costsToDate: {
-          monthsBuilding,
           aiTotalGbp: parseFloat(aiTotalGbp.toFixed(2)),
           aiAllTimeCalls,
           replitTotalGbp: parseFloat(replitTotalGbp.toFixed(2)),
           appleLicenceGbp: parseFloat(appleLicenceGbp.toFixed(2)),
           googlePlayGbp: parseFloat(googlePlayGbp.toFixed(2)),
+          poktraceMonthlyGbp: parseFloat(poktraceMonthlyGbp.toFixed(2)),
+          poktraceMonthsUsed: parseFloat(poktraceMonthsUsed.toFixed(1)),
+          poketraceTotalGbp: parseFloat(poketraceTotalGbp.toFixed(2)),
           otherCostsGbp: parseFloat(otherCostsGbp.toFixed(2)),
           totalInvestedGbp: parseFloat(totalInvestedGbp.toFixed(2)),
         },
