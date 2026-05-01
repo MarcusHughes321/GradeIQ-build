@@ -79,7 +79,7 @@ export default function AdminAnalyticsScreen() {
   const daily: { day: string; count: string; cards: string }[] = data?.daily || [];
   const recent: { job_id: string; mode: string; card_count: number; status: string; created_at: string; duration_secs: number | null }[] = data?.recent || [];
   const rc: Record<string, number> | null = data?.rc ?? null;
-  const rcTiers: { curious: number; enthusiast: number; obsessed: number } | null = data?.rcTiers ?? null;
+  const rcTiers: { curious: number; enthusiast: number; obsessed: number; other: number; productIds?: string[] } | null = data?.rcTiers ?? null;
   const costs: { byMode: Record<string, number>; totalUsd: number } | null = data?.costs ?? null;
   const revenue: { mrrUsd: number; revenueUsd: number; profitUsd: number; marginPct: number } | null = data?.revenue ?? null;
 
@@ -171,8 +171,8 @@ export default function AdminAnalyticsScreen() {
                       { key: "curious", label: "Grade Curious", color: "#60A5FA", icon: "sparkles" as const },
                       { key: "enthusiast", label: "Grade Enthusiast", color: "#F59E0B", icon: "flame" as const },
                       { key: "obsessed", label: "Grade Obsessed", color: "#A78BFA", icon: "diamond" as const },
-                    ] as const).map((tier, i, arr) => (
-                      <View key={tier.key} style={[styles.tierRow, i < arr.length - 1 && styles.rowBorder]}>
+                    ] as const).map((tier, i) => (
+                      <View key={tier.key} style={[styles.tierRow, styles.rowBorder]}>
                         <View style={[styles.tierIconWrap, { backgroundColor: tier.color + "18" }]}>
                           <Ionicons name={tier.icon} size={16} color={tier.color} />
                         </View>
@@ -182,7 +182,34 @@ export default function AdminAnalyticsScreen() {
                         </Text>
                       </View>
                     ))}
+                    {(rcTiers.other ?? 0) > 0 && (
+                      <View style={styles.tierRow}>
+                        <View style={[styles.tierIconWrap, { backgroundColor: Colors.textMuted + "18" }]}>
+                          <Ionicons name="gift-outline" size={16} color={Colors.textMuted} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.tierLabel}>Other / Promo</Text>
+                          <Text style={styles.tierSub}>Non-standard product IDs</Text>
+                        </View>
+                        <Text style={[styles.tierCount, { color: Colors.textMuted }]}>
+                          {rcTiers.other}
+                        </Text>
+                      </View>
+                    )}
                   </View>
+                  {(() => {
+                    const identified = rcTiers.curious + rcTiers.enthusiast + rcTiers.obsessed + (rcTiers.other ?? 0);
+                    const total = rc?.active_subscriptions ?? 0;
+                    const diff = total - identified;
+                    if (diff > 0) {
+                      return (
+                        <Text style={styles.tierWarning}>
+                          ⚠ {diff} active sub{diff !== 1 ? "s" : ""} not yet identified — cache refreshes every 10 min
+                        </Text>
+                      );
+                    }
+                    return null;
+                  })()}
                 </>
               )}
 
@@ -548,5 +575,19 @@ const styles = StyleSheet.create({
   tierCount: {
     fontFamily: "Inter_700Bold",
     fontSize: 22,
+  },
+  tierSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  tierWarning: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "#F59E0B",
+    textAlign: "center",
+    paddingHorizontal: 16,
+    paddingTop: 6,
   },
 });
