@@ -8,7 +8,7 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
-import { uploadGrading } from "@/lib/server-history";
+import { uploadGrading, uploadGradingImages } from "@/lib/server-history";
 
 function parseQuotaError(error: any): string | null {
   try {
@@ -308,6 +308,13 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         if (saved.id && !saved.id.startsWith("unsaved_")) {
           if (rcAppUserId) {
             uploadGrading(rcAppUserId, saved).catch(() => {});
+            uploadGradingImages(rcAppUserId, saved.id, frontImage, backImage)
+              .then(({ frontImageUrl, backImageUrl }) => {
+                if (frontImageUrl || backImageUrl) {
+                  updateGrading(saved.id, { frontImageUrl, backImageUrl }).catch(() => {});
+                }
+              })
+              .catch(() => {});
           } else {
             pendingUploadsRef.current.push(saved);
           }

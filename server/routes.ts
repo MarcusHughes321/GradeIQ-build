@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
+import { uploadBuffer, downloadToResponse } from "./objectStorage";
 import { parse as parseHtml } from "node-html-parser";
 import { Pool } from "pg";
 
@@ -4405,11 +4406,89 @@ async function initGradingHistoryTable(): Promise<void> {
   }
 }
 
+async function initGradingHistoryImageColumns(): Promise<void> {
+  try {
+    await db.query(`ALTER TABLE grading_history ADD COLUMN IF NOT EXISTS front_image_url TEXT`);
+    await db.query(`ALTER TABLE grading_history ADD COLUMN IF NOT EXISTS back_image_url TEXT`);
+    console.log("[history] Image URL columns ready");
+  } catch (e: any) {
+    console.error("[history] Failed to add image columns:", e.message);
+  }
+}
+
+async function initAiCostLogTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ai_cost_log (
+        id          SERIAL PRIMARY KEY,
+        month       TEXT NOT NULL,
+        mode        TEXT NOT NULL,
+        model       TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+        input_tokens  INT NOT NULL DEFAULT 0,
+        output_tokens INT NOT NULL DEFAULT 0,
+        cost_usd    NUMERIC(10,6) NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS ai_cost_log_month_idx ON ai_cost_log(month)`);
+    console.log("[ai-cost] ai_cost_log table ready");
+  } catch (e: any) {
+    console.error("[ai-cost] Failed to init ai_cost_log:", e.message);
+  }
+}
+
+async function initAdminSettingsTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS admin_settings (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[admin] admin_settings table ready");
+  } catch (e: any) {
+    console.error("[admin] Failed to init admin_settings:", e.message);
+  }
+}
+
+const CLAUDE_SONNET_INPUT_COST_PER_M = 3.0;
+const CLAUDE_SONNET_OUTPUT_COST_PER_M = 15.0;
+const CLAUDE_HAIKU_INPUT_COST_PER_M = 0.8;
+const CLAUDE_HAIKU_OUTPUT_COST_PER_M = 4.0;
+
+function getMonthKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function logAiCost(
+  mode: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): Promise<void> {
+  try {
+    const isHaiku = model.includes("haiku");
+    const inputRate = isHaiku ? CLAUDE_HAIKU_INPUT_COST_PER_M : CLAUDE_SONNET_INPUT_COST_PER_M;
+    const outputRate = isHaiku ? CLAUDE_HAIKU_OUTPUT_COST_PER_M : CLAUDE_SONNET_OUTPUT_COST_PER_M;
+    const costUsd = (inputTokens / 1_000_000) * inputRate + (outputTokens / 1_000_000) * outputRate;
+    await db.query(
+      `INSERT INTO ai_cost_log (month, mode, model, input_tokens, output_tokens, cost_usd)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [getMonthKey(), mode, model, inputTokens, outputTokens, costUsd.toFixed(6)]
+    );
+  } catch {}
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Ensure DB tables exist before any requests come in
   await initUsageTrackingTable();
   await initAdminUsersTable();
   await initGradingHistoryTable();
+  await initGradingHistoryImageColumns();
+  await initAiCostLogTable();
+  await initAdminSettingsTable();
   await initEbayPriceCacheTable();
   await initPriceHistoryTable();
   await initSetPriceStatusTable();
@@ -5581,6 +5660,11 @@ Return ONLY the JSON object. No other text.`;
       ],
     });
 
+    logAiCost("collection", "claude-sonnet-4-6",
+      response.usage?.input_tokens ?? 0,
+      response.usage?.output_tokens ?? 0,
+    ).catch(() => {});
+
     const text = (response.content[0] as Anthropic.TextBlock)?.text || "";
     console.log(`${logPrefix} Haiku raw response: ${text.substring(0, 200)}`);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -5917,6 +6001,11 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       ],
     });
 
+    logAiCost("quick", "claude-sonnet-4-6",
+      gradingResponse.usage?.input_tokens ?? 0,
+      gradingResponse.usage?.output_tokens ?? 0,
+    ).catch(() => {});
+
     const aiTime = Date.now() - gradeStartTime;
     console.log(`${logPrefix} AI call completed in ${aiTime}ms`);
 
@@ -6175,6 +6264,11 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
         { role: "user", content: convertToClaudeContent(imageContent) },
       ],
     });
+
+    logAiCost("deep", "claude-sonnet-4-6",
+      gradingResponse.usage?.input_tokens ?? 0,
+      gradingResponse.usage?.output_tokens ?? 0,
+    ).catch(() => {});
 
     const aiTime = Date.now() - gradeStartTime;
     console.log(`${logPrefix} AI call completed in ${aiTime}ms`);
@@ -8929,7 +9023,8 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
     try {
       const result = await db.query(
-        `SELECT local_id, result_json, timestamp, is_deep_grade, is_crossover
+        `SELECT local_id, result_json, timestamp, is_deep_grade, is_crossover,
+                front_image_url, back_image_url
          FROM grading_history
          WHERE rc_user_id = $1
          ORDER BY timestamp DESC
@@ -8942,6 +9037,8 @@ RESPONSE FORMAT (JSON only, no markdown):
         timestamp: r.timestamp,
         isDeepGrade: r.is_deep_grade,
         isCrossover: r.is_crossover,
+        frontImageId: r.front_image_url ?? null,
+        backImageId: r.back_image_url ?? null,
       }));
       res.json(rows);
     } catch (e: any) {
@@ -9000,6 +9097,51 @@ RESPONSE FORMAT (JSON only, no markdown):
     } catch (e: any) {
       console.error("[history] DELETE failed:", e.message);
       res.status(500).json({ error: "Failed to delete grading" });
+    }
+  });
+
+  app.post("/api/history/:localId/images", async (req, res) => {
+    const { localId } = req.params;
+    const { rcUserId, frontB64, backB64 } = req.body;
+    if (!rcUserId || !localId || (!frontB64 && !backB64)) {
+      return res.status(400).json({ error: "rcUserId, localId, and at least one image required" });
+    }
+    try {
+      const compress = async (b64: string): Promise<string> => {
+        const input = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ""), "base64");
+        const compressed = await sharp(input)
+          .resize({ width: 400, withoutEnlargement: true })
+          .jpeg({ quality: 60 })
+          .toBuffer();
+        return uploadBuffer(compressed, "image/jpeg", "grading-images");
+      };
+      const [frontUuid, backUuid] = await Promise.all([
+        frontB64 ? compress(frontB64) : Promise.resolve(null),
+        backB64 ? compress(backB64) : Promise.resolve(null),
+      ]);
+      await db.query(
+        `UPDATE grading_history
+         SET front_image_url = COALESCE($3, front_image_url),
+             back_image_url  = COALESCE($4, back_image_url)
+         WHERE rc_user_id = $1 AND local_id = $2`,
+        [rcUserId, localId, frontUuid, backUuid]
+      );
+      res.json({ frontImageId: frontUuid, backImageId: backUuid });
+    } catch (e: any) {
+      console.error("[history] Image upload failed:", e.message);
+      res.status(500).json({ error: "Image upload failed" });
+    }
+  });
+
+  app.get("/api/grading-image/:uuid", async (req, res) => {
+    const { uuid } = req.params;
+    if (!uuid || uuid.length < 10) return res.status(400).end();
+    try {
+      const ok = await downloadToResponse("grading-images", uuid, res);
+      if (!ok) res.status(404).end();
+    } catch (e: any) {
+      console.error("[grading-image] Serve failed:", e.message);
+      if (!res.headersSent) res.status(500).end();
     }
   });
 
@@ -9795,6 +9937,132 @@ RESPONSE FORMAT (JSON only, no markdown):
     } catch (err: any) {
       console.error("[admin/analytics] Error:", err.message);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Admin settings ──────────────────────────────────────────────────────
+  app.get("/api/admin/settings", async (_req, res) => {
+    try {
+      const { rows } = await db.query(`SELECT key, value FROM admin_settings`);
+      const out: Record<string, string> = {};
+      rows.forEach((r: any) => { out[r.key] = r.value; });
+      res.json(out);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/settings", async (req, res) => {
+    const { key, value } = req.body as { key?: string; value?: string };
+    if (!key || value === undefined) return res.status(400).json({ error: "key and value required" });
+    try {
+      await db.query(
+        `INSERT INTO admin_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [key, value]
+      );
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Admin financials ─────────────────────────────────────────────────────
+  app.get("/api/admin/financials", async (_req, res) => {
+    try {
+      const GBP_PER_USD = 0.79;
+      // Tier prices in GBP per month
+      const TIER_PRICES_GBP: Record<string, number> = { curious: 2.99, enthusiast: 5.99, obsessed: 9.99 };
+      const APPLE_FEE = 0.15;
+      const RC_MRR_THRESHOLD_GBP = 2500 * GBP_PER_USD;
+      const RC_FEE_PCT = 0.01;
+
+      const currentMonth = getMonthKey();
+      const prevMonths: string[] = [];
+      for (let i = 1; i <= 3; i++) {
+        const d = new Date();
+        d.setMonth(d.getMonth() - i);
+        prevMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+      }
+
+      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult] = await Promise.all([
+        fetchRCTierBreakdown(),
+        db.query(`SELECT key, value FROM admin_settings`),
+        db.query(
+          `SELECT SUM(cost_usd) AS total, SUM(input_tokens) AS input_tok, SUM(output_tokens) AS output_tok, COUNT(*) AS calls
+           FROM ai_cost_log WHERE month = $1`,
+          [currentMonth]
+        ),
+        db.query(
+          `SELECT month, SUM(cost_usd) AS total FROM ai_cost_log
+           WHERE month = ANY($1) GROUP BY month`,
+          [prevMonths]
+        ),
+      ]);
+
+      const settings: Record<string, string> = {};
+      settingsResult.rows.forEach((r: any) => { settings[r.key] = r.value; });
+      const replitCostGbp = parseFloat(settings["replit_monthly_gbp"] ?? "25");
+
+      const curious = rcTiers?.curious ?? 0;
+      const enthusiast = rcTiers?.enthusiast ?? 0;
+      const obsessed = rcTiers?.obsessed ?? 0;
+
+      const grossMrrGbp = curious * TIER_PRICES_GBP.curious
+        + enthusiast * TIER_PRICES_GBP.enthusiast
+        + obsessed * TIER_PRICES_GBP.obsessed;
+
+      const platformFeeGbp = grossMrrGbp * APPLE_FEE;
+      const afterPlatformGbp = grossMrrGbp - platformFeeGbp;
+      const rcFeeGbp = afterPlatformGbp > RC_MRR_THRESHOLD_GBP ? afterPlatformGbp * RC_FEE_PCT : 0;
+      const netMrrGbp = afterPlatformGbp - rcFeeGbp;
+
+      const aiCurrentUsd = parseFloat(aiCurrentResult.rows[0]?.total ?? "0") || 0;
+      const aiCurrentGbp = aiCurrentUsd * GBP_PER_USD;
+      const aiCurrentCalls = parseInt(aiCurrentResult.rows[0]?.calls ?? "0") || 0;
+
+      const prevTotals = aiPrevResult.rows.map((r: any) => parseFloat(r.total) || 0);
+      const ai3MonthAvgGbp = prevTotals.length > 0
+        ? (prevTotals.reduce((a: number, b: number) => a + b, 0) / prevTotals.length) * GBP_PER_USD
+        : null;
+
+      const totalCostsGbp = aiCurrentGbp + replitCostGbp;
+      const profitGbp = netMrrGbp - totalCostsGbp;
+      const marginPct = netMrrGbp > 0 ? Math.round((profitGbp / netMrrGbp) * 100) : 0;
+
+      const totalGrades = aiCurrentCalls;
+      const avgRevenuePerGrade = totalGrades > 0 ? netMrrGbp / totalGrades : null;
+      const avgAiCostPerGrade = totalGrades > 0 ? aiCurrentGbp / totalGrades : null;
+
+      res.json({
+        month: currentMonth,
+        tiers: { curious, enthusiast, obsessed },
+        revenue: {
+          grossMrrGbp: parseFloat(grossMrrGbp.toFixed(2)),
+          platformFeeGbp: parseFloat(platformFeeGbp.toFixed(2)),
+          rcFeeGbp: parseFloat(rcFeeGbp.toFixed(2)),
+          netMrrGbp: parseFloat(netMrrGbp.toFixed(2)),
+        },
+        costs: {
+          aiThisMonthGbp: parseFloat(aiCurrentGbp.toFixed(2)),
+          ai3MonthAvgGbp: ai3MonthAvgGbp !== null ? parseFloat(ai3MonthAvgGbp.toFixed(2)) : null,
+          replitMonthlyGbp: replitCostGbp,
+          totalGbp: parseFloat(totalCostsGbp.toFixed(2)),
+          aiCallsThisMonth: aiCurrentCalls,
+        },
+        pl: {
+          profitGbp: parseFloat(profitGbp.toFixed(2)),
+          marginPct,
+          isProfit: profitGbp >= 0,
+        },
+        perGrade: {
+          avgRevenueGbp: avgRevenuePerGrade !== null ? parseFloat(avgRevenuePerGrade.toFixed(4)) : null,
+          avgAiCostGbp: avgAiCostPerGrade !== null ? parseFloat(avgAiCostPerGrade.toFixed(4)) : null,
+        },
+      });
+    } catch (e: any) {
+      console.error("[admin/financials] Error:", e.message);
+      res.status(500).json({ error: e.message });
     }
   });
 

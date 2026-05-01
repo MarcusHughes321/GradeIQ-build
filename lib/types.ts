@@ -147,4 +147,6 @@ export interface SavedGrading {
   isCrossover?: boolean;
   result: GradingResult;
   timestamp: number;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
 }

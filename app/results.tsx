@@ -1335,7 +1335,9 @@ export default function ResultsScreen() {
             style={({ pressed }) => [styles.cardImageWrapper, { opacity: pressed ? 0.85 : 1 }]}
           >
             <Image
-              source={{ uri: showFront ? grading.frontImage : grading.backImage }}
+              source={{ uri: showFront
+                ? (grading.frontImage || grading.frontImageUrl || "")
+                : (grading.backImage || grading.backImageUrl || "") }}
               style={styles.cardImage}
               contentFit="cover"
             />
@@ -1553,7 +1555,7 @@ export default function ResultsScreen() {
             style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
             onPress={() => openImageViewer(true)}
           >
-            <Image source={{ uri: grading.frontImage }} style={styles.imageThumbImg} contentFit="cover" />
+            <Image source={{ uri: grading.frontImage || grading.frontImageUrl || "" }} style={styles.imageThumbImg} contentFit="cover" />
             <View style={styles.imageThumbLabel}>
               <Text style={styles.imageThumbText}>Front</Text>
               <Ionicons name="expand-outline" size={12} color="#fff" />
@@ -1563,7 +1565,7 @@ export default function ResultsScreen() {
             style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
             onPress={() => openImageViewer(false)}
           >
-            <Image source={{ uri: grading.backImage }} style={styles.imageThumbImg} contentFit="cover" />
+            <Image source={{ uri: grading.backImage || grading.backImageUrl || "" }} style={styles.imageThumbImg} contentFit="cover" />
             <View style={styles.imageThumbLabel}>
               <Text style={styles.imageThumbText}>Back</Text>
               <Ionicons name="expand-outline" size={12} color="#fff" />
@@ -2293,8 +2295,8 @@ export default function ResultsScreen() {
           <FlatList
             ref={imageViewerListRef}
             data={[
-              { side: "front" as const, uri: grading.frontImage, bounds: result.frontCardBounds },
-              { side: "back" as const, uri: grading.backImage, bounds: result.backCardBounds },
+              { side: "front" as const, uri: grading.frontImage || grading.frontImageUrl || "", bounds: result.frontCardBounds },
+              { side: "back" as const, uri: grading.backImage || grading.backImageUrl || "", bounds: result.backCardBounds },
             ]}
             keyExtractor={(item) => item.side}
             horizontal

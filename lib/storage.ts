@@ -80,6 +80,8 @@ export async function saveServerGrading(serverGrading: {
   timestamp: number;
   isDeepGrade?: boolean;
   isCrossover?: boolean;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
 }): Promise<void> {
   try {
     const existing = await getGradings();
@@ -91,6 +93,8 @@ export async function saveServerGrading(serverGrading: {
       result: serverGrading.result,
       timestamp: serverGrading.timestamp,
       ...(serverGrading.isDeepGrade ? { isDeepGrade: true } : {}),
+      ...(serverGrading.frontImageUrl ? { frontImageUrl: serverGrading.frontImageUrl } : {}),
+      ...(serverGrading.backImageUrl ? { backImageUrl: serverGrading.backImageUrl } : {}),
     };
     existing.unshift(record);
     existing.sort((a, b) => b.timestamp - a.timestamp);

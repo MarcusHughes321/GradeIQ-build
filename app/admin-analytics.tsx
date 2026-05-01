@@ -8,11 +8,13 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  TextInput,
+  Alert,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
 import Colors from "@/constants/colors";
 
@@ -35,6 +37,23 @@ async function fetchAnalytics() {
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error("Failed to fetch analytics");
   return res.json();
+}
+
+async function fetchFinancials() {
+  const url = new URL("/api/admin/financials", getApiUrl());
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error("Failed to fetch financials");
+  return res.json();
+}
+
+async function saveSetting(key: string, value: string) {
+  const url = new URL("/api/admin/settings", getApiUrl());
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!res.ok) throw new Error("Failed to save setting");
 }
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
@@ -61,6 +80,10 @@ export default function AdminAnalyticsScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"stats" | "finance">("stats");
+  const [editingReplit, setEditingReplit] = useState(false);
+  const [replitCostInput, setReplitCostInput] = useState("");
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["/api/admin/analytics"],
@@ -68,10 +91,26 @@ export default function AdminAnalyticsScreen() {
     refetchInterval: 30000,
   });
 
+  const { data: fin, isLoading: finLoading, refetch: finRefetch } = useQuery({
+    queryKey: ["/api/admin/financials"],
+    queryFn: fetchFinancials,
+    refetchInterval: 60000,
+  });
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetch();
+    await Promise.all([refetch(), finRefetch()]);
     setRefreshing(false);
+  };
+
+  const saveReplitCost = async () => {
+    const val = parseFloat(replitCostInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter a valid cost in GBP"); return; }
+    try {
+      await saveSetting("replit_monthly_gbp", val.toFixed(2));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingReplit(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
   const totals = data?.totals;
@@ -110,7 +149,183 @@ export default function AdminAnalyticsScreen() {
         </Pressable>
       </View>
 
-      {isLoading ? (
+      <View style={styles.tabBar}>
+        {(["stats", "finance"] as const).map((tab) => (
+          <Pressable
+            key={tab}
+            onPress={() => setActiveTab(tab)}
+            style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]}
+          >
+            <Text style={[styles.tabBtnText, activeTab === tab && styles.tabBtnTextActive]}>
+              {tab === "stats" ? "Stats" : "Finance"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {activeTab === "finance" ? (
+        finLoading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={Colors.primary} />
+            <Text style={styles.loadingText}>Loading financials…</Text>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + webBottomInset + 40 }]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+          >
+            {fin ? (
+              <>
+                {/* ── Revenue Card ── */}
+                <Text style={styles.sectionTitle}>Revenue ({fin.month})</Text>
+                <View style={styles.card}>
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <View>
+                      <Text style={styles.profitLabel}>Gross MRR</Text>
+                      <Text style={styles.profitSub}>
+                        {fin.tiers.curious} Curious · {fin.tiers.enthusiast} Enthusiast · {fin.tiers.obsessed} Obsessed
+                      </Text>
+                    </View>
+                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.grossMrrGbp.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <Text style={styles.profitLabel}>Platform Fee (15%)</Text>
+                    <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.platformFeeGbp.toFixed(2)}</Text>
+                  </View>
+                  {fin.revenue.rcFeeGbp > 0 && (
+                    <View style={[styles.profitRow, styles.rowBorder]}>
+                      <Text style={styles.profitLabel}>RevenueCat Fee (1%)</Text>
+                      <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.rcFeeGbp.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.profitRow}>
+                    <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Net MRR</Text>
+                    <Text style={[styles.profitValue, { color: "#34D399", fontSize: 18 }]}>£{fin.revenue.netMrrGbp.toFixed(2)}</Text>
+                  </View>
+                </View>
+
+                {/* ── Costs Card ── */}
+                <Text style={styles.sectionTitle}>Costs</Text>
+                <View style={styles.card}>
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <View>
+                      <Text style={styles.profitLabel}>AI Spend (this month)</Text>
+                      <Text style={styles.profitSub}>{fin.costs.aiCallsThisMonth} calls logged</Text>
+                    </View>
+                    <Text style={[styles.profitValue, { color: "#F87171" }]}>
+                      {fin.costs.aiCallsThisMonth > 0 ? `-£${fin.costs.aiThisMonthGbp.toFixed(2)}` : "—"}
+                    </Text>
+                  </View>
+                  {fin.costs.ai3MonthAvgGbp !== null && (
+                    <View style={[styles.profitRow, styles.rowBorder]}>
+                      <Text style={styles.profitLabel}>AI Spend (3-month avg)</Text>
+                      <Text style={[styles.profitValue, { color: Colors.textSecondary }]}>£{fin.costs.ai3MonthAvgGbp.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  <Pressable
+                    onPress={() => {
+                      setReplitCostInput(fin.costs.replitMonthlyGbp.toString());
+                      setEditingReplit(true);
+                    }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>Replit (monthly)</Text>
+                      <Text style={styles.profitSub}>Tap to edit</Text>
+                    </View>
+                    {editingReplit ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.profitValue}>£</Text>
+                        <TextInput
+                          style={styles.finInput}
+                          value={replitCostInput}
+                          onChangeText={setReplitCostInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={saveReplitCost}
+                          onSubmitEditing={saveReplitCost}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.costs.replitMonthlyGbp.toFixed(2)}</Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
+                  <View style={styles.profitRow}>
+                    <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Total Costs</Text>
+                    <Text style={[styles.profitValue, { color: "#F87171", fontSize: 18 }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
+                  </View>
+                </View>
+
+                {/* ── P&L Card ── */}
+                <Text style={styles.sectionTitle}>Profit & Loss</Text>
+                <View style={[styles.plCard, { borderColor: fin.pl.isProfit ? "rgba(52,211,153,0.3)" : "rgba(255,60,49,0.3)" }]}>
+                  <View style={styles.plBig}>
+                    <Text style={[styles.plAmount, { color: fin.pl.isProfit ? "#34D399" : "#FF3C31" }]}>
+                      {fin.pl.isProfit ? "+" : ""}£{fin.pl.profitGbp.toFixed(2)}
+                    </Text>
+                    <Text style={styles.plLabel}>
+                      {fin.pl.isProfit ? "Profit" : "Loss"} this month
+                    </Text>
+                    <Text style={[styles.plMargin, { color: fin.pl.marginPct >= 60 ? "#34D399" : fin.pl.marginPct >= 30 ? "#F59E0B" : "#FF3C31" }]}>
+                      {fin.pl.marginPct}% margin
+                    </Text>
+                  </View>
+                  <View style={[styles.profitRow, styles.rowBorder, { borderTopWidth: 1 }]}>
+                    <Text style={styles.profitLabel}>Net MRR</Text>
+                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.netMrrGbp.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.profitRow}>
+                    <Text style={styles.profitLabel}>Total Costs</Text>
+                    <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
+                  </View>
+                </View>
+
+                {/* ── Per-grade economics ── */}
+                {(fin.perGrade.avgRevenueGbp !== null || fin.perGrade.avgAiCostGbp !== null) && (
+                  <>
+                    <Text style={styles.sectionTitle}>Per-Grade Economics</Text>
+                    <View style={styles.card}>
+                      {fin.perGrade.avgRevenueGbp !== null && (
+                        <View style={[styles.profitRow, styles.rowBorder]}>
+                          <Text style={styles.profitLabel}>Avg Revenue / Grade</Text>
+                          <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.perGrade.avgRevenueGbp.toFixed(4)}</Text>
+                        </View>
+                      )}
+                      {fin.perGrade.avgAiCostGbp !== null && (
+                        <View style={[styles.profitRow, styles.rowBorder]}>
+                          <Text style={styles.profitLabel}>Avg AI Cost / Grade</Text>
+                          <Text style={[styles.profitValue, { color: "#F87171" }]}>£{fin.perGrade.avgAiCostGbp.toFixed(4)}</Text>
+                        </View>
+                      )}
+                      {fin.perGrade.avgRevenueGbp !== null && fin.perGrade.avgAiCostGbp !== null && (
+                        <View style={styles.profitRow}>
+                          <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>AI Margin / Grade</Text>
+                          <Text style={[styles.profitValue, {
+                            color: fin.perGrade.avgRevenueGbp > fin.perGrade.avgAiCostGbp ? "#34D399" : "#FF3C31"
+                          }]}>
+                            £{(fin.perGrade.avgRevenueGbp - fin.perGrade.avgAiCostGbp).toFixed(4)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    {fin.costs.aiCallsThisMonth === 0 && (
+                      <Text style={styles.profitNote}>No AI calls logged yet this month. Per-grade data will populate after grading activity.</Text>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <View style={styles.center}>
+                <Text style={styles.errorText}>Failed to load financials</Text>
+              </View>
+            )}
+          </ScrollView>
+        )
+      ) : isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={Colors.primary} />
           <Text style={styles.loadingText}>Loading analytics…</Text>
@@ -589,5 +804,67 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 16,
     paddingTop: 6,
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 3,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 10,
+  },
+  tabBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  tabBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  tabBtnTextActive: {
+    color: "#fff",
+  },
+  plCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  plBig: {
+    alignItems: "center",
+    paddingVertical: 24,
+    gap: 4,
+  },
+  plAmount: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 42,
+    lineHeight: 48,
+  },
+  plLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  plMargin: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  finInput: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: Colors.text,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.primary,
+    minWidth: 60,
+    paddingVertical: 2,
   },
 });

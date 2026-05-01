@@ -89,10 +89,10 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
 
       <View style={{ flexDirection: "row", gap: 8, marginTop: 14, width: "100%" }}>
         <View style={{ flex: 1, aspectRatio: 0.714, borderRadius: 8, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-          <RNImage source={{ uri: grading.frontImage }} style={{ width: "100%", height: "100%" }} resizeMode="cover" onLoad={onFrontLoad} />
+          <RNImage source={{ uri: grading.frontImage || grading.frontImageUrl || "" }} style={{ width: "100%", height: "100%" }} resizeMode="cover" onLoad={onFrontLoad} />
         </View>
         <View style={{ flex: 1, aspectRatio: 0.714, borderRadius: 8, overflow: "hidden", backgroundColor: "#1A1A1A" }}>
-          <RNImage source={{ uri: grading.backImage }} style={{ width: "100%", height: "100%" }} resizeMode="cover" onLoad={onBackLoad} />
+          <RNImage source={{ uri: grading.backImage || grading.backImageUrl || "" }} style={{ width: "100%", height: "100%" }} resizeMode="cover" onLoad={onBackLoad} />
         </View>
       </View>
 
