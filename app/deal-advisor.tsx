@@ -325,8 +325,8 @@ export default function DealAdvisorScreen() {
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // Cap history at last 8 messages to keep payloads small
-  const history = messages.slice(0, 8).map((m) => ({
+  // Most recent 8 messages in chronological order (oldest first) — what Claude expects
+  const history = messages.slice(0, 8).reverse().map((m) => ({
     role: m.role,
     content: m.text,
   }));
