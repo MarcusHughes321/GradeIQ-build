@@ -12690,22 +12690,34 @@ Found 1 card — looking up current market data now.`;
             );
 
             if (catalogRes.rows.length >= 2) {
-              // Multiple cards found — return disambiguation picker
-              const setName = catalogRes.rows[0]?.set_name || card.set || "that set";
-              return res.json({
-                reply: `I found ${catalogRes.rows.length} ${card.name} cards from ${setName} — tap the one you mean:`,
-                cards: [],
-                totalMarketGbp: 0,
-                offeredGbp: null,
-                pctOfMarket: null,
-                disambiguationCards: catalogRes.rows.map((r: any) => ({
-                  name: r.name,
-                  set: r.set_name,
-                  number: r.number,
-                  imageUrl: r.image_url,
-                  rarity: r.rarity,
-                })),
-              });
+              // Skip disambiguation picker if:
+              // 1. User specified a grading company (this is a follow-up about an already-identified card), OR
+              // 2. There is conversation history (user has already engaged with the card)
+              const isFollowUp = card.company || history.length >= 2;
+              if (isFollowUp) {
+                // Use the first (lowest-numbered) matching card silently
+                card.name = catalogRes.rows[0].name;
+                card.number = catalogRes.rows[0].number;
+                card.set = catalogRes.rows[0].set_name;
+                card.ptSearchQuery = [catalogRes.rows[0].name, catalogRes.rows[0].set_name].filter(Boolean).join(" ");
+              } else {
+                // Multiple cards found — return disambiguation picker
+                const setName = catalogRes.rows[0]?.set_name || card.set || "that set";
+                return res.json({
+                  reply: `I found ${catalogRes.rows.length} ${card.name} cards from ${setName} — tap the one you mean:`,
+                  cards: [],
+                  totalMarketGbp: 0,
+                  offeredGbp: null,
+                  pctOfMarket: null,
+                  disambiguationCards: catalogRes.rows.map((r: any) => ({
+                    name: r.name,
+                    set: r.set_name,
+                    number: r.number,
+                    imageUrl: r.image_url,
+                    rarity: r.rarity,
+                  })),
+                });
+              }
             }
 
             // Single catalog match — update the card with the confirmed name/number

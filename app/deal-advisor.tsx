@@ -72,6 +72,16 @@ const SUGGESTIONS = [
   "Should I buy a raw 1st Edition Blastoise or get it graded first?",
 ];
 
+// Strip markdown bold/italic/headers so the AI reply renders cleanly as plain text
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")   // **bold** → bold
+    .replace(/\*(.+?)\*/g, "$1")        // *italic* → italic
+    .replace(/^#{1,6}\s+/gm, "")        // ## Heading → Heading
+    .replace(/^[-*]\s+/gm, "• ")        // - bullet → • bullet
+    .trim();
+}
+
 function DealScorePill({ pct }: { pct: number }) {
   const color = pct >= 85 ? "#34D399" : pct >= 65 ? "#F59E0B" : "#FF3C31";
   const label = pct >= 85 ? "Strong deal" : pct >= 65 ? "Fair deal" : "Below market";
@@ -83,7 +93,7 @@ function DealScorePill({ pct }: { pct: number }) {
   );
 }
 
-function CardTile({ card }: { card: CardResult }) {
+function CardTile({ card, onPress }: { card: CardResult; onPress?: () => void }) {
   const gradeLabel = card.isRaw
     ? "Raw"
     : card.company && card.grade
@@ -103,7 +113,11 @@ function CardTile({ card }: { card: CardResult }) {
   const pillColor = card.company ? (companyColor[card.company] ?? Colors.textMuted) : Colors.textMuted;
 
   return (
-    <View style={styles.cardTile}>
+    <Pressable
+      style={({ pressed }) => [styles.cardTile, onPress && { opacity: pressed ? 0.75 : 1 }]}
+      onPress={onPress}
+      disabled={!onPress}
+    >
       <View style={styles.cardImageWrap}>
         {card.imageUrl ? (
           <Image
@@ -172,7 +186,12 @@ function CardTile({ card }: { card: CardResult }) {
           )
         )}
       </View>
-    </View>
+      {onPress && (
+        <View style={{ justifyContent: "center", paddingLeft: 4 }}>
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -237,7 +256,7 @@ function AssistantMessage({
         <Text style={styles.aiAvatarText}>AI</Text>
       </View>
       <View style={styles.aiBubble}>
-        <Text style={styles.aiText}>{msg.text}</Text>
+        <Text style={styles.aiText}>{stripMarkdown(msg.text)}</Text>
 
         {hasDisambiguation && onSelectCard && (
           <DisambiguationPicker
@@ -252,7 +271,23 @@ function AssistantMessage({
             <Text style={styles.cardsHeader}>Cards identified</Text>
             <View style={styles.cardsList}>
               {d.cards.map((card, i) => (
-                <CardTile key={i} card={card} />
+                <CardTile
+                  key={i}
+                  card={card}
+                  onPress={card.name && card.set ? () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push({
+                      pathname: "/card-profit",
+                      params: {
+                        cardName: card.name,
+                        setName: card.set ?? "",
+                        imageUrl: card.imageUrl ?? "",
+                        cardNumber: card.number ?? "",
+                        rawPriceUSD: "0",
+                      },
+                    });
+                  } : undefined}
+                />
               ))}
             </View>
 
@@ -290,12 +325,18 @@ export default function DealAdvisorScreen() {
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
 
-  const history = messages.map((m) => ({
+  // Cap history at last 8 messages to keep payloads small
+  const history = messages.slice(0, 8).map((m) => ({
     role: m.role,
     content: m.text,
   }));
 
   const lastUserMessage = messages.find((m) => m.role === "user")?.text ?? "";
+
+  // Last confirmed card from conversation (used to avoid re-triggering disambiguation on follow-ups)
+  const lastConfirmedCard = messages.find(
+    (m) => m.role === "assistant" && m.data?.cards && m.data.cards.length === 1,
+  )?.data?.cards[0];
 
   const postToAdvisor = useCallback(async (
     text: string,
