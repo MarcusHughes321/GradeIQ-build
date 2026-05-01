@@ -3,6 +3,18 @@ import type { SavedGrading, GradingResult } from "./types";
 
 const STORAGE_KEY = "cardgrade_history";
 
+export async function getGradings(): Promise<SavedGrading[]> {
+  try {
+    const data = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
 export async function saveGrading(
   frontImage: string,
   backImage: string,
@@ -29,39 +41,37 @@ export async function saveGrading(
     timestamp: Date.now(),
   };
 
-  const existing = await getGradings();
-  existing.unshift(grading);
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  try {
+    const existing = await getGradings();
+    existing.unshift(grading);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  } catch {}
   return grading;
 }
 
-export async function getGradings(): Promise<SavedGrading[]> {
-  const data = await AsyncStorage.getItem(STORAGE_KEY);
-  if (!data) return [];
-  try {
-    return JSON.parse(data);
-  } catch {
-    return [];
-  }
-}
-
 export async function deleteGrading(id: string): Promise<void> {
-  const existing = await getGradings();
-  const filtered = existing.filter((g) => g.id !== id);
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+  try {
+    const existing = await getGradings();
+    const filtered = existing.filter((g) => g.id !== id);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+  } catch {}
 }
 
 export async function updateGrading(id: string, updates: Partial<SavedGrading>): Promise<void> {
-  const existing = await getGradings();
-  const index = existing.findIndex((g) => g.id === id);
-  if (index !== -1) {
-    existing[index] = { ...existing[index], ...updates };
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
-  }
+  try {
+    const existing = await getGradings();
+    const index = existing.findIndex((g) => g.id === id);
+    if (index !== -1) {
+      existing[index] = { ...existing[index], ...updates };
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+    }
+  } catch {}
 }
 
 export async function clearAllGradings(): Promise<void> {
-  await AsyncStorage.removeItem(STORAGE_KEY);
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch {}
 }
 
 export async function saveServerGrading(serverGrading: {
@@ -71,20 +81,19 @@ export async function saveServerGrading(serverGrading: {
   isDeepGrade?: boolean;
   isCrossover?: boolean;
 }): Promise<void> {
-  const existing = await getGradings();
-  if (existing.some(g => g.id === serverGrading.id)) return;
-  const record: SavedGrading = {
-    id: serverGrading.id,
-    frontImage: "",
-    backImage: "",
-    result: serverGrading.result,
-    timestamp: serverGrading.timestamp,
-    ...(serverGrading.isDeepGrade ? { isDeepGrade: true } : {}),
-  };
-  existing.unshift(record);
-  existing.sort((a, b) => b.timestamp - a.timestamp);
   try {
+    const existing = await getGradings();
+    if (existing.some(g => g.id === serverGrading.id)) return;
+    const record: SavedGrading = {
+      id: serverGrading.id,
+      frontImage: "",
+      backImage: "",
+      result: serverGrading.result,
+      timestamp: serverGrading.timestamp,
+      ...(serverGrading.isDeepGrade ? { isDeepGrade: true } : {}),
+    };
+    existing.unshift(record);
+    existing.sort((a, b) => b.timestamp - a.timestamp);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
-  } catch {
-  }
+  } catch {}
 }
