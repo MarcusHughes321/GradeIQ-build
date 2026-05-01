@@ -12641,7 +12641,7 @@ Found 1 card — looking up current market data now.`;
         // ── Follow-up message: card already identified + prices already in history ──
         // Skip price lookup entirely — just ask Claude once using the full conversation
         // history which already contains the price data from previous responses.
-        const followUpSystem = `You are an expert Pokemon TCG card market analyst and advisor. You are having an ongoing conversation about ${hintCard.name}${hintCard.set ? ` from ${hintCard.set}` : ""}. Your previous response(s) already contain real eBay last-sold price data for this card — use that data to answer the follow-up question. Be concise and direct (2-3 paragraphs max). Use British English.`;
+        const followUpSystem = `You are an expert Pokemon TCG card market analyst and advisor. You are having an ongoing conversation about ${hintCard.name}${hintCard.set ? ` from ${hintCard.set}` : ""}. Your previous response(s) already contain real eBay last-sold price data for this card covering multiple grading companies (PSA, BGS, ACE, TAG, CGC) and raw prices — use that data to answer the follow-up question. If the user asks about a specific grading company, look in the conversation history for that company's prices. Be concise and direct (2-3 paragraphs max). Use British English.`;
 
         const followUpResp = await anthropic.messages.create({
           model: "claude-haiku-4-5",
@@ -12875,22 +12875,64 @@ Found 1 card — looking up current market data now.`;
         : null;
 
       // ── Step 3: Ask Claude for deal verdict with real price context ────────
+      // Build comprehensive price table — include ALL companies so follow-up questions
+      // about any grading company (ACE, BGS, TAG, CGC) have real data in context.
       const priceLines = enrichedCards.map((c: any) => {
-        const grade = c.isRaw ? "raw/ungraded" : `${c.company || ""} ${c.grade || ""}`.trim();
-        let valStr: string;
-        if (c.isRaw) {
-          const parts: string[] = [];
-          if (c.rawGbp != null) parts.push(`Raw eBay: £${c.rawGbp} (${c.saleCount ?? "?"} recent sales)`);
-          if (c.psa10Gbp != null) parts.push(`PSA 10: £${c.psa10Gbp}`);
-          if (c.psa9Gbp != null) parts.push(`PSA 9: £${c.psa9Gbp}`);
-          if (c.gradingUpside != null) parts.push(`Grading upside: ${c.gradingUpside}x`);
-          valStr = parts.length > 0 ? parts.join(", ") : "price data unavailable";
-        } else {
-          valStr = c.marketValueGbp != null
-            ? `£${c.marketValueGbp} (7d avg: ${c.avg7d != null ? `£${(c.avg7d * GBP_PER_USD).toFixed(0)}` : "n/a"}, ${c.saleCount ?? "?"} recent sales)`
-            : "price data unavailable";
+        const ag = c.allGrades as any; // full PokeTrace price object
+        const parts: string[] = [];
+
+        // Raw price
+        if (c.rawGbp != null) {
+          const gd = ag?.gradeDetails?.["raw"];
+          parts.push(`Raw eBay: £${c.rawGbp}${gd?.saleCount ? ` (${gd.saleCount} sales)` : ""}`);
         }
-        return `• ${c.name}${c.set ? ` (${c.set})` : ""} ${grade}: ${valStr}`;
+
+        if (ag) {
+          // PSA grades
+          const psaGrades = [["psa10","PSA 10"],["psa9","PSA 9"],["psa8","PSA 8"]];
+          for (const [key, label] of psaGrades) {
+            const v = ag[key];
+            if (v > 0) {
+              const gd = ag.gradeDetails?.[key];
+              const gbp = (v * GBP_PER_USD).toFixed(0);
+              const cnt = gd?.saleCount ? ` (${gd.saleCount} sales)` : "";
+              parts.push(`${label}: £${gbp}${cnt}`);
+            }
+          }
+          // BGS grades
+          const bgsGrades = [["bgs10","BGS 10"],["bgs95","BGS 9.5"],["bgs9","BGS 9"]];
+          for (const [key, label] of bgsGrades) {
+            const v = ag[key];
+            if (v > 0) parts.push(`${label}: £${(v * GBP_PER_USD).toFixed(0)}`);
+          }
+          // ACE grades
+          const aceGrades = [["ace10","ACE 10"],["ace9","ACE 9"]];
+          for (const [key, label] of aceGrades) {
+            const v = ag[key];
+            if (v > 0) parts.push(`${label}: £${(v * GBP_PER_USD).toFixed(0)}`);
+          }
+          // TAG grades
+          const tagGrades = [["tag10","TAG 10"],["tag9","TAG 9"]];
+          for (const [key, label] of tagGrades) {
+            const v = ag[key];
+            if (v > 0) parts.push(`${label}: £${(v * GBP_PER_USD).toFixed(0)}`);
+          }
+          // CGC grades
+          const cgcGrades = [["cgc10","CGC 10"],["cgc95","CGC 9.5"],["cgc9","CGC 9"]];
+          for (const [key, label] of cgcGrades) {
+            const v = ag[key];
+            if (v > 0) parts.push(`${label}: £${(v * GBP_PER_USD).toFixed(0)}`);
+          }
+        } else if (!c.isRaw && c.marketValueGbp != null) {
+          // Graded card with no allGrades (shouldn't happen but fallback)
+          const grade = `${c.company || ""} ${c.grade || ""}`.trim();
+          const avg = c.avg7d != null ? `, 7d avg: £${(c.avg7d * GBP_PER_USD).toFixed(0)}` : "";
+          const cnt = c.saleCount != null ? `, ${c.saleCount} sales` : "";
+          parts.push(`${grade}: £${c.marketValueGbp}${avg}${cnt}`);
+        }
+
+        const valStr = parts.length > 0 ? parts.join(" | ") : "price data unavailable";
+        return `• ${c.name}${c.set ? ` (${c.set})` : ""}: ${valStr}`;
       }).join("\n");
 
       const isDealQuery = offeredInGbp != null;
