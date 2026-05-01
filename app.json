@@ -2,7 +2,7 @@
   "expo": {
     "name": "Grade.IQ",
     "slug": "gradeiq",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "gradeiq",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.replit.grade.iq",
-      "buildNumber": "39",
+      "buildNumber": "40",
       "infoPlist": {
         "NSCameraUsageDescription": "Grade.IQ needs access to your camera so you can take photos of your Pokemon cards for AI-powered condition grading. For example, you will photograph the front and back of a card to receive estimated grades from PSA, Beckett, and other grading companies.",
         "NSPhotoLibraryUsageDescription": "Grade.IQ needs access to your photo library so you can select existing photos of your Pokemon cards for AI-powered condition grading. For example, you can choose a saved card photo to receive estimated grades and market value estimates.",
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.marceus.gradeiq",
-      "versionCode": 9,
+      "versionCode": 10,
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

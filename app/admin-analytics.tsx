@@ -85,8 +85,16 @@ export default function AdminAnalyticsScreen() {
   const [replitCostInput, setReplitCostInput] = useState("");
   const [editingPlatformFee, setEditingPlatformFee] = useState(false);
   const [platformFeeInput, setPlatformFeeInput] = useState("");
-  const [editingMonths, setEditingMonths] = useState(false);
-  const [monthsInput, setMonthsInput] = useState("");
+  const [editingReplitTotal, setEditingReplitTotal] = useState(false);
+  const [replitTotalInput, setReplitTotalInput] = useState("");
+  const [editingApple, setEditingApple] = useState(false);
+  const [appleInput, setAppleInput] = useState("");
+  const [editingGooglePlay, setEditingGooglePlay] = useState(false);
+  const [googlePlayInput, setGooglePlayInput] = useState("");
+  const [editingPoktraceMonthly, setEditingPoktraceMonthly] = useState(false);
+  const [poktraceMonthlyInput, setPoktraceMonthlyInput] = useState("");
+  const [editingPoktraceMonths, setEditingPoktraceMonths] = useState(false);
+  const [poktraceMonthsInput, setPoktraceMonthsInput] = useState("");
   const [editingOtherCosts, setEditingOtherCosts] = useState(false);
   const [otherCostsInput, setOtherCostsInput] = useState("");
   const queryClient = useQueryClient();
@@ -129,13 +137,53 @@ export default function AdminAnalyticsScreen() {
     } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
-  const saveMonthsBuilding = async () => {
-    const val = parseFloat(monthsInput);
-    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter number of months"); return; }
+  const saveReplitTotal = async () => {
+    const val = parseFloat(replitTotalInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter total Replit spend in GBP"); return; }
     try {
-      await saveSetting("months_building", val.toFixed(0));
+      await saveSetting("replit_total_gbp", val.toFixed(2));
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
-      setEditingMonths(false);
+      setEditingReplitTotal(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const saveApple = async () => {
+    const val = parseFloat(appleInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter Apple licence cost in GBP"); return; }
+    try {
+      await saveSetting("apple_licence_gbp", val.toFixed(2));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingApple(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const saveGooglePlay = async () => {
+    const val = parseFloat(googlePlayInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter Google Play cost in GBP"); return; }
+    try {
+      await saveSetting("google_play_gbp", val.toFixed(2));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingGooglePlay(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const savePoktraceMonthly = async () => {
+    const val = parseFloat(poktraceMonthlyInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter monthly PokeTrace cost in GBP"); return; }
+    try {
+      await saveSetting("poketrace_monthly_gbp", val.toFixed(2));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingPoktraceMonthly(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const savePoktraceMonths = async () => {
+    const val = parseFloat(poktraceMonthsInput);
+    if (isNaN(val) || val < 0) { Alert.alert("Invalid", "Enter number of months using PokeTrace"); return; }
+    try {
+      await saveSetting("poketrace_months_used", val.toFixed(0));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingPoktraceMonths(false);
     } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
@@ -295,7 +343,7 @@ export default function AdminAnalyticsScreen() {
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={styles.profitLabel}>Replit (monthly)</Text>
-                      <Text style={styles.profitSub}>Tap to edit</Text>
+                      <Text style={styles.profitSub}>Subscription · Tap to edit</Text>
                     </View>
                     {editingReplit ? (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -317,6 +365,37 @@ export default function AdminAnalyticsScreen() {
                       </View>
                     )}
                   </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setPoktraceMonthlyInput(fin.costs.poktraceMonthlyGbp.toString());
+                      setEditingPoktraceMonthly(true);
+                    }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>PokeTrace API (monthly)</Text>
+                      <Text style={styles.profitSub}>Graded card pricing · Tap to edit</Text>
+                    </View>
+                    {editingPoktraceMonthly ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.profitValue}>£</Text>
+                        <TextInput
+                          style={styles.finInput}
+                          value={poktraceMonthlyInput}
+                          onChangeText={setPoktraceMonthlyInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={savePoktraceMonthly}
+                          onSubmitEditing={savePoktraceMonthly}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.costs.poktraceMonthlyGbp.toFixed(2)}</Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
                   <View style={styles.profitRow}>
                     <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>Monthly Costs</Text>
                     <Text style={[styles.profitValue, { color: "#F87171", fontSize: 18 }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
@@ -326,74 +405,142 @@ export default function AdminAnalyticsScreen() {
                 {/* ── Investment to Date ── */}
                 <Text style={styles.sectionTitle}>Investment to Date</Text>
                 <View style={styles.card}>
-                  {/* Months building — drives all calculated costs */}
-                  <Pressable
-                    onPress={() => { setMonthsInput(fin.costsToDate.monthsBuilding.toString()); setEditingMonths(true); }}
-                    style={[styles.profitRow, styles.rowBorder]}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.profitLabel}>Months Building</Text>
-                      <Text style={styles.profitSub}>Drives Replit + Apple licence calculations · Tap to set</Text>
-                    </View>
-                    {editingMonths ? (
-                      <TextInput
-                        style={[styles.finInput, { width: 50 }]}
-                        value={monthsInput}
-                        onChangeText={setMonthsInput}
-                        keyboardType="number-pad"
-                        autoFocus
-                        onBlur={saveMonthsBuilding}
-                        onSubmitEditing={saveMonthsBuilding}
-                      />
-                    ) : (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Text style={[styles.profitValue, { color: fin.costsToDate.monthsBuilding > 0 ? Colors.text : Colors.textMuted }]}>
-                          {fin.costsToDate.monthsBuilding > 0 ? `${fin.costsToDate.monthsBuilding} mo` : "Not set"}
-                        </Text>
-                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
-                      </View>
-                    )}
-                  </Pressable>
                   {/* AI costs — automatic from database */}
                   <View style={[styles.profitRow, styles.rowBorder]}>
                     <View>
                       <Text style={styles.profitLabel}>AI API Costs</Text>
-                      <Text style={styles.profitSub}>{fin.costsToDate.aiAllTimeCalls} calls · from database</Text>
+                      <Text style={styles.profitSub}>{fin.costsToDate.aiAllTimeCalls} calls · auto from database</Text>
                     </View>
                     <Text style={[styles.profitValue, { color: fin.costsToDate.aiTotalGbp > 0 ? "#F87171" : Colors.textMuted }]}>
                       {fin.costsToDate.aiTotalGbp > 0 ? `-£${fin.costsToDate.aiTotalGbp.toFixed(2)}` : "—"}
                     </Text>
                   </View>
-                  {/* Replit — calculated */}
-                  <View style={[styles.profitRow, styles.rowBorder]}>
-                    <View>
-                      <Text style={styles.profitLabel}>Replit Subscription</Text>
-                      <Text style={styles.profitSub}>£{fin.costs.replitMonthlyGbp}/mo × {fin.costsToDate.monthsBuilding} months</Text>
+                  {/* Replit — actual total spent (from bank statements, variable usage billing) */}
+                  <Pressable
+                    onPress={() => { setReplitTotalInput(fin.costsToDate.replitTotalGbp.toString()); setEditingReplitTotal(true); }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>Replit Total Spend</Text>
+                      <Text style={styles.profitSub}>Actual bank total · Tap to edit</Text>
                     </View>
-                    <Text style={[styles.profitValue, { color: fin.costsToDate.replitTotalGbp > 0 ? "#F87171" : Colors.textMuted }]}>
-                      {fin.costsToDate.replitTotalGbp > 0 ? `-£${fin.costsToDate.replitTotalGbp.toFixed(2)}` : "—"}
-                    </Text>
-                  </View>
-                  {/* Apple Developer licence — calculated */}
-                  <View style={[styles.profitRow, styles.rowBorder]}>
-                    <View>
+                    {editingReplitTotal ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.profitValue}>£</Text>
+                        <TextInput
+                          style={styles.finInput}
+                          value={replitTotalInput}
+                          onChangeText={setReplitTotalInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={saveReplitTotal}
+                          onSubmitEditing={saveReplitTotal}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: fin.costsToDate.replitTotalGbp > 0 ? "#F87171" : Colors.textMuted }]}>
+                          {fin.costsToDate.replitTotalGbp > 0 ? `-£${fin.costsToDate.replitTotalGbp.toFixed(2)}` : "—"}
+                        </Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
+                  {/* Apple Developer licence — editable */}
+                  <Pressable
+                    onPress={() => { setAppleInput(fin.costsToDate.appleLicenceGbp.toString()); setEditingApple(true); }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
                       <Text style={styles.profitLabel}>Apple Developer</Text>
-                      <Text style={styles.profitSub}>£99/year × {Math.ceil(fin.costsToDate.monthsBuilding / 12) || 0} year{Math.ceil(fin.costsToDate.monthsBuilding / 12) !== 1 ? "s" : ""}</Text>
+                      <Text style={styles.profitSub}>Annual licence · Tap to edit</Text>
                     </View>
-                    <Text style={[styles.profitValue, { color: fin.costsToDate.appleLicenceGbp > 0 ? "#F87171" : Colors.textMuted }]}>
-                      {fin.costsToDate.appleLicenceGbp > 0 ? `-£${fin.costsToDate.appleLicenceGbp.toFixed(2)}` : "—"}
-                    </Text>
-                  </View>
-                  {/* Google Play — one-time fixed */}
-                  <View style={[styles.profitRow, styles.rowBorder]}>
-                    <View>
+                    {editingApple ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.profitValue}>£</Text>
+                        <TextInput
+                          style={styles.finInput}
+                          value={appleInput}
+                          onChangeText={setAppleInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={saveApple}
+                          onSubmitEditing={saveApple}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: fin.costsToDate.appleLicenceGbp > 0 ? "#F87171" : Colors.textMuted }]}>
+                          {fin.costsToDate.appleLicenceGbp > 0 ? `-£${fin.costsToDate.appleLicenceGbp.toFixed(2)}` : "—"}
+                        </Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
+                  {/* Google Play — editable */}
+                  <Pressable
+                    onPress={() => { setGooglePlayInput(fin.costsToDate.googlePlayGbp.toString()); setEditingGooglePlay(true); }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
                       <Text style={styles.profitLabel}>Google Play</Text>
-                      <Text style={styles.profitSub}>One-time registration</Text>
+                      <Text style={styles.profitSub}>One-time registration · Tap to edit</Text>
                     </View>
-                    <Text style={[styles.profitValue, { color: fin.costsToDate.googlePlayGbp > 0 ? "#F87171" : Colors.textMuted }]}>
-                      {fin.costsToDate.googlePlayGbp > 0 ? `-£${fin.costsToDate.googlePlayGbp.toFixed(2)}` : "—"}
-                    </Text>
-                  </View>
+                    {editingGooglePlay ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={styles.profitValue}>£</Text>
+                        <TextInput
+                          style={styles.finInput}
+                          value={googlePlayInput}
+                          onChangeText={setGooglePlayInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={saveGooglePlay}
+                          onSubmitEditing={saveGooglePlay}
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: fin.costsToDate.googlePlayGbp > 0 ? "#F87171" : Colors.textMuted }]}>
+                          {fin.costsToDate.googlePlayGbp > 0 ? `-£${fin.costsToDate.googlePlayGbp.toFixed(2)}` : "—"}
+                        </Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
+                  {/* PokeTrace historical — months × rate */}
+                  <Pressable
+                    onPress={() => { setPoktraceMonthsInput(fin.costsToDate.poktraceMonthsUsed.toString()); setEditingPoktraceMonths(true); }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>PokeTrace API</Text>
+                      <Text style={styles.profitSub}>
+                        £{fin.costsToDate.poktraceMonthlyGbp}/mo × {fin.costsToDate.poktraceMonthsUsed} months · Tap to edit months
+                      </Text>
+                    </View>
+                    {editingPoktraceMonths ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <TextInput
+                          style={[styles.finInput, { width: 45 }]}
+                          value={poktraceMonthsInput}
+                          onChangeText={setPoktraceMonthsInput}
+                          keyboardType="number-pad"
+                          autoFocus
+                          onBlur={savePoktraceMonths}
+                          onSubmitEditing={savePoktraceMonths}
+                        />
+                        <Text style={styles.profitSub}>mo</Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: fin.costsToDate.poketraceTotalGbp > 0 ? "#F87171" : Colors.textMuted }]}>
+                          {fin.costsToDate.poketraceTotalGbp > 0 ? `-£${fin.costsToDate.poketraceTotalGbp.toFixed(2)}` : "—"}
+                        </Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
                   {/* Other costs — editable */}
                   <Pressable
                     onPress={() => { setOtherCostsInput(fin.costsToDate.otherCostsGbp.toString()); setEditingOtherCosts(true); }}
