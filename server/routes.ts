@@ -12582,10 +12582,11 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/deal-advisor", async (req, res) => {
     try {
-      const { message, history = [], selectedCard = null } = req.body as {
+      const { message, history = [], selectedCard = null, hintCard = null } = req.body as {
         message: string;
         history: { role: "user" | "assistant"; content: string }[];
         selectedCard?: { name: string; set: string | null; number: string | null; imageUrl: string | null } | null;
+        hintCard?: { name: string; set: string | null; number: string | null; gradeKey?: string } | null;
       };
       if (!message?.trim()) return res.status(400).json({ error: "message required" });
 
@@ -12636,6 +12637,26 @@ Found 1 card — looking up current market data now.`;
           isRaw: true,
           ptSearchQuery: [selectedCard.name, selectedCard.set].filter(Boolean).join(" "),
         }];
+      } else if (hintCard) {
+        // Follow-up message — card already identified, extract only the company + grade from the message
+        const companyRe = /\b(PSA|BGS|Beckett|ACE|TAG|CGC)\b/i;
+        const gradeRe = /\b(10|9\.5|9|8\.5|8|7)\b/;
+        const companyMatch = message.match(companyRe);
+        const gradeMatch = message.match(gradeRe);
+        const company = companyMatch
+          ? companyMatch[1].toUpperCase().replace("BECKETT", "BGS")
+          : null;
+        // Default to grade 10 when company is named but grade isn't specified
+        const grade = gradeMatch ? parseFloat(gradeMatch[1]) : (company ? 10 : null);
+        identifiedCards = [{
+          name: hintCard.name,
+          set: hintCard.set,
+          number: hintCard.number,
+          grade,
+          company,
+          isRaw: company == null,
+          ptSearchQuery: [hintCard.name, hintCard.set].filter(Boolean).join(" "),
+        }];
       } else {
         parseResp = await anthropic.messages.create({
           model: "claude-haiku-4-5",
@@ -12658,8 +12679,8 @@ Found 1 card — looking up current market data now.`;
       const offeredInGbp = offeredGbp ?? (offeredUsd != null ? offeredUsd * GBP_PER_USD : null);
 
       // ── Step 1.5: Disambiguation — check catalog for ambiguous cards ────────
-      // Only run if user didn't already select a specific card
-      if (!selectedCard && identifiedCards.length > 0) {
+      // Only run if user didn't already select a specific card and no hint provided
+      if (!selectedCard && !hintCard && identifiedCards.length > 0) {
         for (const card of identifiedCards) {
           // Strip rarity terms from the name for catalog search
           const rarityRe = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;

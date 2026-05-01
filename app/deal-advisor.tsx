@@ -368,10 +368,12 @@ export default function DealAdvisorScreen() {
     text: string,
     currentHistory: { role: string; content: string }[],
     selected?: DisambiguationCard,
+    hint?: { name: string; set: string | null; number: string | null },
   ): Promise<AdvisorResponse> => {
     const url = new URL("/api/deal-advisor", getApiUrl());
     const body: Record<string, unknown> = { message: text, history: currentHistory };
     if (selected) body.selectedCard = selected;
+    if (hint) body.hintCard = hint;
     const MAX_ATTEMPTS = 3;
     let lastErr: Error = new Error("Unknown error");
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -420,8 +422,14 @@ export default function DealAdvisorScreen() {
     setMessages((prev) => [userMsg, ...prev]);
     setLoading(true);
 
+    // If we already know which card the conversation is about, pass it as a hint
+    // so the server can skip the Claude parse step (halves response time)
+    const hint = lastConfirmedCard
+      ? { name: lastConfirmedCard.name, set: lastConfirmedCard.set, number: lastConfirmedCard.number }
+      : undefined;
+
     try {
-      const data = await postToAdvisor(trimmed, history);
+      const data = await postToAdvisor(trimmed, history, undefined, hint);
       setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
     } catch (e: any) {
       const isTimeout = e?.name === "AbortError";
@@ -433,7 +441,7 @@ export default function DealAdvisorScreen() {
     } finally {
       setLoading(false);
     }
-  }, [loading, history, postToAdvisor]);
+  }, [loading, history, lastConfirmedCard, postToAdvisor]);
 
   const sendWithCard = useCallback(async (selected: DisambiguationCard) => {
     if (loading) return;
