@@ -9615,79 +9615,89 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
 
     const v2Key = process.env.REVENUECAT_V2_KEY;
-    const secretKey = process.env.REVENUECAT_SECRET_KEY;
     const projectId = process.env.REVENUECAT_PROJECT_ID;
-    if (!v2Key || !secretKey || !projectId) return null;
+    if (!v2Key || !projectId) return null;
 
     try {
       const tiers: RCTiers = { curious: 0, enthusiast: 0, obsessed: 0, other: 0, productIds: [] };
-      const seenProductIds = new Set<string>();
+      const seenStoreIds = new Set<string>();
 
-      // Step 1: Get all customer IDs via the V2 customers list endpoint
-      // V2 customer.id is the internal RC ID; we also collect app_user_ids for v1 lookups
-      const lookupIds: string[] = [];
-      let cursor: string | undefined;
-      let pages = 0;
-      let firstItem: any = null;
-      while (pages < 10) {
-        const url = new URL(`https://api.revenuecat.com/v2/projects/${projectId}/customers`);
-        url.searchParams.set("limit", "200");
-        if (cursor) url.searchParams.set("starting_after", cursor);
-        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${v2Key}` } });
-        if (!r.ok) {
-          console.log("[rc-tiers] V2 customers list failed:", r.status, await r.text());
-          break;
+      // Step 1: Pre-fetch all products to build productId → tier map
+      // There are only ~7 products so this is a single cheap API call
+      const productTierMap = new Map<string, string>(); // RC product id → store identifier
+      const pRes = await fetch(
+        `https://api.revenuecat.com/v2/projects/${projectId}/products?limit=100`,
+        { headers: { Authorization: `Bearer ${v2Key}` } }
+      );
+      if (pRes.ok) {
+        const pJson = await pRes.json() as any;
+        for (const p of (pJson.items ?? [])) {
+          if (p.id && p.store_identifier) {
+            productTierMap.set(p.id, p.store_identifier.toLowerCase());
+          }
         }
+      }
+      console.log("[rc-tiers] Product map built:", productTierMap.size, "products");
+
+      // Step 2: Enumerate all customers via V2 (paginated)
+      // RC V2 enforces max 100 per page; next_page is a full URL to follow directly
+      const customerIds: string[] = [];
+      let nextUrl: string | null = `https://api.revenuecat.com/v2/projects/${projectId}/customers?limit=100`;
+      let pages = 0;
+      while (nextUrl && pages < 50) {
+        const r = await fetch(nextUrl, { headers: { Authorization: `Bearer ${v2Key}` } });
+        if (!r.ok) break;
         const json = await r.json() as any;
         const items: any[] = json.items ?? [];
-        if (!firstItem && items.length > 0) firstItem = items[0];
-        // Prefer app_user_id (what v1 expects); fall back to internal id
-        for (const c of items) {
-          const appUserId = c.app_user_id ?? c.id;
-          if (appUserId) lookupIds.push(appUserId);
-        }
-        cursor = json.next_page ?? undefined;
+        customerIds.push(...items.map((c: any) => c.id).filter(Boolean));
+        nextUrl = json.next_page ?? null;
         pages++;
-        if (!cursor || items.length < 200) break;
       }
+      console.log("[rc-tiers] Total customers from V2:", customerIds.length, "pages:", pages);
 
-      console.log("[rc-tiers] V2 customers fetched:", lookupIds.length, "| sample customer keys:", firstItem ? Object.keys(firstItem).join(", ") : "none");
+      // Step 3: For each customer, check their V2 subscriptions for active gives_access=true
+      // Deduplicate per customer — count each customer once in their highest tier
+      const TIER_RANK: Record<string, number> = { obsessed: 3, enthusiast: 2, curious: 1, other: 0 };
+      const customerTier = new Map<string, string>(); // customerId → best tier
 
-      // Step 2: Use RC v1 REST API per subscriber — it returns entitlements with product_identifier
-      // Process in batches of 10 to avoid hammering the API
-      let withEntitlements = 0;
-      let withoutEntitlements = 0;
-      for (let i = 0; i < Math.min(lookupIds.length, 1000); i += 10) {
-        const batch = lookupIds.slice(i, i + 10);
-        await Promise.all(batch.map(async (customerId) => {
+      for (let i = 0; i < Math.min(customerIds.length, 2000); i += 15) {
+        const batch = customerIds.slice(i, i + 15);
+        await Promise.all(batch.map(async (cid) => {
           try {
             const r = await fetch(
-              `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(customerId)}`,
-              { headers: { Authorization: `Bearer ${secretKey}` } }
+              `https://api.revenuecat.com/v2/projects/${projectId}/customers/${encodeURIComponent(cid)}/subscriptions?limit=10`,
+              { headers: { Authorization: `Bearer ${v2Key}` } }
             );
             if (!r.ok) return;
             const data = await r.json() as any;
-            const entitlements: Record<string, any> = data.subscriber?.entitlements ?? {};
-            const entKeys = Object.keys(entitlements);
-            if (entKeys.length === 0) { withoutEntitlements++; return; }
-            withEntitlements++;
-            for (const [, ent] of Object.entries(entitlements)) {
-              const productId = ((ent as any).product_identifier ?? "").toLowerCase();
-              if (!productId) continue;
-              seenProductIds.add(productId);
-              if (productId.includes("curious")) tiers.curious++;
-              else if (productId.includes("enthusiast")) tiers.enthusiast++;
-              else if (productId.includes("obsessed")) tiers.obsessed++;
-              else tiers.other++;
+            for (const sub of (data.items ?? [])) {
+              if (!sub.gives_access) continue;
+              const storeId = productTierMap.get(sub.product_id ?? "") ?? "";
+              seenStoreIds.add(storeId || `unknown:${sub.product_id}`);
+              const tier = storeId.includes("obsessed") ? "obsessed"
+                : storeId.includes("enthusiast") ? "enthusiast"
+                : storeId.includes("curious") ? "curious"
+                : "other";
+              const current = customerTier.get(cid);
+              if (!current || (TIER_RANK[tier] ?? 0) > (TIER_RANK[current] ?? 0)) {
+                customerTier.set(cid, tier);
+              }
             }
           } catch {}
         }));
       }
 
-      tiers.productIds = Array.from(seenProductIds).sort();
+      // Tally from deduplicated customer map
+      for (const tier of customerTier.values()) {
+        if (tier === "curious") tiers.curious++;
+        else if (tier === "enthusiast") tiers.enthusiast++;
+        else if (tier === "obsessed") tiers.obsessed++;
+        else tiers.other++;
+      }
+
+      tiers.productIds = Array.from(seenStoreIds).sort();
       console.log("[rc-tiers] Breakdown:", { curious: tiers.curious, enthusiast: tiers.enthusiast, obsessed: tiers.obsessed, other: tiers.other });
-      console.log("[rc-tiers] Entitlements found:", withEntitlements, "| None:", withoutEntitlements);
-      console.log("[rc-tiers] All product IDs found:", tiers.productIds);
+      console.log("[rc-tiers] Store identifiers found:", tiers.productIds);
 
       rcTiersCache = { data: tiers, ts: Date.now() };
       return tiers;
