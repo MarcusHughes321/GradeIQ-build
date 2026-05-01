@@ -12690,11 +12690,13 @@ Found 1 card — looking up current market data now.`;
             );
 
             if (catalogRes.rows.length >= 2) {
-              // Skip disambiguation picker if:
-              // 1. User specified a grading company (this is a follow-up about an already-identified card), OR
-              // 2. There is conversation history (user has already engaged with the card)
-              const isFollowUp = card.company || history.length >= 2;
-              if (isFollowUp) {
+              // Only skip disambiguation when the user has explicitly specified a grading
+              // company — that means they're asking a follow-up about a card already
+              // identified in this session (e.g. "What's it like in ACE?").
+              // Do NOT skip based on history length alone — a new question in an ongoing
+              // conversation still needs the picker if multiple variants exist.
+              const hasExplicitCompany = !!card.company;
+              if (hasExplicitCompany) {
                 // Use the first (lowest-numbered) matching card silently
                 card.name = catalogRes.rows[0].name;
                 card.number = catalogRes.rows[0].number;
