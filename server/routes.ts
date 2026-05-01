@@ -9973,7 +9973,6 @@ RESPONSE FORMAT (JSON only, no markdown):
       const GBP_PER_USD = 0.79;
       // Tier prices in GBP per month
       const TIER_PRICES_GBP: Record<string, number> = { curious: 2.99, enthusiast: 5.99, obsessed: 9.99 };
-      const APPLE_FEE = 0.15;
       const RC_MRR_THRESHOLD_GBP = 2500 * GBP_PER_USD;
       const RC_FEE_PCT = 0.01;
 
@@ -10003,6 +10002,11 @@ RESPONSE FORMAT (JSON only, no markdown):
       const settings: Record<string, string> = {};
       settingsResult.rows.forEach((r: any) => { settings[r.key] = r.value; });
       const replitCostGbp = parseFloat(settings["replit_monthly_gbp"] ?? "25");
+      // Apple Small Business Programme = 15%, standard = 30%. Configurable so you can adjust.
+      const platformFeePct = parseFloat(settings["platform_fee_pct"] ?? "15");
+      const PLATFORM_FEE = platformFeePct / 100;
+      // Total dev/build costs invested to date (one-time, entered manually)
+      const devCostToDateGbp = parseFloat(settings["dev_cost_to_date_gbp"] ?? "0");
 
       const curious = rcTiers?.curious ?? 0;
       const enthusiast = rcTiers?.enthusiast ?? 0;
@@ -10012,7 +10016,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         + enthusiast * TIER_PRICES_GBP.enthusiast
         + obsessed * TIER_PRICES_GBP.obsessed;
 
-      const platformFeeGbp = grossMrrGbp * APPLE_FEE;
+      const platformFeeGbp = grossMrrGbp * PLATFORM_FEE;
       const afterPlatformGbp = grossMrrGbp - platformFeeGbp;
       const rcFeeGbp = afterPlatformGbp > RC_MRR_THRESHOLD_GBP ? afterPlatformGbp * RC_FEE_PCT : 0;
       const netMrrGbp = afterPlatformGbp - rcFeeGbp;
@@ -10026,9 +10030,13 @@ RESPONSE FORMAT (JSON only, no markdown):
         ? (prevTotals.reduce((a: number, b: number) => a + b, 0) / prevTotals.length) * GBP_PER_USD
         : null;
 
-      const totalCostsGbp = aiCurrentGbp + replitCostGbp;
-      const profitGbp = netMrrGbp - totalCostsGbp;
+      const totalMonthlyCostsGbp = aiCurrentGbp + replitCostGbp;
+      const profitGbp = netMrrGbp - totalMonthlyCostsGbp;
       const marginPct = netMrrGbp > 0 ? Math.round((profitGbp / netMrrGbp) * 100) : 0;
+      // Months until cumulative dev costs are recovered at current profit rate
+      const breakevenMonths = devCostToDateGbp > 0 && profitGbp > 0
+        ? Math.ceil(devCostToDateGbp / profitGbp)
+        : null;
 
       const totalGrades = aiCurrentCalls;
       const avgRevenuePerGrade = totalGrades > 0 ? netMrrGbp / totalGrades : null;
@@ -10039,6 +10047,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         tiers: { curious, enthusiast, obsessed },
         revenue: {
           grossMrrGbp: parseFloat(grossMrrGbp.toFixed(2)),
+          platformFeePct,
           platformFeeGbp: parseFloat(platformFeeGbp.toFixed(2)),
           rcFeeGbp: parseFloat(rcFeeGbp.toFixed(2)),
           netMrrGbp: parseFloat(netMrrGbp.toFixed(2)),
@@ -10047,13 +10056,15 @@ RESPONSE FORMAT (JSON only, no markdown):
           aiThisMonthGbp: parseFloat(aiCurrentGbp.toFixed(2)),
           ai3MonthAvgGbp: ai3MonthAvgGbp !== null ? parseFloat(ai3MonthAvgGbp.toFixed(2)) : null,
           replitMonthlyGbp: replitCostGbp,
-          totalGbp: parseFloat(totalCostsGbp.toFixed(2)),
+          totalGbp: parseFloat(totalMonthlyCostsGbp.toFixed(2)),
           aiCallsThisMonth: aiCurrentCalls,
+          devCostToDateGbp,
         },
         pl: {
           profitGbp: parseFloat(profitGbp.toFixed(2)),
           marginPct,
           isProfit: profitGbp >= 0,
+          breakevenMonths,
         },
         perGrade: {
           avgRevenueGbp: avgRevenuePerGrade !== null ? parseFloat(avgRevenuePerGrade.toFixed(4)) : null,

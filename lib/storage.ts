@@ -68,6 +68,17 @@ export async function updateGrading(id: string, updates: Partial<SavedGrading>):
   } catch {}
 }
 
+export async function updateGradingImageUrls(
+  id: string,
+  frontImageUrl: string | null,
+  backImageUrl: string | null,
+): Promise<void> {
+  const updates: Partial<SavedGrading> = {};
+  if (frontImageUrl) updates.frontImageUrl = frontImageUrl;
+  if (backImageUrl) updates.backImageUrl = backImageUrl;
+  if (Object.keys(updates).length > 0) await updateGrading(id, updates);
+}
+
 export async function clearAllGradings(): Promise<void> {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);
