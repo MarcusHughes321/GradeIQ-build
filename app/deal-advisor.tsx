@@ -33,6 +33,11 @@ type CardResult = {
   saleCount: number | null;
   avg7d: number | null;
   avg30d: number | null;
+  // Research mode multi-tier prices
+  rawGbp: number | null;
+  psa10Gbp: number | null;
+  psa9Gbp: number | null;
+  gradingUpside: number | null;
 };
 
 type AdvisorResponse = {
@@ -109,18 +114,53 @@ function CardTile({ card }: { card: CardResult }) {
       <View style={styles.cardInfo}>
         <Text style={styles.cardName} numberOfLines={2}>{card.name}</Text>
         {card.set ? <Text style={styles.cardSet} numberOfLines={1}>{card.set}</Text> : null}
-        {card.marketValueGbp != null ? (
-          <View style={styles.cardPriceRow}>
-            <Text style={styles.cardPrice}>£{card.marketValueGbp.toFixed(0)}</Text>
-            {card.avg7d != null && (
-              <Text style={styles.cardAvg}>7d avg £{(card.avg7d * 0.79).toFixed(0)}</Text>
-            )}
-          </View>
+
+        {card.isRaw ? (
+          // Research mode: show price tiers
+          card.rawGbp != null || card.psa10Gbp != null ? (
+            <View style={styles.researchPrices}>
+              {card.rawGbp != null && (
+                <View style={styles.researchRow}>
+                  <Text style={styles.researchLabel}>Raw</Text>
+                  <Text style={styles.researchValue}>£{card.rawGbp.toFixed(0)}</Text>
+                </View>
+              )}
+              {card.psa10Gbp != null && (
+                <View style={styles.researchRow}>
+                  <Text style={styles.researchLabel}>PSA 10</Text>
+                  <Text style={[styles.researchValue, { color: "#34D399" }]}>£{card.psa10Gbp.toFixed(0)}</Text>
+                </View>
+              )}
+              {card.gradingUpside != null && card.gradingUpside > 1 && (
+                <View style={styles.researchRow}>
+                  <Text style={styles.researchLabel}>Grading upside</Text>
+                  <Text style={[styles.researchValue, { color: "#F59E0B" }]}>{card.gradingUpside}×</Text>
+                </View>
+              )}
+              {card.saleCount != null && (
+                <Text style={styles.cardSales}>{card.saleCount} recent sales</Text>
+              )}
+            </View>
+          ) : (
+            <Text style={styles.cardNoPrice}>No price data</Text>
+          )
         ) : (
-          <Text style={styles.cardNoPrice}>No price data</Text>
-        )}
-        {card.saleCount != null && (
-          <Text style={styles.cardSales}>{card.saleCount} recent sales</Text>
+          // Deal mode: show single grade price
+          card.marketValueGbp != null ? (
+            <View>
+              <View style={styles.cardPriceRow}>
+                <Text style={styles.cardPrice}>£{card.marketValueGbp.toFixed(0)}</Text>
+                {card.avg7d != null && (
+                  <Text style={styles.cardAvg}>7d avg £{(card.avg7d * 0.79).toFixed(0)}</Text>
+                )}
+              </View>
+              {card.saleCount != null && (
+                <Text style={styles.cardSales}>{card.saleCount} recent sales</Text>
+              )}
+            </View>
+          ) : (
+            <Text style={styles.cardNoPrice}>No price data</Text>
+          )
         )}
       </View>
     </View>
@@ -529,6 +569,25 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: Colors.textMuted,
     marginTop: 2,
+  },
+  researchPrices: {
+    marginTop: 6,
+    gap: 3,
+  },
+  researchRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  researchLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: Colors.textMuted,
+  },
+  researchValue: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.text,
   },
 
   // Summary box
