@@ -61,7 +61,10 @@ async function prewarmSetImages(urls: string[]): Promise<void> {
 
 function proxifyImageUrl(req: any, url: string | null | undefined): string | null {
   if (!url) return null;
-  const base = `${req.protocol}://${req.get("host")}`;
+  // Prefer X-Forwarded-Proto/Host so HTTPS is preserved when behind Replit's reverse proxy
+  const protocol = req.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
+  const host = req.get("x-forwarded-host") || req.get("host");
+  const base = `${protocol}://${host}`;
   return `${base}/api/set-img?u=${encodeURIComponent(url)}`;
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,6 +174,26 @@ async function enforceServerQuota(
   return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
 }
 import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
+
+// Pre-computed sorted unique set names for Card Advisor prompts
+const ADVISOR_CUSTOM_SET_NAMES = [...new Set(Object.values(ENGLISH_SETS))].sort();
+
+// Stop words stripped before card catalog search (includes rarity labels so "SIR" doesn't match "Clodsire")
+const ADVISOR_STOP_WORDS = new Set([
+  "tell","me","about","what","is","are","how","much","worth","buying","selling",
+  "grading","should","the","an","help","with","looking","for","info","on","can",
+  "you","price","value","invest","investment","card","pokemon","tcg","think",
+  "want","know","good","bad","okay","ok","please","thanks","thank","does","it",
+  "like","and","or","but","if","do","just","really","actually","right","now",
+  "get","going","sell","buy","grade","raw","give","some","any","there","from",
+  "they","them","their","this","that","will","would","could","should","might",
+  "be","been","being","have","has","had","do","did","am","was","were",
+  "at","by","up","to","in","of","as","so","we","my","your","its",
+  // rarity labels — not card name words
+  "sir","sar","ir","hr","rr","sr","ur","cr","ar","holo","reverse",
+  "secret","rare","special","illustration","full","art","alt","alternate",
+  "rainbow","gold","hyper","shiny","ultra","double","triple","promo",
+]);
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -12574,313 +12597,393 @@ RESPONSE FORMAT (JSON only, no markdown):
     return "raw";
   }
 
-  app.post("/api/deal-advisor", async (req, res) => {
+  // ─── Card Advisor: search card catalog ───────────────────────────────────
+  app.post("/api/card-advisor/search", async (req, res) => {
     try {
-      const { message, history = [], selectedCard = null } = req.body as {
+      const { query } = req.body as { query: string };
+      if (!query?.trim()) return res.status(400).json({ error: "query required" });
+
+      const isJapanese = /\b(japanese?|japan|jp|jpn)\b/i.test(query);
+      const langFilter = isJapanese ? ["ja"] : ["en", "ja"];
+
+      const words = query.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w: string) => w.length >= 2 && !ADVISOR_STOP_WORDS.has(w))
+        .slice(0, 6);
+
+      if (words.length === 0) {
+        return res.json({ cards: [], notFound: true });
+      }
+
+      // Build scored query:
+      //   name match = 3 pts per word (most important)
+      //   set_name match = 1 pt per word (tiebreaker for set context)
+      // WHERE: at least one word must match in name OR set_name
+      const params: any[] = [langFilter];
+      const nameScoreTerms: string[] = [];
+      const setScoreTerms: string[] = [];
+      const whereAnys: string[] = [];
+
+      words.forEach((w: string) => {
+        params.push(`%${w}%`);
+        const idx = params.length;
+        // name column (EN: name, JP: name_en)
+        nameScoreTerms.push(
+          `CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 3 ELSE 0 END`
+        );
+        // set_name column (EN: set_name, JP: set_name_en)
+        setScoreTerms.push(
+          `CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 1 ELSE 0 END`
+        );
+        whereAnys.push(
+          `LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx}`
+        );
+      });
+
+      const scoreExpr = `(${nameScoreTerms.join(" + ")}) + (${setScoreTerms.join(" + ")})`;
+      const nameScoreExpr = `(${nameScoreTerms.join(" + ")})`;
+      const whereClause = whereAnys.map(c => `(${c})`).join(" OR ");
+
+      const sql = `
+        SELECT card_id, name, set_name, number, lang, image_url, rarity,
+               COALESCE(name_en, name) AS display_name,
+               set_name_en, price_eur, prices_json,
+               (${scoreExpr}) AS match_score,
+               (${nameScoreExpr}) AS name_score
+        FROM card_catalog
+        WHERE lang = ANY($1)
+          AND (${whereClause})
+        ORDER BY match_score DESC,
+                 name_score DESC,
+                 CASE lang WHEN 'en' THEN 0 ELSE 1 END,
+                 CASE WHEN split_part(number,'/',1) ~ '^[0-9]+$'
+                      THEN CAST(split_part(number,'/',1) AS INT)
+                      ELSE 9999 END DESC
+        LIMIT 20`;
+
+      const result = await db.query(sql, params);
+      // Require name match (name_score > 0) when we have enough results; fall back otherwise
+      let rows = result.rows.filter((r: any) => r.name_score > 0);
+      if (rows.length < 2) rows = result.rows;
+      res.json({ cards: rows.slice(0, 8), notFound: rows.length === 0 });
+    } catch (e: any) {
+      console.error("[card-advisor/search]", e.message);
+      res.status(500).json({ error: "Search failed" });
+    }
+  });
+
+  // ─── Card Advisor: get advice for a confirmed card ────────────────────────
+  app.post("/api/card-advisor/advice", async (req, res) => {
+    try {
+      const { card, message, history = [] } = req.body as {
+        card: {
+          card_id: string; name: string; set_name: string; number: string; lang: string;
+          display_name?: string; set_name_en?: string; price_eur?: number; prices_json?: any;
+        };
         message: string;
         history: { role: "user" | "assistant"; content: string }[];
-        selectedCard?: { name: string; set: string | null; number: string | null; imageUrl: string | null } | null;
+      };
+      if (!card || !message?.trim()) return res.status(400).json({ error: "card and message required" });
+
+      const GBP_PER_USD = 0.79;
+      const isJP = card.lang === "ja";
+      const displayName = card.display_name || card.name;
+      const setDisplay = (isJP ? card.set_name_en : null) || card.set_name;
+
+      // Fetch PokeTrace graded prices using English name
+      const prices = await fetchEbayGradedPrices(displayName, setDisplay, card.number || "", null);
+
+      // Raw price string
+      let rawPriceStr = "No raw price data available";
+      if (isJP && card.price_eur != null && card.price_eur > 0) {
+        rawPriceStr = `€${card.price_eur.toFixed(2)} (Cardmarket NM)`;
+      } else if (card.prices_json) {
+        const pj = typeof card.prices_json === "string" ? JSON.parse(card.prices_json) : card.prices_json;
+        const tcg = pj?.holofoil?.market ?? pj?.normal?.market ?? pj?.["1stEditionHolofoil"]?.market ?? pj?.reverseHolofoil?.market;
+        if (tcg) rawPriceStr = `$${Number(tcg).toFixed(2)} USD (TCGPlayer market price)`;
+      }
+
+      // Format graded prices
+      const fmt = (v: number) => v > 0 ? `£${(v * GBP_PER_USD).toFixed(0)} (~$${v.toFixed(0)})` : null;
+      const gradedLines: string[] = [];
+      if (prices) {
+        const gradeMap: [number, string][] = [
+          [prices.psa10, "PSA 10"], [prices.psa9, "PSA 9"], [prices.psa8, "PSA 8"],
+          [prices.bgs95, "BGS 9.5"], [prices.bgs9, "BGS 9"],
+          [prices.ace10, "ACE 10"], [prices.ace9, "ACE 9"],
+          [prices.tag10, "TAG 10"], [prices.cgc10, "CGC 10"],
+          [prices.raw, "Raw eBay"],
+        ];
+        for (const [v, label] of gradeMap) {
+          const f = fmt(v); if (f) gradedLines.push(`  ${label}: ${f}`);
+        }
+      }
+      const gradedStr = gradedLines.length > 0 ? gradedLines.join("\n") : "  No recent eBay graded sales found";
+
+      const systemPrompt = `You are an expert Pokemon TCG market analyst for the Grade.IQ app. You help UK collectors with card valuations, deal analysis, grading economics, and investment decisions.
+
+The user is asking about this specific card:
+  Name: ${displayName}
+  Set: ${setDisplay}${card.number ? `\n  Number: #${card.number}` : ""}${card.rarity ? `\n  Rarity: ${(card as any).rarity}` : ""}${isJP ? "\n  Language: Japanese" : ""}
+
+Current market prices:
+  Raw: ${rawPriceStr}
+Graded eBay last-sold (GBP):
+${gradedStr}
+
+Use these exact prices. Missing tiers = no recent eBay sales for that grade.
+Grading cost estimates: PSA £20–40, ACE £15–25, BGS £30–50 (plus postage).
+
+Guidelines:
+- British English
+- Be direct — give a clear recommendation, not "it depends"
+- 2–4 paragraphs max
+- Reference specific prices (e.g. "PSA 10s are going for £94")
+- Add insight and judgement — don't just recite numbers`;
+
+      const msgs: Anthropic.MessageParam[] = [
+        ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user", content: message },
+      ];
+
+      const resp = await anthropic.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 500,
+        system: systemPrompt,
+        messages: msgs,
+      });
+
+      const reply = resp.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text).join("") || "Unable to generate advice.";
+
+      logAiCost("deal_advisor", "claude-haiku-4-5", resp.usage.input_tokens, resp.usage.output_tokens);
+
+      // Build prices object for the frontend tile
+      const pricesOut = prices ? {
+        raw: prices.raw > 0 ? parseFloat((prices.raw * GBP_PER_USD).toFixed(2)) : null,
+        psa10: prices.psa10 > 0 ? parseFloat((prices.psa10 * GBP_PER_USD).toFixed(2)) : null,
+        psa9: prices.psa9 > 0 ? parseFloat((prices.psa9 * GBP_PER_USD).toFixed(2)) : null,
+        bgs95: prices.bgs95 > 0 ? parseFloat((prices.bgs95 * GBP_PER_USD).toFixed(2)) : null,
+        ace10: prices.ace10 > 0 ? parseFloat((prices.ace10 * GBP_PER_USD).toFixed(2)) : null,
+        tag10: prices.tag10 > 0 ? parseFloat((prices.tag10 * GBP_PER_USD).toFixed(2)) : null,
+        cgc10: prices.cgc10 > 0 ? parseFloat((prices.cgc10 * GBP_PER_USD).toFixed(2)) : null,
+        rawTcg: rawPriceStr,
+        allGrades: prices,
+      } : null;
+
+      res.json({ reply, prices: pricesOut });
+    } catch (e: any) {
+      console.error("[card-advisor/advice]", e.message);
+      res.status(500).json({ error: "Failed to get advice" });
+    }
+  });
+
+  app.post("/api/deal-advisor", async (req, res) => {
+    try {
+      const { message, history = [] } = req.body as {
+        message: string;
+        history: { role: "user" | "assistant"; content: string }[];
       };
       if (!message?.trim()) return res.status(400).json({ error: "message required" });
 
       const GBP_PER_USD = 0.79;
 
-      // ── Step 1: Identify cards from deal description ──────────────────────
-      const parseSystem = `You are a Pokemon TCG card identification assistant. Extract structured card data from the user's message. The user may be asking about a deal, a potential purchase, an investment, or general market research — identify any Pokemon cards mentioned regardless of context.
+      // ── Tool definitions ─────────────────────────────────────────────────
+      const advisorTools: Anthropic.Tool[] = [
+        {
+          name: "get_card_prices",
+          description: "Look up real eBay last-sold prices for a specific Pokemon card. Returns prices for all grading companies (PSA, BGS, ACE, TAG, CGC) and raw prices. IMPORTANT: Call this at most ONCE per card the user mentions — do not call it multiple times for different variants of the same card. Pick the single most relevant version based on context.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              card_name: { type: "string", description: "The card's display name only — e.g. 'Charizard ex', 'Umbreon VMAX', 'Mega Charizard X ex'. Do NOT include card numbers, set codes, or rarity labels." },
+              set_name: { type: "string", description: "The set name, e.g. 'Obsidian Flames', 'Evolving Skies', 'Phantasmal Flames'" },
+              card_number: { type: "string", description: "Only provide if the user explicitly mentioned a specific card number (e.g. '125'). Leave empty otherwise." },
+            },
+            required: ["card_name", "set_name"],
+          },
+        },
+        {
+          name: "find_matching_cards",
+          description: "Search the card catalog for card variants, numbers, or rarities. Only use this when you genuinely cannot identify the card from the user's message — e.g. they gave a vague description with no set name. Do NOT use this as a first step before calling get_card_prices. If you know the card name and set, call get_card_prices directly.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              card_name: { type: "string", description: "The card name to search for" },
+              set_name: { type: "string", description: "Optional set name to narrow results" },
+            },
+            required: ["card_name"],
+          },
+        },
+      ];
 
-For each card or graded slab mentioned, output ONE JSON object in the array. Include:
-- "name": card name (e.g. "Charizard", "Umbreon VMAX", "Pikachu Illustrator", "Mega Charizard EX")
-- "set": set name if mentioned or inferrable (e.g. "Base Set", "Paradox Rift", "Phantom Forces", "Neo Genesis")
-- "number": card number if mentioned (e.g. "4" or "4/102")
-- "grade": numeric grade if graded (10, 9.5, 9, 8 etc.) or null if raw/ungraded
-- "company": grading company if applicable ("PSA", "BGS", "ACE", "TAG", "CGC") or null if raw/ungraded
-- "isRaw": true if the card is ungraded/raw or if grading status is not specified
-- "ptSearchQuery": concise search string optimised for eBay price lookup (e.g. "Charizard Base Set", "Umbreon VMAX Alternate Art", "Pikachu Illustrator")
+      const customSetsAdvice = `IMPORTANT — This app tracks Pokemon TCG sets that may not be in your training data. Known newer/custom sets: ${ADVISOR_CUSTOM_SET_NAMES.join(", ")}. These are REAL sets with genuine market value — never question whether they exist.`;
 
-If the user asks about a card without specifying grade, assume raw (isRaw: true, grade: null).
+      const systemPrompt = `You are an expert Pokemon TCG card market analyst and advisor for the Grade.IQ app. You help collectors with deal evaluation, market research, investment analysis, grading economics, and buying decisions.
 
-IMPORTANT for ptSearchQuery: use ONLY the card's actual name and set name. Do NOT include rarity designations (SIR, SAR, Secret Rare, Full Art, Alt Art, Special Illustration Rare, Rainbow Rare, Gold, etc.) — these are rarity tiers, not card names. For example:
-- "Charizard ex SIR from Obsidian Flames" → ptSearchQuery: "Charizard ex Obsidian Flames"
-- "Umbreon VMAX Alt Art" → ptSearchQuery: "Umbreon VMAX Evolving Skies"
-- "Pikachu Illustrator" → ptSearchQuery: "Pikachu Illustrator"
+${customSetsAdvice}
 
-Also: modern card names use lowercase "ex" (e.g. "Charizard ex"), not "EX" or "GX".
+You have two tools:
+- get_card_prices: fetches real eBay last-sold prices for any card across all grading companies
+- find_matching_cards: searches the card catalog for variants and card info
 
-Output ONLY the JSON array between <CARDS> and </CARDS> tags, then one brief sentence confirming what you found.
+TOOL USE RULES — follow these exactly:
+1. Call get_card_prices AT MOST ONCE per distinct card the user asks about. Do NOT call it once per variant.
+2. When a user asks about a card, decide on the single most relevant version (e.g. the SIR/alt-art if they imply a premium card, or the base version if unspecified) and call get_card_prices ONCE with that name and set.
+3. Only use find_matching_cards if you genuinely cannot determine the card identity. Do not call it for general information gathering.
+4. For follow-up questions where you already have prices from earlier in the conversation, answer directly — DO NOT call the tools again.
+5. If the user specifies a card number or rarity, include it as context in your thinking but use the card's full display name in the tool call (e.g. "Charizard ex" not "Charizard ex 125/131 SIR").
 
-Example:
-<CARDS>[{"name":"Charizard ex","set":"Obsidian Flames","number":null,"grade":null,"company":null,"isRaw":true,"ptSearchQuery":"Charizard ex Obsidian Flames"}]</CARDS>
-Found 1 card — looking up current market data now.`;
+Guidelines:
+- Use British English
+- Be direct — give a clear recommendation, not "it depends" non-answers
+- Keep responses concise (3-5 paragraphs max)
+- Cite specific prices when you have them (e.g. "PSA 10s are selling for £2,252")
+- Don't just repeat numbers from the data — add real insight and judgement`;
 
-      let identifiedCards: any[] = [];
-      let parseResp: any = null;
+      // ── Run Claude with tool use ─────────────────────────────────────────
+      const msgs: Anthropic.MessageParam[] = [
+        ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user", content: message },
+      ];
 
-      if (selectedCard) {
-        // User selected from disambiguation picker — skip Claude parse entirely
-        identifiedCards = [{
-          name: selectedCard.name,
-          set: selectedCard.set,
-          number: selectedCard.number,
-          grade: null,
-          company: null,
-          isRaw: true,
-          ptSearchQuery: [selectedCard.name, selectedCard.set].filter(Boolean).join(" "),
-        }];
-      } else {
-        parseResp = await anthropic.messages.create({
+      let resp = await anthropic.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 600,
+        system: systemPrompt,
+        tools: advisorTools,
+        messages: msgs,
+      });
+
+      let totalInputTokens = resp.usage.input_tokens;
+      let totalOutputTokens = resp.usage.output_tokens;
+      const pricedCards: any[] = [];
+
+      // ── Execute tools as Claude requests them (max 3 rounds) ─────────────
+      let toolRounds = 0;
+      while (resp.stop_reason === "tool_use" && toolRounds < 3) {
+        toolRounds++;
+        const toolUseBlocks = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+        await Promise.all(toolUseBlocks.map(async (toolUse) => {
+          if (toolUse.name === "get_card_prices") {
+            const { card_name, set_name, card_number } = toolUse.input as any;
+            try {
+              const rarityPat = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;
+              const cleanName = card_name.replace(rarityPat, "").replace(/\s+/g, " ").trim();
+              const prices = await fetchEbayGradedPrices(cleanName, set_name || "", card_number || "", null);
+              if (prices) {
+                const fmt = (v: number) => v > 0 ? `£${(v * GBP_PER_USD).toFixed(0)}` : null;
+                const cnt = (key: string) => { const d = (prices as any).gradeDetails?.[key]; return d?.saleCount ? ` (${d.saleCount} sales)` : ""; };
+                const priceTable: Record<string, string> = {};
+                if (prices.raw > 0)   priceTable["Raw"]     = `${fmt(prices.raw)}${cnt("raw")}`;
+                if (prices.psa10 > 0) priceTable["PSA 10"]  = `${fmt(prices.psa10)}${cnt("psa10")}`;
+                if (prices.psa9 > 0)  priceTable["PSA 9"]   = `${fmt(prices.psa9)}${cnt("psa9")}`;
+                if (prices.psa8 > 0)  priceTable["PSA 8"]   = fmt(prices.psa8)!;
+                if (prices.bgs95 > 0) priceTable["BGS 9.5"] = fmt(prices.bgs95)!;
+                if (prices.bgs9 > 0)  priceTable["BGS 9"]   = fmt(prices.bgs9)!;
+                if (prices.ace10 > 0) priceTable["ACE 10"]  = fmt(prices.ace10)!;
+                if (prices.ace9 > 0)  priceTable["ACE 9"]   = fmt(prices.ace9)!;
+                if (prices.tag10 > 0) priceTable["TAG 10"]  = fmt(prices.tag10)!;
+                if (prices.cgc10 > 0) priceTable["CGC 10"]  = fmt(prices.cgc10)!;
+                toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify({ card: card_name, set: set_name, prices: priceTable }) });
+                // Build tile data — deduplicate by name+set, and only add if we have at least one real price
+                const rawUsd = prices.raw > 0 ? prices.raw : null;
+                const psa10Usd = prices.psa10 > 0 ? prices.psa10 : null;
+                const psa9Usd = prices.psa9 > 0 ? prices.psa9 : null;
+                const hasSomePrice = rawUsd != null || psa10Usd != null || psa9Usd != null || prices.ace10 > 0 || prices.bgs95 > 0;
+                const dedupeKey = `${card_name.toLowerCase()}|${(set_name || "").toLowerCase()}`;
+                const alreadyAdded = pricedCards.some(c => `${c.name.toLowerCase()}|${(c.set || "").toLowerCase()}` === dedupeKey);
+                if (!alreadyAdded && hasSomePrice) {
+                  pricedCards.push({
+                    name: card_name, set: set_name || null, number: card_number || null,
+                    isRaw: true, allGrades: prices, imageUrl: null,
+                    rawGbp: rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null,
+                    psa10Gbp: psa10Usd != null ? parseFloat((psa10Usd * GBP_PER_USD).toFixed(2)) : null,
+                    psa9Gbp: psa9Usd != null ? parseFloat((psa9Usd * GBP_PER_USD).toFixed(2)) : null,
+                    marketValueGbp: rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null,
+                    gradingUpside: psa10Usd != null && rawUsd != null && rawUsd > 0 ? parseFloat((psa10Usd / rawUsd).toFixed(1)) : null,
+                    saleCount: (prices as any).gradeDetails?.["raw"]?.saleCount ?? (prices as any).gradeDetails?.["psa10"]?.saleCount ?? null,
+                    avg7d: null, avg30d: null, grade: null, company: null, gradeKey: "raw",
+                    marketValueUsd: rawUsd, psa10Gbp2: null, psa9Gbp2: null,
+                  });
+                }
+              } else {
+                toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: `No eBay sales data found for "${card_name}" from "${set_name}". The set may be very new or the card name might differ slightly. Give your best estimate from your knowledge.` });
+              }
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Price lookup failed: ${e.message}. Give your best estimate.` });
+            }
+          } else if (toolUse.name === "find_matching_cards") {
+            const { card_name, set_name } = toolUse.input as any;
+            try {
+              const searchName = (card_name || "").trim().toLowerCase();
+              const setWords = (set_name || "").toLowerCase().split(/\s+/).filter((w: string) => w.length >= 4);
+              let qry: string; let params: string[];
+              if (setWords.length > 0) {
+                const setC = setWords.map((_: string, i: number) => `LOWER(set_name) LIKE $${i + 2}`);
+                qry = `SELECT name, set_name, number, image_url, rarity FROM card_catalog WHERE lang = 'en' AND LOWER(name) LIKE $1 AND (${setC.join(" AND ")}) ORDER BY CASE WHEN number ~ '^[0-9]+' THEN CAST(split_part(number,'/',1) AS INT) ELSE 9999 END LIMIT 8`;
+                params = [`%${searchName}%`, ...setWords.map((w: string) => `%${w}%`)];
+              } else {
+                qry = `SELECT name, set_name, number, image_url, rarity FROM card_catalog WHERE lang = 'en' AND LOWER(name) LIKE $1 ORDER BY card_updated_at DESC NULLS LAST LIMIT 8`;
+                params = [`%${searchName}%`];
+              }
+              const result = await db.query(qry, params);
+              toolResults.push({
+                type: "tool_result", tool_use_id: toolUse.id,
+                content: result.rows.length > 0
+                  ? JSON.stringify(result.rows.map((r: any) => ({ name: r.name, set: r.set_name, number: r.number, rarity: r.rarity })))
+                  : `No cards found matching "${card_name}"${set_name ? ` from "${set_name}"` : ""}.`,
+              });
+              // Merge image URLs into any matching pricedCards
+              for (const row of result.rows) {
+                const pc = pricedCards.find(c => c.name.toLowerCase() === row.name.toLowerCase());
+                if (pc && !pc.imageUrl) pc.imageUrl = row.image_url;
+              }
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Catalog search failed.` });
+            }
+          }
+        }));
+
+        msgs.push({ role: "assistant", content: resp.content });
+        msgs.push({ role: "user", content: toolResults });
+        resp = await anthropic.messages.create({
           model: "claude-haiku-4-5",
-          max_tokens: 500,
-          system: parseSystem,
-          messages: [...history, { role: "user", content: message }],
+          max_tokens: 600,
+          system: systemPrompt,
+          tools: advisorTools,
+          messages: msgs,
         });
-        const parseText = parseResp.content[0]?.type === "text" ? (parseResp.content[0] as any).text : "";
-        const cardsMatch = parseText.match(/<CARDS>([\s\S]*?)<\/CARDS>/);
-        if (cardsMatch) {
-          try { identifiedCards = JSON.parse(cardsMatch[1]); } catch {}
-        }
+        totalInputTokens += resp.usage.input_tokens;
+        totalOutputTokens += resp.usage.output_tokens;
       }
 
-      // Extract offered price from message (£ or $)
+      const reply = resp.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map(b => b.text).join("") || "Unable to generate advice.";
+
+      // Fetch images for priced cards that don't have one yet
+      await Promise.all(pricedCards.filter(c => !c.imageUrl).map(async (c) => {
+        try {
+          const n = (c.name || "").trim().toLowerCase();
+          const base = n.replace(/\b(ex|gx|v|vmax|vstar|sir|full art|alt art|special illustration)\b/gi, "").trim();
+          const r = await db.query(`SELECT image_url FROM card_catalog WHERE lang='en' AND (LOWER(name)=$1 OR LOWER(name)=$2 OR LOWER(name) LIKE $3) ORDER BY card_updated_at DESC NULLS LAST LIMIT 1`, [n, base, `${base}%`]);
+          if (r.rows[0]) c.imageUrl = r.rows[0].image_url;
+        } catch {}
+      }));
+
       const gbpMatch = message.match(/£\s*([\d,]+(?:\.\d{1,2})?)/);
       const usdMatch = message.match(/\$\s*([\d,]+(?:\.\d{1,2})?)/);
       const offeredGbp = gbpMatch ? parseFloat(gbpMatch[1].replace(/,/g, "")) : null;
-      const offeredUsd = usdMatch ? parseFloat(usdMatch[1].replace(/,/g, "")) : null;
-      const offeredInGbp = offeredGbp ?? (offeredUsd != null ? offeredUsd * GBP_PER_USD : null);
+      const offeredInGbp = offeredGbp ?? (usdMatch ? parseFloat(usdMatch[1].replace(/,/g, "")) * GBP_PER_USD : null);
+      const totalMarketGbp = pricedCards.reduce((s, c) => s + (c.marketValueGbp ?? 0), 0);
+      const pctOfMarket = offeredInGbp != null && totalMarketGbp > 0 ? Math.round((offeredInGbp / totalMarketGbp) * 100) : null;
 
-      // ── Step 1.5: Disambiguation — check catalog for ambiguous cards ────────
-      // Only run if user didn't already select a specific card
-      if (!selectedCard && identifiedCards.length > 0) {
-        for (const card of identifiedCards) {
-          // Strip rarity terms from the name for catalog search
-          const rarityRe = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;
-          const baseName = (card.name || "").toLowerCase().replace(rarityRe, "").replace(/\s+/g, " ").trim();
-          // Extract meaningful words from set name (4+ chars)
-          const setWords = (card.set || "").toLowerCase().split(/\s+/).filter((w: string) => w.length >= 4);
-          if (!baseName || setWords.length === 0) continue;
+      logAiCost("deal_advisor", "claude-haiku-4-5", totalInputTokens, totalOutputTokens);
 
-          try {
-            const setConditions = setWords.map((_: string, i: number) => `LOWER(set_name) LIKE $${i + 2}`);
-            const catalogRes = await db.query(
-              `SELECT name, set_name, number, image_url, rarity
-               FROM card_catalog
-               WHERE lang = 'en'
-                 AND LOWER(name) LIKE $1
-                 AND (${setConditions.join(" OR ")})
-               ORDER BY
-                 CASE WHEN number ~ '^[0-9]+' THEN CAST(split_part(number,'/',1) AS INT) ELSE 9999 END,
-                 number
-               LIMIT 12`,
-              [`%${baseName}%`, ...setWords.map((w: string) => `%${w}%`)]
-            );
-
-            if (catalogRes.rows.length >= 2) {
-              // Multiple cards found — return disambiguation picker
-              const setName = catalogRes.rows[0]?.set_name || card.set || "that set";
-              return res.json({
-                reply: `I found ${catalogRes.rows.length} ${card.name} cards from ${setName} — tap the one you mean:`,
-                cards: [],
-                totalMarketGbp: 0,
-                offeredGbp: null,
-                pctOfMarket: null,
-                disambiguationCards: catalogRes.rows.map((r: any) => ({
-                  name: r.name,
-                  set: r.set_name,
-                  number: r.number,
-                  imageUrl: r.image_url,
-                  rarity: r.rarity,
-                })),
-              });
-            }
-
-            // Single catalog match — update the card with the confirmed name/number
-            if (catalogRes.rows.length === 1) {
-              card.name = catalogRes.rows[0].name;
-              card.number = catalogRes.rows[0].number;
-              card.set = catalogRes.rows[0].set_name;
-              card.ptSearchQuery = [catalogRes.rows[0].name, catalogRes.rows[0].set_name].filter(Boolean).join(" ");
-            }
-          } catch (e: any) {
-            console.warn(`[deal-advisor] Catalog disambiguation failed:`, e.message);
-          }
-        }
-      }
-
-      // ── Step 2: Look up prices + images in parallel ───────────────────────
-      const enrichedCards = await Promise.all(identifiedCards.map(async (card: any) => {
-        let marketValueUsd: number | null = null;
-        let gradeDetails: any = null;
-        let imageUrl: string | null = null;
-        let psa10Usd: number | null = null;
-        let psa9Usd: number | null = null;
-        let rawUsd: number | null = null;
-        const key = gradeKey(card.company, card.grade, card.isRaw);
-
-        // Price lookup via PokeTrace
-        try {
-          // Strip rarity designations from the search query — PokeTrace uses card names, not rarity tiers
-          const rarityPattern = /\b(sir|sar|secret rare|full art|alt art|alternative art|special illustration(?: rare)?|rainbow rare|gold rare|hyper rare|illustration rare|ir)\b/gi;
-          const rawQuery = card.ptSearchQuery || `${card.name} ${card.set || ""}`.trim();
-          const cleanQuery = rawQuery.replace(rarityPattern, "").replace(/\s+/g, " ").trim();
-          const prices = await fetchEbayGradedPrices(
-            cleanQuery,
-            card.set || "",
-            card.number || "",
-            null
-          );
-          if (prices) {
-            // Always capture raw + graded tiers for context
-            rawUsd = prices.raw > 0 ? prices.raw : null;
-            psa10Usd = prices.psa10 > 0 ? prices.psa10 : null;
-            psa9Usd = prices.psa9 > 0 ? prices.psa9 : null;
-
-            if (card.isRaw) {
-              // Research mode: prefer raw price for main value, fall back to PSA 10 as reference
-              marketValueUsd = rawUsd ?? psa10Usd;
-              gradeDetails = (prices as any)?.gradeDetails?.["raw"] ?? (prices as any)?.gradeDetails?.["psa10"] ?? null;
-            } else {
-              const val = (prices[key as keyof EbayAllGrades] as number);
-              marketValueUsd = val > 0 ? val : null;
-              gradeDetails = (prices as any)?.gradeDetails?.[key] ?? null;
-            }
-          }
-        } catch (e: any) {
-          console.warn(`[deal-advisor] Price lookup failed for ${card.name}:`, e.message);
-        }
-
-        // Image lookup from card_catalog — try exact match then fuzzy on first word(s)
-        try {
-          const searchName = (card.name || "").trim().toLowerCase();
-          // Strip variant suffixes (ex, EX, SIR, etc.) for broader image match
-          const baseName = searchName.replace(/\b(ex|gx|v|vmax|vstar|sir|full art|alt art|special illustration)\b/gi, "").trim();
-          const imgRes = await db.query(
-            `SELECT image_url FROM card_catalog
-             WHERE lang = 'en'
-               AND (LOWER(name) = $1 OR LOWER(name) = $2)
-             ORDER BY card_updated_at DESC NULLS LAST
-             LIMIT 1`,
-            [searchName, baseName]
-          );
-          if (imgRes.rows.length === 0 && searchName) {
-            const fuzzyRes = await db.query(
-              `SELECT image_url FROM card_catalog
-               WHERE lang = 'en'
-                 AND (LOWER(name) LIKE $1 OR LOWER(name) LIKE $2)
-               ORDER BY card_updated_at DESC NULLS LAST
-               LIMIT 1`,
-              [`${searchName}%`, `${baseName}%`]
-            );
-            imageUrl = fuzzyRes.rows[0]?.image_url ?? null;
-          } else {
-            imageUrl = imgRes.rows[0]?.image_url ?? null;
-          }
-        } catch (e: any) {
-          console.warn(`[deal-advisor] Image lookup failed for ${card.name}:`, e.message);
-        }
-
-        const psa10Gbp = psa10Usd != null ? parseFloat((psa10Usd * GBP_PER_USD).toFixed(2)) : null;
-        const psa9Gbp = psa9Usd != null ? parseFloat((psa9Usd * GBP_PER_USD).toFixed(2)) : null;
-        const rawGbp = rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null;
-        const gradingUpside = psa10Usd != null && rawUsd != null && rawUsd > 0
-          ? parseFloat((psa10Usd / rawUsd).toFixed(1))
-          : null;
-
-        return {
-          name: card.name,
-          set: card.set || null,
-          number: card.number || null,
-          grade: card.grade || null,
-          company: card.company || null,
-          isRaw: card.isRaw ?? false,
-          gradeKey: key,
-          imageUrl,
-          marketValueUsd,
-          marketValueGbp: marketValueUsd != null ? parseFloat((marketValueUsd * GBP_PER_USD).toFixed(2)) : null,
-          saleCount: gradeDetails?.saleCount ?? null,
-          avg7d: gradeDetails?.avg7d ?? null,
-          avg30d: gradeDetails?.avg30d ?? null,
-          // Extra tiers for research mode
-          psa10Gbp,
-          psa9Gbp,
-          rawGbp,
-          gradingUpside,
-        };
-      }));
-
-      // Totals
-      const totalMarketUsd = enrichedCards.reduce((s: number, c: any) => s + (c.marketValueUsd || 0), 0);
-      const totalMarketGbp = parseFloat((totalMarketUsd * GBP_PER_USD).toFixed(2));
-      const pctOfMarket = offeredInGbp != null && totalMarketGbp > 0
-        ? Math.round((offeredInGbp / totalMarketGbp) * 100)
-        : null;
-
-      // ── Step 3: Ask Claude for deal verdict with real price context ────────
-      const priceLines = enrichedCards.map((c: any) => {
-        const grade = c.isRaw ? "raw/ungraded" : `${c.company || ""} ${c.grade || ""}`.trim();
-        let valStr: string;
-        if (c.isRaw) {
-          const parts: string[] = [];
-          if (c.rawGbp != null) parts.push(`Raw eBay: £${c.rawGbp} (${c.saleCount ?? "?"} recent sales)`);
-          if (c.psa10Gbp != null) parts.push(`PSA 10: £${c.psa10Gbp}`);
-          if (c.psa9Gbp != null) parts.push(`PSA 9: £${c.psa9Gbp}`);
-          if (c.gradingUpside != null) parts.push(`Grading upside: ${c.gradingUpside}x`);
-          valStr = parts.length > 0 ? parts.join(", ") : "price data unavailable";
-        } else {
-          valStr = c.marketValueGbp != null
-            ? `£${c.marketValueGbp} (7d avg: ${c.avg7d != null ? `£${(c.avg7d * GBP_PER_USD).toFixed(0)}` : "n/a"}, ${c.saleCount ?? "?"} recent sales)`
-            : "price data unavailable";
-        }
-        return `• ${c.name}${c.set ? ` (${c.set})` : ""} ${grade}: ${valStr}`;
-      }).join("\n");
-
-      const isDealQuery = offeredInGbp != null;
-
-      const adviceSystem = `You are an expert Pokemon TCG card market analyst and advisor. You help collectors with deal evaluation, market research, investment analysis, and buying decisions.
-
-Real eBay last-sold market data:
-${priceLines || "No price data found — give your best analysis based on your knowledge."}
-
-${totalMarketGbp > 0 ? `Combined market value: £${totalMarketGbp}` : ""}
-${isDealQuery ? `Offered price: £${offeredInGbp}` : ""}
-${pctOfMarket != null ? `That's ${pctOfMarket}% of market value` : ""}
-
-${isDealQuery ? `This is a deal evaluation query. Give a clear verdict on whether the deal is fair for buyer or seller, and why. Include a negotiation tip if relevant.` : `This is a market research query. Cover what is relevant to the user's question, which may include any of:
-- Current market value and recent price trends (use the data above; if unavailable, use your knowledge)
-- Investment outlook: is this card likely to appreciate, hold, or depreciate? Consider factors like set popularity, print run, character/artwork demand, sealed product availability, and broader hobby trends
-- Liquidity: how easy is this card to sell? Use sale count from the data — many recent sales = liquid market, few = illiquid
-- Grading economics: is it worth grading? Factor in grading fees, grade probability, and value uplift
-- Buying recommendation: should the user buy now, wait, or avoid?`}
-
-Notes:
-- Use British English
-- Keep responses concise but insightful (3-5 short paragraphs max)
-- Don't just repeat the raw numbers — the user can see those in the card breakdown. Add real insight and judgement
-- If price data is missing for a card, note it but still give your best analysis from your knowledge
-- Be direct — give a clear recommendation, not watered-down "it depends" answers`;
-
-      const adviceResp = await anthropic.messages.create({
-        model: "claude-haiku-4-5",
-        max_tokens: 400,
-        system: adviceSystem,
-        messages: [...history, { role: "user", content: message }],
-      });
-
-      const reply = adviceResp.content[0]?.type === "text"
-        ? (adviceResp.content[0] as any).text
-        : "Unable to generate advice at this time.";
-
-      // Log AI costs (parseResp may be null if selectedCard was provided)
-      const totalInput = (parseResp?.usage?.input_tokens ?? 0) + adviceResp.usage.input_tokens;
-      const totalOutput = (parseResp?.usage?.output_tokens ?? 0) + adviceResp.usage.output_tokens;
-      logAiCost("deal_advisor", "claude-haiku-4-5", totalInput, totalOutput);
-
-      res.json({
-        reply,
-        cards: enrichedCards,
-        totalMarketUsd: parseFloat(totalMarketUsd.toFixed(2)),
-        totalMarketGbp,
-        offeredGbp: offeredInGbp,
-        pctOfMarket,
-      });
+      res.json({ reply, cards: pricedCards, totalMarketUsd: totalMarketGbp / GBP_PER_USD, totalMarketGbp, offeredGbp: offeredInGbp, pctOfMarket });
     } catch (e: any) {
       console.error("[deal-advisor] Error:", e.message);
       res.status(500).json({ error: "Failed to process deal" });
