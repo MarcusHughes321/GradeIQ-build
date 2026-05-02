@@ -20,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
+import { useSubscription } from "@/lib/subscription";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -247,6 +248,17 @@ function AssistantMessage({
 export default function DealAdvisorScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
+  const { isSubscribed } = useSubscription();
+
+  // Redirect to paywall if not subscribed
+  const requireSubscription = useCallback((): boolean => {
+    if (!isSubscribed) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      router.push("/paywall");
+      return false;
+    }
+    return true;
+  }, [isSubscribed]);
 
   // Phase 1: no card selected
   const [input, setInput] = useState("");
@@ -447,7 +459,7 @@ export default function DealAdvisorScreen() {
                   <Pressable
                     key={i}
                     style={({ pressed }) => [styles.suggestionChip, { opacity: pressed ? 0.7 : 1 }]}
-                    onPress={() => { setInput(s); searchCards(s); }}
+                    onPress={() => { if (!requireSubscription()) return; setInput(s); searchCards(s); }}
                   >
                     <Text style={styles.suggestionText}>{s}</Text>
                   </Pressable>
@@ -551,7 +563,9 @@ export default function DealAdvisorScreen() {
           multiline
           maxLength={400}
           returnKeyType="default"
+          onFocus={() => { if (!requireSubscription()) inputRef.current?.blur(); }}
           onSubmitEditing={() => {
+            if (!requireSubscription()) return;
             if (isPhase2) sendFollowUp(input);
             else searchCards(input);
           }}
@@ -560,9 +574,9 @@ export default function DealAdvisorScreen() {
         <Pressable
           style={[styles.sendBtn, (!input.trim() || loading || searching) && styles.sendBtnDisabled]}
           onPress={() => {
+            if (!requireSubscription()) return;
             if (!input.trim() || loading || searching) return;
             if (isPhase2) {
-              // If input looks like a new card search (when user types something different), search first
               sendFollowUp(input);
             } else {
               searchCards(input);
