@@ -9767,6 +9767,31 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  // Admin: reset a specific user's monthly usage count (for support cases)
+  app.post("/api/admin/reset-usage", async (req, res) => {
+    const { password, rcUserId, yearMonth } = req.body as { password?: string; rcUserId?: string; yearMonth?: string };
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword || !password || password !== adminPassword) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+    if (!rcUserId) return res.status(400).json({ ok: false, error: "rcUserId required" });
+    const month = yearMonth || getYearMonth();
+    try {
+      await db.query(
+        `UPDATE usage_tracking SET quick_count = 0, deep_count = 0, crossover_count = 0
+         WHERE rc_user_id = $1 AND year_month = $2`,
+        [rcUserId, month]
+      );
+      // Also clear the entitlement cache so next request does a fresh RC check
+      entitlementCache.delete(rcUserId);
+      console.log(`[admin] Reset usage for ${rcUserId} (${month})`);
+      res.json({ ok: true, rcUserId, month });
+    } catch (e: any) {
+      console.error("[admin] reset-usage failed:", e.message);
+      res.status(500).json({ ok: false });
+    }
+  });
+
   async function fetchRCOverview() {
     const key = process.env.REVENUECAT_V2_KEY;
     const projectId = process.env.REVENUECAT_PROJECT_ID;
