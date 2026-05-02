@@ -12762,7 +12762,14 @@ Guidelines:
   PSA 10: £3,358
   PSA 9:  £1,627
   BGS 9.5: £2,173
-- Use this list style any time you mention 3 or more price data points together`;
+- Use this list style any time you mention 3 or more price data points together
+- Grading investment angle: whenever relevant (buying raw to grade, or assessing a card's condition), factor in the grading-for-profit economics. Consider:
+  • The raw buy price + grading cost (use the estimates above) as the total cost basis
+  • The realistic grade distribution — a card needs to be in exceptional condition to hit a 10; most raw cards grade 8 or 9
+  • The upside if it hits a 10 vs the downside if it comes back a 9 or lower — calculate both scenarios
+  • Whether the PSA 10 premium justifies the risk (e.g. if PSA 9 still turns a profit, the risk is lower)
+  • Be honest about the risk: "if it comes back a 9 you're looking at £X, which after costs means £Y profit/loss"
+  • Only recommend grading if the numbers make clear sense — don't oversell it`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
