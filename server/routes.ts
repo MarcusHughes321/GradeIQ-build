@@ -12757,8 +12757,12 @@ Guidelines:
 - British English
 - Be direct — give a clear recommendation, not "it depends"
 - 2–4 paragraphs max
-- Reference specific prices (e.g. "PSA 10s are going for £94")
-- Add insight and judgement — don't just recite numbers`;
+- Add insight and judgement — don't just recite numbers
+- When comparing multiple grades or companies, format them as a short list on separate lines, not packed into a sentence. Example:
+  PSA 10: £3,358
+  PSA 9:  £1,627
+  BGS 9.5: £2,173
+- Use this list style any time you mention 3 or more price data points together`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),

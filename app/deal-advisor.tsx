@@ -118,24 +118,31 @@ function CardPickerItem({ card, onSelect }: { card: CardRow; onSelect: (c: CardR
 
 // ── Selected card header bar ───────────────────────────────────────────────────
 
-function SelectedCardBar({ card, onClear }: { card: CardRow; onClear: () => void }) {
+function SelectedCardBar({ card, onClear, onPress }: { card: CardRow; onClear: () => void; onPress: () => void }) {
   const isJP = card.lang === "ja";
   const displayName = card.display_name || card.name;
   const setDisplay = (isJP ? card.set_name_en : null) || card.set_name;
 
   return (
     <View style={styles.selectedBar}>
-      {card.image_url ? (
-        <Image source={{ uri: card.image_url }} style={styles.selectedBarImage} contentFit="contain" />
-      ) : (
-        <View style={[styles.selectedBarImage, styles.pickerImageFallback]}>
-          <Ionicons name="card-outline" size={14} color={Colors.textMuted} />
+      <Pressable
+        onPress={onPress}
+        style={styles.selectedBarMain}
+        android_ripple={{ color: "rgba(255,255,255,0.06)" }}
+      >
+        {card.image_url ? (
+          <Image source={{ uri: card.image_url }} style={styles.selectedBarImage} contentFit="contain" />
+        ) : (
+          <View style={[styles.selectedBarImage, styles.pickerImageFallback]}>
+            <Ionicons name="card-outline" size={14} color={Colors.textMuted} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.selectedBarName} numberOfLines={1}>{displayName}</Text>
+          <Text style={styles.selectedBarSet} numberOfLines={1}>{setDisplay}{card.number ? ` · #${card.number}` : ""}</Text>
         </View>
-      )}
-      <View style={{ flex: 1 }}>
-        <Text style={styles.selectedBarName} numberOfLines={1}>{displayName}</Text>
-        <Text style={styles.selectedBarSet} numberOfLines={1}>{setDisplay}{card.number ? ` · #${card.number}` : ""}</Text>
-      </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} style={{ marginRight: 8 }} />
+      </Pressable>
       <Pressable onPress={onClear} style={styles.changeCardBtn} hitSlop={10}>
         <Ionicons name="swap-horizontal" size={14} color={Colors.primary} />
         <Text style={styles.changeCardText}>Change</Text>
@@ -414,7 +421,7 @@ export default function DealAdvisorScreen() {
       </View>
 
       {/* Selected card bar (phase 2) */}
-      {isPhase2 && <SelectedCardBar card={selectedCard} onClear={resetToSearch} />}
+      {isPhase2 && <SelectedCardBar card={selectedCard} onClear={resetToSearch} onPress={goToProfit} />}
 
       {/* Phase 1: empty state + search results */}
       {!isPhase2 && (
@@ -595,12 +602,17 @@ const styles = StyleSheet.create({
   selectedBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.surfaceBorder,
+  },
+  selectedBarMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   selectedBarImage: { width: 32, height: 44, borderRadius: 4 },
   selectedBarName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.text },
