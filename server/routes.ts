@@ -59,13 +59,12 @@ async function prewarmSetImages(urls: string[]): Promise<void> {
   console.log(`[set-img-cache] Downloaded ${downloaded}/${toFetch.length} images`);
 }
 
-function proxifyImageUrl(req: any, url: string | null | undefined): string | null {
-  if (!url) return null;
-  // Prefer X-Forwarded-Proto/Host so HTTPS is preserved when behind Replit's reverse proxy
-  const protocol = req.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
-  const host = req.get("x-forwarded-host") || req.get("host");
-  const base = `${protocol}://${host}`;
-  return `${base}/api/set-img?u=${encodeURIComponent(url)}`;
+function proxifyImageUrl(_req: any, url: string | null | undefined): string | null {
+  // Return the original CDN URL directly — React Native has no CORS restrictions
+  // so there's no need to proxy through the server. The old proxy approach broke on
+  // real devices because req.get("host") returned "localhost:5000" (unreachable from
+  // the device) when Replit's reverse proxy didn't set x-forwarded-host.
+  return url || null;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
