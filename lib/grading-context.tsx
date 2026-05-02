@@ -192,7 +192,7 @@ if (Platform.OS !== "web") {
 }
 
 export function GradingProvider({ children }: { children: ReactNode }) {
-  const { rcAppUserId } = useSubscription();
+  const { rcAppUserId, stableUserId } = useSubscription();
   const [activeJob, setActiveJob] = useState<GradingJob | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
@@ -210,8 +210,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     if (!rcAppUserId || pendingUploadsRef.current.length === 0) return;
     const pending = [...pendingUploadsRef.current];
     pendingUploadsRef.current = [];
-    pending.forEach(g => uploadGrading(rcAppUserId, g).catch(() => {}));
-  }, [rcAppUserId]);
+    pending.forEach(g => uploadGrading(rcAppUserId, g, stableUserId || undefined).catch(() => {}));
+  }, [rcAppUserId, stableUserId]);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -307,8 +307,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
         if (saved.id && !saved.id.startsWith("unsaved_")) {
           if (rcAppUserId) {
-            uploadGrading(rcAppUserId, saved).catch(() => {});
-            uploadGradingImages(rcAppUserId, saved.id, frontImage, backImage)
+            const sid = stableUserId || undefined;
+            uploadGrading(rcAppUserId, saved, sid).catch(() => {});
+            uploadGradingImages(rcAppUserId, saved.id, frontImage, backImage, sid)
               .then(({ frontImageUrl, backImageUrl }) => {
                 if (frontImageUrl || backImageUrl) {
                   updateGrading(saved.id, { frontImageUrl, backImageUrl }).catch(() => {});

@@ -3,7 +3,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform, AppState, type AppStateStatus } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 import { getApiUrl } from "@/lib/query-client";
-import { fetchServerHistory, uploadBulkGradings, uploadGradingImages } from "@/lib/server-history";
+import { fetchServerHistory, uploadBulkGradings, uploadGradingImages, claimHistoryForStableId } from "@/lib/server-history";
+import { getStableUserId } from "@/lib/stable-user-id";
 import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
 import * as FileSystem from "expo-file-system/legacy";
 
@@ -66,6 +67,7 @@ interface SubscriptionContextValue {
   forceSyncSubscription: () => Promise<boolean>;
   rcConfigured: boolean;
   rcAppUserId: string;
+  stableUserId: string;
   deepMonthlyUsageCount: number;
   deepMonthlyLimit: number;
   remainingDeepGrades: number;
@@ -183,6 +185,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   }, []);
   const [rcConfigured, setRcConfigured] = useState(false);
   const [rcAppUserId, setRcAppUserId] = useState<string>("");
+  const [stableUserId, setStableUserId] = useState<string>("");
   const [isAdminMode, setIsAdminMode] = useState(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const rcConfiguredRef = useRef(false);
@@ -309,12 +312,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const syncHistoryWithServer = async (rcUserId: string) => {
-    if (!rcUserId) return;
+  const syncHistoryWithServer = async (rcUserId: string, stableId?: string) => {
+    if (!rcUserId && !stableId) return;
     try {
       const [localGradings, serverGradings] = await Promise.all([
         getGradings(),
-        fetchServerHistory(rcUserId),
+        fetchServerHistory(rcUserId, stableId),
       ]);
       const localIds = new Set(localGradings.map(g => g.id));
       const serverIds = new Set(serverGradings.map(g => g.id));
@@ -330,7 +333,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       }
       const missingOnServer = localGradings.filter(g => g?.id && !serverIds.has(g.id));
       if (missingOnServer.length > 0) {
-        uploadBulkGradings(rcUserId, missingOnServer).catch(() => {});
+        uploadBulkGradings(rcUserId, missingOnServer, stableId).catch(() => {});
       }
       if (newFromServer.length > 0) {
         console.log(`[history] Restored ${newFromServer.length} grades from server`);
@@ -340,14 +343,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const retroactiveImageUpload = async (rcUserId: string) => {
+  const retroactiveImageUpload = async (rcUserId: string, stableId?: string) => {
     if (!rcUserId || Platform.OS === "web") return;
     try {
       const gradings = await getGradings();
-      // Find grades that have local images but haven't been uploaded yet
       const needsUpload = gradings.filter(
         g => g.id && (g.frontImage || g.backImage) && !g.frontImageUrl && !g.backImageUrl
-      ).slice(0, 30); // Cap at 30 to avoid long startup delays
+      ).slice(0, 30);
       if (needsUpload.length === 0) return;
       console.log(`[history] Retroactive image upload: ${needsUpload.length} grades need backup`);
       for (const grading of needsUpload) {
@@ -365,7 +367,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
             readSafe(grading.backImage),
           ]);
           if (!frontB64 && !backB64) continue;
-          const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64);
+          const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64, stableId);
           if (urls.frontImageUrl || urls.backImageUrl) {
             await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
             console.log(`[history] Backed up images for grade ${grading.id}`);
@@ -410,10 +412,19 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setRcAppUserId(userId);
       syncServerUsage(userId).catch(() => {});
       syncTierToServer(userId, tier).catch(() => {});
-      // After history sync, retroactively upload any local images not yet backed up
-      syncHistoryWithServer(userId)
-        .catch(() => {})
-        .finally(() => { retroactiveImageUpload(userId).catch(() => {}); });
+      // Read stable UUID (persists across reinstalls via Keychain / Android Auto Backup),
+      // claim existing rows for this user, then sync history using it.
+      getStableUserId().then(stableId => {
+        setStableUserId(stableId);
+        claimHistoryForStableId(userId, stableId).catch(() => {});
+        syncHistoryWithServer(userId, stableId)
+          .catch(() => {})
+          .finally(() => { retroactiveImageUpload(userId, stableId).catch(() => {}); });
+      }).catch(() => {
+        syncHistoryWithServer(userId)
+          .catch(() => {})
+          .finally(() => { retroactiveImageUpload(userId).catch(() => {}); });
+      });
 
       // RC pushes real-time updates whenever entitlement status changes
       // (e.g. immediately after a purchase completes or a subscription renews)
@@ -789,6 +800,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       forceSyncSubscription,
       rcConfigured,
       rcAppUserId,
+      stableUserId,
       deepMonthlyUsageCount,
       deepMonthlyLimit,
       remainingDeepGrades,
@@ -805,7 +817,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

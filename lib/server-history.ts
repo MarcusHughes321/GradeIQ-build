@@ -7,7 +7,19 @@ function apiUrl(path: string): string {
   return new URL(path, getApiUrl()).toString();
 }
 
-export async function uploadGrading(rcUserId: string, grading: SavedGrading): Promise<void> {
+export async function claimHistoryForStableId(rcUserId: string, stableId: string): Promise<void> {
+  if (!rcUserId || !stableId) return;
+  try {
+    await fetch(apiUrl("/api/history/claim"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rcUserId, stableId }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {}
+}
+
+export async function uploadGrading(rcUserId: string, grading: SavedGrading, stableId?: string): Promise<void> {
   if (!rcUserId || !grading?.id || !grading?.result) return;
   try {
     const { frontImage, backImage, angledFrontImage, angledBackImage, frontCornerImages, backCornerImages, ...rest } = grading as any;
@@ -16,6 +28,7 @@ export async function uploadGrading(rcUserId: string, grading: SavedGrading): Pr
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         rcUserId,
+        stableId: stableId ?? null,
         localId: grading.id,
         result: grading.result,
         timestamp: grading.timestamp,
@@ -28,7 +41,7 @@ export async function uploadGrading(rcUserId: string, grading: SavedGrading): Pr
   }
 }
 
-export async function uploadBulkGradings(rcUserId: string, gradings: SavedGrading[]): Promise<void> {
+export async function uploadBulkGradings(rcUserId: string, gradings: SavedGrading[], stableId?: string): Promise<void> {
   if (!rcUserId || !gradings.length) return;
   try {
     const payload = gradings
@@ -44,7 +57,7 @@ export async function uploadBulkGradings(rcUserId: string, gradings: SavedGradin
     await fetch(apiUrl("/api/history/bulk"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rcUserId, gradings: payload }),
+      body: JSON.stringify({ rcUserId, stableId: stableId ?? null, gradings: payload }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
@@ -61,11 +74,14 @@ export interface ServerGrading {
   backImageId?: string | null;
 }
 
-export async function fetchServerHistory(rcUserId: string): Promise<ServerGrading[]> {
-  if (!rcUserId) return [];
+export async function fetchServerHistory(rcUserId: string, stableId?: string): Promise<ServerGrading[]> {
+  if (!rcUserId && !stableId) return [];
   try {
+    const params = new URLSearchParams();
+    if (rcUserId) params.set("rcUserId", rcUserId);
+    if (stableId) params.set("stableId", stableId);
     const resp = await fetch(
-      apiUrl(`/api/history?rcUserId=${encodeURIComponent(rcUserId)}`),
+      apiUrl(`/api/history?${params.toString()}`),
       { signal: AbortSignal.timeout(TIMEOUT_MS) }
     );
     if (!resp.ok) return [];
@@ -81,12 +97,14 @@ export async function uploadGradingImages(
   localId: string,
   frontB64: string | null,
   backB64: string | null,
+  stableId?: string,
 ): Promise<{ frontImageUrl: string | null; backImageUrl: string | null }> {
   if (!rcUserId || !localId || (!frontB64 && !backB64)) {
     return { frontImageUrl: null, backImageUrl: null };
   }
   try {
     const body: Record<string, string> = { rcUserId };
+    if (stableId) body.stableId = stableId;
     if (frontB64) body.frontB64 = frontB64;
     if (backB64) body.backB64 = backB64;
     const resp = await fetch(apiUrl(`/api/history/${encodeURIComponent(localId)}/images`), {
@@ -108,11 +126,14 @@ export async function uploadGradingImages(
   }
 }
 
-export async function deleteServerGrading(rcUserId: string, localId: string): Promise<void> {
-  if (!rcUserId || !localId) return;
+export async function deleteServerGrading(rcUserId: string, localId: string, stableId?: string): Promise<void> {
+  if (!localId || (!rcUserId && !stableId)) return;
   try {
+    const params = new URLSearchParams();
+    if (rcUserId) params.set("rcUserId", rcUserId);
+    if (stableId) params.set("stableId", stableId);
     await fetch(
-      apiUrl(`/api/history/${encodeURIComponent(localId)}?rcUserId=${encodeURIComponent(rcUserId)}`),
+      apiUrl(`/api/history/${encodeURIComponent(localId)}?${params.toString()}`),
       {
         method: "DELETE",
         signal: AbortSignal.timeout(TIMEOUT_MS),
