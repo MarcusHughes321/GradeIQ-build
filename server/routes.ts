@@ -174,6 +174,26 @@ async function isAdminUser(rcUserId: string): Promise<boolean> {
   }
 }
 
+// Tier-based monthly limits (mirrors client-side TIERS in lib/subscription.tsx)
+const TIER_LIMITS: Record<string, { quick: number | null; deep: number | null; crossover: number | null }> = {
+  free:       { quick: 3,    deep: 0,    crossover: 0    },
+  curious:    { quick: 15,   deep: 2,    crossover: 10   },
+  enthusiast: { quick: 50,   deep: 7,    crossover: 25   },
+  obsessed:   { quick: null, deep: 30,   crossover: null },
+};
+
+async function getCachedTier(rcUserId: string): Promise<string | null> {
+  try {
+    const r = await db.query(
+      "SELECT tier FROM subscription_cache WHERE rc_user_id = $1",
+      [rcUserId]
+    );
+    return r.rows[0]?.tier ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Returns an error message string if over quota, or null if the request should be allowed.
 async function enforceServerQuota(
   rcUserId: string,
@@ -181,11 +201,30 @@ async function enforceServerQuota(
 ): Promise<string | null> {
   if (!rcUserId) return null;
   if (await isAdminUser(rcUserId)) return null;
+
   const usage = await getServerUsage(rcUserId);
   const count = type === "quick" ? usage.quickCount : type === "deep" ? usage.deepCount : usage.crossoverCount;
+
+  // ── Fast path: use server-cached tier (synced from client on startup) ────────
+  // This avoids a live RC API call for every grade — the client tells us the
+  // tier at launch, so we already know the right limit.
+  const cachedTier = await getCachedTier(rcUserId);
+  if (cachedTier && cachedTier !== "free") {
+    const limits = TIER_LIMITS[cachedTier] ?? TIER_LIMITS.free;
+    const limit = limits[type];
+    if (limit === null) return null; // unlimited (obsessed tier)
+    if (count < limit) return null;
+    // Over their paid limit — verify with RC in case subscription lapsed
+    const hasPaid = await checkHasPaidEntitlement(rcUserId);
+    if (hasPaid) return null;
+    return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
+  }
+
+  // ── Fallback: free tier limits ────────────────────────────────────────────
   const freeLimits: Record<string, number> = { quick: 3, deep: 0, crossover: 0 };
   const freeLimit = freeLimits[type] ?? 0;
   if (count < freeLimit) return null;
+  // At or over free limit — check if they're actually paid (no cached tier yet)
   const hasPaid = await checkHasPaidEntitlement(rcUserId);
   if (hasPaid) return null;
   return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
@@ -4477,6 +4516,21 @@ async function initAiCostLogTable(): Promise<void> {
   }
 }
 
+async function initSubscriptionCacheTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS subscription_cache (
+        rc_user_id  VARCHAR PRIMARY KEY,
+        tier        VARCHAR NOT NULL DEFAULT 'free',
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[sub-cache] subscription_cache table ready");
+  } catch (e: any) {
+    console.error("[sub-cache] Failed to init subscription_cache:", e.message);
+  }
+}
+
 async function initAdminSettingsTable(): Promise<void> {
   try {
     await db.query(`
@@ -4529,6 +4583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await initGradingHistoryImageColumns();
   await initAiCostLogTable();
   await initAdminSettingsTable();
+  await initSubscriptionCacheTable();
   await initEbayPriceCacheTable();
   await initPriceHistoryTable();
   await initSetPriceStatusTable();
@@ -9040,6 +9095,32 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
     const usage = await getServerUsage(rcUserId);
     res.json({ yearMonth: getYearMonth(), ...usage });
+  });
+
+  // ─── SUBSCRIPTION TIER SYNC ───────────────────────────────────────────────
+  // Called by the client on startup (and after purchases/restores) to cache
+  // the user's tier server-side. This lets enforceServerQuota apply the right
+  // per-tier limits without making a live RC API call on every grade.
+  app.post("/api/subscription/sync", async (req, res) => {
+    const { rcUserId, tier } = req.body as { rcUserId?: string; tier?: string };
+    if (!rcUserId || !tier) return res.status(400).json({ error: "rcUserId and tier required" });
+    const validTiers = ["free", "curious", "enthusiast", "obsessed"];
+    if (!validTiers.includes(tier)) return res.status(400).json({ error: "Invalid tier" });
+    try {
+      await db.query(
+        `INSERT INTO subscription_cache (rc_user_id, tier, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (rc_user_id) DO UPDATE SET tier = $2, updated_at = NOW()`,
+        [rcUserId, tier]
+      );
+      // Clear live-check cache so next RC call uses fresh data
+      entitlementCache.delete(rcUserId);
+      console.log(`[sub-cache] Synced tier for ${rcUserId}: ${tier}`);
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[sub-cache] Sync failed:", e.message);
+      res.status(500).json({ error: "Sync failed" });
+    }
   });
 
   // ─── SET IMAGE PROXY (serves cached set logos + symbols from disk) ──────────
