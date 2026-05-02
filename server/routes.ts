@@ -130,19 +130,37 @@ async function recordServerUsage(rcUserId: string, type: "quick" | "deep" | "cro
   }
 }
 
+// In-memory cache: { [rcUserId]: { result: boolean, expiresAt: number } }
+const entitlementCache = new Map<string, { result: boolean; expiresAt: number }>();
+const ENTITLEMENT_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
 async function checkHasPaidEntitlement(rcUserId: string): Promise<boolean> {
+  if (!rcUserId) return false;
+
+  const cached = entitlementCache.get(rcUserId);
+  if (cached && Date.now() < cached.expiresAt) return cached.result;
+
+  const key = process.env.REVENUECAT_SECRET_KEY;
+  if (!key) return false;
+
   try {
-    const key = process.env.REVENUECAT_SECRET_KEY;
-    if (!key || !rcUserId) return false;
     const resp = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(rcUserId)}`, {
       headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
-    if (!resp.ok) return false;
+    if (!resp.ok) {
+      // RC returned an error response — don't cache, fail open so paying users aren't blocked
+      console.warn(`[entitlement] RC returned ${resp.status} for ${rcUserId} — failing open`);
+      return true;
+    }
     const data = await resp.json() as any;
-    return !!data?.subscriber?.entitlements?.["Grade.IQ Pro"];
-  } catch {
-    return false;
+    const result = !!data?.subscriber?.entitlements?.["Grade.IQ Pro"];
+    entitlementCache.set(rcUserId, { result, expiresAt: Date.now() + ENTITLEMENT_CACHE_TTL_MS });
+    return result;
+  } catch (e: any) {
+    // Network timeout or other error — fail open to avoid blocking paying users
+    console.warn(`[entitlement] RC check failed for ${rcUserId} (${e?.message ?? e}) — failing open`);
+    return true;
   }
 }
 
