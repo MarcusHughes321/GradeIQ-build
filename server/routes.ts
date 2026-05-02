@@ -4489,6 +4489,8 @@ async function initGradingHistoryImageColumns(): Promise<void> {
   try {
     await db.query(`ALTER TABLE grading_history ADD COLUMN IF NOT EXISTS front_image_url TEXT`);
     await db.query(`ALTER TABLE grading_history ADD COLUMN IF NOT EXISTS back_image_url TEXT`);
+    await db.query(`ALTER TABLE grading_history ADD COLUMN IF NOT EXISTS stable_user_id TEXT`);
+    await db.query(`CREATE INDEX IF NOT EXISTS grading_history_stable_user_id_idx ON grading_history(stable_user_id)`);
     console.log("[history] Image URL columns ready");
   } catch (e: any) {
     console.error("[history] Failed to add image columns:", e.message);
@@ -9141,17 +9143,34 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/history", async (req, res) => {
     const rcUserId = req.query.rcUserId as string;
-    if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
+    const stableId = req.query.stableId as string | undefined;
+    if (!rcUserId && !stableId) return res.status(400).json({ error: "rcUserId or stableId required" });
     try {
-      const result = await db.query(
-        `SELECT local_id, result_json, timestamp, is_deep_grade, is_crossover,
-                front_image_url, back_image_url
-         FROM grading_history
-         WHERE rc_user_id = $1
-         ORDER BY timestamp DESC
-         LIMIT 100`,
-        [rcUserId]
-      );
+      let result;
+      if (stableId) {
+        // Primary lookup: by stable UUID (survives reinstall).
+        // Also include any rows for the current rcUserId that haven't been
+        // claimed yet (e.g. grades uploaded before claim ran this session).
+        result = await db.query(
+          `SELECT DISTINCT ON (local_id) local_id, result_json, timestamp,
+                  is_deep_grade, is_crossover, front_image_url, back_image_url
+           FROM grading_history
+           WHERE stable_user_id = $1 OR rc_user_id = $2
+           ORDER BY local_id, timestamp DESC
+           LIMIT 100`,
+          [stableId, rcUserId || ""]
+        );
+      } else {
+        result = await db.query(
+          `SELECT local_id, result_json, timestamp, is_deep_grade, is_crossover,
+                  front_image_url, back_image_url
+           FROM grading_history
+           WHERE rc_user_id = $1
+           ORDER BY timestamp DESC
+           LIMIT 100`,
+          [rcUserId]
+        );
+      }
       const rows = result.rows.map((r: any) => ({
         id: r.local_id,
         result: r.result_json,
@@ -9168,15 +9187,49 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  // ─── CLAIM: link a stable UUID to existing rows & re-key on reinstall ──────
+  // Called on every app startup with { rcUserId, stableId }.
+  // 1. Sets stable_user_id on any rows for rcUserId that don't have it yet.
+  // 2. On reinstall: updates rc_user_id to the new value for all rows that
+  //    already carry this stableId (so future uploads use the current rcUserId).
+  app.post("/api/history/claim", async (req, res) => {
+    const { rcUserId, stableId } = req.body as { rcUserId?: string; stableId?: string };
+    if (!rcUserId || !stableId) return res.status(400).json({ error: "rcUserId and stableId required" });
+    try {
+      // Step 1: assign stable_user_id to existing rows that don't have it yet
+      const claimed = await db.query(
+        `UPDATE grading_history
+         SET stable_user_id = $2
+         WHERE rc_user_id = $1 AND (stable_user_id IS NULL OR stable_user_id = $2)
+         RETURNING local_id`,
+        [rcUserId, stableId]
+      );
+      // Step 2: on reinstall the rcUserId will differ — re-key those rows so
+      // the UNIQUE constraint (rc_user_id, local_id) works for future uploads.
+      const rekeyed = await db.query(
+        `UPDATE grading_history
+         SET rc_user_id = $1
+         WHERE stable_user_id = $2 AND rc_user_id != $1
+         RETURNING local_id`,
+        [rcUserId, stableId]
+      );
+      console.log(`[history] claim stableId=${stableId} rcUserId=${rcUserId}: ${claimed.rowCount} claimed, ${rekeyed.rowCount} re-keyed`);
+      res.json({ ok: true, claimed: claimed.rowCount, rekeyed: rekeyed.rowCount });
+    } catch (e: any) {
+      console.error("[history] claim failed:", e.message);
+      res.status(500).json({ error: "Claim failed" });
+    }
+  });
+
   app.post("/api/history", async (req, res) => {
-    const { rcUserId, localId, result, timestamp, isDeepGrade, isCrossover } = req.body;
+    const { rcUserId, stableId, localId, result, timestamp, isDeepGrade, isCrossover } = req.body;
     if (!rcUserId || !localId || !result) return res.status(400).json({ error: "rcUserId, localId, result required" });
     try {
       await db.query(
-        `INSERT INTO grading_history (rc_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (rc_user_id, local_id) DO NOTHING`,
-        [rcUserId, localId, JSON.stringify(result), timestamp || Date.now(), !!isDeepGrade, !!isCrossover]
+        `INSERT INTO grading_history (rc_user_id, stable_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (rc_user_id, local_id) DO UPDATE SET stable_user_id = COALESCE(EXCLUDED.stable_user_id, grading_history.stable_user_id)`,
+        [rcUserId, stableId || null, localId, JSON.stringify(result), timestamp || Date.now(), !!isDeepGrade, !!isCrossover]
       );
       res.json({ ok: true });
     } catch (e: any) {
@@ -9186,16 +9239,16 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   app.post("/api/history/bulk", async (req, res) => {
-    const { rcUserId, gradings } = req.body;
+    const { rcUserId, stableId, gradings } = req.body;
     if (!rcUserId || !Array.isArray(gradings)) return res.status(400).json({ error: "rcUserId and gradings array required" });
     try {
       for (const g of gradings) {
         if (!g.localId || !g.result) continue;
         await db.query(
-          `INSERT INTO grading_history (rc_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (rc_user_id, local_id) DO NOTHING`,
-          [rcUserId, g.localId, JSON.stringify(g.result), g.timestamp || Date.now(), !!g.isDeepGrade, !!g.isCrossover]
+          `INSERT INTO grading_history (rc_user_id, stable_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (rc_user_id, local_id) DO UPDATE SET stable_user_id = COALESCE(EXCLUDED.stable_user_id, grading_history.stable_user_id)`,
+          [rcUserId, stableId || null, g.localId, JSON.stringify(g.result), g.timestamp || Date.now(), !!g.isDeepGrade, !!g.isCrossover]
         );
       }
       res.json({ ok: true, count: gradings.length });
@@ -9208,12 +9261,20 @@ RESPONSE FORMAT (JSON only, no markdown):
   app.delete("/api/history/:localId", async (req, res) => {
     const { localId } = req.params;
     const rcUserId = req.query.rcUserId as string;
-    if (!rcUserId || !localId) return res.status(400).json({ error: "rcUserId and localId required" });
+    const stableId = req.query.stableId as string | undefined;
+    if (!localId || (!rcUserId && !stableId)) return res.status(400).json({ error: "localId and rcUserId or stableId required" });
     try {
-      await db.query(
-        "DELETE FROM grading_history WHERE rc_user_id = $1 AND local_id = $2",
-        [rcUserId, localId]
-      );
+      if (stableId) {
+        await db.query(
+          "DELETE FROM grading_history WHERE stable_user_id = $1 AND local_id = $2",
+          [stableId, localId]
+        );
+      } else {
+        await db.query(
+          "DELETE FROM grading_history WHERE rc_user_id = $1 AND local_id = $2",
+          [rcUserId, localId]
+        );
+      }
       res.json({ ok: true });
     } catch (e: any) {
       console.error("[history] DELETE failed:", e.message);
@@ -9223,7 +9284,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/history/:localId/images", async (req, res) => {
     const { localId } = req.params;
-    const { rcUserId, frontB64, backB64 } = req.body;
+    const { rcUserId, stableId, frontB64, backB64 } = req.body;
     if (!rcUserId || !localId || (!frontB64 && !backB64)) {
       return res.status(400).json({ error: "rcUserId, localId, and at least one image required" });
     }

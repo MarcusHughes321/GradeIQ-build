@@ -216,7 +216,7 @@ export default function HomeScreen() {
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
 
 
@@ -347,8 +347,8 @@ export default function HomeScreen() {
 
   const handleDelete = async (id: string) => {
     await deleteGrading(id);
-    if (rcAppUserId) {
-      deleteServerGrading(rcAppUserId, id).catch(() => {});
+    if (rcAppUserId || stableUserId) {
+      deleteServerGrading(rcAppUserId, id, stableUserId || undefined).catch(() => {});
     }
     loadGradings();
   };
