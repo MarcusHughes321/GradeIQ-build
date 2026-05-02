@@ -10271,7 +10271,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     try {
       const { rows } = await db.query(
         `SELECT card_id as id, name, number, rarity, image_url as "imageUrl", price_usd::float as price, prices_json as prices
-         FROM card_catalog WHERE set_id = $1 ORDER BY number`,
+         FROM card_catalog WHERE set_id = $1 AND lang = 'en' ORDER BY number`,
         [setId]
       );
       if (rows.length === 0) return null;
