@@ -12778,8 +12778,11 @@ Guidelines:
 
       logAiCost("deal_advisor", "claude-haiku-4-5", resp.usage.input_tokens, resp.usage.output_tokens);
 
-      // Build prices object for the frontend tile
-      const pricesOut = prices ? {
+      // Build prices object for the frontend tile — only on the first message
+      // (history empty = no prior turns). Follow-up replies reuse the same prices
+      // the user already saw, so no need to repeat the block every time.
+      const isFirstMessage = history.length === 0;
+      const pricesOut = isFirstMessage && prices ? {
         raw: prices.raw > 0 ? parseFloat((prices.raw * GBP_PER_USD).toFixed(2)) : null,
         psa10: prices.psa10 > 0 ? parseFloat((prices.psa10 * GBP_PER_USD).toFixed(2)) : null,
         psa9: prices.psa9 > 0 ? parseFloat((prices.psa9 * GBP_PER_USD).toFixed(2)) : null,

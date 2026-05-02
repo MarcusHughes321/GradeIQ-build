@@ -527,6 +527,7 @@ export default function DealAdvisorScreen() {
           inverted
           contentContainerStyle={[styles.listContent, { paddingBottom: 16, paddingTop: 8 }]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         />
       )}
