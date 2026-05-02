@@ -178,6 +178,23 @@ import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetRefe
 // Pre-computed sorted unique set names for Card Advisor prompts
 const ADVISOR_CUSTOM_SET_NAMES = [...new Set(Object.values(ENGLISH_SETS))].sort();
 
+// Stop words stripped before card catalog search (includes rarity labels so "SIR" doesn't match "Clodsire")
+const ADVISOR_STOP_WORDS = new Set([
+  "tell","me","about","what","is","are","how","much","worth","buying","selling",
+  "grading","should","the","an","help","with","looking","for","info","on","can",
+  "you","price","value","invest","investment","card","pokemon","tcg","think",
+  "want","know","good","bad","okay","ok","please","thanks","thank","does","it",
+  "like","and","or","but","if","do","just","really","actually","right","now",
+  "get","going","sell","buy","grade","raw","give","some","any","there","from",
+  "they","them","their","this","that","will","would","could","should","might",
+  "be","been","being","have","has","had","do","did","am","was","were",
+  "at","by","up","to","in","of","as","so","we","my","your","its",
+  // rarity labels — not card name words
+  "sir","sar","ir","hr","rr","sr","ur","cr","ar","holo","reverse",
+  "secret","rare","special","illustration","full","art","alt","alternate",
+  "rainbow","gold","hyper","shiny","ultra","double","triple","promo",
+]);
+
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
@@ -12579,6 +12596,189 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (co === "cgc") return `cgc${g}`;
     return "raw";
   }
+
+  // ─── Card Advisor: search card catalog ───────────────────────────────────
+  app.post("/api/card-advisor/search", async (req, res) => {
+    try {
+      const { query } = req.body as { query: string };
+      if (!query?.trim()) return res.status(400).json({ error: "query required" });
+
+      const isJapanese = /\b(japanese?|japan|jp|jpn)\b/i.test(query);
+      const langFilter = isJapanese ? ["ja"] : ["en", "ja"];
+
+      const words = query.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w: string) => w.length >= 2 && !ADVISOR_STOP_WORDS.has(w))
+        .slice(0, 6);
+
+      if (words.length === 0) {
+        return res.json({ cards: [], notFound: true });
+      }
+
+      // Build scored query:
+      //   name match = 3 pts per word (most important)
+      //   set_name match = 1 pt per word (tiebreaker for set context)
+      // WHERE: at least one word must match in name OR set_name
+      const params: any[] = [langFilter];
+      const nameScoreTerms: string[] = [];
+      const setScoreTerms: string[] = [];
+      const whereAnys: string[] = [];
+
+      words.forEach((w: string) => {
+        params.push(`%${w}%`);
+        const idx = params.length;
+        // name column (EN: name, JP: name_en)
+        nameScoreTerms.push(
+          `CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 3 ELSE 0 END`
+        );
+        // set_name column (EN: set_name, JP: set_name_en)
+        setScoreTerms.push(
+          `CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 1 ELSE 0 END`
+        );
+        whereAnys.push(
+          `LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx}`
+        );
+      });
+
+      const scoreExpr = `(${nameScoreTerms.join(" + ")}) + (${setScoreTerms.join(" + ")})`;
+      const nameScoreExpr = `(${nameScoreTerms.join(" + ")})`;
+      const whereClause = whereAnys.map(c => `(${c})`).join(" OR ");
+
+      const sql = `
+        SELECT card_id, name, set_name, number, lang, image_url, rarity,
+               COALESCE(name_en, name) AS display_name,
+               set_name_en, price_eur, prices_json,
+               (${scoreExpr}) AS match_score,
+               (${nameScoreExpr}) AS name_score
+        FROM card_catalog
+        WHERE lang = ANY($1)
+          AND (${whereClause})
+        ORDER BY match_score DESC,
+                 name_score DESC,
+                 CASE lang WHEN 'en' THEN 0 ELSE 1 END,
+                 CASE WHEN split_part(number,'/',1) ~ '^[0-9]+$'
+                      THEN CAST(split_part(number,'/',1) AS INT)
+                      ELSE 9999 END DESC
+        LIMIT 20`;
+
+      const result = await db.query(sql, params);
+      // Require name match (name_score > 0) when we have enough results; fall back otherwise
+      let rows = result.rows.filter((r: any) => r.name_score > 0);
+      if (rows.length < 2) rows = result.rows;
+      res.json({ cards: rows.slice(0, 8), notFound: rows.length === 0 });
+    } catch (e: any) {
+      console.error("[card-advisor/search]", e.message);
+      res.status(500).json({ error: "Search failed" });
+    }
+  });
+
+  // ─── Card Advisor: get advice for a confirmed card ────────────────────────
+  app.post("/api/card-advisor/advice", async (req, res) => {
+    try {
+      const { card, message, history = [] } = req.body as {
+        card: {
+          card_id: string; name: string; set_name: string; number: string; lang: string;
+          display_name?: string; set_name_en?: string; price_eur?: number; prices_json?: any;
+        };
+        message: string;
+        history: { role: "user" | "assistant"; content: string }[];
+      };
+      if (!card || !message?.trim()) return res.status(400).json({ error: "card and message required" });
+
+      const GBP_PER_USD = 0.79;
+      const isJP = card.lang === "ja";
+      const displayName = card.display_name || card.name;
+      const setDisplay = (isJP ? card.set_name_en : null) || card.set_name;
+
+      // Fetch PokeTrace graded prices using English name
+      const prices = await fetchEbayGradedPrices(displayName, setDisplay, card.number || "", null);
+
+      // Raw price string
+      let rawPriceStr = "No raw price data available";
+      if (isJP && card.price_eur != null && card.price_eur > 0) {
+        rawPriceStr = `€${card.price_eur.toFixed(2)} (Cardmarket NM)`;
+      } else if (card.prices_json) {
+        const pj = typeof card.prices_json === "string" ? JSON.parse(card.prices_json) : card.prices_json;
+        const tcg = pj?.holofoil?.market ?? pj?.normal?.market ?? pj?.["1stEditionHolofoil"]?.market ?? pj?.reverseHolofoil?.market;
+        if (tcg) rawPriceStr = `$${Number(tcg).toFixed(2)} USD (TCGPlayer market price)`;
+      }
+
+      // Format graded prices
+      const fmt = (v: number) => v > 0 ? `£${(v * GBP_PER_USD).toFixed(0)} (~$${v.toFixed(0)})` : null;
+      const gradedLines: string[] = [];
+      if (prices) {
+        const gradeMap: [number, string][] = [
+          [prices.psa10, "PSA 10"], [prices.psa9, "PSA 9"], [prices.psa8, "PSA 8"],
+          [prices.bgs95, "BGS 9.5"], [prices.bgs9, "BGS 9"],
+          [prices.ace10, "ACE 10"], [prices.ace9, "ACE 9"],
+          [prices.tag10, "TAG 10"], [prices.cgc10, "CGC 10"],
+          [prices.raw, "Raw eBay"],
+        ];
+        for (const [v, label] of gradeMap) {
+          const f = fmt(v); if (f) gradedLines.push(`  ${label}: ${f}`);
+        }
+      }
+      const gradedStr = gradedLines.length > 0 ? gradedLines.join("\n") : "  No recent eBay graded sales found";
+
+      const systemPrompt = `You are an expert Pokemon TCG market analyst for the Grade.IQ app. You help UK collectors with card valuations, deal analysis, grading economics, and investment decisions.
+
+The user is asking about this specific card:
+  Name: ${displayName}
+  Set: ${setDisplay}${card.number ? `\n  Number: #${card.number}` : ""}${card.rarity ? `\n  Rarity: ${(card as any).rarity}` : ""}${isJP ? "\n  Language: Japanese" : ""}
+
+Current market prices:
+  Raw: ${rawPriceStr}
+Graded eBay last-sold (GBP):
+${gradedStr}
+
+Use these exact prices. Missing tiers = no recent eBay sales for that grade.
+Grading cost estimates: PSA £20–40, ACE £15–25, BGS £30–50 (plus postage).
+
+Guidelines:
+- British English
+- Be direct — give a clear recommendation, not "it depends"
+- 2–4 paragraphs max
+- Reference specific prices (e.g. "PSA 10s are going for £94")
+- Add insight and judgement — don't just recite numbers`;
+
+      const msgs: Anthropic.MessageParam[] = [
+        ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user", content: message },
+      ];
+
+      const resp = await anthropic.messages.create({
+        model: "claude-haiku-4-5",
+        max_tokens: 500,
+        system: systemPrompt,
+        messages: msgs,
+      });
+
+      const reply = resp.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text).join("") || "Unable to generate advice.";
+
+      logAiCost("deal_advisor", "claude-haiku-4-5", resp.usage.input_tokens, resp.usage.output_tokens);
+
+      // Build prices object for the frontend tile
+      const pricesOut = prices ? {
+        raw: prices.raw > 0 ? parseFloat((prices.raw * GBP_PER_USD).toFixed(2)) : null,
+        psa10: prices.psa10 > 0 ? parseFloat((prices.psa10 * GBP_PER_USD).toFixed(2)) : null,
+        psa9: prices.psa9 > 0 ? parseFloat((prices.psa9 * GBP_PER_USD).toFixed(2)) : null,
+        bgs95: prices.bgs95 > 0 ? parseFloat((prices.bgs95 * GBP_PER_USD).toFixed(2)) : null,
+        ace10: prices.ace10 > 0 ? parseFloat((prices.ace10 * GBP_PER_USD).toFixed(2)) : null,
+        tag10: prices.tag10 > 0 ? parseFloat((prices.tag10 * GBP_PER_USD).toFixed(2)) : null,
+        cgc10: prices.cgc10 > 0 ? parseFloat((prices.cgc10 * GBP_PER_USD).toFixed(2)) : null,
+        rawTcg: rawPriceStr,
+        allGrades: prices,
+      } : null;
+
+      res.json({ reply, prices: pricesOut });
+    } catch (e: any) {
+      console.error("[card-advisor/advice]", e.message);
+      res.status(500).json({ error: "Failed to get advice" });
+    }
+  });
 
   app.post("/api/deal-advisor", async (req, res) => {
     try {

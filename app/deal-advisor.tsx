@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  ScrollView,
 } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,50 +21,50 @@ import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 
-type CardResult = {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type CardRow = {
+  card_id: string;
   name: string;
-  set: string | null;
-  number: string | null;
-  grade: number | null;
-  company: string | null;
-  isRaw: boolean;
-  gradeKey: string;
-  imageUrl: string | null;
-  marketValueUsd: number | null;
-  marketValueGbp: number | null;
-  saleCount: number | null;
-  avg7d: number | null;
-  avg30d: number | null;
-  rawGbp: number | null;
-  psa10Gbp: number | null;
-  psa9Gbp: number | null;
-  gradingUpside: number | null;
-  allGrades?: Record<string, unknown> | null;
+  set_name: string;
+  number: string;
+  lang: string;
+  image_url: string | null;
+  rarity: string | null;
+  display_name: string;
+  set_name_en: string | null;
+  price_eur: number | null;
+  prices_json: any;
+  match_score?: number;
 };
 
-type AdvisorResponse = {
-  reply: string;
-  cards: CardResult[];
-  totalMarketGbp: number;
-  offeredGbp: number | null;
-  pctOfMarket: number | null;
+type Prices = {
+  raw: number | null;
+  psa10: number | null;
+  psa9: number | null;
+  bgs95: number | null;
+  ace10: number | null;
+  tag10: number | null;
+  cgc10: number | null;
+  rawTcg: string | null;
+  allGrades?: any;
 };
 
 type Message = {
   id: string;
   role: "user" | "assistant";
   text: string;
-  data?: AdvisorResponse;
+  prices?: Prices | null;
   isError?: boolean;
   retryText?: string;
 };
 
 const SUGGESTIONS = [
-  "Is a Mega Charizard SIR from Paradox Rift worth buying right now?",
-  "Someone offered me £500 for a PSA 10 Base Set Charizard — good deal?",
-  "What's the investment outlook for Umbreon VMAX Alternate Art?",
-  "How liquid is a BGS 9.5 Pikachu Illustrator and what's it worth?",
-  "Should I buy a raw 1st Edition Blastoise or get it graded first?",
+  "Is the Charizard ex SIR from Obsidian Flames worth grading?",
+  "How liquid is Umbreon VMAX Alternate Art from Evolving Skies?",
+  "What's a PSA 10 Base Set Charizard worth right now?",
+  "Japanese Pikachu Illustrator — is it a good investment?",
+  "Should I buy a raw Magikarp SIR from Paldea Evolved?",
 ];
 
 function stripMarkdown(text: string): string {
@@ -75,123 +76,128 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-function DealScorePill({ pct }: { pct: number }) {
-  const color = pct >= 85 ? "#34D399" : pct >= 65 ? "#F59E0B" : "#FF3C31";
-  const label = pct >= 85 ? "Strong deal" : pct >= 65 ? "Fair deal" : "Below market";
-  return (
-    <View style={[styles.scorePill, { borderColor: color + "50", backgroundColor: color + "15" }]}>
-      <Text style={[styles.scoreNum, { color }]}>{pct}%</Text>
-      <Text style={[styles.scoreLabel, { color }]}>{label}</Text>
-    </View>
-  );
-}
+// ── Card picker item ───────────────────────────────────────────────────────────
 
-function CardTile({ card, onPress }: { card: CardResult; onPress?: () => void }) {
-  const gradeLabel = card.isRaw
-    ? "Raw"
-    : card.company && card.grade
-    ? `${card.company} ${card.grade}`
-    : card.grade
-    ? `Grade ${card.grade}`
-    : "Graded";
-
-  const companyColor: Record<string, string> = {
-    PSA: "#1D6FBB",
-    BGS: "#C0392B",
-    Beckett: "#C0392B",
-    ACE: "#2ECC71",
-    TAG: "#8E44AD",
-    CGC: "#E67E22",
-  };
-  const pillColor = card.company ? (companyColor[card.company] ?? Colors.textMuted) : Colors.textMuted;
+function CardPickerItem({ card, onSelect }: { card: CardRow; onSelect: (c: CardRow) => void }) {
+  const isJP = card.lang === "ja";
+  const displayName = card.display_name || card.name;
+  const setDisplay = (isJP ? card.set_name_en : null) || card.set_name;
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.cardTile, onPress && { opacity: pressed ? 0.75 : 1 }]}
-      onPress={onPress}
-      disabled={!onPress}
+      style={({ pressed }) => [styles.pickerItem, { opacity: pressed ? 0.75 : 1 }]}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onSelect(card);
+      }}
     >
-      <View style={styles.cardImageWrap}>
-        {card.imageUrl ? (
-          <Image source={{ uri: card.imageUrl }} style={styles.cardImage} contentFit="contain" />
+      <View style={styles.pickerImageWrap}>
+        {card.image_url ? (
+          <Image source={{ uri: card.image_url }} style={styles.pickerImage} contentFit="contain" />
         ) : (
-          <View style={[styles.cardImage, styles.cardImageFallback]}>
-            <Ionicons name="card-outline" size={28} color={Colors.textMuted} />
+          <View style={[styles.pickerImage, styles.pickerImageFallback]}>
+            <Ionicons name="card-outline" size={22} color={Colors.textMuted} />
           </View>
         )}
-        <View style={[styles.gradePill, { backgroundColor: pillColor }]}>
-          <Text style={styles.gradePillText}>{gradeLabel}</Text>
-        </View>
-      </View>
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardName} numberOfLines={2}>{card.name}</Text>
-        {card.set ? <Text style={styles.cardSet} numberOfLines={1}>{card.set}</Text> : null}
-
-        {card.isRaw ? (
-          card.rawGbp != null || card.psa10Gbp != null ? (
-            <View style={styles.researchPrices}>
-              {card.rawGbp != null && (
-                <View style={styles.researchRow}>
-                  <Text style={styles.researchLabel}>Raw</Text>
-                  <Text style={styles.researchValue}>£{card.rawGbp.toFixed(0)}</Text>
-                </View>
-              )}
-              {card.psa10Gbp != null && (
-                <View style={styles.researchRow}>
-                  <Text style={styles.researchLabel}>PSA 10</Text>
-                  <Text style={[styles.researchValue, { color: "#34D399" }]}>£{card.psa10Gbp.toFixed(0)}</Text>
-                </View>
-              )}
-              {card.gradingUpside != null && card.gradingUpside > 1 && (
-                <View style={styles.researchRow}>
-                  <Text style={styles.researchLabel}>Grading upside</Text>
-                  <Text style={[styles.researchValue, { color: "#F59E0B" }]}>{card.gradingUpside}×</Text>
-                </View>
-              )}
-              {card.saleCount != null && (
-                <Text style={styles.cardSales}>{card.saleCount} recent sales</Text>
-              )}
-            </View>
-          ) : (
-            <Text style={styles.cardNoPrice}>No price data</Text>
-          )
-        ) : (
-          card.marketValueGbp != null ? (
-            <View>
-              <View style={styles.cardPriceRow}>
-                <Text style={styles.cardPrice}>£{card.marketValueGbp.toFixed(0)}</Text>
-                {card.avg7d != null && (
-                  <Text style={styles.cardAvg}>7d avg £{(card.avg7d * 0.79).toFixed(0)}</Text>
-                )}
-              </View>
-              {card.saleCount != null && (
-                <Text style={styles.cardSales}>{card.saleCount} recent sales</Text>
-              )}
-            </View>
-          ) : (
-            <Text style={styles.cardNoPrice}>No price data</Text>
-          )
+        {isJP && (
+          <View style={styles.jpBadge}>
+            <Text style={styles.jpBadgeText}>JP</Text>
+          </View>
         )}
       </View>
-      {onPress && (
-        <View style={{ justifyContent: "center", paddingLeft: 4 }}>
-          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-        </View>
-      )}
+      <View style={styles.pickerInfo}>
+        <Text style={styles.pickerName} numberOfLines={2}>{displayName}</Text>
+        <Text style={styles.pickerSet} numberOfLines={1}>{setDisplay}</Text>
+        {card.number ? <Text style={styles.pickerNumber}>#{card.number}</Text> : null}
+        {card.rarity ? <Text style={styles.pickerRarity} numberOfLines={1}>{card.rarity}</Text> : null}
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
     </Pressable>
   );
 }
 
+// ── Selected card header bar ───────────────────────────────────────────────────
+
+function SelectedCardBar({ card, onClear }: { card: CardRow; onClear: () => void }) {
+  const isJP = card.lang === "ja";
+  const displayName = card.display_name || card.name;
+  const setDisplay = (isJP ? card.set_name_en : null) || card.set_name;
+
+  return (
+    <View style={styles.selectedBar}>
+      {card.image_url ? (
+        <Image source={{ uri: card.image_url }} style={styles.selectedBarImage} contentFit="contain" />
+      ) : (
+        <View style={[styles.selectedBarImage, styles.pickerImageFallback]}>
+          <Ionicons name="card-outline" size={14} color={Colors.textMuted} />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.selectedBarName} numberOfLines={1}>{displayName}</Text>
+        <Text style={styles.selectedBarSet} numberOfLines={1}>{setDisplay}{card.number ? ` · #${card.number}` : ""}</Text>
+      </View>
+      <Pressable onPress={onClear} style={styles.changeCardBtn} hitSlop={10}>
+        <Ionicons name="swap-horizontal" size={14} color={Colors.primary} />
+        <Text style={styles.changeCardText}>Change</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ── Prices block (shown in first assistant reply) ──────────────────────────────
+
+function PricesBlock({ prices, card, onProfit }: { prices: Prices; card: CardRow; onProfit: () => void }) {
+  const rows: { label: string; value: number | null }[] = [
+    { label: "PSA 10", value: prices.psa10 },
+    { label: "PSA 9",  value: prices.psa9 },
+    { label: "BGS 9.5", value: prices.bgs95 },
+    { label: "ACE 10", value: prices.ace10 },
+    { label: "TAG 10", value: prices.tag10 },
+    { label: "CGC 10", value: prices.cgc10 },
+    { label: "Raw eBay", value: prices.raw },
+  ].filter(r => r.value != null && r.value > 0);
+
+  return (
+    <View style={styles.pricesBlock}>
+      <View style={styles.pricesHeader}>
+        <Text style={styles.pricesTitle}>Market prices</Text>
+        <Pressable onPress={onProfit} style={styles.profitLink} hitSlop={8}>
+          <Text style={styles.profitLinkText}>Full analysis →</Text>
+        </Pressable>
+      </View>
+      {prices.rawTcg ? (
+        <Text style={styles.rawTcgLine}>{prices.rawTcg}</Text>
+      ) : null}
+      <View style={styles.pricesList}>
+        {rows.map(r => (
+          <View key={r.label} style={styles.priceRow}>
+            <Text style={styles.priceLabel}>{r.label}</Text>
+            <Text style={[styles.priceValue, r.label === "PSA 10" && { color: "#34D399" }]}>
+              £{r.value!.toFixed(0)}
+            </Text>
+          </View>
+        ))}
+      </View>
+      {rows.length === 0 && (
+        <Text style={styles.noPriceText}>No recent eBay graded sales found</Text>
+      )}
+    </View>
+  );
+}
+
+// ── Assistant message bubble ───────────────────────────────────────────────────
+
 function AssistantMessage({
   msg,
+  card,
   onRetry,
+  onProfit,
 }: {
   msg: Message;
+  card: CardRow | null;
   onRetry?: (text: string) => void;
+  onProfit?: () => void;
 }) {
-  const qc = useQueryClient();
-  const d = msg.data;
-
   if (msg.isError) {
     return (
       <View style={styles.aiBubbleWrap}>
@@ -221,118 +227,88 @@ function AssistantMessage({
       </View>
       <View style={styles.aiBubble}>
         <Text style={styles.aiText}>{stripMarkdown(msg.text)}</Text>
-
-        {d && d.cards.length > 0 && (
-          <View style={styles.cardsSection}>
-            <View style={styles.cardsDivider} />
-            <Text style={styles.cardsHeader}>Cards identified</Text>
-            <View style={styles.cardsList}>
-              {d.cards.map((card, i) => (
-                <CardTile
-                  key={i}
-                  card={card}
-                  onPress={card.name && card.set ? () => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (card.allGrades) {
-                      qc.setQueryData(
-                        ["ebay-all-grades", card.name, card.set ?? "", card.number ?? "", null],
-                        card.allGrades,
-                      );
-                    }
-                    router.push({
-                      pathname: "/card-profit",
-                      params: {
-                        cardName: card.name,
-                        setName: card.set ?? "",
-                        imageUrl: card.imageUrl ?? "",
-                        cardNumber: card.number ?? "",
-                        rawPriceUSD: "0",
-                      },
-                    });
-                  } : undefined}
-                />
-              ))}
-            </View>
-
-            {d.totalMarketGbp > 0 && (
-              <View style={styles.summaryBox}>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Combined market value</Text>
-                  <Text style={styles.summaryValue}>£{d.totalMarketGbp.toFixed(0)}</Text>
-                </View>
-                {d.offeredGbp != null && (
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Offered price</Text>
-                    <Text style={[styles.summaryValue, { color: Colors.text }]}>£{d.offeredGbp.toFixed(0)}</Text>
-                  </View>
-                )}
-                {d.pctOfMarket != null && (
-                  <View style={[styles.summaryRow, { marginTop: 10 }]}>
-                    <DealScorePill pct={d.pctOfMarket} />
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
+        {msg.prices && card && onProfit && (
+          <PricesBlock prices={msg.prices} card={card} onProfit={onProfit} />
         )}
       </View>
     </View>
   );
 }
 
+// ── Main screen ────────────────────────────────────────────────────────────────
+
 export default function DealAdvisorScreen() {
   const insets = useSafeAreaInsets();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const qc = useQueryClient();
+
+  // Phase 1: no card selected
   const [input, setInput] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<CardRow[] | null>(null);
+  const [notFound, setNotFound] = useState(false);
+
+  // Phase 2: card selected → conversation
+  const [selectedCard, setSelectedCard] = useState<CardRow | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // Most recent 8 messages in chronological order (oldest first) — what Claude expects
-  const history = messages.slice(0, 8).reverse().map((m) => ({
-    role: m.role,
-    content: m.text,
-  }));
+  const apiBase = getApiUrl();
 
-  const postToAdvisor = useCallback(async (
-    text: string,
-    currentHistory: { role: string; content: string }[],
-  ): Promise<AdvisorResponse> => {
-    const url = new URL("/api/deal-advisor", getApiUrl());
-    const MAX_ATTEMPTS = 2;
-    let lastErr: Error = new Error("Unknown error");
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 50000);
-      try {
-        const res = await fetch(url.toString(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, history: currentHistory }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (res.ok) return (await res.json()) as AdvisorResponse;
-        const status = res.status;
-        await res.text().catch(() => "");
-        lastErr = new Error(`HTTP ${status}`);
-        if (status >= 400 && status < 500) break;
-      } catch (e: any) {
-        clearTimeout(timeout);
-        if (e?.name === "AbortError") throw e;
-        lastErr = e instanceof Error ? e : new Error(String(e));
-      }
+  // History for Claude (plain text pairs — simple and reliable)
+  const history = messages
+    .slice(0, 10)
+    .reverse()
+    .map((m) => ({ role: m.role, content: m.text }));
+
+  // ── Search card catalog ────────────────────────────────────────────────────
+  const searchCards = useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    Keyboard.dismiss();
+    setSearching(true);
+    setSearchResults(null);
+    setNotFound(false);
+    try {
+      const url = new URL("/api/card-advisor/search", apiBase);
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json();
+      setSearchResults(data.cards ?? []);
+      setNotFound(data.notFound || (data.cards ?? []).length === 0);
+    } catch {
+      setNotFound(true);
+    } finally {
+      setSearching(false);
     }
-    throw lastErr;
-  }, []);
+  }, [apiBase]);
 
-  const send = useCallback(async (text: string) => {
-    const trimmed = text.trim();
+  // ── User selects a card → start conversation ───────────────────────────────
+  const selectCard = useCallback((card: CardRow) => {
+    setSelectedCard(card);
+    setSearchResults(null);
+    setNotFound(false);
+    setInput("");
+    setMessages([]);
+    // Auto-send the original query as the first message
+    const firstMessage = input.trim() || `Tell me about ${card.display_name || card.name} from ${(card.lang === "ja" ? card.set_name_en : null) || card.set_name}`;
+    sendAdvice(card, firstMessage, []);
+  }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Get advice for selected card ───────────────────────────────────────────
+  const sendAdvice = useCallback(async (
+    card: CardRow,
+    message: string,
+    currentHistory: { role: string; content: string }[],
+  ) => {
+    const trimmed = message.trim();
     if (!trimmed || loading) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Keyboard.dismiss();
     setInput("");
 
     const userMsg: Message = { id: `u-${Date.now()}`, role: "user", text: trimmed };
@@ -340,42 +316,82 @@ export default function DealAdvisorScreen() {
     setLoading(true);
 
     try {
-      const data = await postToAdvisor(trimmed, history);
-      setMessages((prev) => [{ id: `a-${Date.now()}`, role: "assistant", text: data.reply, data }, ...prev]);
+      const url = new URL("/api/card-advisor/advice", apiBase);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ card, message: trimmed, history: currentHistory }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      setMessages((prev) => [{
+        id: `a-${Date.now()}`,
+        role: "assistant",
+        text: data.reply,
+        prices: data.prices ?? null,
+      }, ...prev]);
     } catch (e: any) {
       const isTimeout = e?.name === "AbortError";
-      const errText = isTimeout
-        ? "That took too long — tap Retry or try again."
-        : "Couldn't reach the server. Tap Retry to try again.";
-      console.error("[CardAdvisor] send error:", e?.message, e?.name);
-      setMessages((prev) => [{ id: `e-${Date.now()}`, role: "assistant", text: errText, isError: true, retryText: trimmed }, ...prev]);
+      setMessages((prev) => [{
+        id: `e-${Date.now()}`,
+        role: "assistant",
+        text: isTimeout ? "That took too long — tap Retry to try again." : "Couldn't reach the server. Tap Retry.",
+        isError: true,
+        retryText: trimmed,
+      }, ...prev]);
     } finally {
       setLoading(false);
     }
-  }, [loading, history, postToAdvisor]);
+  }, [loading, apiBase]);
 
-  const renderItem = ({ item }: { item: Message }) => {
-    if (item.role === "user") {
-      return (
-        <View style={styles.userBubbleWrap}>
-          <View style={styles.userBubble}>
-            <Text style={styles.userText}>{item.text}</Text>
-          </View>
-        </View>
+  // ── Send follow-up message ─────────────────────────────────────────────────
+  const sendFollowUp = useCallback((text: string) => {
+    if (!selectedCard) return;
+    sendAdvice(selectedCard, text, history);
+  }, [selectedCard, history, sendAdvice]);
+
+  // ── Reset to phase 1 ───────────────────────────────────────────────────────
+  const resetToSearch = useCallback(() => {
+    setSelectedCard(null);
+    setMessages([]);
+    setSearchResults(null);
+    setNotFound(false);
+    setInput("");
+  }, []);
+
+  // ── Profit screen navigation ───────────────────────────────────────────────
+  const goToProfit = useCallback(() => {
+    if (!selectedCard) return;
+    const displayName = selectedCard.display_name || selectedCard.name;
+    const setDisplay = (selectedCard.lang === "ja" ? selectedCard.set_name_en : null) || selectedCard.set_name;
+    // Pre-populate cache if we have prices
+    const pricesMsg = messages.find((m) => m.prices);
+    if (pricesMsg?.prices?.allGrades) {
+      qc.setQueryData(
+        ["ebay-all-grades", displayName, setDisplay, selectedCard.number ?? "", null],
+        pricesMsg.prices.allGrades,
       );
     }
-    return (
-      <AssistantMessage
-        msg={item}
-        onRetry={(text) => {
-          setMessages((prev) => prev.filter((m) => m.id !== item.id));
-          send(text);
-        }}
-      />
-    );
-  };
+    router.push({
+      pathname: "/card-profit",
+      params: {
+        cardName: displayName,
+        setName: setDisplay,
+        imageUrl: selectedCard.image_url ?? "",
+        cardNumber: selectedCard.number ?? "",
+        rawPriceUSD: "0",
+      },
+    });
+  }, [selectedCard, messages, qc]);
 
-  const showEmpty = messages.length === 0 && !loading;
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const isPhase2 = selectedCard !== null;
 
   return (
     <KeyboardAvoidingView
@@ -390,60 +406,130 @@ export default function DealAdvisorScreen() {
         </Pressable>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Card Advisor</Text>
-          <Text style={styles.headerSub}>Prices · market trends · deal analysis</Text>
+          <Text style={styles.headerSub}>
+            {isPhase2 ? "Follow-up or ask about another card" : "Search for a card to get started"}
+          </Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Messages */}
-      <FlatList
-        ref={listRef}
-        data={loading ? [{ id: "loading", role: "assistant" as const, text: "" }, ...messages] : messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
-          if (item.id === "loading") {
-            return (
-              <View style={styles.aiBubbleWrap}>
-                <View style={styles.aiAvatar}>
-                  <Text style={styles.aiAvatarText}>AI</Text>
-                </View>
-                <View style={[styles.aiBubble, styles.loadingBubble]}>
-                  <ActivityIndicator size="small" color={Colors.primary} />
-                  <Text style={styles.loadingText}>Looking up prices…</Text>
-                </View>
+      {/* Selected card bar (phase 2) */}
+      {isPhase2 && <SelectedCardBar card={selectedCard} onClear={resetToSearch} />}
+
+      {/* Phase 1: empty state + search results */}
+      {!isPhase2 && (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.phase1Content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {!searching && !searchResults && !notFound && (
+            <View style={styles.emptyWrap}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="search-outline" size={36} color={Colors.primary} />
               </View>
-            );
-          }
-          return renderItem({ item });
-        }}
-        inverted
-        contentContainerStyle={[styles.listContent, { paddingBottom: 16, paddingTop: 8 }]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        ListFooterComponent={showEmpty ? (
-          <View style={styles.emptyWrap}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="chatbubbles-outline" size={40} color={Colors.primary} />
+              <Text style={styles.emptyTitle}>Which card?</Text>
+              <Text style={styles.emptySub}>
+                Describe the card you want to discuss — name, set, and rarity if you know it.
+                I'll find the exact card in our database so I can give you accurate prices.
+              </Text>
+              <Text style={styles.suggestionsLabel}>Try asking…</Text>
+              <View style={styles.suggestions}>
+                {SUGGESTIONS.map((s, i) => (
+                  <Pressable
+                    key={i}
+                    style={({ pressed }) => [styles.suggestionChip, { opacity: pressed ? 0.7 : 1 }]}
+                    onPress={() => { setInput(s); searchCards(s); }}
+                  >
+                    <Text style={styles.suggestionText}>{s}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
-            <Text style={styles.emptyTitle}>Card Advisor</Text>
-            <Text style={styles.emptySub}>
-              Ask anything about Pokemon TCG cards — whether a deal is fair, if a card is likely to rise in value, how liquid it is, or whether it's worth buying right now. I use real eBay last-sold data.
-            </Text>
-            <Text style={styles.suggestionsLabel}>Try asking…</Text>
-            <View style={styles.suggestions}>
-              {SUGGESTIONS.map((s, i) => (
-                <Pressable
-                  key={i}
-                  style={({ pressed }) => [styles.suggestionChip, { opacity: pressed ? 0.7 : 1 }]}
-                  onPress={() => send(s)}
-                >
-                  <Text style={styles.suggestionText}>{s}</Text>
-                </Pressable>
+          )}
+
+          {searching && (
+            <View style={styles.searchingWrap}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.searchingText}>Searching card database…</Text>
+            </View>
+          )}
+
+          {notFound && !searching && (
+            <View style={styles.notFoundWrap}>
+              <Ionicons name="alert-circle-outline" size={32} color={Colors.textMuted} />
+              <Text style={styles.notFoundTitle}>Card not found</Text>
+              <Text style={styles.notFoundSub}>
+                Try being more specific — include the set name, card number, or rarity (e.g. "SIR", "Alt Art").
+              </Text>
+            </View>
+          )}
+
+          {searchResults && searchResults.length > 0 && !searching && (
+            <View style={styles.resultsWrap}>
+              <Text style={styles.resultsLabel}>
+                {searchResults.length} card{searchResults.length !== 1 ? "s" : ""} found — tap the one you mean
+              </Text>
+              {searchResults.map((card) => (
+                <CardPickerItem key={card.card_id} card={card} onSelect={selectCard} />
               ))}
             </View>
-          </View>
-        ) : null}
-      />
+          )}
+        </ScrollView>
+      )}
+
+      {/* Phase 2: chat */}
+      {isPhase2 && (
+        <FlatList
+          ref={listRef}
+          data={
+            loading
+              ? [{ id: "loading", role: "assistant" as const, text: "" }, ...messages]
+              : messages
+          }
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            if (item.id === "loading") {
+              return (
+                <View style={styles.aiBubbleWrap}>
+                  <View style={styles.aiAvatar}>
+                    <Text style={styles.aiAvatarText}>AI</Text>
+                  </View>
+                  <View style={[styles.aiBubble, styles.loadingBubble]}>
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                    <Text style={styles.loadingText}>Looking up prices…</Text>
+                  </View>
+                </View>
+              );
+            }
+            if (item.role === "user") {
+              return (
+                <View style={styles.userBubbleWrap}>
+                  <View style={styles.userBubble}>
+                    <Text style={styles.userText}>{item.text}</Text>
+                  </View>
+                </View>
+              );
+            }
+            return (
+              <AssistantMessage
+                msg={item}
+                card={selectedCard}
+                onProfit={goToProfit}
+                onRetry={(text) => {
+                  setMessages((prev) => prev.filter((m) => m.id !== item.id));
+                  sendFollowUp(text);
+                }}
+              />
+            );
+          }}
+          inverted
+          contentContainerStyle={[styles.listContent, { paddingBottom: 16, paddingTop: 8 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        />
+      )}
 
       {/* Input bar */}
       <View style={[styles.inputBar, { paddingBottom: insets.bottom + 8 }]}>
@@ -452,24 +538,42 @@ export default function DealAdvisorScreen() {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="Ask about a card, deal, or investment…"
+          placeholder={isPhase2 ? "Ask a follow-up or search for another card…" : "Describe a card (e.g. Charizard ex Obsidian Flames)…"}
           placeholderTextColor={Colors.textMuted}
           multiline
-          maxLength={800}
+          maxLength={400}
           returnKeyType="default"
+          onSubmitEditing={() => {
+            if (isPhase2) sendFollowUp(input);
+            else searchCards(input);
+          }}
+          blurOnSubmit={false}
         />
         <Pressable
-          style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
-          onPress={() => send(input)}
-          disabled={!input.trim() || loading}
+          style={[styles.sendBtn, (!input.trim() || loading || searching) && styles.sendBtnDisabled]}
+          onPress={() => {
+            if (!input.trim() || loading || searching) return;
+            if (isPhase2) {
+              // If input looks like a new card search (when user types something different), search first
+              sendFollowUp(input);
+            } else {
+              searchCards(input);
+            }
+          }}
           hitSlop={8}
         >
-          <Ionicons name="arrow-up" size={20} color="#fff" />
+          {searching ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons name={isPhase2 ? "arrow-up" : "search"} size={20} color="#fff" />
+          )}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
+
+// ── Styles ─────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   header: {
@@ -486,6 +590,59 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: Colors.text },
   headerSub: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 1 },
 
+  // Selected card bar
+  selectedBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  selectedBarImage: { width: 32, height: 44, borderRadius: 4 },
+  selectedBarName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.text },
+  selectedBarSet: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 1 },
+  changeCardBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.primary + "40" },
+  changeCardText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.primary },
+
+  // Phase 1
+  phase1Content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32 },
+
+  emptyWrap: { paddingTop: 24 },
+  emptyIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 16 },
+  emptyTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: Colors.text, textAlign: "center", marginBottom: 8 },
+  emptySub: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", lineHeight: 21, marginBottom: 24 },
+  suggestionsLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
+  suggestions: { gap: 8 },
+  suggestionChip: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  suggestionText: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.text, lineHeight: 20 },
+
+  searchingWrap: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 40, justifyContent: "center" },
+  searchingText: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+
+  notFoundWrap: { alignItems: "center", paddingTop: 40, gap: 12 },
+  notFoundTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: Colors.text },
+  notFoundSub: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", lineHeight: 21, paddingHorizontal: 8 },
+
+  resultsWrap: { paddingTop: 8, gap: 8 },
+  resultsLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
+
+  // Card picker item
+  pickerItem: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: Colors.surface, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  pickerImageWrap: { position: "relative" },
+  pickerImage: { width: 52, height: 72, borderRadius: 6 },
+  pickerImageFallback: { backgroundColor: Colors.background, alignItems: "center", justifyContent: "center" },
+  jpBadge: { position: "absolute", top: -4, right: -4, backgroundColor: "#FF3C31", borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
+  jpBadgeText: { fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" },
+  pickerInfo: { flex: 1, gap: 2 },
+  pickerName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: Colors.text },
+  pickerSet: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  pickerNumber: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  pickerRarity: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.primary },
+
+  // Chat
   listContent: { paddingHorizontal: 16 },
 
   userBubbleWrap: { alignItems: "flex-end", marginVertical: 6 },
@@ -501,54 +658,25 @@ const styles = StyleSheet.create({
   loadingBubble: { flexDirection: "row", alignItems: "center", gap: 10 },
   loadingText: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted },
 
-  retryBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.surface },
+  retryBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.background },
   retryBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.primary },
 
-  cardsSection: { marginTop: 12 },
-  cardsDivider: { height: 1, backgroundColor: Colors.surfaceBorder, marginBottom: 10 },
-  cardsHeader: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
-  cardsList: { gap: 8 },
+  // Prices block
+  pricesBlock: { marginTop: 14, backgroundColor: Colors.background, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  pricesHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  pricesTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  profitLink: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: Colors.primary + "15" },
+  profitLinkText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.primary },
+  rawTcgLine: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginBottom: 8 },
+  pricesList: { gap: 6 },
+  priceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  priceLabel: { fontSize: 13, fontFamily: "Inter_400Regular", color: Colors.textMuted },
+  priceValue: { fontSize: 15, fontFamily: "Inter_700Bold", color: Colors.text },
+  noPriceText: { fontSize: 13, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", paddingVertical: 4 },
 
-  cardTile: { flexDirection: "row", backgroundColor: Colors.background, borderRadius: 12, padding: 10, gap: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  cardImageWrap: { position: "relative" },
-  cardImage: { width: 56, height: 78, borderRadius: 6 },
-  cardImageFallback: { backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center" },
-  gradePill: { position: "absolute", bottom: -4, left: -4, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
-  gradePillText: { fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" },
-  cardInfo: { flex: 1, justifyContent: "center", gap: 3 },
-  cardName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: Colors.text },
-  cardSet: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  cardPriceRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  cardPrice: { fontSize: 18, fontFamily: "Inter_700Bold", color: Colors.text },
-  cardAvg: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  cardSales: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 2 },
-  cardNoPrice: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 4 },
-
-  researchPrices: { marginTop: 4, gap: 3 },
-  researchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  researchLabel: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  researchValue: { fontSize: 13, fontFamily: "Inter_700Bold", color: Colors.text },
-
-  summaryBox: { marginTop: 12, backgroundColor: Colors.background, borderRadius: 12, padding: 12, gap: 8, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  summaryLabel: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  summaryValue: { fontSize: 16, fontFamily: "Inter_700Bold", color: Colors.text },
-
-  scorePill: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
-  scoreNum: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  scoreLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-
+  // Input bar
   inputBar: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder, backgroundColor: Colors.background },
   input: { flex: 1, backgroundColor: Colors.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, fontFamily: "Inter_400Regular", color: Colors.text, maxHeight: 120, borderWidth: 1, borderColor: Colors.surfaceBorder },
   sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
   sendBtnDisabled: { opacity: 0.4 },
-
-  emptyWrap: { paddingVertical: 40, paddingHorizontal: 4 },
-  emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.surface, alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 16 },
-  emptyTitle: { fontSize: 22, fontFamily: "Inter_700Bold", color: Colors.text, textAlign: "center", marginBottom: 8 },
-  emptySub: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", lineHeight: 21, marginBottom: 24 },
-  suggestionsLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
-  suggestions: { gap: 8 },
-  suggestionChip: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  suggestionText: { fontSize: 14, fontFamily: "Inter_400Regular", color: Colors.text, lineHeight: 20 },
 });
