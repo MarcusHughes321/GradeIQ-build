@@ -12594,20 +12594,20 @@ RESPONSE FORMAT (JSON only, no markdown):
       const advisorTools: Anthropic.Tool[] = [
         {
           name: "get_card_prices",
-          description: "Look up real eBay last-sold prices for a specific Pokemon card. Returns prices for all grading companies (PSA, BGS, ACE, TAG, CGC) and raw prices. Call this whenever the user asks about a card's value, whether to buy/sell, grading economics, or profit potential.",
+          description: "Look up real eBay last-sold prices for a specific Pokemon card. Returns prices for all grading companies (PSA, BGS, ACE, TAG, CGC) and raw prices. IMPORTANT: Call this at most ONCE per card the user mentions — do not call it multiple times for different variants of the same card. Pick the single most relevant version based on context.",
           input_schema: {
             type: "object" as const,
             properties: {
-              card_name: { type: "string", description: "The card name, e.g. 'Charizard ex', 'Umbreon VMAX', 'Mega Charizard X ex'" },
+              card_name: { type: "string", description: "The card's display name only — e.g. 'Charizard ex', 'Umbreon VMAX', 'Mega Charizard X ex'. Do NOT include card numbers, set codes, or rarity labels." },
               set_name: { type: "string", description: "The set name, e.g. 'Obsidian Flames', 'Evolving Skies', 'Phantasmal Flames'" },
-              card_number: { type: "string", description: "Optional card number if known, e.g. '125'" },
+              card_number: { type: "string", description: "Only provide if the user explicitly mentioned a specific card number (e.g. '125'). Leave empty otherwise." },
             },
             required: ["card_name", "set_name"],
           },
         },
         {
           name: "find_matching_cards",
-          description: "Search the card catalog to find cards matching a name and set. Use this to check which variants exist (e.g. multiple secret rares of the same character), get card numbers, or when the user is asking about a card and you need to clarify which one they mean.",
+          description: "Search the card catalog for card variants, numbers, or rarities. Only use this when you genuinely cannot identify the card from the user's message — e.g. they gave a vague description with no set name. Do NOT use this as a first step before calling get_card_prices. If you know the card name and set, call get_card_prices directly.",
           input_schema: {
             type: "object" as const,
             properties: {
@@ -12629,7 +12629,12 @@ You have two tools:
 - get_card_prices: fetches real eBay last-sold prices for any card across all grading companies
 - find_matching_cards: searches the card catalog for variants and card info
 
-ALWAYS use get_card_prices when you need market data. For follow-up questions where you already fetched prices earlier in the conversation, use those prices directly — no need to call the tool again.
+TOOL USE RULES — follow these exactly:
+1. Call get_card_prices AT MOST ONCE per distinct card the user asks about. Do NOT call it once per variant.
+2. When a user asks about a card, decide on the single most relevant version (e.g. the SIR/alt-art if they imply a premium card, or the base version if unspecified) and call get_card_prices ONCE with that name and set.
+3. Only use find_matching_cards if you genuinely cannot determine the card identity. Do not call it for general information gathering.
+4. For follow-up questions where you already have prices from earlier in the conversation, answer directly — DO NOT call the tools again.
+5. If the user specifies a card number or rarity, include it as context in your thinking but use the card's full display name in the tool call (e.g. "Charizard ex" not "Charizard ex 125/131 SIR").
 
 Guidelines:
 - Use British English
@@ -12656,8 +12661,10 @@ Guidelines:
       let totalOutputTokens = resp.usage.output_tokens;
       const pricedCards: any[] = [];
 
-      // ── Execute tools as Claude requests them ────────────────────────────
-      while (resp.stop_reason === "tool_use") {
+      // ── Execute tools as Claude requests them (max 3 rounds) ─────────────
+      let toolRounds = 0;
+      while (resp.stop_reason === "tool_use" && toolRounds < 3) {
+        toolRounds++;
         const toolUseBlocks = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
@@ -12683,22 +12690,27 @@ Guidelines:
                 if (prices.tag10 > 0) priceTable["TAG 10"]  = fmt(prices.tag10)!;
                 if (prices.cgc10 > 0) priceTable["CGC 10"]  = fmt(prices.cgc10)!;
                 toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify({ card: card_name, set: set_name, prices: priceTable }) });
-                // Build tile data
+                // Build tile data — deduplicate by name+set, and only add if we have at least one real price
                 const rawUsd = prices.raw > 0 ? prices.raw : null;
                 const psa10Usd = prices.psa10 > 0 ? prices.psa10 : null;
                 const psa9Usd = prices.psa9 > 0 ? prices.psa9 : null;
-                pricedCards.push({
-                  name: card_name, set: set_name || null, number: card_number || null,
-                  isRaw: true, allGrades: prices, imageUrl: null,
-                  rawGbp: rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null,
-                  psa10Gbp: psa10Usd != null ? parseFloat((psa10Usd * GBP_PER_USD).toFixed(2)) : null,
-                  psa9Gbp: psa9Usd != null ? parseFloat((psa9Usd * GBP_PER_USD).toFixed(2)) : null,
-                  marketValueGbp: rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null,
-                  gradingUpside: psa10Usd != null && rawUsd != null && rawUsd > 0 ? parseFloat((psa10Usd / rawUsd).toFixed(1)) : null,
-                  saleCount: (prices as any).gradeDetails?.["raw"]?.saleCount ?? (prices as any).gradeDetails?.["psa10"]?.saleCount ?? null,
-                  avg7d: null, avg30d: null, grade: null, company: null, gradeKey: "raw",
-                  marketValueUsd: rawUsd, psa10Gbp2: null, psa9Gbp2: null,
-                });
+                const hasSomePrice = rawUsd != null || psa10Usd != null || psa9Usd != null || prices.ace10 > 0 || prices.bgs95 > 0;
+                const dedupeKey = `${card_name.toLowerCase()}|${(set_name || "").toLowerCase()}`;
+                const alreadyAdded = pricedCards.some(c => `${c.name.toLowerCase()}|${(c.set || "").toLowerCase()}` === dedupeKey);
+                if (!alreadyAdded && hasSomePrice) {
+                  pricedCards.push({
+                    name: card_name, set: set_name || null, number: card_number || null,
+                    isRaw: true, allGrades: prices, imageUrl: null,
+                    rawGbp: rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null,
+                    psa10Gbp: psa10Usd != null ? parseFloat((psa10Usd * GBP_PER_USD).toFixed(2)) : null,
+                    psa9Gbp: psa9Usd != null ? parseFloat((psa9Usd * GBP_PER_USD).toFixed(2)) : null,
+                    marketValueGbp: rawUsd != null ? parseFloat((rawUsd * GBP_PER_USD).toFixed(2)) : null,
+                    gradingUpside: psa10Usd != null && rawUsd != null && rawUsd > 0 ? parseFloat((psa10Usd / rawUsd).toFixed(1)) : null,
+                    saleCount: (prices as any).gradeDetails?.["raw"]?.saleCount ?? (prices as any).gradeDetails?.["psa10"]?.saleCount ?? null,
+                    avg7d: null, avg30d: null, grade: null, company: null, gradeKey: "raw",
+                    marketValueUsd: rawUsd, psa10Gbp2: null, psa9Gbp2: null,
+                  });
+                }
               } else {
                 toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: `No eBay sales data found for "${card_name}" from "${set_name}". The set may be very new or the card name might differ slightly. Give your best estimate from your knowledge.` });
               }
