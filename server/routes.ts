@@ -12606,44 +12606,61 @@ RESPONSE FORMAT (JSON only, no markdown):
       const isJapanese = /\b(japanese?|japan|jp|jpn)\b/i.test(query);
       const langFilter = isJapanese ? ["ja"] : ["en", "ja"];
 
-      const words = query.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, " ")
-        .split(/\s+/)
-        .filter((w: string) => w.length >= 2 && !ADVISOR_STOP_WORDS.has(w))
-        .slice(0, 6);
+      // ── Natural language parsing ───────────────────────────────────────────
+      // Detect "X from Y" pattern BEFORE stop-word removal so we can weight
+      // pre-"from" words as card-name hints and post-"from" words as set hints.
+      // e.g. "Charizard from Obsidian Flames"  → cardHints=["charizard"]
+      //                                           setHints=["obsidian","flames"]
+      // Also detect "the X in/from/of SET" sentence patterns.
+      const rawTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
 
-      if (words.length === 0) {
-        return res.json({ cards: [], notFound: true });
-      }
+      // Find first occurrence of a positional preposition that signals set context
+      const setSignals = new Set(["from", "in", "of"]);
+      const sigIdx = rawTokens.findIndex(w => setSignals.has(w));
+      const hasSignal = sigIdx > 0 && sigIdx < rawTokens.length - 1;
 
-      // Build scored query:
-      //   name match = 3 pts per word (most important)
-      //   set_name match = 1 pt per word (tiebreaker for set context)
-      // WHERE: at least one word must match in name OR set_name
+      const cleanTokens = (toks: string[]) =>
+        toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w)).slice(0, 5);
+
+      // Words before the signal = card name candidates (high name weight)
+      // Words after the signal = set name candidates (high set weight)
+      const cardHints = cleanTokens(hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens);
+      const setHints  = cleanTokens(hasSignal ? rawTokens.slice(sigIdx + 1) : []);
+      // Deduplicate across both lists (set words shouldn't also appear in card words)
+      const cardHintSet = new Set(cardHints);
+      const setHintsDeduped = setHints.filter(w => !cardHintSet.has(w));
+
+      const allWords = [...cardHints, ...setHintsDeduped];
+      if (allWords.length === 0) return res.json({ cards: [], notFound: true });
+
+      // ── Weights ────────────────────────────────────────────────────────────
+      // When "from/in/of" detected: card hints = high name weight, set hints = high set weight
+      // Without signal: uniform 3:1 (same behaviour as before)
+      const CARD_NAME_W = hasSignal ? 5 : 3;
+      const CARD_SET_W  = hasSignal ? 1 : 1;
+      const SET_NAME_W  = 1;
+      const SET_SET_W   = hasSignal ? 5 : 1;
+
+      // ── Build scored SQL ───────────────────────────────────────────────────
       const params: any[] = [langFilter];
       const nameScoreTerms: string[] = [];
       const setScoreTerms: string[] = [];
       const whereAnys: string[] = [];
 
-      words.forEach((w: string) => {
+      const addWord = (w: string, nameW: number, setW: number) => {
         params.push(`%${w}%`);
         const idx = params.length;
-        // name column (EN: name, JP: name_en)
-        nameScoreTerms.push(
-          `CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 3 ELSE 0 END`
-        );
-        // set_name column (EN: set_name, JP: set_name_en)
-        setScoreTerms.push(
-          `CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 1 ELSE 0 END`
-        );
-        whereAnys.push(
-          `LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx}`
-        );
-      });
+        nameScoreTerms.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN ${nameW} ELSE 0 END`);
+        setScoreTerms.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN ${setW} ELSE 0 END`);
+        whereAnys.push(`LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx}`);
+      };
 
-      const scoreExpr = `(${nameScoreTerms.join(" + ")}) + (${setScoreTerms.join(" + ")})`;
+      cardHints.forEach(w => addWord(w, CARD_NAME_W, CARD_SET_W));
+      setHintsDeduped.forEach(w => addWord(w, SET_NAME_W, SET_SET_W));
+
+      const scoreExpr    = `(${nameScoreTerms.join(" + ")}) + (${setScoreTerms.join(" + ")})`;
       const nameScoreExpr = `(${nameScoreTerms.join(" + ")})`;
-      const whereClause = whereAnys.map(c => `(${c})`).join(" OR ");
+      const whereClause  = whereAnys.map(c => `(${c})`).join(" OR ");
 
       const sql = `
         SELECT card_id, name, set_name, number, lang, image_url, rarity,
@@ -12663,9 +12680,10 @@ RESPONSE FORMAT (JSON only, no markdown):
         LIMIT 20`;
 
       const result = await db.query(sql, params);
-      // Require name match (name_score > 0) when we have enough results; fall back otherwise
+      // Prefer results that actually match the card name; fall back if too few
       let rows = result.rows.filter((r: any) => r.name_score > 0);
       if (rows.length < 2) rows = result.rows;
+      console.log(`[card-advisor/search] query="${query}" cardHints=${JSON.stringify(cardHints)} setHints=${JSON.stringify(setHintsDeduped)} hasSignal=${hasSignal} → ${rows.length} results`);
       res.json({ cards: rows.slice(0, 8), notFound: rows.length === 0 });
     } catch (e: any) {
       console.error("[card-advisor/search]", e.message);
