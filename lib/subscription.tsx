@@ -257,6 +257,22 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(ADMIN_KEY, next ? "enabled" : "disabled");
   }, [isAdminMode]);
 
+  const syncTierToServer = async (rcUserId: string, tier: string) => {
+    if (!rcUserId || rcUserId === "unknown") return;
+    try {
+      const url = new URL("/api/subscription/sync", getApiUrl());
+      await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rcUserId, tier }),
+        signal: AbortSignal.timeout(8000),
+      });
+      console.log("[subscription] Tier synced to server:", tier);
+    } catch (e) {
+      console.log("[subscription] Tier sync failed (non-critical):", e);
+    }
+  };
+
   const syncServerUsage = async (rcUserId: string) => {
     if (!rcUserId) return;
     try {
@@ -393,6 +409,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
       syncServerUsage(userId).catch(() => {});
+      syncTierToServer(userId, tier).catch(() => {});
       // After history sync, retroactively upload any local images not yet backed up
       syncHistoryWithServer(userId)
         .catch(() => {})
@@ -424,6 +441,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
                 "| entitlements=", Object.keys(verified.entitlements.active));
               setCurrentTierSafe(verifiedTier);
               setRcAppUserId(verified.originalAppUserId ?? "");
+              syncTierToServer(verified.originalAppUserId ?? "", verifiedTier).catch(() => {});
             })
             .catch(() => {
               console.log("[subscription] Verification fetch failed — keeping current tier");
@@ -598,6 +616,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       if (tier !== "free") {
         setCurrentTierSafe(tier);
         setRcAppUserId(info.originalAppUserId ?? "");
+        syncTierToServer(info.originalAppUserId ?? "", tier).catch(() => {});
         return true;
       }
 
@@ -616,6 +635,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         if (retriedTier !== "free") {
           setCurrentTierSafe(retriedTier);
           setRcAppUserId(retried.originalAppUserId ?? "");
+          syncTierToServer(retried.originalAppUserId ?? "", retriedTier).catch(() => {});
           return true;
         }
       }
@@ -633,6 +653,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           "| entitlements=", Object.keys(finalCheck.entitlements.active));
         setCurrentTierSafe(finalTier);
         setRcAppUserId(finalCheck.originalAppUserId ?? "");
+        syncTierToServer(finalCheck.originalAppUserId ?? "", finalTier).catch(() => {});
         return finalTier !== "free";
       }
       setCurrentTierSafe("free");
