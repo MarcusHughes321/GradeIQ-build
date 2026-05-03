@@ -192,7 +192,7 @@ if (Platform.OS !== "web") {
 }
 
 export function GradingProvider({ children }: { children: ReactNode }) {
-  const { rcAppUserId, stableUserId } = useSubscription();
+  const { rcAppUserId, stableUserId, syncTierNow } = useSubscription();
   const [activeJob, setActiveJob] = useState<GradingJob | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordUsageRef = useRef<((n: number) => Promise<void>) | null>(null);
@@ -418,6 +418,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
+      // Ensure server has the correct tier before quota is checked
+      await syncTierNow().catch(() => {});
+
       const resp = await withSubmitTimeout(apiRequest("POST", "/api/grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
@@ -509,6 +512,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
 
+      // Ensure server has the correct tier before quota is checked
+      await syncTierNow().catch(() => {});
+
       const resp = await withSubmitTimeout(apiRequest("POST", "/api/deep-grade-job", {
         frontImage: frontBase64,
         backImage: backBase64,
@@ -589,6 +595,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
+
+      // Ensure server has the correct tier before quota is checked
+      await syncTierNow().catch(() => {});
 
       const resp = await withSubmitTimeout(apiRequest("POST", "/api/crossover-grade-job", {
         slabImage: slabFrontBase64,

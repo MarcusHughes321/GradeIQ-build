@@ -68,6 +68,7 @@ interface SubscriptionContextValue {
   rcConfigured: boolean;
   rcAppUserId: string;
   stableUserId: string;
+  syncTierNow: () => Promise<void>;
   deepMonthlyUsageCount: number;
   deepMonthlyLimit: number;
   remainingDeepGrades: number;
@@ -275,6 +276,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       console.log("[subscription] Tier sync failed (non-critical):", e);
     }
   };
+
+  // Sync the current tier right now — called just before submitting a grade
+  // to guarantee the server cache is correct even if the startup sync lost
+  // the race against the user tapping Grade.
+  const syncTierNow = useCallback(async () => {
+    const userId = rcAppUserId;
+    const tier = currentTierRef.current;
+    if (!userId || userId === "unknown") return;
+    await syncTierToServer(userId, tier);
+  }, [rcAppUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncServerUsage = async (rcUserId: string) => {
     if (!rcUserId) return;
@@ -801,6 +812,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       rcConfigured,
       rcAppUserId,
       stableUserId,
+      syncTierNow,
       deepMonthlyUsageCount,
       deepMonthlyLimit,
       remainingDeepGrades,
@@ -817,7 +829,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       isAdminMode,
       toggleAdminMode,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, syncTierNow, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
