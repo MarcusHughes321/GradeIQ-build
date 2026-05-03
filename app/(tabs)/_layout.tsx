@@ -4,6 +4,7 @@ import { Platform, View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { BlurView } from "expo-blur";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGrading } from "@/lib/grading-context";
 import { useSubscription } from "@/lib/subscription";
 import { getApiUrl } from "@/lib/query-client";
@@ -38,6 +39,11 @@ export default function TabLayout() {
   const { isAdminMode } = useSubscription();
   const showHomeBadge = hasCompletedJob || hasActiveJob;
   const flagCount = useAdminFlagCount(isAdminMode);
+  const insets = useSafeAreaInsets();
+
+  // Tab bar content height (icons + labels) + bottom safe area so content
+  // sits above Android nav buttons and iOS home indicator.
+  const tabBarHeight = Platform.OS === "web" ? 84 : 50 + insets.bottom;
 
   return (
     <Tabs
@@ -51,8 +57,9 @@ export default function TabLayout() {
           borderTopWidth: 1,
           position: "absolute",
           elevation: 0,
-          height: Platform.OS === "web" ? 84 : 85,
+          height: tabBarHeight,
           paddingTop: 8,
+          paddingBottom: Platform.OS === "web" ? 0 : insets.bottom,
         },
         tabBarBackground: () =>
           Platform.OS !== "web" ? (
