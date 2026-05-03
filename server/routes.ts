@@ -4571,6 +4571,27 @@ async function initSubscriptionCacheTable(): Promise<void> {
   }
 }
 
+async function initGradingJobsTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS grading_jobs (
+        id          TEXT PRIMARY KEY,
+        type        TEXT NOT NULL DEFAULT 'single',
+        status      TEXT NOT NULL DEFAULT 'processing',
+        result      JSONB,
+        error       TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ
+      )
+    `);
+    // Clean up jobs older than 24 hours daily
+    await db.query(`DELETE FROM grading_jobs WHERE created_at < NOW() - INTERVAL '24 hours'`);
+    console.log("[grading-jobs] DB table ready");
+  } catch (e: any) {
+    console.error("[grading-jobs] Failed to init grading_jobs:", e.message);
+  }
+}
+
 async function initAdminSettingsTable(): Promise<void> {
   try {
     await db.query(`
@@ -4624,6 +4645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await initAiCostLogTable();
   await initAdminSettingsTable();
   await initSubscriptionCacheTable();
+  await initGradingJobsTable();
   await initEbayPriceCacheTable();
   await initPriceHistoryTable();
   await initSetPriceStatusTable();
@@ -6024,6 +6046,50 @@ Return ONLY the JSON object. No other text.`;
       if (job.createdAt < oneHourAgo) gradingJobs.delete(id);
     }
   }, 10 * 60 * 1000);
+
+  // ── DB persistence helpers (survive backend restarts) ─────────────────────
+  async function persistJobToDb(job: GradingJob): Promise<void> {
+    try {
+      await db.query(
+        `INSERT INTO grading_jobs (id, type, status, created_at)
+         VALUES ($1, $2, $3, to_timestamp($4 / 1000.0))
+         ON CONFLICT (id) DO NOTHING`,
+        [job.id, job.type, job.status, job.createdAt]
+      );
+    } catch {}
+  }
+
+  async function completeJobInDb(id: string, status: "completed" | "failed", result?: any, error?: string): Promise<void> {
+    try {
+      await db.query(
+        `UPDATE grading_jobs SET status=$2, result=$3, error=$4, completed_at=NOW() WHERE id=$1`,
+        [id, status, result ? JSON.stringify(result) : null, error || null]
+      );
+    } catch {}
+  }
+
+  async function loadJobFromDb(id: string): Promise<GradingJob | null> {
+    try {
+      const r = await db.query(
+        `SELECT id, type, status, result, error,
+                extract(epoch from created_at)*1000 AS created_ms
+         FROM grading_jobs WHERE id=$1`,
+        [id]
+      );
+      if (r.rows.length === 0) return null;
+      const row = r.rows[0];
+      return {
+        id: row.id,
+        type: row.type,
+        status: row.status,
+        result: row.result ?? undefined,
+        error: row.error ?? undefined,
+        createdAt: Number(row.created_ms),
+      };
+    } catch {
+      return null;
+    }
+  }
 
   async function sendPushNotification(pushToken: string, title: string, body: string) {
     try {
@@ -9092,6 +9158,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "crossover");
+      void persistJobToDb(job);
 
       res.json({ jobId });
 
@@ -9109,6 +9176,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.result = result;
           await completeGradeEvent(jobId, "completed");
           await recordServerUsage(rcUserId, "crossover");
+          void completeJobInDb(jobId, "completed", result);
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -9119,6 +9187,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "failed";
           job.error = err.message || "Unknown error";
           await completeGradeEvent(jobId, "failed");
+          void completeJobInDb(jobId, "failed", undefined, job.error);
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Crossover Failed", "There was an error analyzing your slab. Please try again.");
@@ -9380,6 +9449,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "quick");
+      void persistJobToDb(job);
 
       res.json({ jobId });
 
@@ -9390,6 +9460,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.result = result;
           await completeGradeEvent(jobId, "completed");
           await recordServerUsage(rcUserId, "quick");
+          void completeJobInDb(jobId, "completed", result);
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -9400,6 +9471,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "failed";
           job.error = err.message || "Unknown error";
           await completeGradeEvent(jobId, "failed");
+          void completeJobInDb(jobId, "failed", undefined, job.error);
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Grading Failed", "There was an error grading your card. Please try again.");
@@ -9510,6 +9582,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "deep");
+      void persistJobToDb(job);
 
       res.json({ jobId });
 
@@ -9520,6 +9593,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.result = result;
           await completeGradeEvent(jobId, "completed");
           await recordServerUsage(rcUserId, "deep");
+          void completeJobInDb(jobId, "completed", result);
 
           if (job.pushToken) {
             const resultName = result.cardName || "your card";
@@ -9530,6 +9604,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "failed";
           job.error = err.message || "Unknown error";
           await completeGradeEvent(jobId, "failed");
+          void completeJobInDb(jobId, "failed", undefined, job.error);
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Deep Grading Failed", "There was an error deep grading your card. Please try again.");
@@ -9563,28 +9638,39 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   }
 
-  app.get("/api/grade-job/:id", (req, res) => {
-    const job = gradingJobs.get(req.params.id);
+  app.get("/api/grade-job/:id", async (req, res) => {
+    let job = gradingJobs.get(req.params.id);
     if (!job) {
-      return res.status(404).json({ error: "Job not found" });
+      // Backend may have restarted — check DB before returning 404
+      const dbJob = await loadJobFromDb(req.params.id);
+      if (!dbJob) return res.status(404).json({ error: "Job not found" });
+      // Restore into memory so future polls are fast
+      gradingJobs.set(dbJob.id, dbJob);
+      job = dbJob;
     }
-    // Auto-fail jobs that have been processing for over 10 minutes
+    // Auto-fail jobs still "processing" after 10 minutes (server must have crashed mid-grade)
     if (job.status === "processing" && job.createdAt && Date.now() - job.createdAt > 10 * 60 * 1000) {
       job.status = "failed";
       job.error = "Grading timed out — please try again.";
+      void completeJobInDb(job.id, "failed", undefined, job.error);
     }
     respondWithJob(res, job);
   });
 
-  app.get("/api/crossover-grade-job/:id", (req, res) => {
-    const job = gradingJobs.get(req.params.id);
+  app.get("/api/crossover-grade-job/:id", async (req, res) => {
+    let job = gradingJobs.get(req.params.id);
     if (!job) {
-      return res.status(404).json({ error: "Job not found" });
+      // Backend may have restarted — check DB before returning 404
+      const dbJob = await loadJobFromDb(req.params.id);
+      if (!dbJob) return res.status(404).json({ error: "Job not found" });
+      gradingJobs.set(dbJob.id, dbJob);
+      job = dbJob;
     }
-    // Auto-fail jobs that have been processing for over 5 minutes (handles server restarts / hangs)
+    // Auto-fail jobs still "processing" after 5 minutes (server must have crashed mid-grade)
     if (job.status === "processing" && job.createdAt && Date.now() - job.createdAt > 5 * 60 * 1000) {
       job.status = "failed";
       job.error = "Crossover grading timed out — please try again.";
+      void completeJobInDb(job.id, "failed", undefined, job.error);
     }
     respondWithJob(res, job);
   });

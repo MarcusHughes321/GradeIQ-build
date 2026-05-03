@@ -378,7 +378,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       }
     } catch (err: any) {
       // 404 means the job is gone (server restarted) — fail cleanly instead of retrying forever
-      if (err?.message?.startsWith("404:") || err?.message?.includes("Job not found")) {
+      // fetchWithRetry throws new Error("404") — no colon, just the status code
+      if (err?.message === "404" || err?.message?.startsWith("404") || err?.message?.includes("Job not found")) {
         stopPolling();
         await cancelScheduledNotification(scheduledNotifId.current);
         scheduledNotifId.current = null;
