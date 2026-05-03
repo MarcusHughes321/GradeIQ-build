@@ -28,6 +28,9 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
 ): Promise<Response> {
+  // Only retry on transient server errors (5xx) and network failures.
+  // 4xx responses (including 404) are returned immediately so the caller
+  // can inspect the body and status — never retry them.
   const maxAttempts = options.method === "GET" || !options.method ? 3 : 1;
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -36,9 +39,11 @@ async function fetchWithRetry(
     }
     try {
       const res = await fetch(url, options);
-      if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 404)) {
+      if (res.ok || res.status < 500) {
+        // Return all 2xx, 3xx, and 4xx responses directly so callers can read the body.
         return res;
       }
+      // 5xx — server error, worth retrying
       lastErr = new Error(`${res.status}`);
       await res.text().catch(() => "");
     } catch (e) {

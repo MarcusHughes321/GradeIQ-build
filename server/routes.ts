@@ -9644,11 +9644,18 @@ RESPONSE FORMAT (JSON only, no markdown):
       // Backend may have restarted — check DB before returning 404
       const dbJob = await loadJobFromDb(req.params.id);
       if (!dbJob) return res.status(404).json({ error: "Job not found" });
-      // Restore into memory so future polls are fast
+      // If the DB job is still "processing", the backend restart killed the async
+      // grading task — it will never complete. Fail it immediately so the client
+      // shows an error right away instead of polling for 10 minutes.
+      if (dbJob.status === "processing") {
+        dbJob.status = "failed";
+        dbJob.error = "Grading was interrupted by a server restart. Please try again.";
+        void completeJobInDb(dbJob.id, "failed", undefined, dbJob.error);
+      }
       gradingJobs.set(dbJob.id, dbJob);
       job = dbJob;
     }
-    // Auto-fail jobs still "processing" after 10 minutes (server must have crashed mid-grade)
+    // Auto-fail jobs still "processing" after 10 minutes (handles unexpected hangs)
     if (job.status === "processing" && job.createdAt && Date.now() - job.createdAt > 10 * 60 * 1000) {
       job.status = "failed";
       job.error = "Grading timed out — please try again.";
@@ -9663,10 +9670,16 @@ RESPONSE FORMAT (JSON only, no markdown):
       // Backend may have restarted — check DB before returning 404
       const dbJob = await loadJobFromDb(req.params.id);
       if (!dbJob) return res.status(404).json({ error: "Job not found" });
+      // If still "processing" in DB, the restart killed the grading task — fail immediately
+      if (dbJob.status === "processing") {
+        dbJob.status = "failed";
+        dbJob.error = "Grading was interrupted by a server restart. Please try again.";
+        void completeJobInDb(dbJob.id, "failed", undefined, dbJob.error);
+      }
       gradingJobs.set(dbJob.id, dbJob);
       job = dbJob;
     }
-    // Auto-fail jobs still "processing" after 5 minutes (server must have crashed mid-grade)
+    // Auto-fail jobs still "processing" after 5 minutes (handles unexpected hangs)
     if (job.status === "processing" && job.createdAt && Date.now() - job.createdAt > 5 * 60 * 1000) {
       job.status = "failed";
       job.error = "Crossover grading timed out — please try again.";

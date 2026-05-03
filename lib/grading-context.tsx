@@ -239,9 +239,26 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       const base = pollEndpoint ? `${pollEndpoint}/${serverJobId}` : `/api/grade-job/${serverJobId}`;
       const endpoint = `${base}?t=${Date.now()}`;
       const resp = await apiRequest("GET", endpoint);
+
+      // Handle non-2xx responses directly (fetchWithRetry now returns 4xx without throwing)
+      if (!resp.ok) {
+        if (resp.status === 404) {
+          stopPolling();
+          await cancelScheduledNotification(scheduledNotifId.current);
+          scheduledNotifId.current = null;
+          setActiveJob(prev =>
+            prev && prev.id === localJobId
+              ? { ...prev, status: "failed", error: "Grading session expired. Please try again." }
+              : prev
+          );
+        }
+        // For 5xx or other errors, stay silent and let the interval retry
+        return;
+      }
+
       const data = await resp.json();
 
-      // Job not found (server restarted / job expired) — treat as failed
+      // Defensive: server returned 200 but with an error field
       if (data.error === "Job not found") {
         stopPolling();
         await cancelScheduledNotification(scheduledNotifId.current);
