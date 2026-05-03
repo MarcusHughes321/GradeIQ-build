@@ -377,8 +377,8 @@ export default function DefectCutoutPanel({ defects, frontImage, backImage, fron
       } else {
         const compressed = await ImageManipulator.manipulateAsync(
           uri,
-          [{ resize: { width: 400 } }],
-          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+          [{ resize: { width: 800 } }],
+          { compress: 0.88, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
         if (!compressed.base64) throw new Error("Compression returned no base64");
         base64 = compressed.base64;

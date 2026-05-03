@@ -248,11 +248,11 @@ function AssistantMessage({
 export default function DealAdvisorScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
-  const { isSubscribed } = useSubscription();
+  const { isSubscribed, isAdminMode } = useSubscription();
 
-  // Redirect to paywall if not subscribed
+  // Redirect to paywall if not subscribed (admin bypasses)
   const requireSubscription = useCallback((): boolean => {
-    if (!isSubscribed) {
+    if (!isAdminMode && !isSubscribed) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       router.push("/paywall");
       return false;

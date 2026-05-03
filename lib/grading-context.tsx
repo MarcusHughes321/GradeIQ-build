@@ -664,6 +664,8 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         const resumeCertData = activeJob.isCrossover ? activeJob.certData : undefined;
         const resumeJobId = activeJob.id;
         const resumeStart = activeJob.startTime || Date.now();
+        // Poll immediately on foreground return — don't wait for first interval tick
+        pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint, resumeCertData);
         pollingRef.current = setInterval(() => {
           if (Date.now() - resumeStart > MAX_POLL_DURATION_MS) {
             stopPolling();
