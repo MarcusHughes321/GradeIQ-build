@@ -287,10 +287,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     await syncTierToServer(userId, tier);
   }, [rcAppUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const syncServerUsage = async (rcUserId: string) => {
-    if (!rcUserId) return;
+  const syncServerUsage = async (rcUserId: string, stableId?: string) => {
+    if (!rcUserId && !stableId) return;
     try {
-      const url = new URL(`/api/usage?rcUserId=${encodeURIComponent(rcUserId)}`, getApiUrl());
+      const url = new URL("/api/usage", getApiUrl());
+      if (rcUserId) url.searchParams.set("rcUserId", rcUserId);
+      if (stableId) url.searchParams.set("stableId", stableId);
       const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
       if (!resp.ok) return;
       const data = await resp.json() as { quickCount: number; deepCount: number; crossoverCount: number };
@@ -424,9 +426,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       syncServerUsage(userId).catch(() => {});
       syncTierToServer(userId, tier).catch(() => {});
       // Read stable UUID (persists across reinstalls via Keychain / Android Auto Backup),
-      // claim existing rows for this user, then sync history using it.
+      // claim existing rows for this user, then sync history and usage using it.
       getStableUserId().then(stableId => {
         setStableUserId(stableId);
+        // Re-sync usage with the stable ID so the server returns the canonical count
+        // (the first call above used only rc_user_id, which resets on reinstall)
+        syncServerUsage(userId, stableId).catch(() => {});
         claimHistoryForStableId(userId, stableId).catch(() => {});
         syncHistoryWithServer(userId, stableId)
           .catch(() => {})

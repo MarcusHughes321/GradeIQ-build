@@ -99,12 +99,26 @@ function getYearMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-async function getServerUsage(rcUserId: string): Promise<{ quickCount: number; deepCount: number; crossoverCount: number }> {
-  if (!rcUserId) return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
+async function getServerUsage(rcUserId: string, stableId?: string): Promise<{ quickCount: number; deepCount: number; crossoverCount: number }> {
+  if (!rcUserId && !stableId) return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
   try {
+    const ym = getYearMonth();
+    // Prefer the stable-ID row — it persists across reinstalls (new RC ID won't have the count)
+    if (stableId) {
+      const stableResult = await db.query(
+        "SELECT quick_count, deep_count, crossover_count FROM usage_tracking WHERE stable_user_id = $1 AND year_month = $2",
+        [stableId, ym]
+      );
+      if (stableResult.rows.length) {
+        const r = stableResult.rows[0];
+        return { quickCount: r.quick_count, deepCount: r.deep_count, crossoverCount: r.crossover_count };
+      }
+    }
+    // Fallback to RC user ID row (covers users who graded before stable ID was sent)
+    if (!rcUserId) return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
     const result = await db.query(
       "SELECT quick_count, deep_count, crossover_count FROM usage_tracking WHERE rc_user_id = $1 AND year_month = $2",
-      [rcUserId, getYearMonth()]
+      [rcUserId, ym]
     );
     if (!result.rows.length) return { quickCount: 0, deepCount: 0, crossoverCount: 0 };
     const r = result.rows[0];
@@ -114,17 +128,31 @@ async function getServerUsage(rcUserId: string): Promise<{ quickCount: number; d
   }
 }
 
-async function recordServerUsage(rcUserId: string, type: "quick" | "deep" | "crossover"): Promise<void> {
-  if (!rcUserId) return;
+async function recordServerUsage(rcUserId: string, type: "quick" | "deep" | "crossover", stableId?: string): Promise<void> {
+  if (!rcUserId && !stableId) return;
   try {
     const col = type === "quick" ? "quick_count" : type === "deep" ? "deep_count" : "crossover_count";
-    await db.query(
-      `INSERT INTO usage_tracking (rc_user_id, year_month, ${col})
-       VALUES ($1, $2, 1)
-       ON CONFLICT (rc_user_id, year_month)
-       DO UPDATE SET ${col} = usage_tracking.${col} + 1, updated_at = NOW()`,
-      [rcUserId, getYearMonth()]
-    );
+    const ym = getYearMonth();
+    if (stableId) {
+      // Upsert the canonical stable-ID row — survives reinstalls because the stable ID
+      // lives in iOS Keychain / Android Auto Backup even after the app is deleted.
+      await db.query(
+        `INSERT INTO usage_tracking (stable_user_id, rc_user_id, year_month, ${col})
+         VALUES ($1, $2, $3, 1)
+         ON CONFLICT (stable_user_id, year_month) WHERE stable_user_id IS NOT NULL
+         DO UPDATE SET ${col} = usage_tracking.${col} + 1, rc_user_id = $2, updated_at = NOW()`,
+        [stableId, rcUserId || "", ym]
+      );
+    } else {
+      // Legacy path: no stable ID provided (old clients or first grade before stable ID loaded)
+      await db.query(
+        `INSERT INTO usage_tracking (rc_user_id, year_month, ${col})
+         VALUES ($1, $2, 1)
+         ON CONFLICT (rc_user_id, year_month)
+         DO UPDATE SET ${col} = usage_tracking.${col} + 1, updated_at = NOW()`,
+        [rcUserId, ym]
+      );
+    }
   } catch (e) {
     console.error("[usage] Failed to record server usage:", e);
   }
@@ -226,12 +254,13 @@ async function upsertSubscriptionTier(rcUserId: string, tier: string): Promise<v
 // Returns an error message string if over quota, or null if the request should be allowed.
 async function enforceServerQuota(
   rcUserId: string,
-  type: "quick" | "deep" | "crossover"
+  type: "quick" | "deep" | "crossover",
+  stableId?: string
 ): Promise<string | null> {
   if (!rcUserId) return null;
   if (await isAdminUser(rcUserId)) return null;
 
-  const usage = await getServerUsage(rcUserId);
+  const usage = await getServerUsage(rcUserId, stableId);
   const count = type === "quick" ? usage.quickCount : type === "deep" ? usage.deepCount : usage.crossoverCount;
 
   // ── Fast path: use server-cached tier (synced from client on startup) ────────
@@ -4470,6 +4499,15 @@ async function initUsageTrackingTable(): Promise<void> {
         updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
         CONSTRAINT usage_tracking_user_month_unique UNIQUE (rc_user_id, year_month)
       )
+    `);
+    // stable_user_id persists across reinstalls (iOS Keychain / Android Backup).
+    // Keying usage by it prevents free-tier count resets on reinstall.
+    await db.query(`ALTER TABLE usage_tracking ADD COLUMN IF NOT EXISTS stable_user_id TEXT`);
+    // Partial unique index so upserts by stable_user_id work correctly
+    await db.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS usage_tracking_stable_month_uniq
+      ON usage_tracking(stable_user_id, year_month)
+      WHERE stable_user_id IS NOT NULL
     `);
     console.log("[usage] usage_tracking table ready");
   } catch (e: any) {
@@ -9143,12 +9181,12 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/crossover-grade-job", async (req, res) => {
     try {
-      const { slabImage, slabBackImage, pushToken, certData, rcUserId } = req.body;
+      const { slabImage, slabBackImage, pushToken, certData, rcUserId, stableUserId } = req.body;
       if (!slabImage) {
         return res.status(400).json({ error: "slabImage is required" });
       }
 
-      const quotaError = await enforceServerQuota(rcUserId, "crossover");
+      const quotaError = await enforceServerQuota(rcUserId, "crossover", stableUserId);
       if (quotaError) return res.status(429).json({ error: quotaError, quotaExceeded: true });
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
@@ -9179,7 +9217,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
-          await recordServerUsage(rcUserId, "crossover");
+          await recordServerUsage(rcUserId, "crossover", stableUserId);
           void completeJobInDb(jobId, "completed", result);
 
           if (job.pushToken) {
@@ -9205,8 +9243,9 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.get("/api/usage", async (req, res) => {
     const rcUserId = req.query.rcUserId as string;
-    if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
-    const usage = await getServerUsage(rcUserId);
+    const stableId = req.query.stableId as string | undefined;
+    if (!rcUserId && !stableId) return res.status(400).json({ error: "rcUserId or stableId required" });
+    const usage = await getServerUsage(rcUserId, stableId);
     res.json({ yearMonth: getYearMonth(), ...usage });
   });
 
@@ -9434,12 +9473,12 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/grade-job", async (req, res) => {
     try {
-      const { frontImage, backImage, pushToken, rcUserId } = req.body;
+      const { frontImage, backImage, pushToken, rcUserId, stableUserId } = req.body;
       if (!frontImage || !backImage) {
         return res.status(400).json({ error: "Both front and back images required" });
       }
 
-      const quotaError = await enforceServerQuota(rcUserId, "quick");
+      const quotaError = await enforceServerQuota(rcUserId, "quick", stableUserId);
       if (quotaError) return res.status(429).json({ error: quotaError, quotaExceeded: true });
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
@@ -9463,7 +9502,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
-          await recordServerUsage(rcUserId, "quick");
+          await recordServerUsage(rcUserId, "quick", stableUserId);
           void completeJobInDb(jobId, "completed", result);
 
           if (job.pushToken) {
@@ -9568,12 +9607,12 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/deep-grade-job", async (req, res) => {
     try {
-      const { frontImage, backImage, angledImage, angledBackImage, frontCorners, backCorners, pushToken, rcUserId } = req.body;
+      const { frontImage, backImage, angledImage, angledBackImage, frontCorners, backCorners, pushToken, rcUserId, stableUserId } = req.body;
       if (!frontImage || !backImage || !angledImage) {
         return res.status(400).json({ error: "Front, back, and angled images are all required" });
       }
 
-      const quotaError = await enforceServerQuota(rcUserId, "deep");
+      const quotaError = await enforceServerQuota(rcUserId, "deep", stableUserId);
       if (quotaError) return res.status(429).json({ error: quotaError, quotaExceeded: true });
 
       const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
@@ -9597,7 +9636,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
-          await recordServerUsage(rcUserId, "deep");
+          await recordServerUsage(rcUserId, "deep", stableUserId);
           void completeJobInDb(jobId, "completed", result);
 
           if (job.pushToken) {

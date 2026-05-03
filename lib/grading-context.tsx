@@ -480,6 +480,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         frontImage: frontBase64,
         backImage: backBase64,
         rcUserId: rcAppUserId || undefined,
+        stableUserId: stableUserId || undefined,
       }), 60_000);
 
       const { jobId: serverJobId } = await resp.json();
@@ -569,6 +570,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         frontCorners: frontCornerBase64,
         backCorners: backCornerBase64,
         rcUserId: rcAppUserId || undefined,
+        stableUserId: stableUserId || undefined,
       }), 90_000);
 
       const { jobId: serverJobId } = await resp.json();
@@ -642,6 +644,7 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         slabBackImage: slabBackBase64,
         ...(certData ? { certData } : {}),
         rcUserId: rcAppUserId || undefined,
+        stableUserId: stableUserId || undefined,
       }), 60_000);
 
       const { jobId: serverJobId } = await resp.json();
