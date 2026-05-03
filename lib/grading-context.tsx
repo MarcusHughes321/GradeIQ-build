@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, ReactNode, useRef } from "react";
 import { Platform, AppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -9,6 +10,9 @@ import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
 import { uploadGrading, uploadGradingImages } from "@/lib/server-history";
+
+// Key used to persist the active grading job across app kills/restarts
+const ACTIVE_JOB_STORAGE_KEY = "@gradeiq/activeJob_v2";
 
 function parseQuotaError(error: any): string | null {
   try {
@@ -411,6 +415,39 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     }
   }, [stopPolling]);
 
+  // Shared helper — starts (or restarts) polling for any processing job.
+  // Used by: submitGrading/submitDeep/submitCrossover, AppState resume, and
+  // the AsyncStorage restore on app relaunch.
+  const startPollingForJob = useCallback((job: GradingJob) => {
+    stopPolling();
+    const extra = job.isDeepGrade ? {
+      angledFrontImage: job.angledFrontImage,
+      angledBackImage: job.angledBackImage,
+      isDeepGrade: true as const,
+    } : undefined;
+    const endpoint = job.isCrossover ? "/api/crossover-grade-job" : undefined;
+    const certData = job.isCrossover ? job.certData : undefined;
+    const startTime = job.startTime || Date.now();
+    const localJobId = job.id;
+    const serverJobId = job.serverJobId;
+    const frontImage = job.frontImage;
+    const backImage = job.backImage;
+    // Immediate poll — don't wait for first interval tick
+    pollJobStatus(serverJobId, localJobId, frontImage, backImage, extra, endpoint, certData);
+    pollingRef.current = setInterval(() => {
+      if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
+        stopPolling();
+        setActiveJob(prev =>
+          prev && prev.id === localJobId
+            ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
+            : prev
+        );
+        return;
+      }
+      pollJobStatus(serverJobId, localJobId, frontImage, backImage, extra, endpoint, certData);
+    }, POLL_INTERVAL);
+  }, [pollJobStatus, stopPolling]);
+
   const submitGrading = useCallback(async (
     frontImage: string,
     backImage: string,
@@ -458,20 +495,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         scheduledNotifId.current = await scheduleGradingNotification(ESTIMATED_GRADE_SECONDS);
       }
 
-      stopPolling();
-      const pollStart = Date.now();
-      pollingRef.current = setInterval(() => {
-        if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
-          stopPolling();
-          setActiveJob(prev =>
-            prev && prev.id === localJobId
-              ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
-              : prev
-          );
-          return;
-        }
-        pollJobStatus(serverJobId, localJobId, frontImage, backImage);
-      }, POLL_INTERVAL);
+      // Build the job object (serverJobId now known) and start polling via shared helper
+      const jobForPolling: GradingJob = {
+        id: localJobId, serverJobId, frontImage, backImage, status: "processing", startTime: Date.now(),
+      };
+      startPollingForJob(jobForPolling);
     } catch (error: any) {
       console.error("Failed to submit grading job:", error);
 
@@ -556,20 +584,12 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         scheduledNotifId.current = await scheduleGradingNotification(ESTIMATED_GRADE_SECONDS + 30);
       }
 
-      stopPolling();
-      const pollStart = Date.now();
-      pollingRef.current = setInterval(() => {
-        if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
-          stopPolling();
-          setActiveJob(prev =>
-            prev && prev.id === localJobId
-              ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
-              : prev
-          );
-          return;
-        }
-        pollJobStatus(serverJobId, localJobId, frontImage, backImage, deepExtraImages);
-      }, POLL_INTERVAL);
+      const jobForPolling: GradingJob = {
+        id: localJobId, serverJobId, frontImage, backImage,
+        angledFrontImage, angledBackImage, isDeepGrade: true,
+        status: "processing", startTime: Date.now(),
+      };
+      startPollingForJob(jobForPolling);
     } catch (error: any) {
       console.error("Failed to submit deep grading job:", error);
 
@@ -637,20 +657,13 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         scheduledNotifId.current = await scheduleGradingNotification(ESTIMATED_GRADE_SECONDS);
       }
 
-      stopPolling();
-      const pollStart = Date.now();
-      pollingRef.current = setInterval(() => {
-        if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
-          stopPolling();
-          setActiveJob(prev =>
-            prev && prev.id === localJobId
-              ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
-              : prev
-          );
-          return;
-        }
-        pollJobStatus(serverJobId, localJobId, slabFrontImage, slabBackImage || slabFrontImage, undefined, "/api/crossover-grade-job", certData);
-      }, POLL_INTERVAL);
+      const jobForPolling: GradingJob = {
+        id: localJobId, serverJobId,
+        frontImage: slabFrontImage, backImage: slabBackImage || slabFrontImage,
+        isCrossover: true, certData,
+        status: "processing", startTime: Date.now(),
+      };
+      startPollingForJob(jobForPolling);
     } catch (error: any) {
       console.error("Failed to submit crossover grading job:", error);
 
@@ -667,39 +680,63 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     }
   }, [pollJobStatus, stopPolling, rcAppUserId]);
 
+  // ── Persist active job to device storage ──────────────────────────────────
+  // Saves a lightweight snapshot (no large corner arrays) whenever the active
+  // job changes. Cleared automatically on completion, failure, or dismiss.
+  useEffect(() => {
+    if (!activeJob || activeJob.status !== "processing" || !activeJob.serverJobId) {
+      AsyncStorage.removeItem(ACTIVE_JOB_STORAGE_KEY).catch(() => {});
+      return;
+    }
+    // Omit large corner image arrays to keep the stored value small
+    const { frontCornerImages: _f, backCornerImages: _b, savedGrading: _s, ...safe } = activeJob as any;
+    AsyncStorage.setItem(ACTIVE_JOB_STORAGE_KEY, JSON.stringify(safe)).catch(() => {});
+  }, [activeJob]);
+
+  // ── Restore active job on app relaunch (survives full app kills) ──────────
+  // On mount: if AsyncStorage has a processing job from a previous session,
+  // restore it and immediately resume polling so the result isn't lost.
+  useEffect(() => {
+    AsyncStorage.getItem(ACTIVE_JOB_STORAGE_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const j = JSON.parse(raw) as Partial<GradingJob> & { startTime?: number };
+        if (j.status !== "processing" || !j.serverJobId || !j.id) return;
+        // Discard jobs older than 15 minutes — they definitely finished or timed out
+        if (Date.now() - (j.startTime || 0) > 15 * 60 * 1000) {
+          void AsyncStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+          return;
+        }
+        const restored: GradingJob = {
+          id: j.id!,
+          serverJobId: j.serverJobId!,
+          frontImage: j.frontImage || "",
+          backImage: j.backImage || "",
+          angledFrontImage: j.angledFrontImage,
+          angledBackImage: j.angledBackImage,
+          isDeepGrade: j.isDeepGrade,
+          isCrossover: j.isCrossover,
+          certData: j.certData,
+          status: "processing",
+          startTime: j.startTime || Date.now(),
+        };
+        setActiveJob(restored);
+        // Kick off polling immediately — AppState "active" won't fire on cold launch
+        startPollingForJob(restored);
+      } catch {}
+    }).catch(() => {});
+  }, [startPollingForJob]); // startPollingForJob is stable (memoised)
+
+  // ── Resume polling when returning to foreground ────────────────────────────
+  // Uses startPollingForJob so logic is shared with the storage-restore path.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && activeJob?.status === "processing" && activeJob.serverJobId) {
-        stopPolling();
-        const extra = activeJob.isDeepGrade ? {
-          angledFrontImage: activeJob.angledFrontImage,
-          angledBackImage: activeJob.angledBackImage,
-          frontCornerImages: activeJob.frontCornerImages,
-          backCornerImages: activeJob.backCornerImages,
-          isDeepGrade: true,
-        } : undefined;
-        const resumeEndpoint = activeJob.isCrossover ? "/api/crossover-grade-job" : undefined;
-        const resumeCertData = activeJob.isCrossover ? activeJob.certData : undefined;
-        const resumeJobId = activeJob.id;
-        const resumeStart = activeJob.startTime || Date.now();
-        // Poll immediately on foreground return — don't wait for first interval tick
-        pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint, resumeCertData);
-        pollingRef.current = setInterval(() => {
-          if (Date.now() - resumeStart > MAX_POLL_DURATION_MS) {
-            stopPolling();
-            setActiveJob(prev =>
-              prev && prev.id === resumeJobId
-                ? { ...prev, status: "failed", error: "Grading timed out. Please try again." }
-                : prev
-            );
-            return;
-          }
-          pollJobStatus(activeJob.serverJobId, activeJob.id, activeJob.frontImage, activeJob.backImage, extra, resumeEndpoint, resumeCertData);
-        }, POLL_INTERVAL);
+        startPollingForJob(activeJob);
       }
     });
     return () => sub.remove();
-  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, activeJob?.isCrossover, activeJob?.certData, pollJobStatus, stopPolling]);
+  }, [activeJob?.status, activeJob?.serverJobId, activeJob?.id, activeJob?.frontImage, activeJob?.backImage, activeJob?.isDeepGrade, activeJob?.isCrossover, activeJob?.certData, startPollingForJob]);
 
   useEffect(() => {
     return () => stopPolling();
