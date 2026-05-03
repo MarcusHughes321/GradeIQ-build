@@ -34,7 +34,7 @@ The app features a dark-themed interface using red (#FF3C31), black (#000000), w
         - **Crossover Grade**: For graded slabs (photo-only for free users, cert lookup for pro subscribers with specific company integrations).
     - **Image Enhancement Pipeline**: All images are sharpened, brightness adjusted, and contrast boosted before AI analysis.
     - **Progress UI**: Animated progress bar with mode-specific stages.
-    - **Background Grading**: Jobs run in the background, with status indicated on the Home tab and tab icon.
+    - **Background Grading**: Jobs run in the background, with status indicated on the Home tab and tab icon. **Kill-safe delivery**: `grading_jobs` DB table stores `rc_user_id` + `delivered` flag. On every app launch, `GET /api/pending-grades` checks for completed-but-unacknowledged jobs keyed by RC user ID. Results survive full app kills, reinstalls, and device switches. The client acknowledges via `POST /api/grade-job/:id/acknowledge` once a result is processed (both polling path and recovery path). AppState "active" fires to resume polling when the app is merely backgrounded (not killed).
     - **Bulk Grading**: Up to 20 cards simultaneously (Quick Grade only).
     - **Subscription Model**: Tiered access to features (Free, Grade Curious, Grade Enthusiast, Grade Obsessed) managed by RevenueCat.
     - **First-use Company Selection**: Guides users to select preferred grading companies.

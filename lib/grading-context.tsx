@@ -1,18 +1,14 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, ReactNode, useRef } from "react";
 import { Platform, AppState } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import * as ImageManipulator from "expo-image-manipulator";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
 import { uploadGrading, uploadGradingImages } from "@/lib/server-history";
-
-// Key used to persist the active grading job across app kills/restarts
-const ACTIVE_JOB_STORAGE_KEY = "@gradeiq/activeJob_v2";
 
 function parseQuotaError(error: any): string | null {
   try {
@@ -377,6 +373,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
             ? { ...prev, status: "completed", savedGrading: saved }
             : prev
         );
+
+        // Tell the server this result has been delivered so it won't appear
+        // in /api/pending-grades on the next app launch (fire-and-forget).
+        apiRequest("POST", `/api/grade-job/${serverJobId}/acknowledge`).catch(() => {});
       } else if (data.status === "failed") {
         stopPolling();
 
@@ -680,55 +680,74 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     }
   }, [pollJobStatus, stopPolling, rcAppUserId]);
 
-  // ── Persist active job to device storage ──────────────────────────────────
-  // Saves a lightweight snapshot (no large corner arrays) whenever the active
-  // job changes. Cleared automatically on completion, failure, or dismiss.
+  // ── Recover completed grades after app kill / reinstall ───────────────────
+  // On every launch (once rcAppUserId is known), ask the server for any
+  // completed jobs that were never delivered. The server stores each job
+  // against the user's RC ID, so results survive full app kills, reinstalls,
+  // and even device switches. No AsyncStorage needed.
   useEffect(() => {
-    if (!activeJob || activeJob.status !== "processing" || !activeJob.serverJobId) {
-      AsyncStorage.removeItem(ACTIVE_JOB_STORAGE_KEY).catch(() => {});
-      return;
-    }
-    // Omit large corner image arrays to keep the stored value small
-    const { frontCornerImages: _f, backCornerImages: _b, savedGrading: _s, ...safe } = activeJob as any;
-    AsyncStorage.setItem(ACTIVE_JOB_STORAGE_KEY, JSON.stringify(safe)).catch(() => {});
-  }, [activeJob]);
-
-  // ── Restore active job on app relaunch (survives full app kills) ──────────
-  // On mount: if AsyncStorage has a processing job from a previous session,
-  // restore it and immediately resume polling so the result isn't lost.
-  useEffect(() => {
-    AsyncStorage.getItem(ACTIVE_JOB_STORAGE_KEY).then(raw => {
-      if (!raw) return;
+    if (!rcAppUserId) return;
+    (async () => {
       try {
-        const j = JSON.parse(raw) as Partial<GradingJob> & { startTime?: number };
-        if (j.status !== "processing" || !j.serverJobId || !j.id) return;
-        // Discard jobs older than 15 minutes — they definitely finished or timed out
-        if (Date.now() - (j.startTime || 0) > 15 * 60 * 1000) {
-          void AsyncStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
-          return;
+        const url = new URL("/api/pending-grades", getApiUrl());
+        url.searchParams.set("rcUserId", rcAppUserId);
+        const resp = await fetch(url.toString());
+        if (!resp.ok) return;
+        const { jobs } = await resp.json();
+        if (!Array.isArray(jobs) || jobs.length === 0) return;
+
+        // Process each pending grade (surface the first one, silently save the rest)
+        for (let i = 0; i < jobs.length; i++) {
+          const job = jobs[i];
+          if (!job.result) continue;
+
+          const result: GradingResult = job.result;
+
+          // Save to local history (no images — they were lost when the app was killed)
+          let saved: any;
+          try {
+            saved = await saveGrading("", "", result, undefined);
+          } catch {
+            saved = { id: `unsaved_${Date.now()}`, frontImage: "", backImage: "", result, timestamp: Date.now() };
+          }
+
+          if (saved.id && !saved.id.startsWith("unsaved_")) {
+            const sid = stableUserId || undefined;
+            uploadGrading(rcAppUserId, saved, sid).catch(() => {});
+          }
+
+          // Surface only the first result so we don't stack multiple modals
+          if (i === 0) {
+            if (Platform.OS !== "web") {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+            if (notificationsEnabled.current) {
+              const cardName = result.cardName || "Your card";
+              sendImmediateNotification("Grading Complete", `${cardName} has been graded!`);
+            }
+            setActiveJob({
+              id: `recovered_${job.id}`,
+              serverJobId: job.id,
+              frontImage: "",
+              backImage: "",
+              status: "completed",
+              savedGrading: saved,
+              startTime: Date.now(),
+            });
+          }
+
+          // Acknowledge every job so it doesn't reappear next launch
+          apiRequest("POST", `/api/grade-job/${job.id}/acknowledge`).catch(() => {});
         }
-        const restored: GradingJob = {
-          id: j.id!,
-          serverJobId: j.serverJobId!,
-          frontImage: j.frontImage || "",
-          backImage: j.backImage || "",
-          angledFrontImage: j.angledFrontImage,
-          angledBackImage: j.angledBackImage,
-          isDeepGrade: j.isDeepGrade,
-          isCrossover: j.isCrossover,
-          certData: j.certData,
-          status: "processing",
-          startTime: j.startTime || Date.now(),
-        };
-        setActiveJob(restored);
-        // Kick off polling immediately — AppState "active" won't fire on cold launch
-        startPollingForJob(restored);
-      } catch {}
-    }).catch(() => {});
-  }, [startPollingForJob]); // startPollingForJob is stable (memoised)
+      } catch (e) {
+        // Non-critical — user will still see their grades in history
+        console.log("[pending-grades] startup check failed:", e);
+      }
+    })();
+  }, [rcAppUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Resume polling when returning to foreground ────────────────────────────
-  // Uses startPollingForJob so logic is shared with the storage-restore path.
+  // Uses startPollingForJob so logic is shared across all polling entry points.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && activeJob?.status === "processing" && activeJob.serverJobId) {
