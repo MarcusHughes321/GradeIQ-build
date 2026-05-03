@@ -194,6 +194,35 @@ async function getCachedTier(rcUserId: string): Promise<string | null> {
   }
 }
 
+// Rank map used to prevent downgrading a paid cached tier via a race-condition sync call.
+const TIER_RANK: Record<string, number> = { free: 0, curious: 1, enthusiast: 2, obsessed: 3 };
+
+// Upsert subscription_cache, but never downgrade a paid tier to free via a race-condition
+// client sync. The only legitimate downgrade path is the RC API check in enforceServerQuota.
+async function upsertSubscriptionTier(rcUserId: string, tier: string): Promise<void> {
+  const newRank = TIER_RANK[tier] ?? 0;
+  const existing = await db.query(
+    "SELECT tier FROM subscription_cache WHERE rc_user_id = $1",
+    [rcUserId]
+  );
+  const existingTier = existing.rows[0]?.tier ?? "free";
+  const existingRank = TIER_RANK[existingTier] ?? 0;
+
+  // Only write if the new tier is >= existing (prevents free overwriting paid)
+  if (newRank >= existingRank) {
+    await db.query(
+      `INSERT INTO subscription_cache (rc_user_id, tier, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (rc_user_id) DO UPDATE SET tier = $2, updated_at = NOW()`,
+      [rcUserId, tier]
+    );
+  }
+  // If client sent a lower tier than cached, log and ignore — cache stays at paid tier
+  if (newRank < existingRank) {
+    console.log(`[sub-cache] Ignoring downgrade attempt ${rcUserId}: ${existingTier} → ${tier} (startup race condition)`);
+  }
+}
+
 // Returns an error message string if over quota, or null if the request should be allowed.
 async function enforceServerQuota(
   rcUserId: string,
@@ -217,16 +246,25 @@ async function enforceServerQuota(
     // Over their paid limit — verify with RC in case subscription lapsed
     const hasPaid = await checkHasPaidEntitlement(rcUserId);
     if (hasPaid) return null;
+    // RC confirmed no active subscription — downgrade cache to free
+    upsertSubscriptionTier(rcUserId, "free").catch(() => {});
     return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
   }
 
   // ── Fallback: free tier limits ────────────────────────────────────────────
+  // Reached when there's no cached tier or cached tier is "free".
   const freeLimits: Record<string, number> = { quick: 3, deep: 0, crossover: 0 };
   const freeLimit = freeLimits[type] ?? 0;
   if (count < freeLimit) return null;
-  // At or over free limit — check if they're actually paid (no cached tier yet)
+  // At or over free limit — check RC to see if they're actually a paid subscriber
+  // whose cache entry is missing or stale (e.g. startup race condition).
   const hasPaid = await checkHasPaidEntitlement(rcUserId);
-  if (hasPaid) return null;
+  if (hasPaid) {
+    // They ARE paid but we had no cached tier. Write "curious" as a safe minimum
+    // so subsequent grades skip this RC check entirely.
+    upsertSubscriptionTier(rcUserId, "curious").catch(() => {});
+    return null;
+  }
   return `Monthly ${type} grade limit reached. Please upgrade to continue.`;
 }
 import { ENGLISH_SETS, JAPANESE_SETS, KOREAN_SETS, CHINESE_SETS, generateSetReferenceForPrompt, generateSymbolReferenceForPrompt } from "./pokemon-sets";
@@ -9109,13 +9147,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     const validTiers = ["free", "curious", "enthusiast", "obsessed"];
     if (!validTiers.includes(tier)) return res.status(400).json({ error: "Invalid tier" });
     try {
-      await db.query(
-        `INSERT INTO subscription_cache (rc_user_id, tier, updated_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (rc_user_id) DO UPDATE SET tier = $2, updated_at = NOW()`,
-        [rcUserId, tier]
-      );
-      // Clear live-check cache so next RC call uses fresh data
+      await upsertSubscriptionTier(rcUserId, tier);
       entitlementCache.delete(rcUserId);
       console.log(`[sub-cache] Synced tier for ${rcUserId}: ${tier}`);
       res.json({ ok: true });
