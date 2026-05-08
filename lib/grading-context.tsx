@@ -483,6 +483,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         stableUserId: stableUserId || undefined,
       }), 60_000);
 
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`${resp.status}: ${text}`);
+      }
       const { jobId: serverJobId } = await resp.json();
 
       setActiveJob(prev =>
@@ -573,6 +577,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         stableUserId: stableUserId || undefined,
       }), 90_000);
 
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`${resp.status}: ${text}`);
+      }
       const { jobId: serverJobId } = await resp.json();
 
       setActiveJob(prev =>
@@ -647,6 +655,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         stableUserId: stableUserId || undefined,
       }), 60_000);
 
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`${resp.status}: ${text}`);
+      }
       const { jobId: serverJobId } = await resp.json();
 
       setActiveJob(prev =>
