@@ -8795,7 +8795,7 @@ RESPONSE FORMAT (JSON only, no markdown):
             content: convertToClaudeContent(contentParts),
           },
         ],
-      }, { timeout: 120_000 }), // 2-minute hard cap (passed as SDK request option, not message body)
+      }),
       detectCardBounds(slabUrl, true),
       slabBackUrl ? detectCardBounds(slabBackUrl, true) : Promise.resolve(null),
       detectSlabCardBoundsWithAI(slabUrl),
