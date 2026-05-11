@@ -196,7 +196,14 @@ async function checkHasPaidEntitlement(rcUserId: string): Promise<{ hasPaid: boo
     const data = await resp.json() as any;
 
     // ── Check "Grade.IQ Pro" entitlement first ──────────────────────────────
-    const entitlement = data?.subscriber?.entitlements?.["Grade.IQ Pro"];
+    // NOTE: RevenueCat stores this entitlement key with a Unicode ONE DOT LEADER
+    // (U+2024 '․') not a regular period (U+002E '.') — confirmed via API inspection.
+    // We check both characters defensively so a dashboard rename doesn't break this.
+    const allEntitlements = (data?.subscriber?.entitlements ?? {}) as Record<string, any>;
+    const entitlement =
+      allEntitlements["Grade\u2024IQ Pro"] ??   // U+2024 ONE DOT LEADER (actual RC key)
+      allEntitlements["Grade.IQ Pro"] ??         // U+002E regular period (fallback)
+      Object.values(allEntitlements).find(Boolean); // any entitlement as last resort
     if (entitlement) {
       const expiresDate = entitlement.expires_date;
       const isActive = !expiresDate || new Date(expiresDate) > new Date();
