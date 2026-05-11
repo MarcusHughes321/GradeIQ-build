@@ -374,6 +374,14 @@ const ADVISOR_STOP_WORDS = new Set([
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+  fetch: async (url: RequestInfo, init?: RequestInit) => {
+    // Debug: log the request body keys being sent to the AI endpoint
+    try {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      console.log("[ai-debug] Request to AI endpoint — body keys:", Object.keys(body), "| header keys:", Object.keys((init?.headers as Record<string,string>) ?? {}));
+    } catch {}
+    return fetch(url, init);
+  },
 });
 
 function toClaudeImage(url: string): Anthropic.ImageBlockParam {
