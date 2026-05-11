@@ -159,17 +159,29 @@ async function recordServerUsage(rcUserId: string, type: "quick" | "deep" | "cro
 }
 
 // In-memory cache: { [rcUserId]: { result: boolean, expiresAt: number } }
-const entitlementCache = new Map<string, { result: boolean; expiresAt: number }>();
+const entitlementCache = new Map<string, { result: boolean; tier: string; expiresAt: number }>();
 const ENTITLEMENT_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-async function checkHasPaidEntitlement(rcUserId: string): Promise<boolean> {
-  if (!rcUserId) return false;
+// Determine tier from a RevenueCat product/subscription identifier string
+function tierFromProductId(productId: string): string | null {
+  if (productId.includes("obsessed")) return "obsessed";
+  if (productId.includes("enthusiast")) return "enthusiast";
+  if (productId.includes("curious")) return "curious";
+  return null;
+}
+
+// Checks RC REST API for an active paid subscription.
+// Returns { hasPaid, tier } where tier is the actual tier ("curious"/"enthusiast"/"obsessed")
+// or "free" if not paid. Fails open (returns hasPaid=true, tier="curious") on network/API errors
+// to ensure paying users are never blocked by transient RC issues.
+async function checkHasPaidEntitlement(rcUserId: string): Promise<{ hasPaid: boolean; tier: string }> {
+  if (!rcUserId) return { hasPaid: false, tier: "free" };
 
   const cached = entitlementCache.get(rcUserId);
-  if (cached && Date.now() < cached.expiresAt) return cached.result;
+  if (cached && Date.now() < cached.expiresAt) return { hasPaid: cached.result, tier: cached.tier };
 
   const key = process.env.REVENUECAT_SECRET_KEY;
-  if (!key) return false;
+  if (!key) return { hasPaid: false, tier: "free" };
 
   try {
     const resp = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(rcUserId)}`, {
@@ -179,16 +191,47 @@ async function checkHasPaidEntitlement(rcUserId: string): Promise<boolean> {
     if (!resp.ok) {
       // RC returned an error response — don't cache, fail open so paying users aren't blocked
       console.warn(`[entitlement] RC returned ${resp.status} for ${rcUserId} — failing open`);
-      return true;
+      return { hasPaid: true, tier: "curious" };
     }
     const data = await resp.json() as any;
-    const result = !!data?.subscriber?.entitlements?.["Grade.IQ Pro"];
-    entitlementCache.set(rcUserId, { result, expiresAt: Date.now() + ENTITLEMENT_CACHE_TTL_MS });
-    return result;
+
+    // ── Check "Grade.IQ Pro" entitlement first ──────────────────────────────
+    const entitlement = data?.subscriber?.entitlements?.["Grade.IQ Pro"];
+    if (entitlement) {
+      const expiresDate = entitlement.expires_date;
+      const isActive = !expiresDate || new Date(expiresDate) > new Date();
+      if (isActive) {
+        const tier = tierFromProductId(entitlement.product_identifier ?? "") ?? "curious";
+        console.log(`[entitlement] Active entitlement for ${rcUserId}: tier=${tier}`);
+        entitlementCache.set(rcUserId, { result: true, tier, expiresAt: Date.now() + ENTITLEMENT_CACHE_TTL_MS });
+        return { hasPaid: true, tier };
+      }
+    }
+
+    // ── Fallback: check subscriptions object directly ────────────────────────
+    // Handles the case where the RC product isn't linked to the "Grade.IQ Pro"
+    // entitlement in the RC dashboard, but the subscription itself is active.
+    const subscriptions = (data?.subscriber?.subscriptions ?? {}) as Record<string, any>;
+    const now = new Date();
+    for (const [productId, sub] of Object.entries(subscriptions)) {
+      const expiresDate = sub?.expires_date;
+      const isActive = !expiresDate || new Date(expiresDate) > now;
+      if (!isActive) continue;
+      const tier = tierFromProductId(productId);
+      if (tier) {
+        console.log(`[entitlement] Found active subscription (no entitlement) for ${rcUserId}: ${productId} → tier=${tier}`);
+        entitlementCache.set(rcUserId, { result: true, tier, expiresAt: Date.now() + ENTITLEMENT_CACHE_TTL_MS });
+        return { hasPaid: true, tier };
+      }
+    }
+
+    console.log(`[entitlement] No active paid subscription found for ${rcUserId}`);
+    entitlementCache.set(rcUserId, { result: false, tier: "free", expiresAt: Date.now() + ENTITLEMENT_CACHE_TTL_MS });
+    return { hasPaid: false, tier: "free" };
   } catch (e: any) {
     // Network timeout or other error — fail open to avoid blocking paying users
     console.warn(`[entitlement] RC check failed for ${rcUserId} (${e?.message ?? e}) — failing open`);
-    return true;
+    return { hasPaid: true, tier: "curious" };
   }
 }
 
@@ -273,7 +316,7 @@ async function enforceServerQuota(
     if (limit === null) return null; // unlimited (obsessed tier)
     if (count < limit) return null;
     // Over their paid limit — verify with RC in case subscription lapsed
-    const hasPaid = await checkHasPaidEntitlement(rcUserId);
+    const { hasPaid } = await checkHasPaidEntitlement(rcUserId);
     if (hasPaid) return null;
     // RC confirmed no active subscription — downgrade cache to free
     upsertSubscriptionTier(rcUserId, "free").catch(() => {});
@@ -286,12 +329,15 @@ async function enforceServerQuota(
   const freeLimit = freeLimits[type] ?? 0;
   if (count < freeLimit) return null;
   // At or over free limit — check RC to see if they're actually a paid subscriber
-  // whose cache entry is missing or stale (e.g. startup race condition).
-  const hasPaid = await checkHasPaidEntitlement(rcUserId);
+  // whose cache entry is missing or stale (e.g. startup race condition, or the
+  // subscription/sync endpoint was never called). Also checks subscriber.subscriptions
+  // as a fallback in case their RC product isn't linked to the entitlement.
+  const { hasPaid, tier: rcTier } = await checkHasPaidEntitlement(rcUserId);
   if (hasPaid) {
-    // They ARE paid but we had no cached tier. Write "curious" as a safe minimum
-    // so subsequent grades skip this RC check entirely.
-    upsertSubscriptionTier(rcUserId, "curious").catch(() => {});
+    // They ARE paid but we had no cached tier. Cache their actual tier now so
+    // subsequent grades use the correct limits (not just "curious" minimum).
+    console.log(`[quota] Paid user detected via RC check — caching tier=${rcTier} for ${rcUserId}`);
+    upsertSubscriptionTier(rcUserId, rcTier).catch(() => {});
     return null;
   }
   return `Monthly ${type} grade limit reached. Please upgrade to continue.`;

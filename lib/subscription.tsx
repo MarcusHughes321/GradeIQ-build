@@ -478,6 +478,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
         setCurrentTierSafe(updatedTier);
         setRcAppUserId(updated.originalAppUserId ?? "");
+        syncTierToServer(updated.originalAppUserId ?? "", updatedTier).catch(() => {});
       });
     } catch (e: any) {
       console.log("[subscription] RevenueCat init error:", e?.message ?? e);
@@ -714,6 +715,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       if (tier !== "free") {
         setCurrentTierSafe(tier);
         setRcAppUserId(info.originalAppUserId ?? "");
+        await syncTierToServer(info.originalAppUserId ?? "", tier).catch(() => {});
         return true;
       }
 
@@ -731,6 +733,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         if (retriedTier !== "free") {
           setCurrentTierSafe(retriedTier);
           setRcAppUserId(retried.originalAppUserId ?? "");
+          await syncTierToServer(retried.originalAppUserId ?? "", retriedTier).catch(() => {});
           return true;
         }
       }
@@ -757,6 +760,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const tier = determineTier(info);
       console.log("[subscription] Manual refresh: tier=", tier, "entitlements=", Object.keys(info.entitlements.active));
       setCurrentTierSafe(tier);
+      setRcAppUserId(info.originalAppUserId ?? "");
+      syncTierToServer(info.originalAppUserId ?? "", tier).catch(() => {});
       return { tier, wasUpgrade: tier !== "free" && tier !== prevTier };
     } catch (e) {
       console.error("[subscription] Manual refresh error:", e);
