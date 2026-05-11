@@ -8789,14 +8789,13 @@ RESPONSE FORMAT (JSON only, no markdown):
         model: "claude-sonnet-4-6",
         max_tokens: 6000,
         temperature: 0.2,
-        timeout: 120_000, // 2-minute hard cap on Claude API call
         messages: [
           {
             role: "user",
             content: convertToClaudeContent(contentParts),
           },
         ],
-      }),
+      }, { timeout: 120_000 }), // 2-minute hard cap (passed as SDK request option, not message body)
       detectCardBounds(slabUrl, true),
       slabBackUrl ? detectCardBounds(slabBackUrl, true) : Promise.resolve(null),
       detectSlabCardBoundsWithAI(slabUrl),
