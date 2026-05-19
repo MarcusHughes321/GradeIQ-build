@@ -48,12 +48,15 @@ type CardResult = {
   lang?: string;
 };
 
+type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
+
 type Message = {
   id: string;
   role: "user" | "assistant";
   text: string;
   prices?: Prices | null;
   cards?: CardResult[] | null;
+  segments?: Segment[] | null;
   isError?: boolean;
   retryText?: string;
 };
@@ -227,11 +230,11 @@ function BotAvatar() {
   );
 }
 
-function CardThumb({ card }: { card: CardResult }) {
+function CardThumb({ card, style }: { card: CardResult; style?: object }) {
   const { Image } = require("expo-image");
   return (
     <Pressable
-      style={({ pressed }) => [cardRowStyles.thumb, { opacity: pressed ? 0.7 : 1 }]}
+      style={({ pressed }) => [cardRowStyles.thumb, style, { opacity: pressed ? 0.7 : 1 }]}
       onPress={() =>
         router.push({
           pathname: "/card-profit",
@@ -280,6 +283,16 @@ function CardRow({ cards }: { cards: CardResult[] }) {
     </View>
   );
 }
+
+const inlineCardStyles = StyleSheet.create({
+  wrap: {
+    alignItems: "flex-start",
+    marginVertical: 6,
+  },
+  thumb: {
+    width: 72,
+  },
+});
 
 const cardRowStyles = StyleSheet.create({
   container: {
@@ -393,9 +406,27 @@ function AssistantBubble({
       <BotAvatar />
       <View style={{ flex: 1 }}>
         <View style={msgStyles.aiBubble}>
-          <Text style={msgStyles.aiText}>{stripMarkdown(msg.text)}</Text>
+          {msg.segments && msg.segments.length > 0 ? (
+            <>
+              {msg.segments.map((seg, i) => {
+                if (seg.type === "text") {
+                  return <Text key={i} style={msgStyles.aiText}>{stripMarkdown(seg.text)}</Text>;
+                }
+                const card = msg.cards?.[seg.cardIndex];
+                return card ? (
+                  <View key={i} style={inlineCardStyles.wrap}>
+                    <CardThumb card={card} style={inlineCardStyles.thumb} />
+                  </View>
+                ) : null;
+              })}
+            </>
+          ) : (
+            <>
+              <Text style={msgStyles.aiText}>{stripMarkdown(msg.text)}</Text>
+              {msg.cards && msg.cards.length > 0 && <CardRow cards={msg.cards} />}
+            </>
+          )}
           {msg.prices && <PricesCard prices={msg.prices} />}
-          {msg.cards && msg.cards.length > 0 && <CardRow cards={msg.cards} />}
         </View>
         {Platform.OS !== "web" && (
           <Pressable
@@ -549,6 +580,7 @@ export default function PokeBotScreen() {
         text: data.reply,
         prices: data.prices ?? null,
         cards: Array.isArray(data.cards) && data.cards.length > 0 ? data.cards : null,
+        segments: Array.isArray(data.segments) && data.segments.length > 0 ? data.segments : null,
       }, ...prev]);
     } catch {
       setMessages(prev => [{

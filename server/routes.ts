@@ -13175,7 +13175,8 @@ RESPONSE RULES (strict):
 - Be direct, give a clear recommendation
 - For grading economics, include grading cost (PSA ~£25, ACE ~£18, BGS ~£40) and net profit
 - Never use markdown headers or bold text
-- Always search for cards BEFORE writing your answer so images load with the text`;
+- Always search for cards BEFORE writing your answer so images load with the text
+- CARD MARKERS: After each bullet point or sentence that refers to a specific card from search_multiple_cards, append [C0], [C1], [C2] etc. (the index of that card in the queries array you passed). For search_pokemon_cards results use [C0]. Do NOT put the marker mid-sentence — put it at the very end of the line that mentions the card.`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -13198,10 +13199,34 @@ RESPONSE RULES (strict):
         logAiCost("deal_advisor", "claude-sonnet-4-6", resp.usage.input_tokens, resp.usage.output_tokens);
 
         if (resp.stop_reason === "end_turn" || !resp.content.some(b => b.type === "tool_use")) {
-          const reply = resp.content
+          const rawReply = resp.content
             .filter((b): b is Anthropic.TextBlock => b.type === "text")
             .map(b => b.text).join("") || "Sorry, I had trouble with that. Try rephrasing?";
-          return res.json({ reply, prices: pricesOut, cards: cardsOut.length > 0 ? cardsOut : null });
+
+          // Build interleaved segments so the frontend can render each card
+          // right below the text line that references it
+          type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
+          const segments: Segment[] = [];
+          const markerRe = /\[C(\d)\]/g;
+          let last = 0;
+          let m: RegExpExecArray | null;
+          while ((m = markerRe.exec(rawReply)) !== null) {
+            const chunk = rawReply.slice(last, m.index).trimEnd();
+            if (chunk) segments.push({ type: "text", text: chunk });
+            segments.push({ type: "card", cardIndex: parseInt(m[1], 10) });
+            last = m.index + m[0].length;
+          }
+          const tail = rawReply.slice(last).trimStart();
+          if (tail) segments.push({ type: "text", text: tail });
+
+          const cleanReply = rawReply.replace(/\[C\d\]/g, "").trim();
+          const hasSegments = segments.some(s => s.type === "card");
+          return res.json({
+            reply: cleanReply,
+            prices: pricesOut,
+            cards: cardsOut.length > 0 ? cardsOut : null,
+            segments: hasSegments ? segments : null,
+          });
         }
 
         // Append assistant turn
