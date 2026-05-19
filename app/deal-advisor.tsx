@@ -19,7 +19,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
-import * as Speech from "expo-speech";
 import { Audio } from "expo-av";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
@@ -510,6 +509,7 @@ export default function PokeBotScreen() {
   const [speakingId, setSpeakingId] = useState<string | null>(null);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const inputRef = useRef<TextInput>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -542,10 +542,7 @@ export default function PokeBotScreen() {
 
   // Stop TTS when a new message starts loading
   useEffect(() => {
-    if (loading && Platform.OS !== "web") {
-      Speech.stop();
-      setSpeakingId(null);
-    }
+    if (loading) stopSound();
   }, [loading]);
 
   const sendMessage = useCallback(async (text: string) => {
@@ -672,26 +669,46 @@ export default function PokeBotScreen() {
     else await startRecording();
   };
 
+  const stopSound = async () => {
+    if (soundRef.current) {
+      try { await soundRef.current.stopAsync(); await soundRef.current.unloadAsync(); } catch {}
+      soundRef.current = null;
+    }
+    setSpeakingId(null);
+  };
+
   const onSpeakMessage = async (msg: Message) => {
     if (Platform.OS === "web") return;
-    const speaking = await Speech.isSpeakingAsync();
-    if (speaking) {
-      await Speech.stop();
-      setSpeakingId(null);
-      if (speakingId === msg.id) return;
-    }
+    // Tap again to stop
+    if (speakingId === msg.id) { await stopSound(); return; }
+    await stopSound();
     setSpeakingId(msg.id);
-    Speech.speak(stripMarkdown(msg.text), {
-      language: "en-GB",
-      rate: 1.0,
-      onDone: () => setSpeakingId(null),
-      onStopped: () => setSpeakingId(null),
-      onError: () => setSpeakingId(null),
-    });
+    try {
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const text = stripMarkdown(msg.text).slice(0, 600);
+      const url = new URL("/api/pokemon-chat/tts", apiBase);
+      url.searchParams.set("text", text);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: url.toString() },
+        { shouldPlay: true }
+      );
+      soundRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        if ((status as any).didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          soundRef.current = null;
+          setSpeakingId(null);
+        }
+      });
+    } catch (e) {
+      console.error("TTS error:", e);
+      setSpeakingId(null);
+    }
   };
 
   const clearChat = () => {
-    if (Platform.OS !== "web") Speech.stop();
+    stopSound();
     setSpeakingId(null);
     setMessages([]);
     setInput("");
