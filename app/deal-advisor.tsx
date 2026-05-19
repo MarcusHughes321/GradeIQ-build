@@ -12,6 +12,7 @@ import {
   Animated,
   ScrollView,
   KeyboardAvoidingView,
+  Linking,
 } from "react-native";
 import { fetch } from "expo/fetch";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -596,16 +597,28 @@ export default function PokeBotScreen() {
   }, [loading, messages, apiBase, requireSub]);
 
   const startRecording = async () => {
-    const { status } = await Audio.requestPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Microphone needed", "Please allow microphone access in Settings to use voice input.");
-      return;
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Microphone access needed",
+          "Please enable microphone access for this app in your device Settings to use voice input.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      recordingRef.current = recording;
+      setIsRecording(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (e) {
+      console.error("startRecording error:", e);
+      Alert.alert("Microphone error", "Could not start recording. Please check microphone permissions in Settings.");
     }
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-    const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-    recordingRef.current = recording;
-    setIsRecording(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const stopAndTranscribe = async () => {
@@ -619,7 +632,7 @@ export default function PokeBotScreen() {
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
       if (!uri) throw new Error("No recording URI");
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" as any });
       const url = new URL("/api/pokemon-chat/transcribe", apiBase);
       const res = await fetch(url.toString(), {
         method: "POST",
