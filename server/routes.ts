@@ -13341,16 +13341,22 @@ RESPONSE RULES (strict):
   });
 
   // ─── Pokémon Chatbot: text-to-speech ──────────────────────────────────────
+  // Uses tts-1 (fast, low-latency) instead of gpt-audio (slow multimodal).
   // Returns base64 MP3 as JSON — client writes to a temp file and plays locally.
-  // Using POST + base64 avoids iOS AVPlayer range-request requirements.
   app.post("/api/pokemon-chat/tts", async (req, res) => {
     const { text, voice = "nova" } = req.body as { text?: string; voice?: string };
     if (!text?.trim()) return res.status(400).json({ error: "text required" });
     try {
-      const { textToSpeech } = await import("./replit_integrations/audio/client");
+      const { openai } = await import("./replit_integrations/audio/client");
       const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
       const v = (validVoices.includes(voice) ? voice : "nova") as any;
-      const buffer = await textToSpeech(text.slice(0, 600), v, "mp3");
+      const mp3Response = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: v,
+        input: text.slice(0, 600),
+        response_format: "mp3",
+      });
+      const buffer = Buffer.from(await mp3Response.arrayBuffer());
       res.json({ audio: buffer.toString("base64"), format: "mp3" });
     } catch (e: any) {
       console.error("[pokemon-chat/tts]", e.message);

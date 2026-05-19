@@ -377,11 +377,15 @@ const priceStyles = StyleSheet.create({
 });
 
 function AssistantBubble({
-  msg, isSpeaking, onSpeak, onRetry,
+  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry,
 }: {
   msg: Message;
   isSpeaking: boolean;
+  isPaused: boolean;
+  isTtsLoading: boolean;
   onSpeak: () => void;
+  onPauseResume: () => void;
+  onStop: () => void;
   onRetry?: () => void;
 }) {
   if (msg.isError) {
@@ -429,20 +433,47 @@ function AssistantBubble({
           {msg.prices && <PricesCard prices={msg.prices} />}
         </View>
         {Platform.OS !== "web" && (
-          <Pressable
-            onPress={onSpeak}
-            style={({ pressed }) => [msgStyles.speakBtn, { opacity: pressed ? 0.6 : 1 }]}
-            hitSlop={8}
-          >
-            <Ionicons
-              name={isSpeaking ? "volume-high" : "volume-medium-outline"}
-              size={14}
-              color={isSpeaking ? Colors.primary : Colors.textMuted}
-            />
-            <Text style={[msgStyles.speakText, isSpeaking && { color: Colors.primary }]}>
-              {isSpeaking ? "Stop" : "Listen"}
-            </Text>
-          </Pressable>
+          isSpeaking ? (
+            <View style={msgStyles.speakControls}>
+              {isTtsLoading ? (
+                <>
+                  <ActivityIndicator size="small" color={Colors.primary} style={{ transform: [{ scale: 0.7 }] }} />
+                  <Text style={[msgStyles.speakText, { color: Colors.primary }]}>Generating…</Text>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    onPress={onPauseResume}
+                    style={({ pressed }) => [msgStyles.speakBtn, { opacity: pressed ? 0.6 : 1 }]}
+                    hitSlop={8}
+                  >
+                    <Ionicons name={isPaused ? "play" : "pause"} size={14} color={Colors.primary} />
+                    <Text style={[msgStyles.speakText, { color: Colors.primary }]}>
+                      {isPaused ? "Resume" : "Pause"}
+                    </Text>
+                  </Pressable>
+                  <Text style={msgStyles.speakDivider}>·</Text>
+                  <Pressable
+                    onPress={onStop}
+                    style={({ pressed }) => [msgStyles.speakBtn, { opacity: pressed ? 0.6 : 1 }]}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="stop-circle-outline" size={14} color={Colors.textMuted} />
+                    <Text style={msgStyles.speakText}>Stop</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          ) : (
+            <Pressable
+              onPress={onSpeak}
+              style={({ pressed }) => [msgStyles.speakBtn, { opacity: pressed ? 0.6 : 1 }]}
+              hitSlop={8}
+            >
+              <Ionicons name="volume-medium-outline" size={14} color={Colors.textMuted} />
+              <Text style={msgStyles.speakText}>Listen</Text>
+            </Pressable>
+          )
         )}
       </View>
     </View>
@@ -483,8 +514,10 @@ const msgStyles = StyleSheet.create({
   errorText: { fontFamily: "Inter_400Regular", fontSize: 14, color: "#ff8080", lineHeight: 22 },
   retryBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 },
   retryText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.primary },
+  speakControls: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 5, marginLeft: 4 },
   speakBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5, marginLeft: 4 },
   speakText: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+  speakDivider: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted, marginHorizontal: 4 },
   userBubbleWrap: { alignItems: "flex-end", marginBottom: 16 },
   userBubble: {
     maxWidth: "80%",
@@ -508,6 +541,8 @@ export default function PokeBotScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isTtsLoading, setIsTtsLoading] = useState(false);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -676,6 +711,21 @@ export default function PokeBotScreen() {
       soundRef.current = null;
     }
     setSpeakingId(null);
+    setIsPaused(false);
+    setIsTtsLoading(false);
+  };
+
+  const pauseResumeSound = async () => {
+    if (!soundRef.current) return;
+    try {
+      if (isPaused) {
+        await soundRef.current.playAsync();
+        setIsPaused(false);
+      } else {
+        await soundRef.current.pauseAsync();
+        setIsPaused(true);
+      }
+    } catch {}
   };
 
   const onSpeakMessage = async (msg: Message) => {
@@ -684,24 +734,33 @@ export default function PokeBotScreen() {
     if (speakingId === msg.id) { await stopSound(); return; }
     await stopSound();
     setSpeakingId(msg.id);
+    setIsTtsLoading(true);
     try {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
       const text = stripMarkdown(msg.text).slice(0, 600);
 
-      // POST to get base64 audio, then write to a local temp file.
-      // This avoids iOS AVPlayer range-request issues with remote URLs.
+      // POST via XHR (expo/fetch streaming variant causes 404 for plain JSON POSTs)
       const url = new URL("/api/pokemon-chat/tts", apiBase);
-      const resp = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: "nova" }),
+      const { audio: b64, format } = await new Promise<{ audio: string; format: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url.toString());
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)); }
+            catch { reject(new Error("Bad TTS response")); }
+          } else {
+            reject(new Error(`TTS request failed: ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error("TTS network error"));
+        xhr.send(JSON.stringify({ text, voice: "nova" }));
       });
-      if (!resp.ok) throw new Error(`TTS request failed: ${resp.status}`);
-      const { audio: b64, format } = await resp.json();
 
       const cacheUri = `${FileSystem.cacheDirectory}tts_audio.${format}`;
       await FileSystem.writeAsStringAsync(cacheUri, b64, { encoding: "base64" as any });
 
+      setIsTtsLoading(false);
       const { sound } = await Audio.Sound.createAsync(
         { uri: cacheUri },
         { shouldPlay: true }
@@ -718,6 +777,8 @@ export default function PokeBotScreen() {
     } catch (e) {
       console.error("TTS error:", e);
       setSpeakingId(null);
+      setIsPaused(false);
+      setIsTtsLoading(false);
     }
   };
 
@@ -774,7 +835,11 @@ export default function PokeBotScreen() {
               <AssistantBubble
                 msg={item}
                 isSpeaking={speakingId === item.id}
+                isPaused={isPaused}
+                isTtsLoading={isTtsLoading}
                 onSpeak={() => onSpeakMessage(item)}
+                onPauseResume={pauseResumeSound}
+                onStop={stopSound}
                 onRetry={item.isError && item.retryText ? () => sendMessage(item.retryText!) : undefined}
               />
             );
