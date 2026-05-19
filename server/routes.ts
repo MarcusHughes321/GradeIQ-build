@@ -13047,6 +13047,221 @@ RESPONSE FORMAT (JSON only, no markdown):
     return "raw";
   }
 
+  // ─── Pokémon Chatbot ──────────────────────────────────────────────────────
+  app.post("/api/pokemon-chat", async (req, res) => {
+    try {
+      const { message, history = [] } = req.body as {
+        message: string;
+        history: { role: "user" | "assistant"; content: string }[];
+      };
+      if (!message?.trim()) return res.status(400).json({ error: "message required" });
+
+      const GBP_PER_USD = 0.79;
+
+      const tools: Anthropic.Tool[] = [
+        {
+          name: "search_pokemon_cards",
+          description: "Search the Pokemon card database for specific cards. Use when the user asks about a particular card's value, grading economics, set details, or availability. Returns the top matching cards with set info.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              query: { type: "string", description: "Search query e.g. 'Charizard Obsidian Flames' or 'Base Set Blastoise'" },
+            },
+            required: ["query"],
+          },
+        },
+        {
+          name: "get_card_market_prices",
+          description: "Get current eBay graded sale prices and raw TCGPlayer/Cardmarket price for a Pokemon card. Always call this when discussing a specific card's value or grading economics.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              card_name: { type: "string", description: "English name of the card" },
+              set_name: { type: "string", description: "Name of the set" },
+              card_number: { type: "string", description: "Card number (optional)" },
+            },
+            required: ["card_name", "set_name"],
+          },
+        },
+      ];
+
+      const systemPrompt = `You are PokéBot, an expert Pokemon TCG assistant inside the Grade.IQ grading app. You help collectors with everything Pokemon:
+
+WHAT YOU HELP WITH:
+- Card valuations, deal analysis, and grading economics (PSA, BGS, ACE, TAG, CGC)
+- Investment decisions and portfolio building
+- Pokemon TCG rules, mechanics, and competitive strategy
+- Set history, card rarity, print runs, and variants
+- Grading standards — what affects centering, corners, edges, surface scores
+- Market trends, sealed product, and long-term investment outlook
+- General Pokemon knowledge — game, anime, history, lore
+
+TOOLS AVAILABLE:
+- search_pokemon_cards: Use when user mentions a specific card to find its exact details
+- get_card_market_prices: Use after finding the card to get live eBay graded prices
+
+GUIDELINES:
+- British English, direct and knowledgeable tone
+- Give clear recommendations, not "it depends"
+- 1–4 paragraphs, conversational not clinical
+- When discussing grading, always mention cost (PSA ~£20-40, ACE ~£15-25, BGS ~£30-50 + postage) and calculate both PSA 10 and PSA 9 scenarios
+- Format multiple price data points as a short list on separate lines
+- You can answer anything Pokemon — don't restrict to grading only`;
+
+      const msgs: Anthropic.MessageParam[] = [
+        ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user", content: message },
+      ];
+
+      let pricesOut: any = null;
+      let toolLoopCount = 0;
+
+      while (toolLoopCount < 3) {
+        const resp = await anthropic.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 900,
+          system: systemPrompt,
+          tools,
+          messages: msgs,
+        });
+
+        logAiCost("deal_advisor", "claude-sonnet-4-6", resp.usage.input_tokens, resp.usage.output_tokens);
+
+        if (resp.stop_reason === "end_turn" || !resp.content.some(b => b.type === "tool_use")) {
+          const reply = resp.content
+            .filter((b): b is Anthropic.TextBlock => b.type === "text")
+            .map(b => b.text).join("") || "Sorry, I had trouble with that. Try rephrasing?";
+          return res.json({ reply, prices: pricesOut });
+        }
+
+        // Append assistant turn
+        msgs.push({ role: "assistant", content: resp.content });
+
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+        for (const block of resp.content) {
+          if (block.type !== "tool_use") continue;
+
+          if (block.name === "search_pokemon_cards") {
+            const { query } = block.input as { query: string };
+            try {
+              const rawTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+              const sigIdx = rawTokens.findIndex(w => ["from", "in", "of"].includes(w));
+              const hasSignal = sigIdx > 0 && sigIdx < rawTokens.length - 1;
+              const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w)).slice(0, 5);
+              const cardHints = clean(hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens);
+              const setHints  = clean(hasSignal ? rawTokens.slice(sigIdx + 1) : []).filter(w => !new Set(cardHints).has(w));
+              const allWords  = [...cardHints, ...setHints];
+
+              if (allWords.length === 0) {
+                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "No cards found for that query." });
+                continue;
+              }
+
+              const params: any[] = [["en", "ja"]];
+              const nameParts: string[] = [];
+              const setParts: string[] = [];
+              const whereParts: string[] = [];
+
+              cardHints.forEach(w => {
+                params.push(`%${w}%`);
+                const idx = params.length;
+                nameParts.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 3 ELSE 0 END`);
+                setParts.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 1 ELSE 0 END`);
+                whereParts.push(`(LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx})`);
+              });
+              setHints.forEach(w => {
+                params.push(`%${w}%`);
+                const idx = params.length;
+                nameParts.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 1 ELSE 0 END`);
+                setParts.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 3 ELSE 0 END`);
+                whereParts.push(`(LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx})`);
+              });
+
+              if (nameParts.length === 0) {
+                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "No cards found." });
+                continue;
+              }
+
+              const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
+              const sql = `
+                SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, prices_json, price_eur, set_name_en,
+                       (${scoreExpr}) AS score
+                FROM card_catalog
+                WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
+                ORDER BY score DESC LIMIT 5`;
+
+              const result = await db.query(sql, params);
+              const summary = result.rows.map((r: any) =>
+                `${r.name} | ${r.set_name_en || r.set_name}${r.number ? ` #${r.number}` : ""}${r.rarity ? ` | ${r.rarity}` : ""}${r.lang === "ja" ? " [JP]" : ""}`
+              ).join("\n");
+
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary || "No matching cards found." });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Database error: ${e.message}` });
+            }
+
+          } else if (block.name === "get_card_market_prices") {
+            const { card_name, set_name, card_number } = block.input as { card_name: string; set_name: string; card_number?: string };
+            try {
+              const prices = await fetchEbayGradedPrices(card_name, set_name, card_number);
+              const fmt = (v: number) => v > 0 ? `£${(v * GBP_PER_USD).toFixed(0)} (~$${v.toFixed(0)})` : null;
+              const lines: string[] = [];
+              const gradeMap: [number, string][] = [
+                [prices.psa10, "PSA 10"], [prices.psa9, "PSA 9"], [prices.psa8, "PSA 8"],
+                [prices.bgs95, "BGS 9.5"], [prices.bgs9, "BGS 9"],
+                [prices.ace10, "ACE 10"], [prices.tag10, "TAG 10"], [prices.cgc10, "CGC 10"],
+                [prices.raw, "Raw eBay"],
+              ];
+              for (const [v, label] of gradeMap) { const f = fmt(v); if (f) lines.push(`${label}: ${f}`); }
+
+              if (!pricesOut && prices) {
+                pricesOut = {
+                  psa10: prices.psa10 > 0 ? +(prices.psa10 * GBP_PER_USD).toFixed(2) : null,
+                  psa9:  prices.psa9  > 0 ? +(prices.psa9  * GBP_PER_USD).toFixed(2) : null,
+                  bgs95: prices.bgs95 > 0 ? +(prices.bgs95 * GBP_PER_USD).toFixed(2) : null,
+                  ace10: prices.ace10 > 0 ? +(prices.ace10 * GBP_PER_USD).toFixed(2) : null,
+                  tag10: prices.tag10 > 0 ? +(prices.tag10 * GBP_PER_USD).toFixed(2) : null,
+                  cgc10: prices.cgc10 > 0 ? +(prices.cgc10 * GBP_PER_USD).toFixed(2) : null,
+                  raw:   prices.raw   > 0 ? +(prices.raw   * GBP_PER_USD).toFixed(2) : null,
+                  allGrades: prices,
+                };
+              }
+
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: lines.length > 0 ? lines.join("\n") : "No recent eBay graded sales found for this card." });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Price lookup failed: ${e.message}` });
+            }
+          }
+        }
+
+        msgs.push({ role: "user", content: toolResults });
+        toolLoopCount++;
+      }
+
+      return res.json({ reply: "I'm having trouble right now — please try again.", prices: null });
+    } catch (e: any) {
+      console.error("[pokemon-chat]", e.message);
+      res.status(500).json({ error: "Chat failed" });
+    }
+  });
+
+  // ─── Pokémon Chatbot: voice transcription ─────────────────────────────────
+  app.post("/api/pokemon-chat/transcribe", async (req, res) => {
+    try {
+      const { audio } = req.body as { audio: string };
+      if (!audio) return res.status(400).json({ error: "audio required" });
+      const { speechToText, ensureCompatibleFormat } = await import("./replit_integrations/audio/client");
+      const rawBuffer = Buffer.from(audio, "base64");
+      const { buffer, format } = await ensureCompatibleFormat(rawBuffer);
+      const text = await speechToText(buffer, format);
+      res.json({ text: text.trim() });
+    } catch (e: any) {
+      console.error("[pokemon-chat/transcribe]", e.message);
+      res.status(500).json({ error: "Transcription failed" });
+    }
+  });
+
   // ─── Card Advisor: search card catalog ───────────────────────────────────
   app.post("/api/card-advisor/search", async (req, res) => {
     try {

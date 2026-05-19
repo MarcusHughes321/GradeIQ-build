@@ -665,8 +665,8 @@ export default function GradeScreen() {
           <Ionicons name="chatbubbles-outline" size={22} color="#F59E0B" />
         </View>
         <View style={styles.hubCardText}>
-          <Text style={styles.hubCardTitle}>Card Advisor</Text>
-          <Text style={styles.hubCardSub}>Deals · values · market trends</Text>
+          <Text style={styles.hubCardTitle}>PokéBot</Text>
+          <Text style={styles.hubCardSub}>Ask anything about Pokémon TCG</Text>
         </View>
         <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </Pressable>
