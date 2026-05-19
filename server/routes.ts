@@ -13347,16 +13347,10 @@ RESPONSE RULES (strict):
     const { text, voice = "nova" } = req.body as { text?: string; voice?: string };
     if (!text?.trim()) return res.status(400).json({ error: "text required" });
     try {
-      const { openai } = await import("./replit_integrations/audio/client");
+      const { textToSpeech } = await import("./replit_integrations/audio/client");
       const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
       const v = (validVoices.includes(voice) ? voice : "nova") as any;
-      const mp3Response = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: v,
-        input: text.slice(0, 600),
-        response_format: "mp3",
-      });
-      const buffer = Buffer.from(await mp3Response.arrayBuffer());
+      const buffer = await textToSpeech(text.slice(0, 600), v, "mp3");
       res.json({ audio: buffer.toString("base64"), format: "mp3" });
     } catch (e: any) {
       console.error("[pokemon-chat/tts]", e.message);
