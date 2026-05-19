@@ -20,10 +20,11 @@ import Colors from "@/constants/colors";
 import CardCamera from "@/components/CardCamera";
 import ImageCapture from "@/components/ImageCapture";
 import CenteringTool from "@/components/CenteringTool";
+import CenteringReport from "@/components/CenteringReport";
 import { apiRequest } from "@/lib/query-client";
 import type { CenteringMeasurement, CardBounds } from "@/lib/types";
 
-type Step = "capture" | "detecting" | "tool";
+type Step = "capture" | "detecting" | "tool" | "report";
 
 function centeringFromBounds(
   frontBounds: CardBounds,
@@ -197,6 +198,23 @@ export default function CenteringToolScreen() {
     }
   };
 
+  if (step === "report" && centering) {
+    return (
+      <CenteringReport
+        centering={centering}
+        onReAdjust={() => setStep("tool")}
+        onDone={() => {
+          setStep("capture");
+          setFrontImage(null);
+          setBackImage(null);
+          setCentering(null);
+          setFrontBounds(undefined);
+          setBackBounds(undefined);
+        }}
+      />
+    );
+  }
+
   if (step === "tool" && centering && frontImage && backImage) {
     return (
       <CenteringTool
@@ -210,12 +228,7 @@ export default function CenteringToolScreen() {
           setCentering(updated);
         }}
         onClose={() => {
-          setStep("capture");
-          setFrontImage(null);
-          setBackImage(null);
-          setCentering(null);
-          setFrontBounds(undefined);
-          setBackBounds(undefined);
+          setStep("report");
         }}
       />
     );
