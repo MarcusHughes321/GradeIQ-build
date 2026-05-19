@@ -659,7 +659,13 @@ export default function GradeScreen() {
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => router.push("/deal-advisor")}
+        onPress={() => {
+          if (isGateEnabled && !isSubscribed && !isAdminMode) {
+            router.push("/tcg-advisor-info");
+            return;
+          }
+          router.push("/deal-advisor");
+        }}
       >
         <View style={[styles.hubIconWrap, { backgroundColor: "#F59E0B20" }]}>
           <Ionicons name="chatbubbles-outline" size={22} color="#F59E0B" />
@@ -668,7 +674,14 @@ export default function GradeScreen() {
           <Text style={styles.hubCardTitle}>TCG Advisor</Text>
           <Text style={styles.hubCardSub}>Card values · grading · investing</Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        {isGateEnabled && !isSubscribed && !isAdminMode ? (
+          <View style={styles.hubLockPill}>
+            <Ionicons name="lock-closed" size={11} color="#F59E0B" />
+            <Text style={styles.hubLockPillText}>Pro</Text>
+          </View>
+        ) : (
+          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+        )}
       </Pressable>
 
       {/* PRO SECTION */}
