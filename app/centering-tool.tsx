@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  Modal,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -210,69 +210,77 @@ export default function CenteringToolScreen() {
           <Text style={styles.detectingSubText}>This takes a few seconds</Text>
         </View>
       ) : (
-        <View style={styles.content}>
-          <View style={styles.infoCard}>
-            <Ionicons name="resize-outline" size={20} color={Colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.infoTitle}>Free Centering Check</Text>
-              <Text style={styles.infoSub}>
-                Photograph front and back — we auto-detect the borders and give you the interactive tool to fine-tune.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.captureRow}>
-            <View style={styles.captureSlot}>
-              <Text style={styles.captureLabel}>Front</Text>
-              <ImageCapture
-                label=""
-                imageUri={frontImage}
-                onCapture={() => setCameraOpen("front")}
-                onRemove={() => setFrontImage(null)}
-                loading={false}
-              />
-            </View>
-            <View style={styles.captureSlot}>
-              <Text style={styles.captureLabel}>Back</Text>
-              <ImageCapture
-                label=""
-                imageUri={backImage}
-                onCapture={() => setCameraOpen("back")}
-                onRemove={() => setBackImage(null)}
-                loading={false}
-              />
-            </View>
-          </View>
-
-          <View style={styles.tipsCard}>
-            <Text style={styles.tipsTitle}>Tips for accuracy</Text>
-            <View style={styles.tipRow}>
-              <Ionicons name="sunny-outline" size={14} color={Colors.textMuted} />
-              <Text style={styles.tipText}>Photograph flat, with even lighting — avoid shadows across borders</Text>
-            </View>
-            <View style={styles.tipRow}>
-              <Ionicons name="expand-outline" size={14} color={Colors.textMuted} />
-              <Text style={styles.tipText}>Fill the frame with the card — leave a small gap around all edges</Text>
-            </View>
-            <View style={styles.tipRow}>
-              <Ionicons name="phone-portrait-outline" size={14} color={Colors.textMuted} />
-              <Text style={styles.tipText}>Keep the camera parallel to the card — use the spirit level guide</Text>
-            </View>
-          </View>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.analyseBtn,
-              (!frontImage || !backImage) && styles.analyseBtnDisabled,
-              { opacity: pressed ? 0.85 : 1 },
-            ]}
-            onPress={handleAnalyse}
-            disabled={!frontImage || !backImage}
+        <>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
+            showsVerticalScrollIndicator={false}
           >
-            <Ionicons name="resize-outline" size={20} color="#fff" />
-            <Text style={styles.analyseBtnText}>Analyse Centering</Text>
-          </Pressable>
-        </View>
+            <View style={styles.infoCard}>
+              <Ionicons name="resize-outline" size={20} color={Colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoTitle}>Free Centering Check</Text>
+                <Text style={styles.infoSub}>
+                  Photograph front and back — we auto-detect the borders and give you the interactive tool to fine-tune.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.captureRow}>
+              <View style={styles.captureSlot}>
+                <Text style={styles.captureLabel}>Front</Text>
+                <ImageCapture
+                  label=""
+                  imageUri={frontImage}
+                  onCapture={() => setCameraOpen("front")}
+                  onRemove={() => setFrontImage(null)}
+                  loading={false}
+                />
+              </View>
+              <View style={styles.captureSlot}>
+                <Text style={styles.captureLabel}>Back</Text>
+                <ImageCapture
+                  label=""
+                  imageUri={backImage}
+                  onCapture={() => setCameraOpen("back")}
+                  onRemove={() => setBackImage(null)}
+                  loading={false}
+                />
+              </View>
+            </View>
+
+            <View style={styles.tipsCard}>
+              <Text style={styles.tipsTitle}>Tips for accuracy</Text>
+              <View style={styles.tipRow}>
+                <Ionicons name="sunny-outline" size={14} color={Colors.textMuted} />
+                <Text style={styles.tipText}>Photograph flat, with even lighting — avoid shadows across borders</Text>
+              </View>
+              <View style={styles.tipRow}>
+                <Ionicons name="expand-outline" size={14} color={Colors.textMuted} />
+                <Text style={styles.tipText}>Fill the frame with the card — leave a small gap around all edges</Text>
+              </View>
+              <View style={styles.tipRow}>
+                <Ionicons name="phone-portrait-outline" size={14} color={Colors.textMuted} />
+                <Text style={styles.tipText}>Keep the camera parallel to the card — use the spirit level guide</Text>
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.analyseBtn,
+                (!frontImage || !backImage) && styles.analyseBtnDisabled,
+                { opacity: pressed ? 0.85 : 1 },
+              ]}
+              onPress={handleAnalyse}
+              disabled={!frontImage || !backImage}
+            >
+              <Ionicons name="resize-outline" size={20} color="#fff" />
+              <Text style={styles.analyseBtnText}>Analyse Centering</Text>
+            </Pressable>
+          </View>
+        </>
       )}
     </View>
   );
@@ -319,11 +327,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
   },
-  content: {
+  scroll: {
     flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 20,
     gap: 16,
+  },
+  bottomBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    backgroundColor: Colors.background,
   },
   infoCard: {
     flexDirection: "row",
