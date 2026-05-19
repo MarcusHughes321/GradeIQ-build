@@ -21,7 +21,7 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 import { useSubscription } from "@/lib/subscription";
