@@ -13307,12 +13307,30 @@ RESPONSE RULES (strict):
   });
 
   // ─── Pokémon Chatbot: voice transcription ─────────────────────────────────
+  // Accepts either multipart/form-data (field: "audio") or JSON { audio: base64 }
   app.post("/api/pokemon-chat/transcribe", async (req, res) => {
     try {
-      const { audio } = req.body as { audio: string };
-      if (!audio) return res.status(400).json({ error: "audio required" });
       const { speechToText, ensureCompatibleFormat } = await import("./replit_integrations/audio/client");
-      const rawBuffer = Buffer.from(audio, "base64");
+      let rawBuffer: Buffer;
+
+      const contentType = req.headers["content-type"] || "";
+      if (contentType.includes("multipart/form-data")) {
+        // React Native FormData upload — parse with multer memory storage
+        const multer = (await import("multer")).default;
+        const upload = multer({ storage: multer.memoryStorage() });
+        await new Promise<void>((resolve, reject) =>
+          upload.single("audio")(req as any, res as any, (err) => (err ? reject(err) : resolve()))
+        );
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (!file?.buffer) return res.status(400).json({ error: "audio file required" });
+        rawBuffer = file.buffer;
+      } else {
+        // Legacy JSON base64 path
+        const { audio } = req.body as { audio: string };
+        if (!audio) return res.status(400).json({ error: "audio required" });
+        rawBuffer = Buffer.from(audio, "base64");
+      }
+
       const { buffer, format } = await ensureCompatibleFormat(rawBuffer);
       const text = await speechToText(buffer, format);
       res.json({ text: text.trim() });

@@ -21,7 +21,6 @@ import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 import { useSubscription } from "@/lib/subscription";
@@ -632,12 +631,14 @@ export default function PokeBotScreen() {
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
       if (!uri) throw new Error("No recording URI");
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" as any });
+      // Send as multipart FormData — React Native supports file:// URIs natively,
+      // no FileSystem read needed.
+      const formData = new FormData();
+      formData.append("audio", { uri, name: "voice.m4a", type: "audio/m4a" } as any);
       const url = new URL("/api/pokemon-chat/transcribe", apiBase);
       const res = await fetch(url.toString(), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio: base64 }),
+        body: formData,
       });
       if (!res.ok) throw new Error("Transcription failed");
       const { text } = await res.json();
