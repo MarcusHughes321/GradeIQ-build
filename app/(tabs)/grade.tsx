@@ -657,6 +657,15 @@ export default function GradeScreen() {
         <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </Pressable>
 
+      {/* PRO SECTION */}
+      <View style={[styles.hubSectionHeader, { marginTop: 28 }]}>
+        <View style={styles.hubProPill}>
+          <Ionicons name="sparkles" size={10} color="#F59E0B" />
+          <Text style={styles.hubProPillText}>PRO</Text>
+        </View>
+        <View style={styles.hubSectionLine} />
+      </View>
+
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
         onPress={() => {
@@ -683,15 +692,6 @@ export default function GradeScreen() {
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
         )}
       </Pressable>
-
-      {/* PRO SECTION */}
-      <View style={[styles.hubSectionHeader, { marginTop: 28 }]}>
-        <View style={styles.hubProPill}>
-          <Ionicons name="sparkles" size={10} color="#F59E0B" />
-          <Text style={styles.hubProPillText}>PRO</Text>
-        </View>
-        <View style={styles.hubSectionLine} />
-      </View>
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
