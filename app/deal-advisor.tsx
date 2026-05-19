@@ -17,7 +17,7 @@ import {
 import { fetch } from "expo/fetch";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
@@ -580,6 +580,13 @@ export default function PokeBotScreen() {
   useEffect(() => {
     if (loading) stopSound();
   }, [loading]);
+
+  // Stop TTS when navigating away from this screen
+  useFocusEffect(
+    useCallback(() => {
+      return () => { stopSound(); };
+    }, [])
+  );
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
