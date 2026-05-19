@@ -6,6 +6,7 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  ActionSheetIOS,
   Platform,
   ScrollView,
 } from "react-native";
@@ -13,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import CardCamera from "@/components/CardCamera";
@@ -105,6 +107,45 @@ export default function CenteringToolScreen() {
     setCameraOpen(null);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, [cameraOpen]);
+
+  const pickFromLibrary = async (side: "front" | "back") => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow access to your photo library in Settings.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 1,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      if (side === "front") setFrontImage(result.assets[0].uri);
+      else setBackImage(result.assets[0].uri);
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const handleAddPhoto = useCallback((side: "front" | "back") => {
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", "Take Photo", "Choose from Library"],
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) setCameraOpen(side);
+          else if (index === 2) pickFromLibrary(side);
+        },
+      );
+    } else {
+      Alert.alert("Add Photo", "How would you like to add this photo?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Take Photo", onPress: () => setCameraOpen(side) },
+        { text: "Choose from Library", onPress: () => pickFromLibrary(side) },
+      ]);
+    }
+  }, []);
 
   const handleAnalyse = async () => {
     if (!frontImage || !backImage) {
@@ -232,7 +273,7 @@ export default function CenteringToolScreen() {
                 <ImageCapture
                   label=""
                   imageUri={frontImage}
-                  onCapture={() => setCameraOpen("front")}
+                  onCapture={() => handleAddPhoto("front")}
                   onRemove={() => setFrontImage(null)}
                   loading={false}
                 />
@@ -242,7 +283,7 @@ export default function CenteringToolScreen() {
                 <ImageCapture
                   label=""
                   imageUri={backImage}
-                  onCapture={() => setCameraOpen("back")}
+                  onCapture={() => handleAddPhoto("back")}
                   onRemove={() => setBackImage(null)}
                   loading={false}
                 />
