@@ -13085,28 +13085,22 @@ RESPONSE FORMAT (JSON only, no markdown):
         },
       ];
 
-      const systemPrompt = `You are PokéBot, an expert Pokemon TCG assistant inside the Grade.IQ grading app. You help collectors with everything Pokemon:
+      const systemPrompt = `You are TCG Advisor, a Pokemon TCG expert inside the Grade.IQ grading app.
 
-WHAT YOU HELP WITH:
-- Card valuations, deal analysis, and grading economics (PSA, BGS, ACE, TAG, CGC)
-- Investment decisions and portfolio building
-- Pokemon TCG rules, mechanics, and competitive strategy
-- Set history, card rarity, print runs, and variants
-- Grading standards — what affects centering, corners, edges, surface scores
-- Market trends, sealed product, and long-term investment outlook
-- General Pokemon knowledge — game, anime, history, lore
+SCOPE: Only answer Pokemon TCG questions. If asked about anything unrelated, politely say you only cover Pokemon TCG topics.
 
-TOOLS AVAILABLE:
-- search_pokemon_cards: Use when user mentions a specific card to find its exact details
-- get_card_market_prices: Use after finding the card to get live eBay graded prices
+TOPICS: Card values, grading economics (PSA/BGS/ACE/TAG/CGC), investment, set history, rarity, variants, grading standards, market trends, competitive play, sealed product.
 
-GUIDELINES:
-- British English, direct and knowledgeable tone
-- Give clear recommendations, not "it depends"
-- 1–4 paragraphs, conversational not clinical
-- When discussing grading, always mention cost (PSA ~£20-40, ACE ~£15-25, BGS ~£30-50 + postage) and calculate both PSA 10 and PSA 9 scenarios
-- Format multiple price data points as a short list on separate lines
-- You can answer anything Pokemon — don't restrict to grading only`;
+TOOLS:
+- search_pokemon_cards: Call whenever user mentions a specific card
+- get_card_market_prices: Call after finding the card to get live eBay prices
+
+RESPONSE RULES (strict):
+- British English
+- Maximum 3 sentences OR up to 5 bullet points — never both, never more
+- Be direct, give a clear recommendation
+- For grading economics, include grading cost (PSA ~£25, ACE ~£18, BGS ~£40) and net profit
+- Never use markdown headers or bold text`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -13114,12 +13108,13 @@ GUIDELINES:
       ];
 
       let pricesOut: any = null;
+      let cardOut: any = null;
       let toolLoopCount = 0;
 
       while (toolLoopCount < 3) {
         const resp = await anthropic.messages.create({
           model: "claude-sonnet-4-6",
-          max_tokens: 900,
+          max_tokens: 400,
           system: systemPrompt,
           tools,
           messages: msgs,
@@ -13131,7 +13126,7 @@ GUIDELINES:
           const reply = resp.content
             .filter((b): b is Anthropic.TextBlock => b.type === "text")
             .map(b => b.text).join("") || "Sorry, I had trouble with that. Try rephrasing?";
-          return res.json({ reply, prices: pricesOut });
+          return res.json({ reply, prices: pricesOut, card: cardOut });
         }
 
         // Append assistant turn
@@ -13185,13 +13180,28 @@ GUIDELINES:
 
               const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
               const sql = `
-                SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, prices_json, price_eur, set_name_en,
+                SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, prices_json, price_eur, set_name_en, image_url, price_usd,
                        (${scoreExpr}) AS score
                 FROM card_catalog
                 WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
                 ORDER BY score DESC LIMIT 5`;
 
               const result = await db.query(sql, params);
+
+              // Capture the top card for the response payload
+              if (result.rows.length > 0 && !cardOut) {
+                const top = result.rows[0];
+                cardOut = {
+                  cardId: top.card_id,
+                  cardName: top.name,
+                  setName: top.set_name_en || top.set_name,
+                  number: top.number || "",
+                  imageUrl: top.image_url || null,
+                  priceUsd: top.price_usd || null,
+                  lang: top.lang || "en",
+                };
+              }
+
               const summary = result.rows.map((r: any) =>
                 `${r.name} | ${r.set_name_en || r.set_name}${r.number ? ` #${r.number}` : ""}${r.rarity ? ` | ${r.rarity}` : ""}${r.lang === "ja" ? " [JP]" : ""}`
               ).join("\n");

@@ -38,11 +38,22 @@ type Prices = {
   allGrades?: any;
 };
 
+type CardResult = {
+  cardId: string;
+  cardName: string;
+  setName: string;
+  number: string;
+  imageUrl: string | null;
+  priceUsd: number | null;
+  lang?: string;
+};
+
 type Message = {
   id: string;
   role: "user" | "assistant";
   text: string;
   prices?: Prices | null;
+  card?: CardResult | null;
   isError?: boolean;
   retryText?: string;
 };
@@ -86,9 +97,9 @@ function EmptyState({ onSuggestion }: { onSuggestion: (s: string) => void }) {
           <Text style={emptyStyles.avatarEmoji}>⚡</Text>
         </View>
       </View>
-      <Text style={emptyStyles.title}>PokéBot</Text>
+      <Text style={emptyStyles.title}>TCG Advisor</Text>
       <Text style={emptyStyles.subtitle}>
-        Ask me anything about Pokémon TCG — card values, grading economics, investing, rules, lore, and more.
+        Ask me anything about Pokémon TCG — card values, grading economics, investing, sets, and more.
       </Text>
       <Text style={emptyStyles.suggestLabel}>Try asking…</Text>
       <View style={emptyStyles.chips}>
@@ -216,6 +227,80 @@ function BotAvatar() {
   );
 }
 
+function CardChip({ card }: { card: CardResult }) {
+  const { Image } = require("expo-image");
+  return (
+    <Pressable
+      style={({ pressed }) => [cardChipStyles.wrap, { opacity: pressed ? 0.75 : 1 }]}
+      onPress={() =>
+        router.push({
+          pathname: "/card-profit",
+          params: {
+            cardId: card.cardId,
+            cardName: card.cardName,
+            setName: card.setName,
+            imageUrl: card.imageUrl || "",
+            rawPriceUSD: card.priceUsd ? String(card.priceUsd) : "0",
+            ...(card.number ? { cardNumber: card.number } : {}),
+            ...(card.lang ? { lang: card.lang } : {}),
+          },
+        })
+      }
+    >
+      {card.imageUrl ? (
+        <Image
+          source={{ uri: card.imageUrl }}
+          style={cardChipStyles.image}
+          contentFit="contain"
+          transition={200}
+        />
+      ) : (
+        <View style={[cardChipStyles.image, cardChipStyles.imagePlaceholder]}>
+          <Ionicons name="image-outline" size={20} color={Colors.textMuted} />
+        </View>
+      )}
+      <View style={cardChipStyles.info}>
+        <Text style={cardChipStyles.name} numberOfLines={2}>{card.cardName}</Text>
+        <Text style={cardChipStyles.set} numberOfLines={1}>{card.setName}{card.number ? ` · #${card.number}` : ""}</Text>
+        <View style={cardChipStyles.cta}>
+          <Text style={cardChipStyles.ctaText}>View market prices</Text>
+          <Ionicons name="chevron-forward" size={12} color={Colors.primary} />
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const cardChipStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 10,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 10,
+  },
+  image: {
+    width: 64,
+    height: 90,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  imagePlaceholder: {
+    backgroundColor: Colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  info: { flex: 1, gap: 3 },
+  name: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text, lineHeight: 18 },
+  set: { fontFamily: "Inter_400Regular", fontSize: 11, color: Colors.textMuted },
+  cta: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 4 },
+  ctaText: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.primary },
+});
+
 function PricesCard({ prices }: { prices: Prices }) {
   const rows = [
     { label: "PSA 10",  value: prices.psa10,  highlight: true },
@@ -290,6 +375,7 @@ function AssistantBubble({
         <View style={msgStyles.aiBubble}>
           <Text style={msgStyles.aiText}>{stripMarkdown(msg.text)}</Text>
           {msg.prices && <PricesCard prices={msg.prices} />}
+          {msg.card && <CardChip card={msg.card} />}
         </View>
         {Platform.OS !== "web" && (
           <Pressable
@@ -446,6 +532,7 @@ export default function PokeBotScreen() {
         role: "assistant",
         text: data.reply,
         prices: data.prices ?? null,
+        card: data.card ?? null,
       }, ...prev]);
     } catch {
       setMessages(prev => [{
@@ -545,7 +632,7 @@ export default function PokeBotScreen() {
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>PokéBot</Text>
+          <Text style={styles.headerTitle}>TCG Advisor</Text>
           <View style={styles.headerOnline}>
             <View style={styles.onlineDot} />
             <Text style={styles.headerSub}>Pokémon TCG Expert</Text>
@@ -607,7 +694,7 @@ export default function PokeBotScreen() {
             style={[styles.input, isInputBusy && styles.inputFaded]}
             value={isRecording || isTranscribing ? "" : input}
             onChangeText={setInput}
-            placeholder={isRecording ? "" : "Ask anything about Pokémon…"}
+            placeholder={isRecording ? "" : "Ask about any Pokémon TCG topic…"}
             placeholderTextColor={Colors.textMuted}
             multiline
             maxLength={600}
