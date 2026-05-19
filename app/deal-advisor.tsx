@@ -631,20 +631,36 @@ export default function PokeBotScreen() {
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
       if (!uri) throw new Error("No recording URI");
-      // Send as multipart FormData — React Native supports file:// URIs natively,
-      // no FileSystem read needed.
-      const formData = new FormData();
-      formData.append("audio", { uri, name: "voice.m4a", type: "audio/m4a" } as any);
+
+      // Use XMLHttpRequest — React Native supports file:// URIs in FormData natively.
+      // expo/fetch does NOT support object-style FormData parts, so we bypass it here.
       const url = new URL("/api/pokemon-chat/transcribe", apiBase);
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        body: formData,
+      const transcribedText = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url.toString());
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText).text ?? ""); }
+            catch { reject(new Error("Bad response")); }
+          } else {
+            reject(new Error(`Server error ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error"));
+        const formData = new FormData();
+        formData.append("audio", { uri, name: "voice.m4a", type: "audio/m4a" } as any);
+        xhr.send(formData);
       });
-      if (!res.ok) throw new Error("Transcription failed");
-      const { text } = await res.json();
-      if (text?.trim()) sendMessage(text.trim());
+
+      // Put transcribed text into the input box so the user can see, edit, and send it
+      // — same behaviour as Claude's voice input.
+      if (transcribedText.trim()) {
+        setInput(transcribedText.trim());
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
     } catch (e) {
       console.error("Voice error:", e);
+      Alert.alert("Voice error", "Could not transcribe audio. Please try again.");
     } finally {
       setIsTranscribing(false);
     }
@@ -756,7 +772,11 @@ export default function PokeBotScreen() {
             style={[styles.input, isInputBusy && styles.inputFaded]}
             value={isRecording || isTranscribing ? "" : input}
             onChangeText={setInput}
-            placeholder={isRecording ? "" : "Ask about any Pokémon TCG topic…"}
+            placeholder={
+              isRecording ? "Listening…" :
+              isTranscribing ? "Transcribing…" :
+              "Ask about any Pokémon TCG topic…"
+            }
             placeholderTextColor={Colors.textMuted}
             multiline
             maxLength={600}
