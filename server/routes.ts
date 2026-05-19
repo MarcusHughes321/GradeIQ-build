@@ -13058,16 +13058,89 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       const GBP_PER_USD = 0.79;
 
+      // Reusable helper: search card_catalog for a single query, return top result
+      const searchOneCard = async (query: string): Promise<{ card: any | null; summary: string }> => {
+        const rawTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+        const sigIdx = rawTokens.findIndex(w => ["from", "in", "of"].includes(w));
+        const hasSignal = sigIdx > 0 && sigIdx < rawTokens.length - 1;
+        const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w)).slice(0, 5);
+        const cardHints = clean(hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens);
+        const setHints = clean(hasSignal ? rawTokens.slice(sigIdx + 1) : []).filter(w => !new Set(cardHints).has(w));
+        const allWords = [...cardHints, ...setHints];
+        if (allWords.length === 0) return { card: null, summary: "No cards found." };
+
+        const params: any[] = [["en", "ja"]];
+        const nameParts: string[] = [];
+        const setParts: string[] = [];
+        const whereParts: string[] = [];
+
+        cardHints.forEach(w => {
+          params.push(`%${w}%`);
+          const idx = params.length;
+          nameParts.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 3 ELSE 0 END`);
+          setParts.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 1 ELSE 0 END`);
+          whereParts.push(`(LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx})`);
+        });
+        setHints.forEach(w => {
+          params.push(`%${w}%`);
+          const idx = params.length;
+          nameParts.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 1 ELSE 0 END`);
+          setParts.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 3 ELSE 0 END`);
+          whereParts.push(`(LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx})`);
+        });
+        if (nameParts.length === 0) return { card: null, summary: "No cards found." };
+
+        const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
+        const sql = `
+          SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, set_name_en, image_url, price_usd,
+                 (${scoreExpr}) AS score
+          FROM card_catalog
+          WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
+          ORDER BY score DESC LIMIT 3`;
+        const result = await db.query(sql, params);
+        if (result.rows.length === 0) return { card: null, summary: "No cards found." };
+
+        const top = result.rows[0];
+        const card = {
+          cardId: top.card_id,
+          cardName: top.name,
+          setName: top.set_name_en || top.set_name,
+          number: top.number || "",
+          imageUrl: top.image_url || null,
+          priceUsd: top.price_usd || null,
+          lang: top.lang || "en",
+        };
+        const summary = result.rows.map((r: any) =>
+          `${r.name} | ${r.set_name_en || r.set_name}${r.number ? ` #${r.number}` : ""}${r.rarity ? ` | ${r.rarity}` : ""}${r.lang === "ja" ? " [JP]" : ""}`
+        ).join("\n");
+        return { card, summary };
+      };
+
       const tools: Anthropic.Tool[] = [
         {
           name: "search_pokemon_cards",
-          description: "Search the Pokemon card database for specific cards. Use when the user asks about a particular card's value, grading economics, set details, or availability. Returns the top matching cards with set info.",
+          description: "Search the Pokemon card database for a single specific card. Use when the user asks about one particular card.",
           input_schema: {
             type: "object" as const,
             properties: {
               query: { type: "string", description: "Search query e.g. 'Charizard Obsidian Flames' or 'Base Set Blastoise'" },
             },
             required: ["query"],
+          },
+        },
+        {
+          name: "search_multiple_cards",
+          description: "Search for multiple Pokemon cards at once and return their images. Use this whenever you mention or list multiple specific cards in your response — call it BEFORE writing your answer so images appear alongside your text.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              queries: {
+                type: "array",
+                items: { type: "string" },
+                description: "Array of search queries, one per card e.g. ['Charizard ex Obsidian Flames', 'Umbreon VMAX Evolving Skies', 'Mew ex 151']",
+              },
+            },
+            required: ["queries"],
           },
         },
         {
@@ -13092,15 +13165,17 @@ SCOPE: Only answer Pokemon TCG questions. If asked about anything unrelated, pol
 TOPICS: Card values, grading economics (PSA/BGS/ACE/TAG/CGC), investment, set history, rarity, variants, grading standards, market trends, competitive play, sealed product.
 
 TOOLS:
-- search_pokemon_cards: Call whenever user mentions a specific card
-- get_card_market_prices: Call after finding the card to get live eBay prices
+- search_multiple_cards: Call FIRST whenever you plan to mention multiple specific cards — pass all card names at once so their images appear in the response
+- search_pokemon_cards: Call when the user asks about a single specific card
+- get_card_market_prices: Call after finding a card to get live eBay prices
 
 RESPONSE RULES (strict):
 - British English
 - Maximum 3 sentences OR up to 5 bullet points — never both, never more
 - Be direct, give a clear recommendation
 - For grading economics, include grading cost (PSA ~£25, ACE ~£18, BGS ~£40) and net profit
-- Never use markdown headers or bold text`;
+- Never use markdown headers or bold text
+- Always search for cards BEFORE writing your answer so images load with the text`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -13108,7 +13183,7 @@ RESPONSE RULES (strict):
       ];
 
       let pricesOut: any = null;
-      let cardOut: any = null;
+      let cardsOut: any[] = [];
       let toolLoopCount = 0;
 
       while (toolLoopCount < 3) {
@@ -13126,7 +13201,7 @@ RESPONSE RULES (strict):
           const reply = resp.content
             .filter((b): b is Anthropic.TextBlock => b.type === "text")
             .map(b => b.text).join("") || "Sorry, I had trouble with that. Try rephrasing?";
-          return res.json({ reply, prices: pricesOut, card: cardOut });
+          return res.json({ reply, prices: pricesOut, cards: cardsOut.length > 0 ? cardsOut : null });
         }
 
         // Append assistant turn
@@ -13140,73 +13215,23 @@ RESPONSE RULES (strict):
           if (block.name === "search_pokemon_cards") {
             const { query } = block.input as { query: string };
             try {
-              const rawTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
-              const sigIdx = rawTokens.findIndex(w => ["from", "in", "of"].includes(w));
-              const hasSignal = sigIdx > 0 && sigIdx < rawTokens.length - 1;
-              const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w)).slice(0, 5);
-              const cardHints = clean(hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens);
-              const setHints  = clean(hasSignal ? rawTokens.slice(sigIdx + 1) : []).filter(w => !new Set(cardHints).has(w));
-              const allWords  = [...cardHints, ...setHints];
+              const { card, summary } = await searchOneCard(query);
+              if (card && !cardsOut.find(c => c.cardId === card.cardId)) cardsOut.push(card);
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Database error: ${e.message}` });
+            }
 
-              if (allWords.length === 0) {
-                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "No cards found for that query." });
-                continue;
+          } else if (block.name === "search_multiple_cards") {
+            const { queries } = block.input as { queries: string[] };
+            try {
+              const results = await Promise.all((queries || []).slice(0, 6).map(q => searchOneCard(q)));
+              const summaryParts: string[] = [];
+              for (const { card, summary } of results) {
+                if (card && !cardsOut.find(c => c.cardId === card.cardId)) cardsOut.push(card);
+                summaryParts.push(summary);
               }
-
-              const params: any[] = [["en", "ja"]];
-              const nameParts: string[] = [];
-              const setParts: string[] = [];
-              const whereParts: string[] = [];
-
-              cardHints.forEach(w => {
-                params.push(`%${w}%`);
-                const idx = params.length;
-                nameParts.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 3 ELSE 0 END`);
-                setParts.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 1 ELSE 0 END`);
-                whereParts.push(`(LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx})`);
-              });
-              setHints.forEach(w => {
-                params.push(`%${w}%`);
-                const idx = params.length;
-                nameParts.push(`CASE WHEN LOWER(COALESCE(name_en, name)) LIKE $${idx} THEN 1 ELSE 0 END`);
-                setParts.push(`CASE WHEN LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx} THEN 3 ELSE 0 END`);
-                whereParts.push(`(LOWER(COALESCE(name_en, name)) LIKE $${idx} OR LOWER(COALESCE(set_name_en, set_name)) LIKE $${idx})`);
-              });
-
-              if (nameParts.length === 0) {
-                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "No cards found." });
-                continue;
-              }
-
-              const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
-              const sql = `
-                SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, prices_json, price_eur, set_name_en, image_url, price_usd,
-                       (${scoreExpr}) AS score
-                FROM card_catalog
-                WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
-                ORDER BY score DESC LIMIT 5`;
-
-              const result = await db.query(sql, params);
-
-              // Capture the top card for the response payload
-              if (result.rows.length > 0 && !cardOut) {
-                const top = result.rows[0];
-                cardOut = {
-                  cardId: top.card_id,
-                  cardName: top.name,
-                  setName: top.set_name_en || top.set_name,
-                  number: top.number || "",
-                  imageUrl: top.image_url || null,
-                  priceUsd: top.price_usd || null,
-                  lang: top.lang || "en",
-                };
-              }
-
-              const summary = result.rows.map((r: any) =>
-                `${r.name} | ${r.set_name_en || r.set_name}${r.number ? ` #${r.number}` : ""}${r.rarity ? ` | ${r.rarity}` : ""}${r.lang === "ja" ? " [JP]" : ""}`
-              ).join("\n");
-
-              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary || "No matching cards found." });
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summaryParts.join("\n---\n") || "No cards found." });
             } catch (e: any) {
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Database error: ${e.message}` });
             }
