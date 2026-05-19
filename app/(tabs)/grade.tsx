@@ -607,7 +607,13 @@ export default function GradeScreen() {
       contentContainerStyle={[styles.hubContent, { paddingBottom: insets.bottom + webBottomInset + 120 }]}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.hubSectionLabel}>Raw Cards</Text>
+      {/* FREE SECTION */}
+      <View style={styles.hubSectionHeader}>
+        <View style={styles.hubFreePill}>
+          <Text style={styles.hubFreePillText}>FREE</Text>
+        </View>
+        <View style={styles.hubSectionLine} />
+      </View>
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
@@ -622,6 +628,57 @@ export default function GradeScreen() {
         </View>
         <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+        onPress={() => router.push("/centering-tool")}
+      >
+        <View style={[styles.hubIconWrap, { backgroundColor: "#06B6D420" }]}>
+          <Ionicons name="resize-outline" size={22} color="#06B6D4" />
+        </View>
+        <View style={styles.hubCardText}>
+          <Text style={styles.hubCardTitle}>Centering Tool</Text>
+          <Text style={styles.hubCardSub}>Measure border ratios · interactive</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+        onPress={() => router.push("/collection-scan")}
+      >
+        <View style={[styles.hubIconWrap, styles.hubIconBlue]}>
+          <Ionicons name="library-outline" size={22} color="#3B82F6" />
+        </View>
+        <View style={styles.hubCardText}>
+          <Text style={styles.hubCardTitle}>Collection Scan</Text>
+          <Text style={styles.hubCardSub}>Condition check · CSV export</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
+        onPress={() => router.push("/deal-advisor")}
+      >
+        <View style={[styles.hubIconWrap, { backgroundColor: "#F59E0B20" }]}>
+          <Ionicons name="chatbubbles-outline" size={22} color="#F59E0B" />
+        </View>
+        <View style={styles.hubCardText}>
+          <Text style={styles.hubCardTitle}>Card Advisor</Text>
+          <Text style={styles.hubCardSub}>Deals · values · market trends</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+      </Pressable>
+
+      {/* PRO SECTION */}
+      <View style={[styles.hubSectionHeader, { marginTop: 28 }]}>
+        <View style={styles.hubProPill}>
+          <Ionicons name="sparkles" size={10} color="#F59E0B" />
+          <Text style={styles.hubProPillText}>PRO</Text>
+        </View>
+        <View style={styles.hubSectionLine} />
+      </View>
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
@@ -670,38 +727,6 @@ export default function GradeScreen() {
           <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
         )}
       </Pressable>
-
-      <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Collection Tools</Text>
-
-      <Pressable
-        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => router.push("/collection-scan")}
-      >
-        <View style={[styles.hubIconWrap, styles.hubIconBlue]}>
-          <Ionicons name="library-outline" size={22} color="#3B82F6" />
-        </View>
-        <View style={styles.hubCardText}>
-          <Text style={styles.hubCardTitle}>Collection Scan</Text>
-          <Text style={styles.hubCardSub}>Condition check · CSV export · free</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-      </Pressable>
-
-      <Pressable
-        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => router.push("/deal-advisor")}
-      >
-        <View style={[styles.hubIconWrap, { backgroundColor: "#F59E0B20" }]}>
-          <Ionicons name="chatbubbles-outline" size={22} color="#F59E0B" />
-        </View>
-        <View style={styles.hubCardText}>
-          <Text style={styles.hubCardTitle}>Card Advisor</Text>
-          <Text style={styles.hubCardSub}>Deals · values · market trends</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-      </Pressable>
-
-      <Text style={[styles.hubSectionLabel, { marginTop: 28 }]}>Graded Slabs</Text>
 
       <Pressable
         style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
@@ -1335,6 +1360,48 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     paddingHorizontal: 4,
     marginBottom: 2,
+  },
+  hubSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  hubSectionLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  hubFreePill: {
+    backgroundColor: "rgba(16,185,129,0.15)",
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.3)",
+  },
+  hubFreePillText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    color: "#10B981",
+    letterSpacing: 0.8,
+  },
+  hubProPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(245,158,11,0.12)",
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.3)",
+  },
+  hubProPillText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    color: "#F59E0B",
+    letterSpacing: 0.8,
   },
   hubCard: {
     flexDirection: "row",
