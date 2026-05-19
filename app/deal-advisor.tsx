@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system/legacy";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 import { useSubscription } from "@/lib/subscription";
@@ -686,10 +687,23 @@ export default function PokeBotScreen() {
     try {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
       const text = stripMarkdown(msg.text).slice(0, 600);
+
+      // POST to get base64 audio, then write to a local temp file.
+      // This avoids iOS AVPlayer range-request issues with remote URLs.
       const url = new URL("/api/pokemon-chat/tts", apiBase);
-      url.searchParams.set("text", text);
+      const resp = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: "nova" }),
+      });
+      if (!resp.ok) throw new Error(`TTS request failed: ${resp.status}`);
+      const { audio: b64, format } = await resp.json();
+
+      const cacheUri = `${FileSystem.cacheDirectory}tts_audio.${format}`;
+      await FileSystem.writeAsStringAsync(cacheUri, b64, { encoding: "base64" as any });
+
       const { sound } = await Audio.Sound.createAsync(
-        { uri: url.toString() },
+        { uri: cacheUri },
         { shouldPlay: true }
       );
       soundRef.current = sound;
