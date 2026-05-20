@@ -8,6 +8,8 @@ Three levels. Each level knows its own territory deeply. When planning something
 
 **One agent. Knows the whole app.**
 
+**Skill file:** `.agents/skills/app-overview/SKILL.md`
+
 This is the first agent you consult for any new idea. It understands how every feature connects to every other, what the subscription model gates, and what the overall shape of the app is. It can tell you which L2 and L3 agents you need to involve for any given change.
 
 ### What it knows
@@ -24,23 +26,37 @@ A blast-radius assessment: which features are affected by a new idea, which L2 a
 
 ---
 
+## Institutional Memory Agent
+
+**Not a level — a cross-cutting historian.**
+
+**Skill file:** `.agents/skills/institutional-memory/SKILL.md`
+
+Consult when you need to know *why* something works the way it does, whether an approach has been tried before, or what trade-offs were deliberately made. Complements L1 (which tells you *what* the app does) with context about *why* it was built that way.
+
+---
+
 ## L2 — Feature Flow Agents
 
 **One agent per major user journey. Knows a feature end-to-end.**
 
 ---
 
-### L2-1: Quick Grade Flow
-The core feature. Covers everything from tapping "Quick Grade" to seeing the results screen.
+### L2-1: Quick Grade & Bulk Grade Flow
+The core feature. Covers everything from tapping "Quick Grade" to seeing the results screen. Also covers Bulk Grade (up to 20 cards, Pro only).
 
-**Knows:** Grade hub entry point → camera capture (front + back) → server-side image optimisation (resize, compress, HEIF conversion) → AI boundary detection → single Claude call for card ID + grading → background job creation → kill-safe delivery → results screen (grades, sub-grades, variant badge, market value). Also knows: bulk mode variant (up to 20 cards), progress bar stages, haptic feedback, and how results are handed to the History flow.
+**Skill file:** `.agents/skills/quick-grade-expert/SKILL.md`
 
-**Key files:** `app/(tabs)/grade.tsx`, `app/results.tsx`, `app/bulk.tsx`, `app/bulk-results.tsx`
+**Knows:** Grade hub entry point → camera capture (front + back) → server-side image optimisation (resize, compress, HEIF conversion) → AI boundary detection → single Claude call for card ID + grading → background job creation → kill-safe delivery → results screen (grades, sub-grades, variant badge, market value, share). Also knows: bulk mode (up to 20 cards via `app/bulk.tsx`), progress bar stages, haptic feedback, and how results are handed to the History flow.
+
+**Key files:** `app/(tabs)/grade.tsx`, `app/results.tsx`, `app/bulk.tsx`, `app/bulk-results.tsx`, `app/bulk-info.tsx`
 
 ---
 
 ### L2-2: Deep Grade Flow
 The premium accuracy mode. Covers the 12–16 photo pipeline.
+
+**Skill file:** `.agents/skills/deep-grade-expert/SKILL.md`
 
 **Knows:** Deep grade info screen → photo set capture (front, back, 4 angled, 8 corner close-ups) → server-side image enhancement (sharpen, brightness, contrast) → modified AI prompt with greater corner/edge weight → Pro subscription gate (`canDeepGrade`) → usage tracking separate from quick grade → progress UI with deep-specific stage labels.
 
@@ -51,7 +67,9 @@ The premium accuracy mode. Covers the 12–16 photo pipeline.
 ### L2-3: Crossover Grade Flow
 For grading cards that are already in a slab.
 
-**Knows:** Crossover info screen → photo-only mode (free users) → slab detection using aspect ratio → physical card top location → cert lookup for ACE, BGS, TAG (Pro only, server-side web scraping) → known limitation: BGS Beckett requires a browser session.
+**Skill file:** `.agents/skills/crossover-grade-expert/SKILL.md`
+
+**Knows:** Crossover info screen → photo-only mode (all subscribed users) → slab detection using aspect ratio → physical card top location → cert lookup for ACE, BGS, TAG (Pro only, server-side web scraping) → known limitation: BGS Beckett requires a browser session, PSA cert lookup not available.
 
 **Key files:** `app/crossover-info.tsx`, `app/(tabs)/grade.tsx`
 
@@ -59,6 +77,8 @@ For grading cards that are already in a slab.
 
 ### L2-4: Values & Set Browser Flow
 The full Values tab — finding cards and understanding their market price.
+
+**Skill file:** `.agents/skills/values-pricing-expert/SKILL.md` (also covers L2-5 Card Profit)
 
 **Knows:** Search bar → card search against `card_catalog` → set browser (EN via pokemontcg.io, JP via TCGdex) → EN/JP language toggle → per-set card list with variant prices (Holo/RH/Non-Holo) → Top Grading Picks section with price-tier filter pills → set image proxying → price status pre-population background task → WOTC 1st Edition / Unlimited split display.
 
@@ -69,7 +89,9 @@ The full Values tab — finding cards and understanding their market price.
 ### L2-5: Card Profit Flow
 Calculating whether grading a card makes financial sense.
 
-**Knows:** Card profit screen entry (from Values or TCG Advisor deeplink) → company pill switcher (PSA/BGS/ACE/TAG/CGC) → eBay last-sold price fetching on demand → per-grade stats (avg1d/7d/30d, low, high, sale count) → rolling-average sparkline SVG → eBay completed-listings deep-link per grade → raw price display → profit calculation logic → JP card support (Cardmarket EUR prices, currency conversion).
+**Skill file:** `.agents/skills/values-pricing-expert/SKILL.md` (combined with L2-4)
+
+**Knows:** Card profit screen entry (from Values, grading results, TCG Advisor deeplink) → company pill switcher (PSA/BGS/ACE/TAG/CGC) → eBay last-sold price fetching on demand → per-grade stats (avg1d/7d/30d, low, high, sale count) → rolling-average sparkline SVG → eBay completed-listings deep-link per grade → raw price display → profit calculation logic → JP card support (Cardmarket EUR prices, currency conversion).
 
 **Key files:** `app/card-profit.tsx`
 
@@ -78,18 +100,22 @@ Calculating whether grading a card makes financial sense.
 ### L2-6: Grading History Flow
 How grading results are stored, synced, and recovered.
 
+**Skill file:** `.agents/skills/history-expert/SKILL.md`
+
 **Knows:** Local AsyncStorage storage → stable UUID generation (iOS Keychain + AsyncStorage, survives reinstall) → server sync on startup (`POST /api/history/claim` re-keys rows after reinstall) → bidirectional sync using stableId → photo backup to Object Storage (front + back, 400px/JPEG 60%) → image recovery on reinstall via server URL → retroactive upload for existing users → delete propagation to server → history display on Home tab.
 
-**Key files:** `app/(tabs)/index.tsx`, `lib/stable-user-id.ts`
+**Key files:** `app/(tabs)/index.tsx`, `lib/stable-user-id.ts`, `lib/storage.ts`, `lib/server-history.ts`
 
 ---
 
 ### L2-7: Collection Tools Flow
 The three lightweight tools under "Collection Tools" in the Grade hub.
 
+**Skill file:** `.agents/skills/collection-tools-expert/SKILL.md`
+
 **Knows:**
 - **Collection Scan** — multi-card condition check (Claude Haiku), front+back per card, condition label + card ID + price with condition multiplier, CSV export, rate-limited (100/session, 300/month via `collection_scan_usage` table)
-- **TCG Advisor** — AI chat for card investment/market questions (Pro only), 2-phase: search `card_catalog` → fetch real prices → Claude Haiku advice, voice TTS via server, playback controls
+- **TCG Advisor** — AI chat for card investment/market questions (Pro only), 2-phase: search `card_catalog` → fetch real prices → Claude Haiku advice, voice TTS via server, playback controls, critical quirk: use `XMLHttpRequest` not `expo/fetch` for POSTs
 - **Centering Tool** — interactive draggable lines, pinch-to-zoom (1x–4x), border ratio measurement, no AI, no backend
 
 **Key files:** `app/collection-scan.tsx`, `app/collection-results.tsx`, `app/deal-advisor.tsx`, `app/tcg-advisor-info.tsx`, `app/centering-tool.tsx`
@@ -98,6 +124,8 @@ The three lightweight tools under "Collection Tools" in the Grade hub.
 
 ### L2-8: Subscription & Paywall Flow
 Everything to do with tiers, gating, paywalls, and upgrade prompts.
+
+**Skill file:** `.agents/skills/subscription-expert/SKILL.md`
 
 **Knows:** Four tiers — Free / Grade Curious (£2.99) / Grade Enthusiast (£5.99) / Grade Obsessed (£9.99) → RevenueCat SDK (Preview API Mode in Expo Go) → `lib/subscription.tsx` central context → all exported values (`isSubscribed`, `isGateEnabled`, `isAdminMode`, `canDeepGrade`, `canBulk`, `canCrossover`, remaining counts) → gating pattern: `isGateEnabled && !isSubscribed && !isAdminMode` → paywall screen → feature upsell screens (e.g. `tcg-advisor-info.tsx`) → free-tier grade count → reinstall-safe usage via `stable_user_id`.
 
@@ -108,7 +136,9 @@ Everything to do with tiers, gating, paywalls, and upgrade prompts.
 ### L2-9: Admin & Analytics Flow
 The internal tooling for monitoring and managing the business.
 
-**Knows:** Admin auth (session-based, `ADMIN_PASSWORD`) → analytics screen (stats tab: grading volume, active users; finance tab: P&L, MRR, costs, AI spend) → finance calculation: gross MRR from RC tier counts × prices, platform fee (Apple 15% / standard 30%), RC fee, net MRR, real AI costs from `ai_cost_log` → investment breakdown (Replit £870.42, Apple £75, Google Play £20, PokeTrace, other) → editable fields for all cost inputs → price flags screen → card variants admin.
+**Skill file:** `.agents/skills/admin-finance-expert/SKILL.md`
+
+**Knows:** Admin auth (session-based, `ADMIN_PASSWORD`) → analytics screen (stats tab: grading volume, active users; finance tab: P&L, MRR, costs, AI spend) → finance calculation: gross MRR from RC tier counts × prices, platform fee (Apple 15% / standard 30%), RC fee, net MRR, real AI costs from `ai_cost_log` → investment breakdown (Replit, Apple, Google Play, PokeTrace, other) → editable fields for all cost inputs → price flags screen → card variants admin.
 
 **Key files:** `app/admin-analytics.tsx`, `app/admin-card-variants.tsx`, `app/admin-price-flags.tsx`
 
@@ -116,6 +146,8 @@ The internal tooling for monitoring and managing the business.
 
 ### L2-10: Settings & Account Flow
 The Settings tab and first-time setup.
+
+**Skill file:** `.agents/skills/settings-account-expert/SKILL.md`
 
 **Knows:** Onboarding (first-use company selection) → Settings tab (subscription status, grading company toggles, preferences) → grading standards reference screen → grading fees reference screen → feedback screen → about/terms/privacy/disclaimer → What's New screen → company select screen.
 
