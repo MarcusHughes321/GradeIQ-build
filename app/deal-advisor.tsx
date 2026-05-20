@@ -14,7 +14,6 @@ import {
   KeyboardAvoidingView,
   Linking,
 } from "react-native";
-import { fetch } from "expo/fetch";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -605,34 +604,58 @@ export default function PokeBotScreen() {
     setMessages(prev => [userMsg, ...prev]);
     setLoading(true);
 
-    try {
-      const url = new URL("/api/pokemon-chat", apiBase);
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, history: snapshot }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setMessages(prev => [{
-        id: `a-${Date.now()}`,
-        role: "assistant",
-        text: data.reply,
-        prices: data.prices ?? null,
-        cards: Array.isArray(data.cards) && data.cards.length > 0 ? data.cards : null,
-        segments: Array.isArray(data.segments) && data.segments.length > 0 ? data.segments : null,
-      }, ...prev]);
-    } catch {
-      setMessages(prev => [{
-        id: `e-${Date.now()}`,
-        role: "assistant",
-        text: "Couldn't reach the server — tap Retry.",
-        isError: true,
-        retryText: trimmed,
-      }, ...prev]);
-    } finally {
-      setLoading(false);
-    }
+    // Use XMLHttpRequest — expo/fetch returns 404 for plain JSON POSTs on physical devices
+    const url = new URL("/api/pokemon-chat", apiBase);
+    new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url.toString());
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            setMessages(prev => [{
+              id: `a-${Date.now()}`,
+              role: "assistant",
+              text: data.reply,
+              prices: data.prices ?? null,
+              cards: Array.isArray(data.cards) && data.cards.length > 0 ? data.cards : null,
+              segments: Array.isArray(data.segments) && data.segments.length > 0 ? data.segments : null,
+            }, ...prev]);
+          } catch {
+            setMessages(prev => [{
+              id: `e-${Date.now()}`,
+              role: "assistant",
+              text: "Couldn't reach the server — tap Retry.",
+              isError: true,
+              retryText: trimmed,
+            }, ...prev]);
+          }
+        } else {
+          setMessages(prev => [{
+            id: `e-${Date.now()}`,
+            role: "assistant",
+            text: "Couldn't reach the server — tap Retry.",
+            isError: true,
+            retryText: trimmed,
+          }, ...prev]);
+        }
+        setLoading(false);
+        resolve();
+      };
+      xhr.onerror = () => {
+        setMessages(prev => [{
+          id: `e-${Date.now()}`,
+          role: "assistant",
+          text: "Couldn't reach the server — tap Retry.",
+          isError: true,
+          retryText: trimmed,
+        }, ...prev]);
+        setLoading(false);
+        resolve();
+      };
+      xhr.send(JSON.stringify({ message: trimmed, history: snapshot }));
+    });
   }, [loading, messages, apiBase, requireSub]);
 
   const startRecording = async () => {
