@@ -88,6 +88,51 @@ Subscription gating pattern: `const { isSubscribed, isGateEnabled, isAdminMode }
 
 ---
 
+## Technical Change Mode Output — Technical Change Brief
+
+```
+## Technical Change Brief: [Area Name]
+
+**What is changing**
+[1-2 sentences: the specific subsystem or component being modified and the nature of the change — replacement, extension, or behaviour modification.]
+
+**Why**
+[The problem with the current approach — performance, reliability, cost, accuracy issue — and why this change addresses it.]
+
+**L3 agents affected**
+[List every L3 subsystem touched by this change. Note any ripple effects into adjacent subsystems.]
+
+**Backward compatibility**
+[DB or schema migrations required. In-flight job or cache format breakage risk. Rollback plan if the change degrades quality.]
+
+**Performance and cost delta**
+[Expected latency impact on user-facing operations. Change in AI token usage, API call volume, or storage costs.]
+
+**Testing and validation plan**
+[How to confirm the change is an improvement. Before/after comparison method. Edge cases in this subsystem that must still pass.]
+
+**Out of scope**
+[Clear boundary: what is NOT changing in this work.]
+
+**Assumptions**
+[Any gaps in the interview and what was assumed. The builder should flag if any assumption is wrong before proceeding.]
+
+**Done looks like**
+[Bullet list of observable outcomes. What does the finished change prove?]
+```
+
+Implementation prompt format is the same as Feature Mode but replace "User flow" and "UI specification" with:
+
+```
+### Change specification
+[Precise description of what the subsystem does today vs what it should do after the change. Include any specific algorithms, data structures, or API contracts that must change.]
+
+### Subsystem constraints
+[What must NOT change — interfaces depended on by other subsystems, DB column names, response shapes consumed by the client, etc.]
+```
+
+---
+
 ## Methodology Mode Output — Agent Brief
 
 ```

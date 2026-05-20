@@ -164,7 +164,9 @@ The Settings tab and first-time setup.
 ### L3-1: Image Processing Pipeline
 Everything that happens to an image before it reaches the AI.
 
-**Knows:** HEIF/HEIC conversion (`heif-convert`) → server-side resize (max 1024px) → JPEG compression → AI boundary detection via Claude Sonnet (outer card edges + inner artwork bounds) → multi-resolution Sobel gradient fallback → tilt detection and correction → auto-align using AI-derived bounds → image enhancement for Deep Grade (sharpen, brightness, contrast) → base64 encoding for Claude → slab aspect-ratio detection for Crossover.
+**Skill file:** `.agents/skills/image-pipeline-expert/SKILL.md`
+
+**Knows:** HEIF/HEIC conversion (`heif-convert`) → server-side resize (max 1024px, `sharp`) → JPEG compression → AI boundary detection via Claude Sonnet (outer card edges + inner artwork bounds) → multi-resolution Sobel gradient fallback → tilt detection and correction → auto-crop with padding → base64 encoding for Claude → Deep Grade enhancement (sharpen, brightness, contrast) → slab aspect-ratio detection for Crossover → `expo-file-system/legacy` import required on client.
 
 **Key files:** `server/routes.ts` (image processing sections)
 
@@ -173,7 +175,9 @@ Everything that happens to an image before it reaches the AI.
 ### L3-2: AI Grading Engine
 The Claude prompts, scoring logic, and card identification.
 
-**Knows:** Single-call architecture (card ID + grading in one Claude Sonnet call) → deductive grading: starts at 10, deducts for visible flaws → leniency for minor back-only defects → variant detection (Holo / Reverse Holo / Non-Holo) → multi-language card reading (EN, JP, KR, CN) → vintage card identification via set symbols → set knowledge from `server/pokemon-sets.ts` (EN, JP, KR, CN sets) → deep grade modified prompt (greater corner/edge weight) → collection scan prompt (Claude Haiku, condition labels) → TCG Advisor prompt (Claude Haiku, investment/market advice).
+**Skill file:** `.agents/skills/ai-grading-engine-expert/SKILL.md`
+
+**Knows:** Single-call architecture (card ID + grading in one Claude Sonnet call) → deductive grading: starts at 10, deducts for visible flaws → leniency for minor back-only defects → variant detection (Holo / Reverse Holo / Non-Holo) → multi-language card reading (EN, JP, KR, CN) → vintage card identification via set symbols → set knowledge from `server/pokemon-sets.ts` → deep grade modified prompt → collection scan prompt (Claude Haiku) → TCG Advisor prompt (Claude Haiku) → **AI cost logging to `ai_cost_log` required for every AI call**.
 
 **Key files:** `server/routes.ts` (AI prompt sections), `server/pokemon-sets.ts`
 
@@ -182,54 +186,66 @@ The Claude prompts, scoring logic, and card identification.
 ### L3-3: Pricing & Market Data Engine
 How prices are fetched, cached, and served.
 
-**Knows:** TCGPlayer prices via TCGCSV API (stored in `card_catalog.prices_json` JSONB, per-variant: Holo/RH/Normal) → eBay last-sold prices via PokeTrace (two-tier cache: in-memory + `ebay_price_cache` table) → per-grade stats: avg1d/7d/30d, low, high, sale count → Cardmarket EUR prices for JP cards via PokeTrace → exchange rate fetching (daily) → Top Picks precomputed job (scoring algorithm, `top_picks_precomputed` table, daily EN + JP runs) → pokemontcg.io for EN set data → TCGdex for JP/KR set data → eBay App ID + Cert ID credentials.
+**Skill file:** `.agents/skills/pricing-engine-expert/SKILL.md`
 
-**Key files:** `server/routes.ts` (pricing sections)
+**Knows:** TCGPlayer prices via TCGCSV API (stored in `card_catalog.prices_json` JSONB, per-variant: Holo/RH/Normal) → eBay last-sold prices via PokeTrace (two-tier cache: in-memory + `ebay_price_cache` table) → per-grade stats: avg1d/7d/30d, low, high, sale count → Cardmarket EUR prices for JP cards via PokeTrace → exchange rate fetching (daily) → Top Picks precomputed nightly job (`top_picks_precomputed` table, EN + JP) → pokemontcg.io for EN set data → TCGdex for JP/KR set data.
+
+**Key files:** `server/routes.ts` (pricing sections), `server/jobs.ts`
 
 ---
 
 ### L3-4: Card Catalog System
 The database of all known cards and their prices.
 
-**Knows:** `card_catalog` table — 33,270 EN cards + 13,525 JP cards, `lang` column (`en`/`ja`), `prices_json` JSONB for variant prices → JP cards: `name_en`, `price_eur`, `set_name_en` → daily EN sync from pokemontcg.io → daily JP sync via PokeTrace + TCGdex → `card_variants` table (prerelease, staff stamp, pokemon-centre, build-and-battle, trick-or-trade) → keyword search scoring (name ×3, set_name ×1, rarity stop-words filtered) → set image proxying + pre-warming.
+**Skill file:** `.agents/skills/card-catalog-expert/SKILL.md`
 
-**Key files:** `server/routes.ts` (catalog sync sections)
+**Knows:** `card_catalog` table — 33,270 EN cards + 13,525 JP cards, `lang` column (`en`/`ja`), `prices_json` JSONB for variant prices → JP cards: `name_en`, `price_eur`, `set_name_en` → daily EN sync from pokemontcg.io → daily JP sync via TCGdex + PokeTrace → `card_variants` table (prerelease, staff stamp, pokemon-centre, build-and-battle, trick-or-trade) → keyword search scoring (name ×3, set_name ×1, rarity stop-words filtered) → set image proxying + pre-warming.
+
+**Key files:** `server/routes.ts` (catalog sync sections), `server/jobs.ts`
 
 ---
 
 ### L3-5: Background Job System
 How grading jobs run without blocking the UI and survive app kills.
 
-**Knows:** `grading_jobs` DB table — stores `rc_user_id`, `stable_user_id`, job status, `delivered` flag → job polling from client → kill-safe delivery: `GET /api/pending-grades` on every app launch checks for completed-but-undelivered jobs → client acknowledges via `POST /api/grade-job/:id/acknowledge` → AppState "active" event resumes polling when app returns from background → bulk job handling (up to 20 cards).
+**Skill file:** `.agents/skills/background-job-expert/SKILL.md`
+
+**Knows:** `grading_jobs` DB table — stores `rc_user_id`, `stable_user_id`, job status, `delivered` flag → job creation → client polling → kill-safe delivery: `GET /api/pending-grades` on every launch checks for completed-but-unacknowledged jobs → `POST /api/grade-job/:id/acknowledge` sets delivered=true → AppState "active" resumes polling → bulk job handling → separate `collection_jobs` table for Collection Scan (no delivered flag).
 
 **Key files:** `server/routes.ts` (job sections), `app/(tabs)/index.tsx`, `app/(tabs)/grade.tsx`
 
 ---
 
-### L3-6: RevenueCat & Usage Tracking
-Subscription state management and free-tier enforcement.
+### L3-6: RevenueCat, Usage Tracking & User Identity
+Subscription state management, free-tier enforcement, and the stable UUID identity system.
 
-**Knows:** RevenueCat SDK integration → `subscription_cache` DB table → `usage_tracking` table with `stable_user_id` column (partial unique index on stable_user_id + year_month) → reinstall-safe grade counts: all grading endpoints write to/read from stable-ID row → `syncServerUsage` called twice on startup (RC user ID first, then stable ID) → free-tier limits per mode → admin mode bypass.
+**Skill file:** `.agents/skills/revenuecat-usage-expert/SKILL.md`
 
-**Key files:** `lib/subscription.tsx`, `server/routes.ts` (usage sections)
+**Knows:** Stable UUID generation (expo-crypto, stored in iOS Keychain + AsyncStorage, survives reinstall) → `lib/stable-user-id.ts` → RevenueCat SDK integration → `subscription_cache` DB table → `usage_tracking` table with `stable_user_id` partial unique index → reinstall-safe grade counts → startup sync sequence (RC ID first, then stable ID) → free-tier limits per mode → admin bypass.
+
+**Key files:** `lib/stable-user-id.ts`, `lib/subscription.tsx`, `server/routes.ts` (usage sections)
 
 ---
 
 ### L3-7: Object Storage & Image Backup
 How grading photos are backed up to the cloud and recovered.
 
-**Knows:** Replit Object Storage (`.private` bucket) → upload on grade completion: front + back at 400px/JPEG 60% → stored as `front_image_url`/`back_image_url` in `grading_history` → recovery on reinstall: client falls back to server URL when local image is empty → `GET /api/grading-image/:uuid` serves images → retroactive upload: `retroactiveImageUpload()` on startup uploads local images not yet backed up (up to 30 grades, fire-and-forget) → `expo-file-system/legacy` import required for FileSystem operations.
+**Skill file:** `.agents/skills/object-storage-expert/SKILL.md`
 
-**Key files:** `server/objectStorage.ts`, `server/routes.ts` (image backup sections)
+**Knows:** Replit Object Storage (`.private` bucket) → upload on grade completion: front + back at 400px/JPEG 60%, path `{stableId}/{gradingUUID}/front.jpg` → `front_image_url`/`back_image_url` stored in `grading_history` → `GET /api/grading-image/:uuid` serves images (auth-checked, never public) → retroactive upload on startup (30-item cap, fire-and-forget) → `expo-file-system/legacy` import required for all FileSystem operations.
+
+**Key files:** `server/objectStorage.ts`, `lib/server-history.ts`, `server/routes.ts` (image backup sections)
 
 ---
 
 ### L3-8: AI Voice & Chat System
 The voice and conversational AI features.
 
-**Knows:** TCG Advisor chat: `POST /api/pokemon-chat` → Claude Haiku for advice, rolling conversation history → TTS: `POST /api/pokemon-chat/tts` uses `textToSpeech()` from audio integration (gpt-audio model, mp3, ~5–9s latency) → client writes audio to `FileSystem.cacheDirectory`, plays via `expo-av` `Audio.Sound.createAsync` → playback controls (pause/resume/stop) → voice transcription: `POST /api/pokemon-chat/transcribe` → known quirk: use `XMLHttpRequest` not `expo/fetch` for plain JSON POSTs in deal-advisor → AI cost logged as mode `deal_advisor`.
+**Skill file:** `.agents/skills/voice-chat-expert/SKILL.md`
 
-**Key files:** `app/deal-advisor.tsx`, `server/routes.ts` (pokemon-chat sections), `server/replit_integrations/audio/client.ts`
+**Knows:** TCG Advisor 2-phase chat → Claude Haiku for advice, rolling conversation history (session-only) → TTS via `gpt-audio` model (NOT tts-1 — Replit proxy doesn't support tts-1, ~5–9s latency) → write-then-play: client writes base64 audio to `FileSystem.cacheDirectory` before playing via `expo-av` → playback controls (pause/resume/stop) → stop audio on screen blur → voice transcription → critical quirk: use `XMLHttpRequest` not `expo/fetch` for JSON POSTs in `deal-advisor.tsx` → AI cost logged as mode `deal_advisor`.
+
+**Key files:** `app/deal-advisor.tsx`, `server/routes.ts` (pokemon-chat/card-advisor sections), `server/replit_integrations/audio/client.ts`
 
 ---
 
