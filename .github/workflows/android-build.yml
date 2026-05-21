@@ -30,5 +30,8 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build Android AAB (production)
-        run: eas build --platform android --profile production --non-interactive
+      - name: Write Google Play service account key
+        run: printf '%s' '${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}' > /tmp/google-service-account.json
+
+      - name: Build Android AAB and submit to Google Play (internal track)
+        run: eas build --platform android --profile production --auto-submit --non-interactive
