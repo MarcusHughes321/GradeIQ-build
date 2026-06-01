@@ -254,7 +254,7 @@ async function isAdminUser(rcUserId: string): Promise<boolean> {
 
 // Tier-based monthly limits (mirrors client-side TIERS in lib/subscription.tsx)
 const TIER_LIMITS: Record<string, { quick: number | null; deep: number | null; crossover: number | null }> = {
-  free:       { quick: 5,    deep: 0,    crossover: 0    },
+  free:       { quick: 3,    deep: 0,    crossover: 0    },
   curious:    { quick: 15,   deep: 2,    crossover: 10   },
   enthusiast: { quick: 50,   deep: 7,    crossover: 25   },
   obsessed:   { quick: null, deep: 30,   crossover: null },
@@ -332,7 +332,7 @@ async function enforceServerQuota(
 
   // ── Fallback: free tier limits ────────────────────────────────────────────
   // Reached when there's no cached tier or cached tier is "free".
-  const freeLimits: Record<string, number> = { quick: 5, deep: 0, crossover: 0 };
+  const freeLimits: Record<string, number> = { quick: 3, deep: 0, crossover: 0 };
   const freeLimit = freeLimits[type] ?? 0;
   if (count < freeLimit) return null;
   // At or over free limit — check RC to see if they're actually a paid subscriber
