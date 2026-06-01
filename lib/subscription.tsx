@@ -12,7 +12,7 @@ const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const CROSSOVER_USAGE_KEY = "gradeiq_crossover_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
-const FREE_MONTHLY_LIMIT = 5;
+const FREE_MONTHLY_LIMIT = 3;
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
 
