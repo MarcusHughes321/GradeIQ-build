@@ -299,7 +299,9 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         }
 
         if (recordUsageRef.current) {
-          try { await recordUsageRef.current(1); } catch {}
+          const fn = recordUsageRef.current;
+          recordUsageRef.current = null;
+          try { await fn(1); } catch {}
         }
 
         // Strip corner images before saving — they're large base64 blobs (can
