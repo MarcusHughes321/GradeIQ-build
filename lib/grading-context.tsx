@@ -80,9 +80,10 @@ async function getBase64FromUri(uri: string): Promise<string> {
 
   // On native: use ImageManipulator to convert to JPEG and resize before sending.
   // This handles HEIC/HEIF photos and prevents large uploads from aborting mid-transfer.
-  // 2048px matches the server's maximum AI input resolution — no grading quality is lost.
-  // In dev mode, use 1024px so uploads fit through the Replit dev tunnel for testing.
-  const uploadMaxDim = __DEV__ ? 1024 : 2048;
+  // 1024px is used in all builds — the server resizes with withoutEnlargement:true so
+  // Claude never sees more than 1024px anyway. Keeping client-side at 1024 keeps the
+  // JSON body well under the Replit proxy's request-size limit (~10 MB).
+  const uploadMaxDim = 1024;
   if (Platform.OS !== "web") {
     try {
       // Android EXIF fix: rotate(0) forces a full decode respecting EXIF orientation
