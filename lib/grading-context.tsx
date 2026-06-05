@@ -75,8 +75,10 @@ function withSubmitTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 async function getBase64FromUri(uri: string): Promise<string> {
-  // Already a data URI — use directly without re-fetching
-  if (uri.startsWith("data:")) return uri;
+  // Already a data URI — strip the prefix and return raw base64 only.
+  // The server re-adds the prefix before processing. Sending "data:image/..."
+  // in the POST body triggers Replit's WAF and returns 403.
+  if (uri.startsWith("data:")) return uri.split(",")[1] ?? uri;
 
   // On native: use ImageManipulator to convert to JPEG and resize before sending.
   // This handles HEIC/HEIF photos and prevents large uploads from aborting mid-transfer.
@@ -97,19 +99,22 @@ async function getBase64FromUri(uri: string): Promise<string> {
         { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       if (result.base64) {
-        return `data:image/jpeg;base64,${result.base64}`;
+        return result.base64;
       }
     } catch (e) {
       console.log("[getBase64] ImageManipulator failed, falling back to fetch:", e);
     }
   }
 
-  // Web fallback: fetch and convert to data URI via FileReader
+  // Web fallback: fetch and convert via FileReader, strip the data URI prefix
   const response = await fetch(uri);
   const blob = await response.blob();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
