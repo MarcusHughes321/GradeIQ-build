@@ -1,0 +1,2 @@
+- [Upload size proxy limit](upload-size-proxy-limit.md) — production grade-job POSTs with 2048px images exceed Replit proxy limit (~10MB), causing 403 HTML before Express is reached. Always use 1024px.
+- [Android quota race condition](android-quota-race.md) — AppState "active" restarts polling; overlapping poll ticks all see "completed" and each call recordUsage. Fix: null out recordUsageRef before calling it.
