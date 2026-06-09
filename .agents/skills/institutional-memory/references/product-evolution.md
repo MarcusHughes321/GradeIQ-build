@@ -1,66 +1,49 @@
+---
+name: product-evolution
+description: How Grade.IQ's product thinking has evolved — the shifts in priorities, positioning, and direction over time.
+---
+
 # Product Evolution
 
-How the product thinking has changed over time — what started as one thing and became another.
+The story of how the product's thinking has changed, beyond any single technical decision.
 
 ---
 
-### Grading scope — PSA-only → five companies
-**Original thinking:** PSA is the dominant grading company, so PSA grades would be enough.
-**What changed:** Users care about BGS (Beckett) for its sub-grade system, ACE Grading as the popular UK-based option, TAG for its niche following, and CGC as a growing challenger. Multi-company output became a core differentiator.
-**Current state:** Every grading result shows estimated grades for PSA, BGS, ACE, TAG, and CGC simultaneously.
+### Positioning — Honest "independent, early-stage" framing built into the product
+**Date:** June 2026
+**Shift:** The app explicitly tells users it is new, built and maintained by a single developer (Marceus), and may have bugs — surfaced on the first-launch disclaimer ("Independent & Early-Stage" bullet), on the paywall just before the subscribe button, and as a clause in the EULA.
+**Why:** After a stretch of real outages (the WAF breakage, lost history on reinstall), the priority became setting honest expectations *before* anyone pays. Subscribers should know service may be disrupted despite paying. Trust over polish.
+**Implication:** New monetization or onboarding surfaces should preserve this transparency, not bury it. The framing is deliberate, not a placeholder.
 
 ---
 
-### Market value — "nice to have" → core feature
-**Original thinking:** The grading estimate was the product. Prices were a secondary feature.
-**What changed:** Users immediately wanted to know if grading was *worth it* economically — the raw cost vs graded value comparison. The Card Profit screen (grading economics calculator) became one of the most-used parts of the app.
-**Current state:** eBay last-sold prices, per-grade stats, profitability sparklines, and the full profit screen are first-class features. Top Grading Picks was built specifically to surface the highest-ROI grading opportunities.
+### Image Quality — Moving toward highest-possible-quality images (S3 direction)
+**Date:** June 2026
+**Shift:** The user's stated north star is that the AI grades the *highest possible quality* image the user's phone can capture — the raw photo is "the most optimal quality of their card." This drove a decision to pursue AWS S3 presigned-URL uploads so full images bypass the Replit proxy entirely, with the original stored for history (replacing the current 400px thumbnail backup).
+**Why:** The user values grading on the best available data and showing full-quality images in history, even though Claude internally downsamples (~1000–1100px) and the practical accuracy gain above ~2048px is negligible. The motivation is partly principle (best input) and partly future-proofing (archival originals, potential future ML training data).
+**Status:** Agreed direction, **not yet built**. Blocked on the user creating an S3 bucket + IAM user and adding `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` secrets. Cost is negligible at this scale (cents to a few dollars/month).
+**Implication:** When this lands it changes the core grading submission path, server grading endpoints, and history image source. Expect it to require a fresh build on both platforms.
 
 ---
 
-### Japanese cards — afterthought → full support
-**Original thinking:** English-language Pokémon cards were the target market.
-**What changed:** JP cards have a significant collector and investor audience, and many high-value cards are JP exclusives. Cardmarket EUR pricing was added for JP raw cards. TCGdex integration brought in JP set data. The set browser got a full EN/JP toggle.
-**Current state:** Full JP support — 13,525 JP cards in the catalog, TCGdex set browser with 163 sets across 14 series, Cardmarket NM EUR prices with currency conversion, JP Top Grading Picks.
+### Architecture Philosophy — Tension between "thin client" and the proxy limit
+**Date:** June 2026
+**Shift:** The user instinctively wanted to move on-device processing (crop, tilt, enhance) to the server so the phone "just sends photos" — fewer device-specific bugs, server-side improvements without app updates. This is sound, but repeatedly collides with the ~10MB proxy limit that forces on-device shrinking before upload.
+**Why it matters:** The current split (device resizes/crops, server grades) is not an accident — it is the equilibrium the proxy limit forces. The long-term resolution is to bypass the proxy (S3), which is what unblocks moving processing server-side.
+**Implication:** Do not treat client-side image processing as legacy cruft to remove; it exists because of a hard infrastructure constraint. It can only move server-side once transport bypasses the proxy.
 
 ---
 
-### Background grading — foreground-only → kill-safe background jobs
-**Original thinking:** Grading happened while the user waited on screen. The result appeared when the API call returned.
-**What changed:** Grading takes 15–45 seconds. Users backgrounded the app, killed it, or switched to other apps. Results were lost.
-**What was built:** A full background job system. Results survive app kills, reinstalls, and device switches. The Home tab badge signals when a result is ready. Recovery happens automatically on every app launch.
+### Distribution — Android beta push and the tester backdoor
+**Date:** June 2026
+**Shift:** Grade.IQ reached Android via Play Store internal testing, needing 12 opted-in testers before Google would allow wider publishing. The team leaned on an informal email campaign to friends/testers. A deliberate backdoor exists for testers: tap the Settings header 5× and enter the admin password to unlock full (unrestricted) access.
+**Why:** Getting to the 12-tester threshold was the immediate gate to publishing. The backdoor lets testers bypass free-tier limits without paying, so they can exercise the whole app.
+**Implication:** The 5-tap + `ADMIN_PASSWORD` admin unlock is intentional and tester-facing. The admin password is held as the `ADMIN_PASSWORD` secret — admin mode only works if that secret matches what testers are told to type. Keep this in mind before changing or removing the admin gate.
 
 ---
 
-### Subscription model — hard gate → soft gate with admin bypass
-**Original thinking:** Free users would be hard-blocked from premium features.
-**What changed:** Hard gates made testing painful and broke the admin's ability to use the app normally. A bypass pattern was added: `isAdminMode` from the subscription context skips all gates.
-**Current state:** `isGateEnabled && !isSubscribed && !isAdminMode` is the universal gating pattern. The gate itself can be disabled entirely via env var for development builds.
-
----
-
-### Grading history — local only → synced + photo backup
-**Original thinking:** Grading history lived in AsyncStorage on the device. Simple, no backend needed.
-**What changed:** Users reinstalled the app and lost everything. Support requests about lost history were the most common complaint.
-**What was built:** Server-side `grading_history` table synced bidirectionally. Stable UUID for identity across reinstalls. Photo backup to Replit Object Storage with automatic recovery. Retroactive upload for users whose photos weren't yet backed up.
-
----
-
-### Collection tools — standalone features → grouped hub section
-**Original thinking:** Each tool (Centering Tool, Collection Scan, TCG Advisor) was a separate entry point.
-**What changed:** The Features tab became crowded. Grouping lightweight collection-management tools into a "Collection Tools" section created a clearer hierarchy — grading modes at the top, supporting tools below.
-**Current state:** Collection Tools section in the Features hub contains: Collection Scan, TCG Advisor, Centering Tool.
-
----
-
-### TCG Advisor — free feature → Pro gated
-**Original thinking:** The AI chat advisor would be a free feature to drive engagement.
-**What changed:** TTS voice was added, making it a genuinely premium experience. The feature also uses real price data and Haiku AI calls that have real costs. Gating it to Pro creates a clear value reason to subscribe.
-**Current state:** TCG Advisor shows a gold lock pill for free users and redirects to an upsell screen (`tcg-advisor-info.tsx`).
-
----
-
-### Agent methodology — ad-hoc → structured leveled system
-**Original thinking:** Each feature was built through direct conversation — describe what you want, build it, refine.
-**What changed:** As the app grew more complex, context about how things worked had to be re-established at the start of each session. New features sometimes conflicted with existing patterns because that context wasn't captured anywhere.
-**What's being built:** A leveled agent ecosystem — L1 (app overview), L2 (feature flows), L3 (technical subsystems) — plus a PM agent for structured feature planning and this Institutional Memory agent to capture decisions and history.
+### Compliance — App Store subscription requirements surfaced late
+**Date:** June 2026
+**Shift:** Apple rejected a submission for not exposing a Terms of Use / EULA link from the store listing (required for auto-renewable subscriptions). A custom EULA was written and added to App Store Connect → App Information → License Agreement.
+**Why:** Subscriptions bring platform compliance obligations that are easy to miss when focused on features. The custom EULA (vs Apple's standard one) keeps terms consistent with the app's own `/terms` screen.
+**Implication:** Subscription/paywall changes can have store-side metadata consequences, not just code. Treat compliance metadata (EULA, privacy, auto-renew disclosure) as part of the release checklist.
