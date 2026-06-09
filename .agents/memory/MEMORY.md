@@ -1,3 +1,4 @@
 - [Upload size proxy limit](upload-size-proxy-limit.md) — production grade-job POSTs with 2048px images exceed Replit proxy limit (~10MB), causing 403 HTML before Express is reached. Always use 1024px.
 - [Android quota race condition](android-quota-race.md) — AppState "active" restarts polling; overlapping poll ticks all see "completed" and each call recordUsage. Fix: null out recordUsageRef before calling it.
 - [Replit WAF blocks data URI in POST body](replit-waf-data-uri.md) — any POST containing "data:image/jpeg;base64," in the body returns 403 HTML before Express. Strip prefix on client; server re-adds it via startsWith("data:") guard.
+- [Grading waiting-screen progress](grading-progress-bar.md) — bar is server-stage-driven; the opaque AI step must creep continuously toward a sub-1.0 cap (not one-shot) or it freezes on long runs; never rewind, never hit 1.0 before the real result.

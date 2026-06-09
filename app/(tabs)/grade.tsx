@@ -47,16 +47,23 @@ type CertLookupResult = {
 };
 const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 
-const CROSSOVER_STAGES = [
-  { label: "Preparing slab image", icon: "image-outline" as const, duration: 3000 },
-  { label: "Identifying card", icon: "scan-outline" as const, duration: 7000 },
-  { label: "Assessing centering", icon: "resize-outline" as const, duration: 5000 },
-  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 5000 },
-  { label: "Evaluating surface", icon: "layers-outline" as const, duration: 5000 },
-  { label: "Crossover analysis", icon: "git-compare-outline" as const, duration: 5000 },
-  { label: "Calculating crossover grades", icon: "calculator-outline" as const, duration: 5000 },
-  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 3000 },
+// REAL pipeline stages, driven by the server's job.progress.stage (received →
+// preparing → analyzing → finalizing). No fake timers — labels are honest and
+// the bar tracks what the server is actually doing. The "analyzing" step (the
+// single Claude call) is the long one, so the bar smooth-creeps during it.
+const REAL_STAGES = [
+  { key: "received", label: "Uploading photos", icon: "cloud-upload-outline" as const },
+  { key: "preparing", label: "Preparing images", icon: "image-outline" as const },
+  { key: "analyzing", label: "AI analyzing your card", icon: "scan-outline" as const },
+  { key: "finalizing", label: "Finalizing results", icon: "checkmark-circle-outline" as const },
 ];
+
+const STAGE_INDEX: Record<string, number> = {
+  received: 0,
+  preparing: 1,
+  analyzing: 2,
+  finalizing: 3,
+};
 
 const TAB_BAR_STYLE = {
   backgroundColor: Platform.OS === "web" ? Colors.surface : "transparent",
@@ -67,31 +74,6 @@ const TAB_BAR_STYLE = {
   height: Platform.OS === "web" ? 84 : 85,
   paddingTop: 8,
 };
-
-const QUICK_STAGES = [
-  { label: "Preparing images", icon: "image-outline" as const, duration: 2000 },
-  { label: "Analyzing front side", icon: "scan-outline" as const, duration: 5000 },
-  { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 5000 },
-  { label: "Checking centering", icon: "resize-outline" as const, duration: 4000 },
-  { label: "Inspecting corners & edges", icon: "crop-outline" as const, duration: 4000 },
-  { label: "Evaluating surface condition", icon: "layers-outline" as const, duration: 4000 },
-  { label: "Calculating grades", icon: "calculator-outline" as const, duration: 3000 },
-  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
-];
-
-const DEEP_STAGES = [
-  { label: "Enhancing images", icon: "color-wand-outline" as const, duration: 2000 },
-  { label: "Analyzing front side", icon: "scan-outline" as const, duration: 4000 },
-  { label: "Analyzing back side", icon: "swap-horizontal-outline" as const, duration: 4000 },
-  { label: "Analyzing angled shots", icon: "eye-outline" as const, duration: 4000 },
-  { label: "Inspecting front corners", icon: "crop-outline" as const, duration: 5000 },
-  { label: "Inspecting back corners", icon: "crop-outline" as const, duration: 5000 },
-  { label: "Deep surface inspection", icon: "search-outline" as const, duration: 5000 },
-  { label: "Checking centering", icon: "resize-outline" as const, duration: 4000 },
-  { label: "Cross-referencing flaws", icon: "git-compare-outline" as const, duration: 4000 },
-  { label: "Calculating grades", icon: "calculator-outline" as const, duration: 3000 },
-  { label: "Finalizing results", icon: "checkmark-circle-outline" as const, duration: 2000 },
-];
 
 const DEEP_STEP_GUIDANCE: Record<DeepStep, { title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }> = {
   front: {
@@ -188,9 +170,10 @@ export default function GradeScreen() {
   const [loading, setLoading] = useState(false);
   const [cameraOpen, setCameraOpen] = useState<DeepStep | null>(null);
   const [deepCameraActive, setDeepCameraActive] = useState(false);
-  const [analysisStage, setAnalysisStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
-  const stageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The furthest the bar has ever animated to (0–1). Used so we never rewind the
+  // bar when an earlier server stage arrives after a forward creep.
+  const progressTargetRef = useRef(0);
   const [deepStep, setDeepStep] = useState<DeepStep>("front");
   const [showDeepIntro, setShowDeepIntro] = useState(false);
   const [adjustImage, setAdjustImage] = useState<{ uri: string; side: DeepStep } | null>(null);
@@ -212,7 +195,11 @@ export default function GradeScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const ANALYSIS_STAGES = mode === "deep" ? DEEP_STAGES : mode === "crossover" ? CROSSOVER_STAGES : QUICK_STAGES;
+  // Drive the waiting UI from the REAL server stage. activeJob.progress.stage is
+  // one of received/preparing/analyzing/finalizing; map it to our 4-step list.
+  const ANALYSIS_STAGES = REAL_STAGES;
+  const serverStage = activeJob?.progress?.stage;
+  const analysisStage = serverStage ? (STAGE_INDEX[serverStage] ?? 0) : 0;
 
   useEffect(() => {
     if (cameraOpen) {
@@ -262,59 +249,53 @@ export default function GradeScreen() {
         setLoading(false);
         setCameraOpen(null);
         setDeepCameraActive(false);
-        setAnalysisStage(0);
         progressAnim.setValue(0);
+        progressTargetRef.current = 0;
         setDeepStep("front");
         if (!modeParam) setMode("hub");
       }
     }, [activeJob?.status, activeJob?.isCrossover, activeJob?.isDeepGrade, modeParam])
   );
 
+  // Drive the progress bar from the REAL server stage instead of a fake timer.
+  // - received/preparing/finalizing: snap to that stage's true percentage.
+  // - analyzing (the single, long Claude call): continuously ease toward a 0.95
+  //   cap, closing part of the remaining gap on every tick, so the bar keeps
+  //   moving no matter how long the one opaque AI response takes — it never
+  //   freezes and never reaches 100% until the real result arrives.
+  // - no progress yet (first poll pending, or a DB-restored job from an older
+  //   server): fall back to the same continuous creep so the bar is never stuck.
+  // The bar never rewinds: an earlier stage arriving after a creep is ignored.
   useEffect(() => {
     if (!loading) {
-      setAnalysisStage(0);
       progressAnim.setValue(0);
-      if (stageTimerRef.current) {
-        clearTimeout(stageTimerRef.current);
-        stageTimerRef.current = null;
-      }
+      progressTargetRef.current = 0;
       return;
     }
 
-    const stages = ANALYSIS_STAGES;
-    const advanceStage = (stage: number) => {
-      if (stage >= stages.length) return;
-      setAnalysisStage(stage);
-
-      const isLastStage = stage === stages.length - 1;
-
-      if (isLastStage) {
-        Animated.timing(progressAnim, {
-          toValue: 0.95,
-          duration: 2000,
-          useNativeDriver: false,
-        }).start();
-      } else {
-        Animated.timing(progressAnim, {
-          toValue: (stage + 1) / stages.length,
-          duration: stages[stage].duration * 0.8,
-          useNativeDriver: false,
-        }).start();
-
-        stageTimerRef.current = setTimeout(() => {
-          advanceStage(stage + 1);
-        }, stages[stage].duration);
-      }
+    const animateTo = (target: number, duration: number) => {
+      if (target < progressTargetRef.current) return; // never rewind
+      progressTargetRef.current = target;
+      Animated.timing(progressAnim, {
+        toValue: target,
+        duration,
+        useNativeDriver: false,
+      }).start();
     };
 
-    advanceStage(0);
-
-    return () => {
-      if (stageTimerRef.current) {
-        clearTimeout(stageTimerRef.current);
-      }
-    };
-  }, [loading]);
+    if (!serverStage || serverStage === "analyzing") {
+      const CAP = 0.95;
+      const tick = () => {
+        const next = progressTargetRef.current + (CAP - progressTargetRef.current) * 0.12;
+        animateTo(next, 1400);
+      };
+      tick();
+      const intervalId = setInterval(tick, 1500);
+      return () => clearInterval(intervalId);
+    } else {
+      animateTo(activeJob?.progress?.pct ?? 0.1, 600);
+    }
+  }, [loading, serverStage, activeJob?.progress?.pct]);
 
   const pickImage = async (side: DeepStep) => {
     if (Platform.OS === "web") {

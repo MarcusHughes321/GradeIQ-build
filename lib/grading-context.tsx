@@ -38,6 +38,7 @@ export interface GradingJob {
   savedGrading?: SavedGrading;
   error?: string;
   startTime: number;
+  progress?: { stage: string; pct: number };
 }
 
 export interface CertData {
@@ -462,6 +463,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         setActiveJob(prev =>
           prev && prev.id === localJobId
             ? { ...prev, status: "failed", error: data.error || "Unknown error" }
+            : prev
+        );
+      } else if (data.status === "processing" && data.progress) {
+        // Still grading — surface the REAL server stage so the waiting screen
+        // tracks the actual pipeline instead of a fake timer.
+        setActiveJob(prev =>
+          prev && prev.id === localJobId
+            ? { ...prev, progress: data.progress }
             : prev
         );
       }

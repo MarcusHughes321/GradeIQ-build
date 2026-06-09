@@ -6132,9 +6132,26 @@ Return ONLY the JSON object. No other text.`;
     error?: string;
     pushToken?: string;
     createdAt: number;
+    progress?: { stage: string; pct: number };
   }
 
   const gradingJobs = new Map<string, GradingJob>();
+
+  // Real, server-driven grading progress. The phone polls /api/grade-job/:id and
+  // shows the TRUE stage instead of a fake timeline. "analyzing" is the single
+  // Claude call — one opaque block — so it is the longest phase by design.
+  const JOB_STAGE_PCT: Record<string, number> = {
+    received: 0.08,
+    preparing: 0.22,
+    analyzing: 0.45,
+    finalizing: 0.95,
+  };
+  function setJobProgress(jobId: string, stage: string): void {
+    const j = gradingJobs.get(jobId);
+    if (j && j.status === "processing") {
+      j.progress = { stage, pct: JOB_STAGE_PCT[stage] ?? 0.1 };
+    }
+  }
 
   // Binary (multipart) upload handler for grade photos. Keeps images out of the
   // JSON body, which permanently avoids Replit's WAF blocking the
@@ -6293,7 +6310,7 @@ Return ONLY the JSON object. No other text.`;
     }
   }
 
-  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]", enableCornerCrops: boolean = true): Promise<any> {
+  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]", enableCornerCrops: boolean = true, onProgress?: (stage: string) => void): Promise<any> {
     const gradeStartTime = Date.now();
     const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
     const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
@@ -6384,6 +6401,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       : "";
     const finalPrompt = promptText + cornerAddon;
 
+    onProgress?.("analyzing");
     const gradingResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -6564,6 +6582,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     logPrefix: string = "[deep-grade]",
     userFrontCorners?: string[],
     userBackCorners?: string[],
+    onProgress?: (stage: string) => void,
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
@@ -6654,6 +6673,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       }
     }
 
+    onProgress?.("analyzing");
     const gradingResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -8774,6 +8794,7 @@ Return ONLY this JSON:
     logPrefix: string = "[crossover-grade]",
     slabBackImage?: string,
     certData?: { company: string; grade: string; certNumber: string },
+    onProgress?: (stage: string) => void,
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawSlabUrl = slabImage.startsWith("data:") ? slabImage : `data:image/jpeg;base64,${slabImage}`;
@@ -8886,6 +8907,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       contentParts.push({ type: "image_url", image_url: { url: slabBackUrl, detail: "high" } });
     }
 
+    onProgress?.("analyzing");
     const [response, detectedFront, detectedBack, aiFront, aiBack] = await Promise.all([
       anthropic.messages.create({
         model: "claude-sonnet-4-6",
@@ -9351,6 +9373,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: "single",
         pushToken,
         createdAt: Date.now(),
+        progress: { stage: "received", pct: JOB_STAGE_PCT.received },
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "crossover");
@@ -9364,10 +9387,12 @@ RESPONSE FORMAT (JSON only, no markdown):
           setTimeout(() => reject(new Error("Crossover grading timed out — please try again.")), CROSSOVER_TIMEOUT_MS)
         );
         try {
+          setJobProgress(jobId, "preparing");
           const result = await Promise.race([
-            performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData),
+            performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData, (stage) => setJobProgress(jobId, stage)),
             timeoutPromise,
           ]);
+          setJobProgress(jobId, "finalizing");
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9651,6 +9676,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: "single",
         pushToken,
         createdAt: Date.now(),
+        progress: { stage: "received", pct: JOB_STAGE_PCT.received },
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "quick");
@@ -9664,14 +9690,16 @@ RESPONSE FORMAT (JSON only, no markdown):
           // extra upload adds (almost) no latency. Image IDs ride back inside the
           // result JSON, so they flow through completeJobInDb, GET /grade-job, and
           // /pending-grades — meaning images survive app kills and reinstalls.
+          setJobProgress(jobId, "preparing");
           const storePromise = Promise.all([
             storeGradeOriginal(frontImage),
             storeGradeOriginal(backImage),
           ]);
-          const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`);
+          const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`, true, (stage) => setJobProgress(jobId, stage));
           const [frontImageId, backImageId] = await storePromise;
           if (frontImageId) result.frontImageId = frontImageId;
           if (backImageId) result.backImageId = backImageId;
+          setJobProgress(jobId, "finalizing");
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9796,6 +9824,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: "deep",
         pushToken,
         createdAt: Date.now(),
+        progress: { stage: "received", pct: JOB_STAGE_PCT.received },
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "deep");
@@ -9805,7 +9834,9 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       (async () => {
         try {
-          const result = await performDeepGrading(frontImage, backImage, angledImage, angledBackImage || undefined, undefined, `[deep-grade-job:${jobId}]`, frontCorners, backCorners);
+          setJobProgress(jobId, "preparing");
+          const result = await performDeepGrading(frontImage, backImage, angledImage, angledBackImage || undefined, undefined, `[deep-grade-job:${jobId}]`, frontCorners, backCorners, (stage) => setJobProgress(jobId, stage));
+          setJobProgress(jobId, "finalizing");
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9841,6 +9872,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: job.type,
         result: job.status === "completed" ? job.result : undefined,
         error: job.status === "failed" ? job.error : undefined,
+        progress: job.status === "processing" ? job.progress : undefined,
       });
     } else {
       res.json({
