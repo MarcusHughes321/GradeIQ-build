@@ -7667,8 +7667,8 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
     {
       id: "ACE",
       name: "ACE",
-      submissionFeeGBP: 10,
-      turnaround: "14–21 business days",
+      submissionFeeGBP: 18,
+      turnaround: "~45 business days",
       gradeMultipliers: { 7: 1.0, 8: 1.3, 8.5: 1.6, 9: 1.8, 9.5: 2.5, 10: 3.5 },
     },
     {
