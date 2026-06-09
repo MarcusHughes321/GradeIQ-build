@@ -44,12 +44,13 @@ type CardResult = {
   number: string;
   imageUrl: string | null;
   priceUsd: number | null;
+  rarity?: string | null;
   lang?: string;
 };
 
 type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
 
-type DealSideCard = { cardName: string; setName: string; imageUrl: string | null; value: number | null };
+type DealSideCard = { cardName: string; setName: string; number?: string; imageUrl: string | null; value: number | null; alternatives?: CardResult[] };
 type DealSide = { cards: DealSideCard[]; cash?: number | null; total: number };
 type DealVerdict = {
   gave: DealSide;
@@ -423,9 +424,16 @@ const priceStyles = StyleSheet.create({
   value: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
 });
 
-function DealSideColumn({ title, side }: { title: string; side: DealSide }) {
+function DealSideColumn({ title, side, sideName, onCorrect, disabled }: {
+  title: string;
+  side: DealSide;
+  sideName: "gave" | "received";
+  onCorrect?: (side: "gave" | "received", index: number, chosen: CardResult) => void;
+  disabled?: boolean;
+}) {
   const { Image } = require("expo-image");
   const hasCash = side.cash != null && side.cash > 0;
+  const [openIdx, setOpenIdx] = useState<number>(-1);
   return (
     <View style={dealStyles.col}>
       <Text style={dealStyles.colTitle}>{title}</Text>
@@ -440,28 +448,68 @@ function DealSideColumn({ title, side }: { title: string; side: DealSide }) {
           </View>
         </View>
       )}
-      {side.cards.map((c, i) => (
-        <View key={i} style={dealStyles.dealCard}>
-          {c.imageUrl ? (
-            <Image source={{ uri: c.imageUrl }} style={dealStyles.dealThumb} contentFit="cover" />
-          ) : (
-            <View style={[dealStyles.dealThumb, dealStyles.dealThumbPlaceholder]}>
-              <Ionicons name="image-outline" size={14} color={Colors.textMuted} />
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={dealStyles.dealName} numberOfLines={2}>{c.cardName}</Text>
-            <Text style={dealStyles.dealValue}>{c.value != null ? `£${c.value.toFixed(0)}` : "—"}</Text>
+      {side.cards.map((c, i) => {
+        const canCorrect = !disabled && !!onCorrect && Array.isArray(c.alternatives) && c.alternatives.length > 1;
+        const isOpen = openIdx === i;
+        return (
+          <View key={i}>
+            <Pressable
+              onPress={canCorrect ? () => setOpenIdx(isOpen ? -1 : i) : undefined}
+              style={({ pressed }) => [dealStyles.dealCard, { opacity: canCorrect && pressed ? 0.6 : 1 }]}
+            >
+              {c.imageUrl ? (
+                <Image source={{ uri: c.imageUrl }} style={dealStyles.dealThumb} contentFit="cover" />
+              ) : (
+                <View style={[dealStyles.dealThumb, dealStyles.dealThumbPlaceholder]}>
+                  <Ionicons name="image-outline" size={14} color={Colors.textMuted} />
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={dealStyles.dealName} numberOfLines={2}>{c.cardName}{c.number ? ` #${c.number}` : ""}</Text>
+                <Text style={dealStyles.dealValue}>{c.value != null ? `£${c.value.toFixed(0)}` : "—"}</Text>
+              </View>
+              {canCorrect && (
+                <Ionicons name={isOpen ? "chevron-up" : "create-outline"} size={13} color={Colors.primary} />
+              )}
+            </Pressable>
+            {canCorrect && isOpen && (
+              <View style={dealStyles.altBox}>
+                <Text style={dealStyles.altHint}>Wrong card? Tap the right one:</Text>
+                {c.alternatives!.map(alt => {
+                  const selected = alt.number === c.number;
+                  return (
+                    <Pressable
+                      key={alt.cardId}
+                      onPress={() => { setOpenIdx(-1); onCorrect!(sideName, i, alt); }}
+                      style={({ pressed }) => [dealStyles.altRow, selected && dealStyles.altRowActive, { opacity: pressed ? 0.6 : 1 }]}
+                    >
+                      {alt.imageUrl ? (
+                        <Image source={{ uri: alt.imageUrl }} style={dealStyles.altThumb} contentFit="cover" />
+                      ) : (
+                        <View style={[dealStyles.altThumb, dealStyles.dealThumbPlaceholder]}>
+                          <Ionicons name="image-outline" size={12} color={Colors.textMuted} />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={dealStyles.altName} numberOfLines={1}>{alt.cardName}{alt.number ? ` #${alt.number}` : ""}</Text>
+                        {alt.rarity ? <Text style={dealStyles.altRarity} numberOfLines={1}>{alt.rarity}</Text> : null}
+                      </View>
+                      {alt.priceUsd != null ? <Text style={dealStyles.altPrice}>£{(alt.priceUsd * 0.79).toFixed(0)} raw</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
           </View>
-        </View>
-      ))}
+        );
+      })}
       {!hasCash && side.cards.length === 0 && <Text style={dealStyles.dealValue}>—</Text>}
       <Text style={dealStyles.colTotal}>£{side.total.toFixed(0)}</Text>
     </View>
   );
 }
 
-function DealCard({ deal }: { deal: DealVerdict }) {
+function DealCard({ deal, onReevaluate, disabled }: { deal: DealVerdict; onReevaluate?: (msg: string) => void; disabled?: boolean }) {
   const VERDICT: Record<DealVerdict["verdict"], { label: string; color: string; bg: string }> = {
     good: { label: "Good deal", color: Colors.success, bg: "rgba(16,185,129,0.12)" },
     fair: { label: "Fair deal", color: Colors.warning, bg: "rgba(245,158,11,0.12)" },
@@ -471,15 +519,37 @@ function DealCard({ deal }: { deal: DealVerdict }) {
   const v = VERDICT[deal.verdict];
   const netPositive = deal.net >= 0;
   const paidCash = (deal.gave.cash ?? 0) > 0 && deal.gave.cards.length === 0;
+
+  // Rebuild the deal as an explicit instruction with the corrected card swapped
+  // in (numbers included so the server matches the exact printing), then re-ask.
+  const handleCorrect = (sideName: "gave" | "received", index: number, chosen: CardResult) => {
+    if (!onReevaluate) return;
+    const describe = (s: DealSide, name: "gave" | "received") =>
+      s.cards.map((c, i) => {
+        const card = (name === sideName && i === index)
+          ? { cardName: chosen.cardName, number: chosen.number, setName: chosen.setName }
+          : { cardName: c.cardName, number: c.number ?? "", setName: c.setName };
+        return `${card.cardName}${card.number ? ` #${card.number}` : ""} from ${card.setName}`;
+      });
+    const gParts: string[] = [];
+    if ((deal.gave.cash ?? 0) > 0) gParts.push(`£${deal.gave.cash} cash`);
+    gParts.push(...describe(deal.gave, "gave"));
+    const rParts: string[] = [];
+    if ((deal.received.cash ?? 0) > 0) rParts.push(`£${deal.received.cash} cash`);
+    rParts.push(...describe(deal.received, "received"));
+    const gradeStr = deal.grade ? ` at ${deal.grade}` : "";
+    onReevaluate(`Re-evaluate this exact deal${gradeStr}. I gave: ${gParts.join(", ") || "nothing"}. I received: ${rParts.join(", ") || "nothing"}.`);
+  };
+
   return (
     <View style={dealStyles.card}>
       {deal.grade ? <Text style={dealStyles.gradeTag}>{deal.grade} values</Text> : null}
       <View style={dealStyles.columns}>
-        <DealSideColumn title={paidCash ? "You paid" : "You gave"} side={deal.gave} />
+        <DealSideColumn title={paidCash ? "You paid" : "You gave"} side={deal.gave} sideName="gave" onCorrect={handleCorrect} disabled={disabled} />
         <View style={dealStyles.swap}>
           <Ionicons name="swap-horizontal" size={18} color={Colors.textMuted} />
         </View>
-        <DealSideColumn title="You got" side={deal.received} />
+        <DealSideColumn title="You got" side={deal.received} sideName="received" onCorrect={handleCorrect} disabled={disabled} />
       </View>
       <View style={dealStyles.footer}>
         <View style={[dealStyles.badge, { backgroundColor: v.bg }]}>
@@ -513,6 +583,14 @@ const dealStyles = StyleSheet.create({
   badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   badgeText: { fontFamily: "Inter_700Bold", fontSize: 12 },
   net: { fontFamily: "Inter_700Bold", fontSize: 18 },
+  altBox: { marginTop: 6, marginBottom: 4, backgroundColor: Colors.surface, borderRadius: 8, padding: 8, gap: 6 },
+  altHint: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.primary, marginBottom: 2 },
+  altRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  altRowActive: { opacity: 1 },
+  altThumb: { width: 28, height: 40, borderRadius: 3, backgroundColor: Colors.background },
+  altName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text },
+  altRarity: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted, marginTop: 1 },
+  altPrice: { fontFamily: "Inter_700Bold", fontSize: 11, color: Colors.textSecondary },
 });
 
 function ProfitCard({ profit }: { profit: ProfitBreakdown }) {
@@ -555,7 +633,7 @@ const profitStyles = StyleSheet.create({
 });
 
 function AssistantBubble({
-  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry, onSelectCard, selectionDisabled,
+  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry, onSelectCard, onReevaluate, selectionDisabled,
 }: {
   msg: Message;
   isSpeaking: boolean;
@@ -566,6 +644,7 @@ function AssistantBubble({
   onStop: () => void;
   onRetry?: () => void;
   onSelectCard?: (card: CardResult) => void;
+  onReevaluate?: (msg: string) => void;
   selectionDisabled?: boolean;
 }) {
   if (msg.isError) {
@@ -615,7 +694,7 @@ function AssistantBubble({
               {msg.cards && msg.cards.length > 0 && <CardRow cards={msg.cards} />}
             </>
           )}
-          {!msg.needsSelection && msg.deal && <DealCard deal={msg.deal} />}
+          {!msg.needsSelection && msg.deal && <DealCard deal={msg.deal} onReevaluate={onReevaluate} disabled={selectionDisabled} />}
           {!msg.needsSelection && msg.profit && <ProfitCard profit={msg.profit} />}
           {!msg.needsSelection && msg.prices && <PricesCard prices={msg.prices} />}
         </View>
@@ -1064,6 +1143,7 @@ export default function PokeBotScreen() {
                 onStop={stopSound}
                 onRetry={item.isError && item.retryText ? () => sendMessage(item.retryText!) : undefined}
                 onSelectCard={(card) => sendMessage(`${card.cardName}${card.number ? ` #${card.number}` : ""} from ${card.setName}`)}
+                onReevaluate={(m) => sendMessage(m)}
                 selectionDisabled={loading || index > 0}
               />
             );

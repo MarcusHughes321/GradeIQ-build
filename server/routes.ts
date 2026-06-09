@@ -13350,12 +13350,41 @@ RESPONSE FORMAT (JSON only, no markdown):
       const GBP_PER_USD = 0.79;
       const GBP_PER_EUR = 0.86;
 
-      // Reusable helper: search card_catalog for a single query, return top result
+      // Map a variant/rarity keyword in the query to rarity LIKE patterns so we can
+      // boost the right printing (e.g. "SIR" -> Special Illustration Rare). Single
+      // additive boost (any pattern match), so "sir" lifts ONLY the SIR sibling.
+      const detectRarityPatterns = (lowered: string): string[] => {
+        const out: string[] = [];
+        const add = (...ps: string[]) => ps.forEach(p => { if (!out.includes(p)) out.push(p); });
+        if (/\b(sir|special illustration)\b/.test(lowered)) add("%special illustration%");
+        else if (/\b(alt art|altart|alternate|illustration rare|illustration)\b/.test(lowered)) add("%illustration rare%", "%special illustration%");
+        if (/\b(secret|rainbow)\b/.test(lowered)) add("%rainbow%", "%secret%");
+        if (/\b(gold|hyper)\b/.test(lowered)) add("%hyper%", "%rainbow%");
+        if (/\b(full art|fullart)\b/.test(lowered)) add("%ultra rare%", "%rare ultra%");
+        if (/\bvmax\b/.test(lowered)) add("%vmax%");
+        if (/\bvstar\b/.test(lowered)) add("%vstar%");
+        return out;
+      };
+      // Single-token rarity words to keep OUT of name/set matching (they are never
+      // part of a Pokémon name). vmax/vstar/gx are intentionally absent — they ARE
+      // part of names, so they stay in the name hints.
+      const RARITY_ONLY_WORDS = new Set(["sir", "alt", "altart", "alternate", "secret", "rainbow", "gold", "hyper", "fullart", "illustration", "special", "art"]);
+
       const searchOneCard = async (query: string): Promise<{ card: any | null; summary: string }> => {
-        const rawTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+        const lowered = query.toLowerCase();
+        const rawTokens = lowered.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+        const rarityPatterns = detectRarityPatterns(lowered);
+
         const sigIdx = rawTokens.findIndex(w => ["from", "in", "of"].includes(w));
         const hasSignal = sigIdx > 0 && sigIdx < rawTokens.length - 1;
-        const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w)).slice(0, 5);
+        // A card number token: contains a digit and is short (e.g. "214", "tg12", "sv107").
+        // Only look in the card-name portion (before "from/in/of") so digit-only SET
+        // names like "151" or "Base Set 2" are not mistaken for a card number.
+        const numberSearchTokens = hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens;
+        const numberTokens = numberSearchTokens.filter(t => /\d/.test(t) && t.length <= 6);
+        const numberToken = numberTokens.length > 0 ? numberTokens[numberTokens.length - 1] : null;
+        const stripWord = (w: string) => RARITY_ONLY_WORDS.has(w) || (numberToken !== null && w === numberToken);
+        const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w) && !stripWord(w)).slice(0, 5);
         const cardHints = clean(hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens);
         const setHints = clean(hasSignal ? rawTokens.slice(sigIdx + 1) : []).filter(w => !new Set(cardHints).has(w));
         const allWords = [...cardHints, ...setHints];
@@ -13382,13 +13411,27 @@ RESPONSE FORMAT (JSON only, no markdown):
         });
         if (nameParts.length === 0) return { card: null, summary: "No cards found." };
 
-        const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
+        // Exact card-number match is a strong, deterministic signal (used when the
+        // user corrects a card via the picker, which sends "#<number>").
+        let numClause = "0";
+        if (numberToken) {
+          params.push(numberToken);
+          numClause = `CASE WHEN LOWER(number) = $${params.length} THEN 10 ELSE 0 END`;
+        }
+        // Variant/rarity boost — any matching pattern lifts the row equally.
+        let rarityClause = "0";
+        if (rarityPatterns.length > 0) {
+          const conds = rarityPatterns.map(p => { params.push(p); return `LOWER(rarity) LIKE $${params.length}`; });
+          rarityClause = `CASE WHEN ${conds.join(" OR ")} THEN 6 ELSE 0 END`;
+        }
+
+        const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")}) + (${numClause}) + (${rarityClause})`;
         const sql = `
           SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, set_name_en, image_url, price_usd, price_eur,
                  (${scoreExpr}) AS score
           FROM card_catalog
           WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
-          ORDER BY score DESC LIMIT 3`;
+          ORDER BY score DESC, price_usd DESC NULLS LAST LIMIT 3`;
         const result = await db.query(sql, params);
         if (result.rows.length === 0) return { card: null, summary: "No cards found." };
 
@@ -13398,6 +13441,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           cardName: top.name,
           setName: top.set_name_en || top.set_name,
           number: top.number || "",
+          rarity: top.rarity || null,
           imageUrl: top.image_url || null,
           priceUsd: top.price_usd || null,
           priceEur: top.price_eur || null,
@@ -13407,6 +13451,34 @@ RESPONSE FORMAT (JSON only, no markdown):
           `${r.name} | ${r.set_name_en || r.set_name}${r.number ? ` #${r.number}` : ""}${r.rarity ? ` | ${r.rarity}` : ""}${r.lang === "ja" ? " [JP]" : ""}`
         ).join("\n");
         return { card, summary };
+      };
+
+      // All printings of a card that share a name + set (different number/rarity),
+      // so the user can correct a wrong variant inside a trade verdict. Ordered by
+      // value so the chase card surfaces first.
+      const findVariants = async (name: string, setName: string): Promise<any[]> => {
+        try {
+          const sql = `
+            SELECT card_id, COALESCE(name_en, name) AS name, set_name, set_name_en, number, lang, rarity, image_url, price_usd
+            FROM card_catalog
+            WHERE lang = ANY($1)
+              AND LOWER(COALESCE(name_en, name)) = LOWER($2)
+              AND LOWER(COALESCE(set_name_en, set_name)) = LOWER($3)
+            ORDER BY price_usd DESC NULLS LAST, number LIMIT 8`;
+          const r = await db.query(sql, [["en", "ja"], name, setName]);
+          return r.rows.map((row: any) => ({
+            cardId: row.card_id,
+            cardName: row.name,
+            setName: row.set_name_en || row.set_name,
+            number: row.number || "",
+            rarity: row.rarity || null,
+            imageUrl: row.image_url || null,
+            priceUsd: row.price_usd || null,
+            lang: row.lang || "en",
+          }));
+        } catch {
+          return [];
+        }
       };
 
       const tools: Anthropic.Tool[] = [
@@ -13515,9 +13587,9 @@ RESPONSE RULES (strict):
 - Always search for cards BEFORE writing your answer so images load with the text
 - CARD MARKERS: After each bullet point or sentence that refers to a specific card from search_multiple_cards, append [C0], [C1], [C2] etc. (the index of that card in the queries array you passed). For search_pokemon_cards results use [C0]. Do NOT put the marker mid-sentence — put it at the very end of the line that mentions the card.
 
-DISAMBIGUATION: If the user names a card without enough detail to pin down ONE specific card (no set named, or a Pokémon with many famous cards/variants), call present_card_options with 2-4 specific candidate queries instead of guessing. Add a short line like "A few match — which did you mean?". Do not call any other tool in that turn. Once the user picks a specific card, answer their original question for that card.
+DISAMBIGUATION: For a SINGLE-CARD question (price, profit, "what's this worth") where the user names a card without enough detail to pin down ONE specific card (no set named, or a Pokémon with many famous cards/variants), call present_card_options with 2-4 specific candidate queries instead of guessing. Add a short line like "A few match — which did you mean?". Do not call any other tool in that turn. Once the user picks a specific card, answer their original question for that card. NEVER use present_card_options for a TRADE or PURCHASE — see TRADES below.
 
-TRADES & PURCHASES: When the user describes a trade (gave X, got Y / swapped) OR a purchase/sale (bought / got / paid £X for cards, or sold cards for £X), call evaluate_trade — it renders a visual verdict card. NEVER invent or guess a card the user did not name; if they paid money, put the amount in gaveCash and leave gave empty (do not fabricate a card for the cash side). If they state a grade like "PSA 10", pass it in 'grade' and keep the grade OUT of each card query string. After it returns, add ONE short sentence of context; do not re-list all the numbers.
+TRADES & PURCHASES: When the user describes a trade (gave X, got Y / swapped) OR a purchase/sale (bought / got / paid £X for cards, or sold cards for £X), call evaluate_trade — it renders a visual verdict card. NEVER invent or guess a card the user did not name; if they paid money, put the amount in gaveCash and leave gave empty (do not fabricate a card for the cash side). If they state a grade like "PSA 10", pass it in 'grade' and keep the grade OUT of each card query string. VARIANT/NUMBER: if the user mentions a variant or rarity (SIR / special illustration, alt art, secret, rainbow, gold, full art) or a card number, KEEP those words IN that card's query string (e.g. "Greninja ex SIR Twilight Masquerade" or "Greninja ex #214 Twilight Masquerade") so the correct printing is matched — only the grade is excluded. If the user does NOT specify a variant/number, still call evaluate_trade with your best single guess (the most likely / most valuable printing) — do NOT call present_card_options; the verdict card shows the other printings inline so the user can correct the pick with one tap. After it returns, add ONE short sentence of context; do not re-list all the numbers.
 
 GRADING PROFIT: When the user asks whether a specific card is worth grading, or about grading profit/economics for a specific card, call grading_profit (optionally with a company) — it renders a visual raw→fee→graded→net breakdown. After it returns, add ONE short sentence of recommendation; do not re-list all the numbers.`;
 
@@ -13701,7 +13773,19 @@ GRADING PROFIT: When the user asks whether a specific card is worth grading, or 
                     value = +(parseFloat(card.priceEur) * GBP_PER_EUR).toFixed(2);
                   }
                   if (value == null) allPriced = false; else cardsTotal += value;
-                  cards.push({ cardName: card.cardName, setName: card.setName, imageUrl: card.imageUrl, value });
+                  // Sibling printings (same name + set) so the user can correct a
+                  // wrong variant from the verdict card itself.
+                  const variants = await findVariants(card.cardName, card.setName);
+                  const alternatives = variants.length > 1 ? variants : [];
+                  cards.push({
+                    cardName: card.cardName,
+                    setName: card.setName,
+                    number: card.number || "",
+                    rarity: card.rarity || null,
+                    imageUrl: card.imageUrl,
+                    value,
+                    alternatives,
+                  });
                 }
                 const cashNum = cash > 0 ? +cash.toFixed(2) : 0;
                 return { cards, cash: cashNum, total: +(cardsTotal + cashNum).toFixed(2), allPriced };
