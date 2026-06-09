@@ -7653,8 +7653,8 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
     {
       id: "PSA",
       name: "PSA",
-      submissionFeeGBP: 18,
-      turnaround: "45–60 business days",
+      submissionFeeGBP: 63,
+      turnaround: "40–50 business days",
       gradeMultipliers: { 7: 1.2, 8: 1.6, 8.5: 0, 9: 2.2, 9.5: 0, 10: 5.5 },
     },
     {
@@ -13863,7 +13863,7 @@ GRADING PROFIT: When the user asks whether a specific card is worth grading, or 
             const { card_name, set_name, card_number, company } = block.input as { card_name: string; set_name: string; card_number?: string; company?: string };
             try {
               const prices = await fetchEbayGradedPrices(card_name, set_name, card_number);
-              const FEES_GBP: Record<string, number> = { PSA: 25, BGS: 40, ACE: 18, TAG: 18, CGC: 20 };
+              const FEES_GBP: Record<string, number> = { PSA: 63, BGS: 40, ACE: 18, TAG: 18, CGC: 20 };
               const comp = (company || "PSA").toUpperCase();
               const fee = FEES_GBP[comp] ?? 25;
               // Preferred graded grade per company, then fall back to any available graded price
