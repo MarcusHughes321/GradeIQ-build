@@ -7,6 +7,7 @@ import { fetchServerHistory, uploadBulkGradings, uploadGradingImages, claimHisto
 import { getStableUserId } from "@/lib/stable-user-id";
 import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Network from "expo-network";
 
 // A grade still needs backup when a locally-stored photo (front or back) has no
 // corresponding server URL yet. Per-side aware: if one side uploaded but the
@@ -222,12 +223,30 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const backupInProgressRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const rcConfiguredRef = useRef(false);
+  // Mirror the rc/stable IDs into refs so the AppState + connectivity listeners
+  // (which capture a single closure) always read the latest values.
+  const rcAppUserIdRef = useRef("");
+  const stableUserIdRef = useRef("");
+  // Growing backoff for automatic retry so we don't hammer the server while
+  // offline. Resets to zero once a backup pass fully succeeds.
+  const backupBackoffRef = useRef<{ failures: number; nextAttemptAt: number }>({ failures: 0, nextAttemptAt: 0 });
+  // Last-seen connectivity, so we only retry on a real offline→online edge.
+  const wasConnectedRef = useRef(true);
+  // Holds the latest auto-retry fn so the [] AppState callback can invoke it.
+  const retryFailedBackupsRef = useRef<((reason: string) => Promise<void>) | undefined>(undefined);
+
+  // Keep the ID refs in lock-step with state on every render.
+  rcAppUserIdRef.current = rcAppUserId;
+  stableUserIdRef.current = stableUserId;
 
   // Defined before useEffect so the closure captures it correctly
   const handleAppStateChange = useCallback(async (nextState: AppStateStatus) => {
     const prev = appStateRef.current;
     appStateRef.current = nextState;
     if (prev.match(/inactive|background/) && nextState === "active" && rcConfiguredRef.current) {
+      // Quietly retry any photo backups that previously failed — the user no
+      // longer has to notice and tap "Back up now". Fire-and-forget.
+      retryFailedBackupsRef.current?.("app foregrounded").catch(() => {});
       try {
         await Purchases.invalidateCustomerInfoCache();
         const info = await Purchases.getCustomerInfo();
@@ -510,6 +529,63 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setBackupInProgress(false);
     }
   }, [rcAppUserId, stableUserId, refreshBackupStatus]);
+
+  // Automatic, silent retry of photo backups that previously failed. Triggered
+  // when the app returns to the foreground or regains connectivity, so the user
+  // never has to notice and manually re-tap "Back up now". Reuses the SAME
+  // single-flight guard as every other backup path (via runImageBackup), keeps
+  // the pending-count in sync, and honours a growing backoff after failures so
+  // we don't hammer the server while offline. Does NOT drive the "Backing up…"
+  // UI — it runs quietly in the background.
+  const BACKUP_RETRY_BASE_MS = 30_000; // 30s after the first failure
+  const BACKUP_RETRY_MAX_MS = 5 * 60_000; // cap at 5 minutes
+  const retryFailedBackups = useCallback(async (reason: string): Promise<void> => {
+    if (Platform.OS === "web") return;
+    const rcUserId = rcAppUserIdRef.current;
+    if (!rcUserId) return;
+    if (backupInProgressRef.current) return;
+
+    const pending = await refreshBackupStatus();
+    if (pending === 0) {
+      backupBackoffRef.current = { failures: 0, nextAttemptAt: 0 };
+      return;
+    }
+
+    // Respect the backoff window after a recent failed attempt.
+    if (Date.now() < backupBackoffRef.current.nextAttemptAt) return;
+
+    console.log(`[history] Auto-retrying ${pending} pending backup(s) — trigger: ${reason}`);
+    const result = await runImageBackup(rcUserId, stableUserIdRef.current || undefined);
+    await refreshBackupStatus();
+
+    if (result.failed > 0) {
+      const failures = backupBackoffRef.current.failures + 1;
+      const delay = Math.min(BACKUP_RETRY_BASE_MS * 2 ** (failures - 1), BACKUP_RETRY_MAX_MS);
+      backupBackoffRef.current = { failures, nextAttemptAt: Date.now() + delay };
+      console.log(`[history] Backup retry: ${result.failed} still failing, next attempt in ~${Math.round(delay / 1000)}s`);
+    } else {
+      backupBackoffRef.current = { failures: 0, nextAttemptAt: 0 };
+    }
+  }, [refreshBackupStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Expose the latest retry fn to the [] AppState callback above.
+  retryFailedBackupsRef.current = retryFailedBackups;
+
+  // Retry failed backups the moment connectivity is regained (offline→online
+  // edge), resetting the backoff window so the attempt fires immediately.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const sub = Network.addNetworkStateListener(({ isConnected }) => {
+      const connected = isConnected === true;
+      const was = wasConnectedRef.current;
+      wasConnectedRef.current = connected;
+      if (!was && connected) {
+        backupBackoffRef.current = { ...backupBackoffRef.current, nextAttemptAt: 0 };
+        retryFailedBackups("connectivity regained").catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [retryFailedBackups]);
 
   const initRevenueCat = async (stableIdPromise: Promise<string>) => {
     try {
