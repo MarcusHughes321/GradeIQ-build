@@ -311,6 +311,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   const notificationsEnabled = useRef(false);
   const scheduledNotifId = useRef<string | null>(null);
   const pendingUploadsRef = useRef<SavedGrading[]>([]);
+  // Guards for pending-grade recovery: prevent overlapping runs, and ensure each
+  // server job is recovered at most once per session (the effect re-fires when
+  // the stable id resolves first and the RC id resolves later).
+  const pendingRecoveryRef = useRef(false);
+  const recoveredJobIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     requestNotificationPermission().then((granted) => {
@@ -872,11 +877,14 @@ export function GradingProvider({ children }: { children: ReactNode }) {
   // against the user's RC ID, so results survive full app kills, reinstalls,
   // and even device switches. No AsyncStorage needed.
   useEffect(() => {
-    if (!rcAppUserId) return;
+    if (!rcAppUserId && !stableUserId) return;
+    if (pendingRecoveryRef.current) return;
+    pendingRecoveryRef.current = true;
     (async () => {
       try {
         const url = new URL("/api/pending-grades", getApiUrl());
-        url.searchParams.set("rcUserId", rcAppUserId);
+        if (rcAppUserId) url.searchParams.set("rcUserId", rcAppUserId);
+        if (stableUserId) url.searchParams.set("stableId", stableUserId);
         const resp = await fetch(url.toString());
         if (!resp.ok) return;
         const { jobs } = await resp.json();
@@ -886,6 +894,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         for (let i = 0; i < jobs.length; i++) {
           const job = jobs[i];
           if (!job.result) continue;
+          // Dedupe across re-runs (stable-id run then rc-id run) so the same
+          // server job is never saved to local history twice.
+          if (recoveredJobIdsRef.current.has(job.id)) continue;
+          recoveredJobIdsRef.current.add(job.id);
 
           const result: GradingResult = job.result;
 
@@ -946,9 +958,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         // Non-critical — user will still see their grades in history
         console.log("[pending-grades] startup check failed:", e);
+      } finally {
+        pendingRecoveryRef.current = false;
       }
     })();
-  }, [rcAppUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rcAppUserId, stableUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Resume polling when returning to foreground ────────────────────────────
   // Uses startPollingForJob so logic is shared across all polling entry points.

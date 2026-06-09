@@ -4742,8 +4742,10 @@ async function initGradingJobsTable(): Promise<void> {
     `);
     // Add columns introduced after initial table creation (safe to run repeatedly)
     await db.query(`ALTER TABLE grading_jobs ADD COLUMN IF NOT EXISTS rc_user_id TEXT`);
+    await db.query(`ALTER TABLE grading_jobs ADD COLUMN IF NOT EXISTS stable_user_id TEXT`);
     await db.query(`ALTER TABLE grading_jobs ADD COLUMN IF NOT EXISTS delivered BOOLEAN NOT NULL DEFAULT FALSE`);
     await db.query(`CREATE INDEX IF NOT EXISTS grading_jobs_rc_user_idx ON grading_jobs(rc_user_id) WHERE delivered = FALSE`);
+    await db.query(`CREATE INDEX IF NOT EXISTS grading_jobs_stable_user_idx ON grading_jobs(stable_user_id) WHERE delivered = FALSE`);
     // Clean up jobs older than 24 hours daily
     await db.query(`DELETE FROM grading_jobs WHERE created_at < NOW() - INTERVAL '24 hours'`);
     console.log("[grading-jobs] DB table ready");
@@ -6240,13 +6242,13 @@ Return ONLY the JSON object. No other text.`;
   }, 10 * 60 * 1000);
 
   // ── DB persistence helpers (survive backend restarts) ─────────────────────
-  async function persistJobToDb(job: GradingJob, rcUserId?: string): Promise<void> {
+  async function persistJobToDb(job: GradingJob, rcUserId?: string, stableUserId?: string): Promise<void> {
     try {
       await db.query(
-        `INSERT INTO grading_jobs (id, type, status, rc_user_id, created_at)
-         VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0))
+        `INSERT INTO grading_jobs (id, type, status, rc_user_id, stable_user_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0))
          ON CONFLICT (id) DO NOTHING`,
-        [job.id, job.type, job.status, rcUserId || null, job.createdAt]
+        [job.id, job.type, job.status, rcUserId || null, stableUserId || null, job.createdAt]
       );
     } catch {}
   }
@@ -9463,7 +9465,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "crossover");
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId });
 
@@ -9766,7 +9768,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "quick");
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId });
 
@@ -9815,7 +9817,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/bulk-grade-job", async (req, res) => {
     try {
-      const { cards, pushToken, rcUserId } = req.body;
+      const { cards, pushToken, rcUserId, stableUserId } = req.body;
       if (!cards || !Array.isArray(cards) || cards.length === 0) {
         return res.status(400).json({ error: "At least one card required" });
       }
@@ -9834,7 +9836,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "bulk", cards.length);
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId, totalCards: cards.length });
 
@@ -9931,7 +9933,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "deep");
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId });
 
@@ -10044,19 +10046,20 @@ RESPONSE FORMAT (JSON only, no markdown):
   // The client calls this on every launch. If the app was killed mid-grade,
   // the result sits here until the user relaunches and the client acknowledges.
   app.get("/api/pending-grades", async (req, res) => {
-    const rcUserId = req.query.rcUserId as string;
-    if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
+    const rcUserId = req.query.rcUserId as string | undefined;
+    const stableId = req.query.stableId as string | undefined;
+    if (!rcUserId && !stableId) return res.status(400).json({ error: "rcUserId or stableId required" });
     try {
       const r = await db.query(
         `SELECT id, type, result, error, status
          FROM grading_jobs
-         WHERE rc_user_id = $1
+         WHERE (rc_user_id = $1 OR (stable_user_id IS NOT NULL AND stable_user_id = $2))
            AND status = 'completed'
            AND delivered = FALSE
            AND type IN ('single', 'deep')
            AND created_at > NOW() - INTERVAL '24 hours'
          ORDER BY completed_at ASC`,
-        [rcUserId]
+        [rcUserId || null, stableId || null]
       );
       res.json({ jobs: r.rows });
     } catch (e: any) {

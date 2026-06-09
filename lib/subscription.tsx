@@ -246,7 +246,22 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     // clear the loading spinner after 10 seconds so the UI isn't stuck.
     const rcTimeout = setTimeout(() => setRcLoading(false), 10000);
 
-    initRevenueCat().finally(() => clearTimeout(rcTimeout));
+    // Load the stable UUID ONCE, independent of RevenueCat. This is the anchor
+    // for recovery and persists across reinstalls (iOS Keychain / Android SSAID).
+    const stableIdPromise = getStableUserId()
+      .then(id => { setStableUserId(id); return id; })
+      .catch(() => "");
+
+    // Recovery that does NOT depend on RevenueCat succeeding — restores the
+    // correct credit count and scan history even if RC is offline/slow/failing
+    // at launch. Uses the stable UUID alone (the server prefers it).
+    stableIdPromise.then(stableId => {
+      if (!stableId) return;
+      syncServerUsage("", stableId).catch(() => {});
+      syncHistoryWithServer("", stableId).catch(() => {});
+    });
+
+    initRevenueCat(stableIdPromise).finally(() => clearTimeout(rcTimeout));
 
     const sub = AppState.addEventListener("change", handleAppStateChange);
     return () => {
@@ -394,7 +409,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const initRevenueCat = async () => {
+  const initRevenueCat = async (stableIdPromise: Promise<string>) => {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
       if (!apiKey) {
@@ -423,23 +438,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
-      syncServerUsage(userId).catch(() => {});
       syncTierToServer(userId, tier).catch(() => {});
-      // Read stable UUID (persists across reinstalls via Keychain / Android Auto Backup),
-      // claim existing rows for this user, then sync history and usage using it.
-      getStableUserId().then(stableId => {
-        setStableUserId(stableId);
-        // Re-sync usage with the stable ID so the server returns the canonical count
-        // (the first call above used only rc_user_id, which resets on reinstall)
-        syncServerUsage(userId, stableId).catch(() => {});
-        claimHistoryForStableId(userId, stableId).catch(() => {});
-        syncHistoryWithServer(userId, stableId)
+      // Now that we also have the RC id, run the FULL recovery (write + link):
+      // claim existing rows for the stable UUID, upload any local-only grades,
+      // and back up images. The stable UUID was loaded independently at mount.
+      stableIdPromise.then(stableId => {
+        syncServerUsage(userId, stableId || undefined).catch(() => {});
+        if (stableId) claimHistoryForStableId(userId, stableId).catch(() => {});
+        syncHistoryWithServer(userId, stableId || undefined)
           .catch(() => {})
-          .finally(() => { retroactiveImageUpload(userId, stableId).catch(() => {}); });
-      }).catch(() => {
-        syncHistoryWithServer(userId)
-          .catch(() => {})
-          .finally(() => { retroactiveImageUpload(userId).catch(() => {}); });
+          .finally(() => { retroactiveImageUpload(userId, stableId || undefined).catch(() => {}); });
       });
 
       // RC pushes real-time updates whenever entitlement status changes
