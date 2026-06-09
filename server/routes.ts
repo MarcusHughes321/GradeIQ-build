@@ -6225,6 +6225,13 @@ Return ONLY the JSON object. No other text.`;
     limits: { fileSize: 15 * 1024 * 1024, files: 4 },
   });
 
+  // Deep grade sends many parts (front, back, angled x2, plus up to 8 corner
+  // close-ups), so it needs a higher file ceiling than the quick-grade uploader.
+  const deepUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 20 },
+  });
+
   setInterval(() => {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     for (const [id, job] of gradingJobs) {
@@ -9422,9 +9429,21 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.post("/api/crossover-grade-job", async (req, res) => {
+  app.post("/api/crossover-grade-job", gradeUpload.fields([
+    { name: "slab", maxCount: 1 },
+    { name: "slabBack", maxCount: 1 },
+  ]), async (req, res) => {
     try {
-      const { slabImage, slabBackImage, pushToken, certData, rcUserId, stableUserId } = req.body;
+      // Dual-mode: binary multipart upload (new app builds) OR base64 JSON (web / older builds).
+      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+      const slabImage: string | undefined = files?.slab?.[0]?.buffer.toString("base64") ?? req.body.slabImage;
+      const slabBackImage: string | undefined = files?.slabBack?.[0]?.buffer.toString("base64") ?? req.body.slabBackImage;
+      const { pushToken, rcUserId, stableUserId } = req.body;
+      // certData arrives as a JSON string over multipart, or as an object over JSON.
+      let certData = req.body.certData;
+      if (typeof certData === "string") {
+        try { certData = JSON.parse(certData); } catch { certData = undefined; }
+      }
       if (!slabImage) {
         return res.status(400).json({ error: "slabImage is required" });
       }
@@ -9873,9 +9892,26 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.post("/api/deep-grade-job", async (req, res) => {
+  app.post("/api/deep-grade-job", deepUpload.fields([
+    { name: "front", maxCount: 1 },
+    { name: "back", maxCount: 1 },
+    { name: "angled", maxCount: 1 },
+    { name: "angledBack", maxCount: 1 },
+    { name: "frontCorners", maxCount: 8 },
+    { name: "backCorners", maxCount: 8 },
+  ]), async (req, res) => {
     try {
-      const { frontImage, backImage, angledImage, angledBackImage, frontCorners, backCorners, pushToken, rcUserId, stableUserId } = req.body;
+      // Dual-mode: binary multipart upload (new app builds) OR base64 JSON (web / older builds).
+      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+      const toB64 = (f?: Express.Multer.File) => (f ? f.buffer.toString("base64") : undefined);
+      const toB64Arr = (arr?: Express.Multer.File[]) => (arr && arr.length ? arr.map((f) => f.buffer.toString("base64")) : undefined);
+      const frontImage: string | undefined = toB64(files?.front?.[0]) ?? req.body.frontImage;
+      const backImage: string | undefined = toB64(files?.back?.[0]) ?? req.body.backImage;
+      const angledImage: string | undefined = toB64(files?.angled?.[0]) ?? req.body.angledImage;
+      const angledBackImage: string | undefined = toB64(files?.angledBack?.[0]) ?? req.body.angledBackImage;
+      const frontCorners: string[] | undefined = toB64Arr(files?.frontCorners) ?? req.body.frontCorners;
+      const backCorners: string[] | undefined = toB64Arr(files?.backCorners) ?? req.body.backCorners;
+      const { pushToken, rcUserId, stableUserId } = req.body;
       if (!frontImage || !backImage || !angledImage) {
         return res.status(400).json({ error: "Front, back, and angled images are all required" });
       }

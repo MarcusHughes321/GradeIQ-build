@@ -122,11 +122,12 @@ async function getBase64FromUri(uri: string): Promise<string> {
 }
 
 // Re-encode a captured photo to a JPEG file on disk for binary upload. Fixes
-// Android EXIF orientation and caps the long edge at 2048px so the upload stays
-// comfortably under Replit's ~10MB proxy limit while giving the server a much
-// higher-resolution image than the old 1024px base64 path (4x the detail for crops).
-async function prepareImageFile(uri: string): Promise<string> {
-  const uploadMaxDim = 2048;
+// Android EXIF orientation and caps the long edge at `maxDim` (default 2048px) so the
+// upload stays comfortably under Replit's ~10MB proxy limit while giving the server a
+// much higher-resolution image than the old 1024px base64 path. Callers that send many
+// images in one request (deep grade) pass a smaller maxDim to bound the total body.
+async function prepareImageFile(uri: string, maxDim: number = 2048): Promise<string> {
+  const uploadMaxDim = maxDim;
   const transforms: ImageManipulator.Action[] = Platform.OS === "android"
     ? [{ rotate: 0 }, { resize: { width: uploadMaxDim } }]
     : [{ resize: { width: uploadMaxDim } }];
@@ -159,6 +160,69 @@ async function uploadGradeJobBinary(
   if (fields.stableUserId) form.append("stableUserId", fields.stableUserId);
   const url = new URL("/api/grade-job", getApiUrl()).toString();
   // Do NOT set Content-Type — the runtime adds the multipart boundary itself.
+  return fetch(url, { method: "POST", body: form as any });
+}
+
+// Deep grade as BINARY multipart (front, back, 2 angled, + corner close-ups).
+// Same WAF-safe rationale as uploadGradeJobBinary.
+async function uploadDeepGradeJobBinary(
+  imgs: {
+    frontImage: string;
+    backImage: string;
+    angledFrontImage: string;
+    angledBackImage: string;
+    frontCorners: string[];
+    backCorners: string[];
+  },
+  fields: { rcUserId?: string; stableUserId?: string },
+): Promise<Response> {
+  // Deep grade ships ~12 images in one request. At 2048px each the aggregate body
+  // approaches Replit's ~10MB proxy limit (the very risk this migration removes), so
+  // cap Deep at 1600px — still ~2.4x the pixel detail of the old 1024px base64 path,
+  // and the server re-optimises to 2048px anyway (withoutEnlargement). Crossover
+  // (1-2 images) keeps the default 2048px.
+  const DEEP_MAX_DIM = 1600;
+  const prep = (u: string) => prepareImageFile(u, DEEP_MAX_DIM);
+  const [front, back, angled] = await Promise.all([
+    prep(imgs.frontImage),
+    prep(imgs.backImage),
+    prep(imgs.angledFrontImage),
+  ]);
+  const angledBack = imgs.angledBackImage ? await prep(imgs.angledBackImage) : null;
+  const frontCornerFiles = await Promise.all(imgs.frontCorners.map(prep));
+  const backCornerFiles = await Promise.all(imgs.backCorners.map(prep));
+
+  const form = new FormData();
+  form.append("front", { uri: front, name: "front.jpg", type: "image/jpeg" } as any);
+  form.append("back", { uri: back, name: "back.jpg", type: "image/jpeg" } as any);
+  form.append("angled", { uri: angled, name: "angled.jpg", type: "image/jpeg" } as any);
+  if (angledBack) form.append("angledBack", { uri: angledBack, name: "angledBack.jpg", type: "image/jpeg" } as any);
+  frontCornerFiles.forEach((f, i) => form.append("frontCorners", { uri: f, name: `fc${i}.jpg`, type: "image/jpeg" } as any));
+  backCornerFiles.forEach((f, i) => form.append("backCorners", { uri: f, name: `bc${i}.jpg`, type: "image/jpeg" } as any));
+  if (fields.rcUserId) form.append("rcUserId", fields.rcUserId);
+  if (fields.stableUserId) form.append("stableUserId", fields.stableUserId);
+
+  const url = new URL("/api/deep-grade-job", getApiUrl()).toString();
+  return fetch(url, { method: "POST", body: form as any });
+}
+
+// Crossover (slab) grade as BINARY multipart. certData rides along as a JSON string.
+async function uploadCrossoverGradeJobBinary(
+  slabFrontUri: string,
+  slabBackUri: string | undefined,
+  fields: { certData?: CertData; rcUserId?: string; stableUserId?: string },
+): Promise<Response> {
+  const slabFile = await prepareImageFile(slabFrontUri);
+  const slabBackFile = slabBackUri ? await prepareImageFile(slabBackUri) : null;
+
+  const form = new FormData();
+  form.append("slab", { uri: slabFile, name: "slab.jpg", type: "image/jpeg" } as any);
+  if (slabBackFile) form.append("slabBack", { uri: slabBackFile, name: "slabBack.jpg", type: "image/jpeg" } as any);
+  if (fields.certData) form.append("certData", JSON.stringify(fields.certData));
+  if (fields.rcUserId) form.append("rcUserId", fields.rcUserId);
+  if (fields.stableUserId) form.append("stableUserId", fields.stableUserId);
+
+  const url = new URL("/api/crossover-grade-job", getApiUrl()).toString();
   return fetch(url, { method: "POST", body: form as any });
 }
 
@@ -638,13 +702,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      const frontBase64 = await getBase64FromUri(frontImage);
-      const backBase64 = await getBase64FromUri(backImage);
-      const angledFrontBase64 = await getBase64FromUri(angledFrontImage);
-      const angledBackBase64 = await getBase64FromUri(angledBackImage);
-      const frontCornerBase64 = await Promise.all(frontCorners.map(getBase64FromUri));
-      const backCornerBase64 = await Promise.all(backCorners.map(getBase64FromUri));
-
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
@@ -652,16 +709,34 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       // Ensure server has the correct tier before quota is checked
       await syncTierNow().catch(() => {});
 
-      const resp = await withSubmitTimeout(apiRequest("POST", "/api/deep-grade-job", {
-        frontImage: frontBase64,
-        backImage: backBase64,
-        angledImage: angledFrontBase64,
-        angledBackImage: angledBackBase64,
-        frontCorners: frontCornerBase64,
-        backCorners: backCornerBase64,
-        rcUserId: rcAppUserId || undefined,
-        stableUserId: stableUserId || undefined,
-      }), 90_000);
+      let resp: Response;
+      if (Platform.OS === "web") {
+        // Web is unaffected by the WAF — keep the proven base64 JSON path.
+        const frontBase64 = await getBase64FromUri(frontImage);
+        const backBase64 = await getBase64FromUri(backImage);
+        const angledFrontBase64 = await getBase64FromUri(angledFrontImage);
+        const angledBackBase64 = await getBase64FromUri(angledBackImage);
+        const frontCornerBase64 = await Promise.all(frontCorners.map(getBase64FromUri));
+        const backCornerBase64 = await Promise.all(backCorners.map(getBase64FromUri));
+        resp = await withSubmitTimeout(apiRequest("POST", "/api/deep-grade-job", {
+          frontImage: frontBase64,
+          backImage: backBase64,
+          angledImage: angledFrontBase64,
+          angledBackImage: angledBackBase64,
+          frontCorners: frontCornerBase64,
+          backCorners: backCornerBase64,
+          rcUserId: rcAppUserId || undefined,
+          stableUserId: stableUserId || undefined,
+        }), 90_000);
+      } else {
+        // Native: high-resolution binary multipart upload.
+        resp = await withSubmitTimeout(uploadDeepGradeJobBinary({
+          frontImage, backImage, angledFrontImage, angledBackImage, frontCorners, backCorners,
+        }, {
+          rcUserId: rcAppUserId || undefined,
+          stableUserId: stableUserId || undefined,
+        }), 120_000);
+      }
 
       if (!resp.ok) {
         const text = await resp.text();
@@ -723,9 +798,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      const slabFrontBase64 = await getBase64FromUri(slabFrontImage);
-      const slabBackBase64 = slabBackImage ? await getBase64FromUri(slabBackImage) : undefined;
-
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
@@ -733,13 +805,26 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       // Ensure server has the correct tier before quota is checked
       await syncTierNow().catch(() => {});
 
-      const resp = await withSubmitTimeout(apiRequest("POST", "/api/crossover-grade-job", {
-        slabImage: slabFrontBase64,
-        slabBackImage: slabBackBase64,
-        ...(certData ? { certData } : {}),
-        rcUserId: rcAppUserId || undefined,
-        stableUserId: stableUserId || undefined,
-      }), 60_000);
+      let resp: Response;
+      if (Platform.OS === "web") {
+        // Web is unaffected by the WAF — keep the proven base64 JSON path.
+        const slabFrontBase64 = await getBase64FromUri(slabFrontImage);
+        const slabBackBase64 = slabBackImage ? await getBase64FromUri(slabBackImage) : undefined;
+        resp = await withSubmitTimeout(apiRequest("POST", "/api/crossover-grade-job", {
+          slabImage: slabFrontBase64,
+          slabBackImage: slabBackBase64,
+          ...(certData ? { certData } : {}),
+          rcUserId: rcAppUserId || undefined,
+          stableUserId: stableUserId || undefined,
+        }), 60_000);
+      } else {
+        // Native: high-resolution binary multipart upload.
+        resp = await withSubmitTimeout(uploadCrossoverGradeJobBinary(slabFrontImage, slabBackImage, {
+          certData,
+          rcUserId: rcAppUserId || undefined,
+          stableUserId: stableUserId || undefined,
+        }), 90_000);
+      }
 
       if (!resp.ok) {
         const text = await resp.text();
