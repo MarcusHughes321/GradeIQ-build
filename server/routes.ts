@@ -6272,7 +6272,7 @@ Return ONLY the JSON object. No other text.`;
       );
       if (r.rows.length === 0) return null;
       const row = r.rows[0];
-      return {
+      const job: GradingJob = {
         id: row.id,
         type: row.type,
         status: row.status,
@@ -6280,6 +6280,16 @@ Return ONLY the JSON object. No other text.`;
         error: row.error ?? undefined,
         createdAt: Number(row.created_ms),
       };
+      // Bulk jobs persist their per-card array inside the result JSON
+      // ({ results, totalCards }). Rehydrate the bulk-shaped fields so a poll
+      // after a server restart still returns progress/results correctly.
+      if (row.type === "bulk" && row.result && Array.isArray(row.result.results)) {
+        job.results = row.result.results;
+        job.totalCards = row.result.totalCards ?? row.result.results.length;
+        job.completedCards = row.result.results.length;
+        job.result = undefined;
+      }
+      return job;
     } catch {
       return null;
     }
@@ -9850,7 +9860,18 @@ RESPONSE FORMAT (JSON only, no markdown):
 
             const batchResults = await Promise.allSettled(
               batch.map(async (card: { frontImage: string; backImage: string }, idx: number) => {
-                return await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`, false);
+                // Store the full-res originals in parallel with grading so the image
+                // IDs ride back inside the result JSON — giving bulk cards the same
+                // cloud photo backup + reinstall recovery as single-card grades.
+                const storePromise = Promise.all([
+                  storeGradeOriginal(card.frontImage),
+                  storeGradeOriginal(card.backImage),
+                ]);
+                const result = await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`, false);
+                const [frontImageId, backImageId] = await storePromise;
+                if (frontImageId) result.frontImageId = frontImageId;
+                if (backImageId) result.backImageId = backImageId;
+                return result;
               })
             );
 
@@ -9871,6 +9892,16 @@ RESPONSE FORMAT (JSON only, no markdown):
           console.log(`[bulk-grade-job] Job ${jobId} completed: ${successCount}/${cards.length} succeeded`);
           await completeGradeEvent(jobId, "completed");
 
+          // Record each successful card against the canonical server usage row
+          // (matches single-card grading, so free-tier counts survive reinstall).
+          for (let n = 0; n < successCount; n++) {
+            await recordServerUsage(rcUserId, "quick", stableUserId);
+          }
+
+          // Persist the per-card results so the job survives a server restart AND
+          // can be recovered via /api/pending-grades after an app kill/reinstall.
+          void completeJobInDb(jobId, "completed", { results, totalCards: cards.length });
+
           if (job.pushToken) {
             sendPushNotification(
               job.pushToken,
@@ -9883,6 +9914,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "failed";
           job.error = err.message || "Unknown error";
           await completeGradeEvent(jobId, "failed");
+          void completeJobInDb(jobId, "failed", undefined, job.error);
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Bulk Grading Failed", "There was an error with your bulk grading. Please try again.");
@@ -10056,7 +10088,7 @@ RESPONSE FORMAT (JSON only, no markdown):
          WHERE (rc_user_id = $1 OR (stable_user_id IS NOT NULL AND stable_user_id = $2))
            AND status = 'completed'
            AND delivered = FALSE
-           AND type IN ('single', 'deep')
+           AND type IN ('single', 'deep', 'bulk')
            AND created_at > NOW() - INTERVAL '24 hours'
          ORDER BY completed_at ASC`,
         [rcUserId || null, stableId || null]

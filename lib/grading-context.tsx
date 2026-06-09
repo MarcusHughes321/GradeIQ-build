@@ -8,7 +8,7 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
-import { uploadGrading, uploadGradingImages, linkGradingImages } from "@/lib/server-history";
+import { uploadGrading, uploadBulkGradings, uploadGradingImages, linkGradingImages } from "@/lib/server-history";
 
 function parseQuotaError(error: any): string | null {
   try {
@@ -893,10 +893,68 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         // Process each pending grade (surface the first one, silently save the rest)
         for (let i = 0; i < jobs.length; i++) {
           const job = jobs[i];
-          if (!job.result) continue;
           // Dedupe across re-runs (stable-id run then rc-id run) so the same
           // server job is never saved to local history twice.
           if (recoveredJobIdsRef.current.has(job.id)) continue;
+
+          // Bulk jobs carry an array of per-card results ({ results: [...] }).
+          // Recover them silently — NEVER setActiveJob (the results screen expects
+          // a single-card shape and would crash on a bulk payload).
+          if (job.type === "bulk" && Array.isArray(job.result?.results)) {
+            recoveredJobIdsRef.current.add(job.id);
+            const sid = stableUserId || undefined;
+            const makeBulkUrl = (id?: string) =>
+              id ? new URL(`/api/grading-image/${encodeURIComponent(id)}`, getApiUrl()).toString() : null;
+            const bulkSaved: SavedGrading[] = [];
+            const bulkLinks: Array<{ id: string; frontImageId?: string; backImageId?: string }> = [];
+            for (const cardR of job.result.results) {
+              if (cardR.status !== "completed" || !cardR.result) continue;
+              const cardResult: GradingResult = cardR.result;
+              const sFront = (cardResult as any).frontImageId as string | undefined;
+              const sBack = (cardResult as any).backImageId as string | undefined;
+              let cardSaved: any;
+              try {
+                cardSaved = await saveGrading("", "", cardResult, undefined);
+              } catch {
+                continue;
+              }
+              if (cardSaved.id && !cardSaved.id.startsWith("unsaved_")) {
+                const fU = makeBulkUrl(sFront);
+                const bU = makeBulkUrl(sBack);
+                if (fU || bU) {
+                  updateGrading(cardSaved.id, { frontImageUrl: fU, backImageUrl: bU }).catch(() => {});
+                }
+                bulkSaved.push(cardSaved);
+                if (sFront || sBack) {
+                  bulkLinks.push({ id: cardSaved.id, frontImageId: sFront, backImageId: sBack });
+                }
+              }
+            }
+            if (rcAppUserId && bulkSaved.length > 0) {
+              uploadBulkGradings(rcAppUserId, bulkSaved, sid)
+                .then(() => {
+                  bulkLinks.forEach((p) =>
+                    linkGradingImages(rcAppUserId, p.id, p.frontImageId, p.backImageId, sid).catch(() => {})
+                  );
+                })
+                .catch(() => {});
+            }
+            // Surface only the first recovered job (silent for the rest) and never
+            // open a result modal for bulk — the user views them in History.
+            if (i === 0 && bulkSaved.length > 0) {
+              if (Platform.OS !== "web") {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              }
+              if (notificationsEnabled.current) {
+                sendImmediateNotification("Bulk Grading Complete", `${bulkSaved.length} cards graded!`);
+              }
+            }
+            // Acknowledge once for the whole bulk job so it doesn't reappear.
+            apiRequest("POST", `/api/grade-job/${job.id}/acknowledge`).catch(() => {});
+            continue;
+          }
+
+          if (!job.result) continue;
           recoveredJobIdsRef.current.add(job.id);
 
           const result: GradingResult = job.result;
