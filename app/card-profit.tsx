@@ -31,6 +31,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
+import { COMPANY_FEE_OPTIONS, COMPANY_SUBMIT_URL, ACE_LABEL_ADDON_GBP, type FeeOption } from "@/constants/grading-fees";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES } from "@/lib/settings";
 import CompanyLabel from "@/components/CompanyLabel";
@@ -128,15 +129,6 @@ const COMPANY_TOP_KEY: Record<string, keyof EbayAllGrades> = {
   PSA: "psa10", Beckett: "bgs10", Ace: "ace10", TAG: "tag10", CGC: "cgc10",
 };
 
-// Submission start URLs per company (verified April 2026)
-const COMPANY_SUBMIT_URL: Record<string, string> = {
-  PSA:     "https://www.psacard.com/submit",
-  Beckett: "https://www.beckett.com/submit",
-  CGC:     "https://www.cgccomics.com/cards/submit/",
-  Ace:     "https://acegrading.com/submission-portal",
-  TAG:     "https://my.taggrading.com",
-};
-
 // Stamp badge overlay colours keyed by TCGdex stamp_type
 const STAMP_BADGE_COLORS: Record<string, string> = {
   "set-logo":         "rgba(245,158,11,0.9)",   // amber  — prerelease
@@ -147,47 +139,6 @@ const STAMP_BADGE_COLORS: Record<string, string> = {
   "trick-or-trade":   "rgba(249,115,22,0.9)",    // orange
   "staff":            "rgba(139,92,246,0.9)",     // purple
   "league":           "rgba(236,72,153,0.9)",     // pink
-};
-
-// Grading fee tiers per company — mirrored from grading-fees.tsx
-type FeeCurrency = "USD" | "GBP";
-interface FeeOption { label: string; amount: number; currency: FeeCurrency; turnaround: string; }
-const COMPANY_FEE_OPTIONS: Record<string, FeeOption[]> = {
-  PSA: [
-    { label: "Value Bulk",    amount: 21.99,  currency: "USD", turnaround: "65+ business days"   },
-    { label: "Value",         amount: 27.99,  currency: "USD", turnaround: "45–65 business days" },
-    { label: "Value Plus",    amount: 44.99,  currency: "USD", turnaround: "30–45 business days" },
-    { label: "Value Max",     amount: 59.99,  currency: "USD", turnaround: "20–30 business days" },
-    { label: "Regular",       amount: 79.99,  currency: "USD", turnaround: "~10 business days"   },
-    { label: "Express",       amount: 149.99, currency: "USD", turnaround: "~5 business days"    },
-    { label: "Super Express", amount: 299.99, currency: "USD", turnaround: "~2 business days"    },
-    { label: "Walk-Through",  amount: 499.99, currency: "USD", turnaround: "Same day"            },
-  ],
-  Beckett: [
-    { label: "Economy",       amount: 20,  currency: "USD", turnaround: "20–25 business days" },
-    { label: "Standard",      amount: 30,  currency: "USD", turnaround: "10–15 business days" },
-    { label: "Express",       amount: 100, currency: "USD", turnaround: "5–7 business days"   },
-    { label: "Super Express", amount: 125, currency: "USD", turnaround: "1–3 business days"   },
-  ],
-  CGC: [
-    { label: "Bulk",     amount: 15,  currency: "USD", turnaround: "~40 days" },
-    { label: "Economy",  amount: 18,  currency: "USD", turnaround: "~20 days" },
-    { label: "Standard", amount: 55,  currency: "USD", turnaround: "~10 days" },
-    { label: "Express",  amount: 100, currency: "USD", turnaround: "~5 days"  },
-  ],
-  Ace: [
-    { label: "Basic",    amount: 12, currency: "GBP", turnaround: "~80 business days" },
-    { label: "Standard", amount: 15, currency: "GBP", turnaround: "~30 business days" },
-    { label: "Premier",  amount: 18, currency: "GBP", turnaround: "~15 business days" },
-    { label: "Ultra",    amount: 25, currency: "GBP", turnaround: "~5 business days"  },
-    { label: "Luxury",   amount: 50, currency: "GBP", turnaround: "~2 business days"  },
-  ],
-  TAG: [
-    { label: "Basic",         amount: 22, currency: "USD", turnaround: "45+ business days" },
-    { label: "Standard",      amount: 39, currency: "USD", turnaround: "~15 business days" },
-    { label: "Express",       amount: 59, currency: "USD", turnaround: "~5 business days"  },
-    { label: "Super Express", amount: 99, currency: "USD", turnaround: "~2 business days"  },
-  ],
 };
 
 // Liquidity score 0–100 for a single grade's detail data.
@@ -711,8 +662,7 @@ export default function CardProfitScreen() {
   }, [selectedCompany]);
 
   // Convert selected grading fee to local currency (GBP fees → local via GBP rate)
-  // ACE label add-ons: Colour Match +£1, Custom Ace Label +£3
-  const ACE_LABEL_ADDON_GBP: Record<string, number> = { "standard": 0, "colour-match": 1, "custom": 3 };
+  // ACE label add-ons: Colour Match +£1, Custom Ace Label +£3 — see @/constants/grading-fees
   const feeLocalAmount = selectedFeeOption
     ? (() => {
         const base = selectedFeeOption.currency === "GBP"

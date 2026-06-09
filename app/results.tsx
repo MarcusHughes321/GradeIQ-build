@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
+import { COMPANY_FEE_OPTIONS, COMPANY_SUBMIT_URL, ACE_LABEL_ADDON_GBP, type FeeOption } from "@/constants/grading-fees";
 import { getGradings, updateGrading, deleteGrading } from "@/lib/storage";
 import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate, DefectMarker } from "@/lib/types";
 import { apiRequest } from "@/lib/query-client";
@@ -170,8 +171,6 @@ const CURRENCIES: Record<string, { symbol: string }> = {
   AUD: { symbol: "A$" }, CAD: { symbol: "C$" }, JPY: { symbol: "¥" },
 };
 
-type FeeCurrency = "USD" | "GBP";
-interface FeeOption { label: string; amount: number; currency: FeeCurrency; turnaround: string; }
 interface GradeEntry { grade: number; ebayKey: string; label: string; }
 interface GradeDetail { avg7d?: number|null; avg30d?: number|null; saleCount?: number|null; lastUpdated?: string|null; }
 
@@ -199,22 +198,6 @@ function getAiGradeForCompany(coId: CompanyId, result: any): number {
   }
 }
 
-const COMPANY_FEE_OPTIONS: Record<string, FeeOption[]> = {
-  PSA:     [{ label: "Value Bulk", amount: 21.99, currency: "USD", turnaround: "65+ days" }, { label: "Value", amount: 27.99, currency: "USD", turnaround: "45–65 days" }, { label: "Value Plus", amount: 44.99, currency: "USD", turnaround: "30–45 days" }, { label: "Regular", amount: 79.99, currency: "USD", turnaround: "~10 days" }, { label: "Express", amount: 149.99, currency: "USD", turnaround: "~5 days" }],
-  Beckett: [{ label: "Economy", amount: 20, currency: "USD", turnaround: "20–25 days" }, { label: "Standard", amount: 30, currency: "USD", turnaround: "10–15 days" }, { label: "Express", amount: 100, currency: "USD", turnaround: "5–7 days" }],
-  CGC:     [{ label: "Bulk", amount: 15, currency: "USD", turnaround: "~40 days" }, { label: "Economy", amount: 18, currency: "USD", turnaround: "~20 days" }, { label: "Standard", amount: 55, currency: "USD", turnaround: "~10 days" }, { label: "Express", amount: 100, currency: "USD", turnaround: "~5 days" }],
-  Ace:     [{ label: "Basic", amount: 12, currency: "GBP", turnaround: "~80 days" }, { label: "Standard", amount: 15, currency: "GBP", turnaround: "~30 days" }, { label: "Premier", amount: 18, currency: "GBP", turnaround: "~15 days" }, { label: "Ultra", amount: 25, currency: "GBP", turnaround: "~5 days" }],
-  TAG:     [{ label: "Basic", amount: 22, currency: "USD", turnaround: "45+ days" }, { label: "Standard", amount: 39, currency: "USD", turnaround: "~15 days" }, { label: "Express", amount: 59, currency: "USD", turnaround: "~5 days" }],
-};
-const COMPANY_SUBMIT_URL: Record<string, string> = {
-  PSA:     "https://www.psacard.com/submit",
-  Beckett: "https://www.beckett.com/submit",
-  CGC:     "https://www.cgccomics.com/cards/submit/",
-  Ace:     "https://acegrading.com/submission-portal",
-  TAG:     "https://my.taggrading.com",
-};
-
-const ACE_LABEL_ADDON_GBP: Record<string, number> = { standard: 0, "colour-match": 1, custom: 3 };
 
 function calcLiquidityScore(detail: GradeDetail | undefined): number {
   if (!detail || !detail.saleCount) return 0;
