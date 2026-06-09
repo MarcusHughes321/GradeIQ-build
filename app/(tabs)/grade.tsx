@@ -52,10 +52,10 @@ const DEEP_GRADE_INTRO_KEY = "gradeiq_deep_intro_seen";
 // the bar tracks what the server is actually doing. The "analyzing" step (the
 // single Claude call) is the long one, so the bar smooth-creeps during it.
 const REAL_STAGES = [
-  { key: "received", label: "Uploading photos", icon: "cloud-upload-outline" as const },
-  { key: "preparing", label: "Preparing images", icon: "image-outline" as const },
-  { key: "analyzing", label: "AI analyzing your card", icon: "scan-outline" as const },
-  { key: "finalizing", label: "Finalizing results", icon: "checkmark-circle-outline" as const },
+  { key: "received",   label: "Photos uploaded",        icon: "cloud-upload-outline" as const,       section: "device" },
+  { key: "preparing",  label: "Cropping & enhancing",   icon: "image-outline" as const,               section: "server" },
+  { key: "analyzing",  label: "AI analyzing your card", icon: "scan-outline" as const,                section: "server" },
+  { key: "finalizing", label: "Saving your results",    icon: "checkmark-circle-outline" as const,    section: "server" },
 ];
 
 const STAGE_INDEX: Record<string, number> = {
@@ -1027,24 +1027,43 @@ export default function GradeScreen() {
             </View>
 
             <View style={styles.stageList}>
-              {ANALYSIS_STAGES.map((stage, i) => (
-                <View key={i} style={styles.stageRow}>
-                  <Ionicons
-                    name={i < analysisStage ? "checkmark-circle" : i === analysisStage ? "ellipse" : "ellipse-outline"}
-                    size={14}
-                    color={i < analysisStage ? Colors.success : i === analysisStage ? (mode === "deep" ? "#F59E0B" : mode === "crossover" ? "#8B5CF6" : Colors.primary) : Colors.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.stageText,
-                      i < analysisStage && styles.stageTextDone,
-                      i === analysisStage && styles.stageTextActive,
-                    ]}
-                  >
-                    {stage.label}
-                  </Text>
-                </View>
-              ))}
+              {ANALYSIS_STAGES.map((stage, i) => {
+                const accentColor = mode === "deep" ? "#F59E0B" : mode === "crossover" ? "#8B5CF6" : Colors.primary;
+                const prevSection = i > 0 ? ANALYSIS_STAGES[i - 1].section : null;
+                const showSectionHeader = stage.section !== prevSection;
+                return (
+                  <React.Fragment key={i}>
+                    {showSectionHeader && (
+                      <View style={[styles.stageSectionHeader, i > 0 && { marginTop: 8 }]}>
+                        <Ionicons
+                          name={stage.section === "device" ? "phone-portrait-outline" : "cloud-outline"}
+                          size={11}
+                          color={Colors.textMuted}
+                        />
+                        <Text style={styles.stageSectionLabel}>
+                          {stage.section === "device" ? "On your phone" : "On our server"}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.stageRow}>
+                      <Ionicons
+                        name={i < analysisStage ? "checkmark-circle" : i === analysisStage ? "ellipse" : "ellipse-outline"}
+                        size={14}
+                        color={i < analysisStage ? Colors.success : i === analysisStage ? accentColor : Colors.textMuted}
+                      />
+                      <Text
+                        style={[
+                          styles.stageText,
+                          i < analysisStage && styles.stageTextDone,
+                          i === analysisStage && styles.stageTextActive,
+                        ]}
+                      >
+                        {stage.label}
+                      </Text>
+                    </View>
+                  </React.Fragment>
+                );
+              })}
             </View>
           </View>
 
@@ -1705,6 +1724,19 @@ const styles = StyleSheet.create({
   stageTextActive: {
     fontFamily: "Inter_600SemiBold",
     color: Colors.text,
+  },
+  stageSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 4,
+  },
+  stageSectionLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: Colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   analysisWait: {
     fontFamily: "Inter_400Regular",
