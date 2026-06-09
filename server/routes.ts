@@ -13476,14 +13476,21 @@ RESPONSE RULES (strict):
 
       let pricesOut: any = null;
       let cardsOut: any[] = [];
-      let toolLoopCount = 0;
+      // Give the model enough turns to search cards AND fetch prices for several
+      // cards (a follow-up often makes it re-search + price multiple cards). On
+      // the FINAL turn we drop the tools entirely so the model is forced to write
+      // a text answer from what it already gathered, instead of attempting yet
+      // another tool call and falling through to the canned "having trouble"
+      // fallback — which is what previously broke follow-up questions.
+      const MAX_TOOL_TURNS = 5;
 
-      while (toolLoopCount < 3) {
+      for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+        const allowTools = turn < MAX_TOOL_TURNS - 1;
         const resp = await anthropic.messages.create({
           model: "claude-sonnet-4-6",
           max_tokens: 400,
           system: systemPrompt,
-          tools,
+          ...(allowTools ? { tools } : {}),
           messages: msgs,
         });
 
@@ -13587,10 +13594,11 @@ RESPONSE RULES (strict):
         }
 
         msgs.push({ role: "user", content: toolResults });
-        toolLoopCount++;
       }
 
-      return res.json({ reply: "I'm having trouble right now — please try again.", prices: null });
+      // Safety net — should be unreachable now that the final turn drops tools and
+      // forces a text answer. Return whatever prices we gathered just in case.
+      return res.json({ reply: "I'm having trouble right now — please try again.", prices: pricesOut });
     } catch (e: any) {
       console.error("[pokemon-chat]", e.message);
       res.status(500).json({ error: "Chat failed" });
