@@ -6,3 +6,4 @@
 - [Reinstall recovery on stable UUID](reinstall-recovery-stable-id.md) — anchor recovery on the stable UUID, decoupled from RevenueCat init; pending-grades effect fires twice, so dedupe by job.id.
 - [Expo module install pinning](expo-module-install-pinning.md) — no `expo install`; pin Expo/native modules to expo/bundledNativeModules.json ranges; only those are Expo Go safe.
 - [Agentic tool-loop final answer](agentic-tool-loop-final-answer.md) — bounded Claude tool-use loops must drop tools on the final turn to force text, else they fall into a canned fallback.
+- [Trade-eval tool cash+grade](trade-tool-cash-and-grade.md) — AI trade evaluator invents a phantom card for an empty side unless cash+grade are first-class inputs; grade→tier map must cover every tier or graded cards silently price as raw.

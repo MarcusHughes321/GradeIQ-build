@@ -50,12 +50,14 @@ type CardResult = {
 type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
 
 type DealSideCard = { cardName: string; setName: string; imageUrl: string | null; value: number | null };
+type DealSide = { cards: DealSideCard[]; cash?: number | null; total: number };
 type DealVerdict = {
-  gave: { cards: DealSideCard[]; total: number };
-  received: { cards: DealSideCard[]; total: number };
+  gave: DealSide;
+  received: DealSide;
   net: number;
   verdict: "good" | "fair" | "bad" | "incomplete";
   complete: boolean;
+  grade?: string | null;
 };
 type ProfitBreakdown = {
   cardName: string;
@@ -421,12 +423,24 @@ const priceStyles = StyleSheet.create({
   value: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
 });
 
-function DealSideColumn({ title, cards, total }: { title: string; cards: DealSideCard[]; total: number }) {
+function DealSideColumn({ title, side }: { title: string; side: DealSide }) {
   const { Image } = require("expo-image");
+  const hasCash = side.cash != null && side.cash > 0;
   return (
     <View style={dealStyles.col}>
       <Text style={dealStyles.colTitle}>{title}</Text>
-      {cards.map((c, i) => (
+      {hasCash && (
+        <View style={dealStyles.dealCard}>
+          <View style={[dealStyles.dealThumb, dealStyles.cashThumb]}>
+            <Ionicons name="cash-outline" size={16} color={Colors.success} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={dealStyles.dealName} numberOfLines={1}>Cash</Text>
+            <Text style={dealStyles.dealValue}>£{side.cash!.toFixed(0)}</Text>
+          </View>
+        </View>
+      )}
+      {side.cards.map((c, i) => (
         <View key={i} style={dealStyles.dealCard}>
           {c.imageUrl ? (
             <Image source={{ uri: c.imageUrl }} style={dealStyles.dealThumb} contentFit="cover" />
@@ -441,7 +455,8 @@ function DealSideColumn({ title, cards, total }: { title: string; cards: DealSid
           </View>
         </View>
       ))}
-      <Text style={dealStyles.colTotal}>£{total.toFixed(0)}</Text>
+      {!hasCash && side.cards.length === 0 && <Text style={dealStyles.dealValue}>—</Text>}
+      <Text style={dealStyles.colTotal}>£{side.total.toFixed(0)}</Text>
     </View>
   );
 }
@@ -449,20 +464,22 @@ function DealSideColumn({ title, cards, total }: { title: string; cards: DealSid
 function DealCard({ deal }: { deal: DealVerdict }) {
   const VERDICT: Record<DealVerdict["verdict"], { label: string; color: string; bg: string }> = {
     good: { label: "Good deal", color: Colors.success, bg: "rgba(16,185,129,0.12)" },
-    fair: { label: "Fair trade", color: Colors.warning, bg: "rgba(245,158,11,0.12)" },
+    fair: { label: "Fair deal", color: Colors.warning, bg: "rgba(245,158,11,0.12)" },
     bad: { label: "Bad deal", color: Colors.primary, bg: "rgba(255,60,49,0.12)" },
     incomplete: { label: "Can't fully price", color: Colors.textMuted, bg: Colors.surface },
   };
   const v = VERDICT[deal.verdict];
   const netPositive = deal.net >= 0;
+  const paidCash = (deal.gave.cash ?? 0) > 0 && deal.gave.cards.length === 0;
   return (
     <View style={dealStyles.card}>
+      {deal.grade ? <Text style={dealStyles.gradeTag}>{deal.grade} values</Text> : null}
       <View style={dealStyles.columns}>
-        <DealSideColumn title="You gave" cards={deal.gave.cards} total={deal.gave.total} />
+        <DealSideColumn title={paidCash ? "You paid" : "You gave"} side={deal.gave} />
         <View style={dealStyles.swap}>
           <Ionicons name="swap-horizontal" size={18} color={Colors.textMuted} />
         </View>
-        <DealSideColumn title="You got" cards={deal.received.cards} total={deal.received.total} />
+        <DealSideColumn title="You got" side={deal.received} />
       </View>
       <View style={dealStyles.footer}>
         <View style={[dealStyles.badge, { backgroundColor: v.bg }]}>
@@ -484,9 +501,11 @@ const dealStyles = StyleSheet.create({
   col: { flex: 1, gap: 6 },
   colTitle: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
   swap: { paddingHorizontal: 8, paddingTop: 24 },
+  gradeTag: { fontFamily: "Inter_700Bold", fontSize: 10, color: Colors.primary, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
   dealCard: { flexDirection: "row", gap: 6, alignItems: "center" },
   dealThumb: { width: 34, height: 48, borderRadius: 4, backgroundColor: Colors.surface },
   dealThumbPlaceholder: { alignItems: "center", justifyContent: "center" },
+  cashThumb: { alignItems: "center", justifyContent: "center", backgroundColor: "rgba(16,185,129,0.12)" },
   dealName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text, lineHeight: 14 },
   dealValue: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textSecondary, marginTop: 1 },
   colTotal: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.text, marginTop: 2 },

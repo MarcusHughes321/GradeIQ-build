@@ -13466,14 +13466,17 @@ RESPONSE FORMAT (JSON only, no markdown):
         },
         {
           name: "evaluate_trade",
-          description: "Evaluate a card trade and show the user a visual verdict card. Call this whenever the user describes trading/swapping cards — one or more cards they GAVE for one or more cards they RECEIVED. Pass each side as an array of full 'Name Set' query strings. Do NOT call any other tool in the same turn.",
+          description: "Evaluate a card TRADE or a card PURCHASE/SALE and show the user a visual verdict card. Use whenever the user swaps cards, OR buys/sells cards for money. CRITICAL: never invent a card the user did not name. If the user paid cash for cards, put the amount in gaveCash and leave gave empty. If they sold cards for cash, put the amount in receivedCash. If the cards are graded or the user states a grade (e.g. PSA 10), pass it in 'grade' so graded market prices are used instead of raw prices. Pass each card side as an array of full 'Name Set' strings WITHOUT the grade in the string. Do NOT call any other tool in the same turn.",
           input_schema: {
             type: "object" as const,
             properties: {
-              gave: { type: "array", items: { type: "string" }, description: "Cards the user gave away, full 'Name Set' strings e.g. ['Pikachu VMAX Vivid Voltage']" },
-              received: { type: "array", items: { type: "string" }, description: "Cards the user received, full 'Name Set' strings e.g. ['Umbreon VMAX Evolving Skies']" },
+              gave: { type: "array", items: { type: "string" }, description: "Cards the user GAVE AWAY (in a trade) — full 'Name Set' strings e.g. ['Pikachu VMAX Vivid Voltage']. Leave empty [] for a pure cash purchase." },
+              received: { type: "array", items: { type: "string" }, description: "Cards the user RECEIVED or BOUGHT — full 'Name Set' strings e.g. ['Umbreon VMAX Evolving Skies']." },
+              gaveCash: { type: "number", description: "Money the user PAID, in GBP. Use for purchases e.g. 'I got X and Y for £1275' → gaveCash 1275. Omit if no cash was paid." },
+              receivedCash: { type: "number", description: "Money the user RECEIVED, in GBP (if they sold cards or got cash back). Omit if none." },
+              grade: { type: "string", description: "Grade of the cards if stated or graded, e.g. 'PSA 10', 'PSA 9', 'BGS 9.5', 'CGC 10', 'ACE 10', 'TAG 10'. Applies to all cards in this deal and uses graded prices. Omit for raw/ungraded cards." },
             },
-            required: ["gave", "received"],
+            required: ["received"],
           },
         },
         {
@@ -13514,7 +13517,7 @@ RESPONSE RULES (strict):
 
 DISAMBIGUATION: If the user names a card without enough detail to pin down ONE specific card (no set named, or a Pokémon with many famous cards/variants), call present_card_options with 2-4 specific candidate queries instead of guessing. Add a short line like "A few match — which did you mean?". Do not call any other tool in that turn. Once the user picks a specific card, answer their original question for that card.
 
-TRADES: When the user describes a trade (gave X, got Y / swapped / traded), call evaluate_trade with the two sides instead of writing the numbers yourself — it renders a visual verdict card. After it returns, add ONE short sentence of context; do not re-list all the numbers.
+TRADES & PURCHASES: When the user describes a trade (gave X, got Y / swapped) OR a purchase/sale (bought / got / paid £X for cards, or sold cards for £X), call evaluate_trade — it renders a visual verdict card. NEVER invent or guess a card the user did not name; if they paid money, put the amount in gaveCash and leave gave empty (do not fabricate a card for the cash side). If they state a grade like "PSA 10", pass it in 'grade' and keep the grade OUT of each card query string. After it returns, add ONE short sentence of context; do not re-list all the numbers.
 
 GRADING PROFIT: When the user asks whether a specific card is worth grading, or about grading profit/economics for a specific card, call grading_profit (optionally with a company) — it renders a visual raw→fee→graded→net breakdown. After it returns, add ONE short sentence of recommendation; do not re-list all the numbers.`;
 
@@ -13662,29 +13665,52 @@ GRADING PROFIT: When the user asks whether a specific card is worth grading, or 
             }
 
           } else if (block.name === "evaluate_trade") {
-            const { gave, received } = block.input as { gave: string[]; received: string[] };
+            const { gave, received, gaveCash, receivedCash, grade } = block.input as { gave?: string[]; received?: string[]; gaveCash?: number; receivedCash?: number; grade?: string };
             try {
-              const priceSide = async (queries: string[]) => {
+              const GRADE_TIERS: Record<string, keyof EbayAllGrades> = {
+                "psa 10": "psa10", "psa 9": "psa9", "psa 8": "psa8", "psa 7": "psa7",
+                "bgs 10": "bgs10", "bgs 9.5": "bgs95", "bgs 9": "bgs9", "bgs 8.5": "bgs85", "bgs 8": "bgs8",
+                "ace 10": "ace10", "ace 9": "ace9", "ace 8": "ace8",
+                "tag 10": "tag10", "tag 9": "tag9", "tag 8": "tag8",
+                "cgc 10": "cgc10", "cgc 9.5": "cgc95", "cgc 9": "cgc9", "cgc 8": "cgc8",
+              };
+              // Normalise "PSA10" / "psa-10" / "BGS9.5" → "psa 10" / "bgs 9.5"
+              const gradeNorm = (grade || "")
+                .toLowerCase()
+                .replace(/[-_]/g, " ")
+                .replace(/(psa|bgs|ace|tag|cgc)\s*/g, "$1 ")
+                .replace(/\s+/g, " ")
+                .trim();
+              const tier = GRADE_TIERS[gradeNorm] || null;
+              const gradeLabel = tier ? gradeNorm.toUpperCase() : null;
+              const priceSide = async (queries: string[] | undefined, cash: number) => {
                 const results = await Promise.all((queries || []).slice(0, 6).map(q => searchOneCard(q)));
                 const cards: any[] = [];
-                let total = 0;
+                let cardsTotal = 0;
                 let allPriced = true;
                 for (const { card } of results) {
                   if (!card) { allPriced = false; continue; }
                   let value: number | null = null;
-                  if (card.priceUsd != null && parseFloat(card.priceUsd) > 0) {
+                  if (tier) {
+                    const ebay = await fetchEbayGradedPrices(card.cardName, card.setName, card.number || undefined);
+                    const usd = Number((ebay as any)[tier]) || 0;
+                    if (usd > 0) value = +(usd * GBP_PER_USD).toFixed(2);
+                  } else if (card.priceUsd != null && parseFloat(card.priceUsd) > 0) {
                     value = +(parseFloat(card.priceUsd) * GBP_PER_USD).toFixed(2);
                   } else if (card.priceEur != null && parseFloat(card.priceEur) > 0) {
                     value = +(parseFloat(card.priceEur) * GBP_PER_EUR).toFixed(2);
                   }
-                  if (value == null) allPriced = false; else total += value;
+                  if (value == null) allPriced = false; else cardsTotal += value;
                   cards.push({ cardName: card.cardName, setName: card.setName, imageUrl: card.imageUrl, value });
                 }
-                return { cards, total: +total.toFixed(2), allPriced };
+                const cashNum = cash > 0 ? +cash.toFixed(2) : 0;
+                return { cards, cash: cashNum, total: +(cardsTotal + cashNum).toFixed(2), allPriced };
               };
-              const gaveSide = await priceSide(gave);
-              const recvSide = await priceSide(received);
-              const complete = gaveSide.allPriced && recvSide.allPriced && gaveSide.cards.length > 0 && recvSide.cards.length > 0;
+              const gaveSide = await priceSide(gave, Number(gaveCash) || 0);
+              const recvSide = await priceSide(received, Number(receivedCash) || 0);
+              const gaveHasContent = gaveSide.cards.length > 0 || gaveSide.cash > 0;
+              const recvHasContent = recvSide.cards.length > 0 || recvSide.cash > 0;
+              const complete = gaveSide.allPriced && recvSide.allPriced && gaveHasContent && recvHasContent;
               const net = +(recvSide.total - gaveSide.total).toFixed(2);
               let verdict: "good" | "fair" | "bad" | "incomplete";
               if (!complete || gaveSide.total === 0) {
@@ -13696,15 +13722,18 @@ GRADING PROFIT: When the user asks whether a specific card is worth grading, or 
                 else verdict = "fair";
               }
               dealOut = {
-                gave: { cards: gaveSide.cards, total: gaveSide.total },
-                received: { cards: recvSide.cards, total: recvSide.total },
+                gave: { cards: gaveSide.cards, cash: gaveSide.cash || null, total: gaveSide.total },
+                received: { cards: recvSide.cards, cash: recvSide.cash || null, total: recvSide.total },
                 net,
                 verdict,
                 complete,
+                grade: gradeLabel,
               };
+              const gaveDesc = `${gaveSide.cash > 0 ? `£${gaveSide.cash} cash` : ""}${gaveSide.cash > 0 && gaveSide.cards.length ? " + " : ""}${gaveSide.cards.length ? `${gaveSide.cards.length} card(s)` : ""}`.trim() || "nothing";
+              const recvDesc = `${recvSide.cash > 0 ? `£${recvSide.cash} cash` : ""}${recvSide.cash > 0 && recvSide.cards.length ? " + " : ""}${recvSide.cards.length ? `${recvSide.cards.length} card(s)` : ""}`.trim() || "nothing";
               const summary = verdict === "incomplete"
-                ? `Trade priced partially: gave ~£${gaveSide.total}, received ~£${recvSide.total}. Some cards could not be priced, so the verdict is incomplete.`
-                : `Gave ~£${gaveSide.total}, received ~£${recvSide.total}, net ${net >= 0 ? "+" : ""}£${net} (${verdict} deal).`;
+                ? `Deal priced partially${gradeLabel ? ` at ${gradeLabel}` : ""}: gave ${gaveDesc} (~£${gaveSide.total}), received ${recvDesc} (~£${recvSide.total}). Some cards could not be priced, so the verdict is incomplete.`
+                : `${gradeLabel ? `${gradeLabel} values — ` : ""}gave ~£${gaveSide.total}, received ~£${recvSide.total}, net ${net >= 0 ? "+" : ""}£${net} (${verdict} deal).`;
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary });
             } catch (e: any) {
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Trade evaluation failed: ${e.message}` });
