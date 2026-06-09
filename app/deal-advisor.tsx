@@ -49,6 +49,23 @@ type CardResult = {
 
 type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
 
+type DealSideCard = { cardName: string; setName: string; imageUrl: string | null; value: number | null };
+type DealVerdict = {
+  gave: { cards: DealSideCard[]; total: number };
+  received: { cards: DealSideCard[]; total: number };
+  net: number;
+  verdict: "good" | "fair" | "bad" | "incomplete";
+  complete: boolean;
+};
+type ProfitBreakdown = {
+  cardName: string;
+  raw: number | null;
+  gradedLabel: string;
+  gradedValue: number;
+  fee: number;
+  net: number | null;
+};
+
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -56,6 +73,10 @@ type Message = {
   prices?: Prices | null;
   cards?: CardResult[] | null;
   segments?: Segment[] | null;
+  options?: CardResult[] | null;
+  needsSelection?: boolean;
+  deal?: DealVerdict | null;
+  profit?: ProfitBreakdown | null;
   isError?: boolean;
   retryText?: string;
 };
@@ -229,12 +250,12 @@ function BotAvatar() {
   );
 }
 
-function CardThumb({ card, style }: { card: CardResult; style?: object }) {
+function CardThumb({ card, style, onPress }: { card: CardResult; style?: object; onPress?: () => void }) {
   const { Image } = require("expo-image");
   return (
     <Pressable
       style={({ pressed }) => [cardRowStyles.thumb, style, { opacity: pressed ? 0.7 : 1 }]}
-      onPress={() =>
+      onPress={onPress ? onPress : () =>
         router.push({
           pathname: "/card-profit",
           params: {
@@ -282,6 +303,31 @@ function CardRow({ cards }: { cards: CardResult[] }) {
     </View>
   );
 }
+
+function CardPicker({ options, onSelect, disabled }: { options: CardResult[]; onSelect: (card: CardResult) => void; disabled?: boolean }) {
+  if (options.length === 0) return null;
+  return (
+    <View style={pickerStyles.grid}>
+      {options.map(c => (
+        <View key={c.cardId} style={pickerStyles.cell}>
+          <CardThumb card={c} style={pickerStyles.thumb} onPress={disabled ? () => {} : () => onSelect(c)} />
+          <View style={pickerStyles.tapHint}>
+            <Ionicons name="hand-left-outline" size={11} color={Colors.primary} />
+            <Text style={pickerStyles.tapHintText}>Tap</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const pickerStyles = StyleSheet.create({
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 12 },
+  cell: { alignItems: "center", gap: 4 },
+  thumb: { width: 86 },
+  tapHint: { flexDirection: "row", alignItems: "center", gap: 3 },
+  tapHintText: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.primary },
+});
 
 const inlineCardStyles = StyleSheet.create({
   wrap: {
@@ -375,8 +421,122 @@ const priceStyles = StyleSheet.create({
   value: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
 });
 
+function DealSideColumn({ title, cards, total }: { title: string; cards: DealSideCard[]; total: number }) {
+  const { Image } = require("expo-image");
+  return (
+    <View style={dealStyles.col}>
+      <Text style={dealStyles.colTitle}>{title}</Text>
+      {cards.map((c, i) => (
+        <View key={i} style={dealStyles.dealCard}>
+          {c.imageUrl ? (
+            <Image source={{ uri: c.imageUrl }} style={dealStyles.dealThumb} contentFit="cover" />
+          ) : (
+            <View style={[dealStyles.dealThumb, dealStyles.dealThumbPlaceholder]}>
+              <Ionicons name="image-outline" size={14} color={Colors.textMuted} />
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={dealStyles.dealName} numberOfLines={2}>{c.cardName}</Text>
+            <Text style={dealStyles.dealValue}>{c.value != null ? `£${c.value.toFixed(0)}` : "—"}</Text>
+          </View>
+        </View>
+      ))}
+      <Text style={dealStyles.colTotal}>£{total.toFixed(0)}</Text>
+    </View>
+  );
+}
+
+function DealCard({ deal }: { deal: DealVerdict }) {
+  const VERDICT: Record<DealVerdict["verdict"], { label: string; color: string; bg: string }> = {
+    good: { label: "Good deal", color: Colors.success, bg: "rgba(16,185,129,0.12)" },
+    fair: { label: "Fair trade", color: Colors.warning, bg: "rgba(245,158,11,0.12)" },
+    bad: { label: "Bad deal", color: Colors.primary, bg: "rgba(255,60,49,0.12)" },
+    incomplete: { label: "Can't fully price", color: Colors.textMuted, bg: Colors.surface },
+  };
+  const v = VERDICT[deal.verdict];
+  const netPositive = deal.net >= 0;
+  return (
+    <View style={dealStyles.card}>
+      <View style={dealStyles.columns}>
+        <DealSideColumn title="You gave" cards={deal.gave.cards} total={deal.gave.total} />
+        <View style={dealStyles.swap}>
+          <Ionicons name="swap-horizontal" size={18} color={Colors.textMuted} />
+        </View>
+        <DealSideColumn title="You got" cards={deal.received.cards} total={deal.received.total} />
+      </View>
+      <View style={dealStyles.footer}>
+        <View style={[dealStyles.badge, { backgroundColor: v.bg }]}>
+          <Text style={[dealStyles.badgeText, { color: v.color }]}>{v.label}</Text>
+        </View>
+        {deal.complete && (
+          <Text style={[dealStyles.net, { color: netPositive ? Colors.success : Colors.primary }]}>
+            {netPositive ? "+" : "−"}£{Math.abs(deal.net).toFixed(0)}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const dealStyles = StyleSheet.create({
+  card: { marginTop: 10, backgroundColor: Colors.background, borderRadius: 10, padding: 12 },
+  columns: { flexDirection: "row", alignItems: "flex-start" },
+  col: { flex: 1, gap: 6 },
+  colTitle: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  swap: { paddingHorizontal: 8, paddingTop: 24 },
+  dealCard: { flexDirection: "row", gap: 6, alignItems: "center" },
+  dealThumb: { width: 34, height: 48, borderRadius: 4, backgroundColor: Colors.surface },
+  dealThumbPlaceholder: { alignItems: "center", justifyContent: "center" },
+  dealName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text, lineHeight: 14 },
+  dealValue: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textSecondary, marginTop: 1 },
+  colTotal: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.text, marginTop: 2 },
+  footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
+  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  badgeText: { fontFamily: "Inter_700Bold", fontSize: 12 },
+  net: { fontFamily: "Inter_700Bold", fontSize: 18 },
+});
+
+function ProfitCard({ profit }: { profit: ProfitBreakdown }) {
+  const netPositive = profit.net != null && profit.net >= 0;
+  return (
+    <View style={profitStyles.card}>
+      <Text style={profitStyles.title}>{profit.cardName} · {profit.gradedLabel}</Text>
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.label}>Raw cost</Text>
+        <Text style={profitStyles.value}>{profit.raw != null ? `£${profit.raw.toFixed(0)}` : "—"}</Text>
+      </View>
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.label}>Grading fee</Text>
+        <Text style={profitStyles.value}>−£{profit.fee.toFixed(0)}</Text>
+      </View>
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.label}>{profit.gradedLabel} value</Text>
+        <Text style={profitStyles.value}>£{profit.gradedValue.toFixed(0)}</Text>
+      </View>
+      <View style={profitStyles.divider} />
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.netLabel}>Net profit</Text>
+        <Text style={[profitStyles.netValue, { color: profit.net == null ? Colors.textMuted : netPositive ? Colors.success : Colors.primary }]}>
+          {profit.net == null ? "—" : `${netPositive ? "+" : "−"}£${Math.abs(profit.net).toFixed(0)}`}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const profitStyles = StyleSheet.create({
+  card: { marginTop: 10, backgroundColor: Colors.background, borderRadius: 10, padding: 12, gap: 7 },
+  title: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  label: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
+  value: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  divider: { height: 1, backgroundColor: Colors.surfaceBorder, marginVertical: 2 },
+  netLabel: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.text },
+  netValue: { fontFamily: "Inter_700Bold", fontSize: 18 },
+});
+
 function AssistantBubble({
-  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry,
+  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry, onSelectCard, selectionDisabled,
 }: {
   msg: Message;
   isSpeaking: boolean;
@@ -386,6 +546,8 @@ function AssistantBubble({
   onPauseResume: () => void;
   onStop: () => void;
   onRetry?: () => void;
+  onSelectCard?: (card: CardResult) => void;
+  selectionDisabled?: boolean;
 }) {
   if (msg.isError) {
     return (
@@ -409,7 +571,12 @@ function AssistantBubble({
       <BotAvatar />
       <View style={{ flex: 1 }}>
         <View style={msgStyles.aiBubble}>
-          {msg.segments && msg.segments.length > 0 ? (
+          {msg.needsSelection && msg.options && msg.options.length > 0 ? (
+            <>
+              <Text style={msgStyles.aiText}>{stripMarkdown(msg.text)}</Text>
+              <CardPicker options={msg.options} onSelect={onSelectCard ?? (() => {})} disabled={selectionDisabled} />
+            </>
+          ) : msg.segments && msg.segments.length > 0 ? (
             <>
               {msg.segments.map((seg, i) => {
                 if (seg.type === "text") {
@@ -429,7 +596,9 @@ function AssistantBubble({
               {msg.cards && msg.cards.length > 0 && <CardRow cards={msg.cards} />}
             </>
           )}
-          {msg.prices && <PricesCard prices={msg.prices} />}
+          {!msg.needsSelection && msg.deal && <DealCard deal={msg.deal} />}
+          {!msg.needsSelection && msg.profit && <ProfitCard profit={msg.profit} />}
+          {!msg.needsSelection && msg.prices && <PricesCard prices={msg.prices} />}
         </View>
         {Platform.OS !== "web" && (
           isSpeaking ? (
@@ -621,6 +790,10 @@ export default function PokeBotScreen() {
               prices: data.prices ?? null,
               cards: Array.isArray(data.cards) && data.cards.length > 0 ? data.cards : null,
               segments: Array.isArray(data.segments) && data.segments.length > 0 ? data.segments : null,
+              options: Array.isArray(data.options) && data.options.length > 0 ? data.options : null,
+              needsSelection: !!data.needsSelection,
+              deal: data.deal ?? null,
+              profit: data.profit ?? null,
             }, ...prev]);
           } catch {
             setMessages(prev => [{
@@ -858,7 +1031,7 @@ export default function PokeBotScreen() {
             : messages
           }
           keyExtractor={item => item.id}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             if (item.id === "typing") return <TypingIndicator />;
             if (item.role === "user") return <UserBubble text={item.text} />;
             return (
@@ -871,6 +1044,8 @@ export default function PokeBotScreen() {
                 onPauseResume={pauseResumeSound}
                 onStop={stopSound}
                 onRetry={item.isError && item.retryText ? () => sendMessage(item.retryText!) : undefined}
+                onSelectCard={(card) => sendMessage(`${card.cardName}${card.number ? ` #${card.number}` : ""} from ${card.setName}`)}
+                selectionDisabled={loading || index > 0}
               />
             );
           }}

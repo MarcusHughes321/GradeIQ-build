@@ -1,8 +1,8 @@
-- [Upload size proxy limit](upload-size-proxy-limit.md) — real limit is total body <~10MB; size upload dimension by image count (base64 1024, binary 2048, deep multi-image 1600).
-- [Android quota race condition](android-quota-race.md) — AppState "active" restarts polling; overlapping poll ticks all see "completed" and each call recordUsage. Fix: null out recordUsageRef before calling it.
-- [Replit WAF blocks data URI in POST body](replit-waf-data-uri.md) — any POST containing "data:image/jpeg;base64," in the body returns 403 HTML before Express. Strip prefix on client; server re-adds it via startsWith("data:") guard.
-- [Kill-safe recovery re-saves locally](killsafe-recovery-resaves.md) — pending-grades recovery RE-saves grades locally (new ids), not just syncs; completion must ack unconditionally or rows duplicate next launch.
-- [Grading waiting-screen progress](grading-progress-bar.md) — bar is server-stage-driven; the opaque AI step must creep continuously toward a sub-1.0 cap (not one-shot) or it freezes on long runs; never rewind, never hit 1.0 before the real result.
-- [Reinstall recovery on stable UUID](reinstall-recovery-stable-id.md) — recovery (history/credits/pending grades) must be anchored on the stable UUID, decoupled from RevenueCat init; pending-grades effect fires twice (stable then rc) so dedupe by job.id.
-- [Expo module install pinning](expo-module-install-pinning.md) — npm package tool has no `expo install`; pin native/Expo modules to the range in expo/bundledNativeModules.json; only modules listed there are Expo Go safe.
-- [Agentic tool-loop final answer](agentic-tool-loop-final-answer.md) — bounded Claude tool-use loops must drop tools on the final turn to force text; exhausting into a canned fallback silently breaks follow-up questions.
+- [Upload size proxy limit](upload-size-proxy-limit.md) — total POST body must be <~10MB; size image dimension by count (base64 1024, binary 2048, deep multi-image 1600).
+- [Android quota race condition](android-quota-race.md) — AppState 'active' restarts polling; overlapping ticks each call recordUsage. Fix: null recordUsageRef before calling.
+- [Replit WAF blocks data URI in POST body](replit-waf-data-uri.md) — POST body with a 'data:image;base64,' prefix 403s before Express; strip it client-side, server re-adds.
+- [Kill-safe recovery re-saves locally](killsafe-recovery-resaves.md) — pending-grades recovery re-saves grades under new ids; ack unconditionally on completion or rows duplicate next launch.
+- [Grading waiting-screen progress](grading-progress-bar.md) — bar is server-stage-driven; opaque AI step must creep toward a sub-1.0 cap, never rewind, never hit 1.0 before the result.
+- [Reinstall recovery on stable UUID](reinstall-recovery-stable-id.md) — anchor recovery on the stable UUID, decoupled from RevenueCat init; pending-grades effect fires twice, so dedupe by job.id.
+- [Expo module install pinning](expo-module-install-pinning.md) — no `expo install`; pin Expo/native modules to expo/bundledNativeModules.json ranges; only those are Expo Go safe.
+- [Agentic tool-loop final answer](agentic-tool-loop-final-answer.md) — bounded Claude tool-use loops must drop tools on the final turn to force text, else they fall into a canned fallback.

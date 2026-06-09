@@ -13348,6 +13348,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       if (!message?.trim()) return res.status(400).json({ error: "message required" });
 
       const GBP_PER_USD = 0.79;
+      const GBP_PER_EUR = 0.86;
 
       // Reusable helper: search card_catalog for a single query, return top result
       const searchOneCard = async (query: string): Promise<{ card: any | null; summary: string }> => {
@@ -13383,7 +13384,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
         const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
         const sql = `
-          SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, set_name_en, image_url, price_usd,
+          SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, set_name_en, image_url, price_usd, price_eur,
                  (${scoreExpr}) AS score
           FROM card_catalog
           WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
@@ -13399,6 +13400,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           number: top.number || "",
           imageUrl: top.image_url || null,
           priceUsd: top.price_usd || null,
+          priceEur: top.price_eur || null,
           lang: top.lang || "en",
         };
         const summary = result.rows.map((r: any) =>
@@ -13447,6 +13449,47 @@ RESPONSE FORMAT (JSON only, no markdown):
             required: ["card_name", "set_name"],
           },
         },
+        {
+          name: "present_card_options",
+          description: "Show the user a set of candidate cards to choose from when their description is ambiguous and could match several DISTINCT cards. Pass 2-4 specific candidate queries (full 'Name Set' strings). The user will tap the one they meant. Do NOT call any other tool in the same turn.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              candidates: {
+                type: "array",
+                items: { type: "string" },
+                description: "2-4 candidate card queries e.g. ['Charizard ex Obsidian Flames', 'Charizard ex 151', 'Charizard VMAX Champions Path']",
+              },
+            },
+            required: ["candidates"],
+          },
+        },
+        {
+          name: "evaluate_trade",
+          description: "Evaluate a card trade and show the user a visual verdict card. Call this whenever the user describes trading/swapping cards — one or more cards they GAVE for one or more cards they RECEIVED. Pass each side as an array of full 'Name Set' query strings. Do NOT call any other tool in the same turn.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              gave: { type: "array", items: { type: "string" }, description: "Cards the user gave away, full 'Name Set' strings e.g. ['Pikachu VMAX Vivid Voltage']" },
+              received: { type: "array", items: { type: "string" }, description: "Cards the user received, full 'Name Set' strings e.g. ['Umbreon VMAX Evolving Skies']" },
+            },
+            required: ["gave", "received"],
+          },
+        },
+        {
+          name: "grading_profit",
+          description: "Show the user a visual grading profit breakdown (raw cost, grading fee, graded value, net profit) for a single card. Call this when the user asks whether a card is worth grading, or about grading profit/economics for a specific card. Optionally pass a company (PSA/BGS/ACE/TAG/CGC); defaults to PSA. Do NOT call any other tool in the same turn.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              card_name: { type: "string", description: "English name of the card" },
+              set_name: { type: "string", description: "Name of the set" },
+              card_number: { type: "string", description: "Card number (optional)" },
+              company: { type: "string", description: "Grading company: PSA, BGS, ACE, TAG, or CGC (optional, defaults to PSA)" },
+            },
+            required: ["card_name", "set_name"],
+          },
+        },
       ];
 
       const systemPrompt = `You are TCG Advisor, a Pokemon TCG expert inside the Grade.IQ grading app.
@@ -13467,7 +13510,13 @@ RESPONSE RULES (strict):
 - For grading economics, include grading cost (PSA ~£25, ACE ~£18, BGS ~£40) and net profit
 - Never use markdown headers or bold text
 - Always search for cards BEFORE writing your answer so images load with the text
-- CARD MARKERS: After each bullet point or sentence that refers to a specific card from search_multiple_cards, append [C0], [C1], [C2] etc. (the index of that card in the queries array you passed). For search_pokemon_cards results use [C0]. Do NOT put the marker mid-sentence — put it at the very end of the line that mentions the card.`;
+- CARD MARKERS: After each bullet point or sentence that refers to a specific card from search_multiple_cards, append [C0], [C1], [C2] etc. (the index of that card in the queries array you passed). For search_pokemon_cards results use [C0]. Do NOT put the marker mid-sentence — put it at the very end of the line that mentions the card.
+
+DISAMBIGUATION: If the user names a card without enough detail to pin down ONE specific card (no set named, or a Pokémon with many famous cards/variants), call present_card_options with 2-4 specific candidate queries instead of guessing. Add a short line like "A few match — which did you mean?". Do not call any other tool in that turn. Once the user picks a specific card, answer their original question for that card.
+
+TRADES: When the user describes a trade (gave X, got Y / swapped / traded), call evaluate_trade with the two sides instead of writing the numbers yourself — it renders a visual verdict card. After it returns, add ONE short sentence of context; do not re-list all the numbers.
+
+GRADING PROFIT: When the user asks whether a specific card is worth grading, or about grading profit/economics for a specific card, call grading_profit (optionally with a company) — it renders a visual raw→fee→graded→net breakdown. After it returns, add ONE short sentence of recommendation; do not re-list all the numbers.`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -13476,6 +13525,9 @@ RESPONSE RULES (strict):
 
       let pricesOut: any = null;
       let cardsOut: any[] = [];
+      let pickerOut: any[] | null = null;
+      let dealOut: any = null;
+      let profitOut: any = null;
       // Give the model enough turns to search cards AND fetch prices for several
       // cards (a follow-up often makes it re-search + price multiple cards). On
       // the FINAL turn we drop the tools entirely so the model is forced to write
@@ -13505,7 +13557,7 @@ RESPONSE RULES (strict):
           // right below the text line that references it
           type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
           const segments: Segment[] = [];
-          const markerRe = /\[C(\d)\]/g;
+          const markerRe = /\[C(\d+)\]/g;
           let last = 0;
           let m: RegExpExecArray | null;
           while ((m = markerRe.exec(rawReply)) !== null) {
@@ -13517,13 +13569,17 @@ RESPONSE RULES (strict):
           const tail = rawReply.slice(last).trimStart();
           if (tail) segments.push({ type: "text", text: tail });
 
-          const cleanReply = rawReply.replace(/\[C\d\]/g, "").trim();
+          const cleanReply = rawReply.replace(/\[C\d+\]/g, "").trim();
           const hasSegments = segments.some(s => s.type === "card");
           return res.json({
             reply: cleanReply,
             prices: pricesOut,
             cards: cardsOut.length > 0 ? cardsOut : null,
             segments: hasSegments ? segments : null,
+            deal: dealOut,
+            profit: profitOut,
+            options: null,
+            needsSelection: false,
           });
         }
 
@@ -13590,10 +13646,149 @@ RESPONSE RULES (strict):
             } catch (e: any) {
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Price lookup failed: ${e.message}` });
             }
+
+          } else if (block.name === "present_card_options") {
+            const { candidates } = block.input as { candidates: string[] };
+            try {
+              const results = await Promise.all((candidates || []).slice(0, 5).map(q => searchOneCard(q)));
+              const opts: any[] = [];
+              for (const { card } of results) {
+                if (card && !opts.find(o => o.cardId === card.cardId)) opts.push(card);
+              }
+              pickerOut = opts;
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: opts.length > 0 ? opts.map(o => `${o.cardName} | ${o.setName}${o.number ? ` #${o.number}` : ""}`).join("\n") : "No matching cards found." });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Card search failed: ${e.message}` });
+            }
+
+          } else if (block.name === "evaluate_trade") {
+            const { gave, received } = block.input as { gave: string[]; received: string[] };
+            try {
+              const priceSide = async (queries: string[]) => {
+                const results = await Promise.all((queries || []).slice(0, 6).map(q => searchOneCard(q)));
+                const cards: any[] = [];
+                let total = 0;
+                let allPriced = true;
+                for (const { card } of results) {
+                  if (!card) { allPriced = false; continue; }
+                  let value: number | null = null;
+                  if (card.priceUsd != null && parseFloat(card.priceUsd) > 0) {
+                    value = +(parseFloat(card.priceUsd) * GBP_PER_USD).toFixed(2);
+                  } else if (card.priceEur != null && parseFloat(card.priceEur) > 0) {
+                    value = +(parseFloat(card.priceEur) * GBP_PER_EUR).toFixed(2);
+                  }
+                  if (value == null) allPriced = false; else total += value;
+                  cards.push({ cardName: card.cardName, setName: card.setName, imageUrl: card.imageUrl, value });
+                }
+                return { cards, total: +total.toFixed(2), allPriced };
+              };
+              const gaveSide = await priceSide(gave);
+              const recvSide = await priceSide(received);
+              const complete = gaveSide.allPriced && recvSide.allPriced && gaveSide.cards.length > 0 && recvSide.cards.length > 0;
+              const net = +(recvSide.total - gaveSide.total).toFixed(2);
+              let verdict: "good" | "fair" | "bad" | "incomplete";
+              if (!complete || gaveSide.total === 0) {
+                verdict = "incomplete";
+              } else {
+                const pct = net / gaveSide.total;
+                if (pct > 0.1) verdict = "good";
+                else if (pct < -0.1) verdict = "bad";
+                else verdict = "fair";
+              }
+              dealOut = {
+                gave: { cards: gaveSide.cards, total: gaveSide.total },
+                received: { cards: recvSide.cards, total: recvSide.total },
+                net,
+                verdict,
+                complete,
+              };
+              const summary = verdict === "incomplete"
+                ? `Trade priced partially: gave ~£${gaveSide.total}, received ~£${recvSide.total}. Some cards could not be priced, so the verdict is incomplete.`
+                : `Gave ~£${gaveSide.total}, received ~£${recvSide.total}, net ${net >= 0 ? "+" : ""}£${net} (${verdict} deal).`;
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Trade evaluation failed: ${e.message}` });
+            }
+
+          } else if (block.name === "grading_profit") {
+            const { card_name, set_name, card_number, company } = block.input as { card_name: string; set_name: string; card_number?: string; company?: string };
+            try {
+              const prices = await fetchEbayGradedPrices(card_name, set_name, card_number);
+              const FEES_GBP: Record<string, number> = { PSA: 25, BGS: 40, ACE: 18, TAG: 18, CGC: 20 };
+              const comp = (company || "PSA").toUpperCase();
+              const fee = FEES_GBP[comp] ?? 25;
+              // Preferred graded grade per company, then fall back to any available graded price
+              const preferred: [string, number][] = comp === "BGS"
+                ? [["BGS 9.5", prices.bgs95], ["BGS 9", prices.bgs9]]
+                : comp === "ACE" ? [["ACE 10", prices.ace10]]
+                : comp === "TAG" ? [["TAG 10", prices.tag10]]
+                : comp === "CGC" ? [["CGC 10", prices.cgc10]]
+                : [["PSA 10", prices.psa10], ["PSA 9", prices.psa9]];
+              const fallbackOrder: [string, number][] = [
+                ["PSA 10", prices.psa10], ["PSA 9", prices.psa9], ["BGS 9.5", prices.bgs95],
+                ["BGS 9", prices.bgs9], ["ACE 10", prices.ace10], ["TAG 10", prices.tag10], ["CGC 10", prices.cgc10],
+              ];
+              let gradedLabel = "";
+              let gradedUsd = 0;
+              for (const [label, v] of [...preferred, ...fallbackOrder]) {
+                if (v > 0) { gradedLabel = label; gradedUsd = v; break; }
+              }
+              // Raw: prefer live eBay raw, else fall back to catalog price
+              let rawUsd = prices.raw > 0 ? prices.raw : 0;
+              if (rawUsd === 0) {
+                const { card } = await searchOneCard(`${card_name} ${set_name}`);
+                if (card?.priceUsd != null && parseFloat(card.priceUsd) > 0) rawUsd = parseFloat(card.priceUsd);
+                else if (card?.priceEur != null && parseFloat(card.priceEur) > 0) rawUsd = parseFloat(card.priceEur) * (GBP_PER_EUR / GBP_PER_USD);
+              }
+              const rawGbp = rawUsd > 0 ? +(rawUsd * GBP_PER_USD).toFixed(2) : null;
+              const gradedGbp = +(gradedUsd * GBP_PER_USD).toFixed(2);
+              const net = rawGbp != null && gradedUsd > 0 ? +(gradedGbp - rawGbp - fee).toFixed(2) : null;
+
+              if (gradedUsd > 0) {
+                profitOut = { cardName: card_name, raw: rawGbp, gradedLabel, gradedValue: gradedGbp, fee, net };
+                if (!pricesOut) {
+                  pricesOut = {
+                    psa10: prices.psa10 > 0 ? +(prices.psa10 * GBP_PER_USD).toFixed(2) : null,
+                    psa9:  prices.psa9  > 0 ? +(prices.psa9  * GBP_PER_USD).toFixed(2) : null,
+                    bgs95: prices.bgs95 > 0 ? +(prices.bgs95 * GBP_PER_USD).toFixed(2) : null,
+                    ace10: prices.ace10 > 0 ? +(prices.ace10 * GBP_PER_USD).toFixed(2) : null,
+                    tag10: prices.tag10 > 0 ? +(prices.tag10 * GBP_PER_USD).toFixed(2) : null,
+                    cgc10: prices.cgc10 > 0 ? +(prices.cgc10 * GBP_PER_USD).toFixed(2) : null,
+                    raw:   prices.raw   > 0 ? +(prices.raw   * GBP_PER_USD).toFixed(2) : null,
+                    allGrades: prices,
+                  };
+                }
+              }
+              const summary = gradedUsd > 0
+                ? `${comp} grading — raw ${rawGbp != null ? `£${rawGbp}` : "unknown"}, ${gradedLabel} £${gradedGbp}, fee £${fee}${net != null ? `, net £${net}` : " (net unknown — raw price not found)"}.`
+                : "No graded sale prices found for this card, so grading profit cannot be estimated.";
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Grading profit failed: ${e.message}` });
+            }
           }
         }
 
         msgs.push({ role: "user", content: toolResults });
+
+        // Disambiguation: the model asked the user to choose between several
+        // candidate cards. Stop the loop and let the user tap one; suppress any
+        // half-gathered cards/prices so they don't render alongside the picker.
+        if (pickerOut && pickerOut.length >= 2) {
+          const pickerText = resp.content
+            .filter((b): b is Anthropic.TextBlock => b.type === "text")
+            .map(b => b.text).join("").replace(/\[C\d+\]/g, "").trim();
+          return res.json({
+            reply: pickerText || "I found a few cards that match — which one did you mean?",
+            needsSelection: true,
+            options: pickerOut,
+            prices: null,
+            cards: null,
+            segments: null,
+            deal: null,
+            profit: null,
+          });
+        }
       }
 
       // Safety net — should be unreachable now that the final turn drops tools and
