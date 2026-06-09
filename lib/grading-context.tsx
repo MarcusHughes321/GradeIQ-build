@@ -8,7 +8,7 @@ import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
-import { uploadGrading, uploadGradingImages } from "@/lib/server-history";
+import { uploadGrading, uploadGradingImages, linkGradingImages } from "@/lib/server-history";
 
 function parseQuotaError(error: any): string | null {
   try {
@@ -118,6 +118,47 @@ async function getBase64FromUri(uri: string): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+}
+
+// Re-encode a captured photo to a JPEG file on disk for binary upload. Fixes
+// Android EXIF orientation and caps the long edge at 2048px so the upload stays
+// comfortably under Replit's ~10MB proxy limit while giving the server a much
+// higher-resolution image than the old 1024px base64 path (4x the detail for crops).
+async function prepareImageFile(uri: string): Promise<string> {
+  const uploadMaxDim = 2048;
+  const transforms: ImageManipulator.Action[] = Platform.OS === "android"
+    ? [{ rotate: 0 }, { resize: { width: uploadMaxDim } }]
+    : [{ resize: { width: uploadMaxDim } }];
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    transforms,
+    { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+  );
+  return result.uri;
+}
+
+// Submit a quick grade as BINARY multipart instead of base64 JSON. This keeps
+// the image bytes out of the request body entirely, which permanently avoids
+// Replit's WAF blocking the "data:image/jpeg;base64," string (the cause of the
+// production 403s). Uses the global fetch (NOT expo/fetch) because React Native's
+// native networking layer is what streams { uri } FormData file parts from disk.
+async function uploadGradeJobBinary(
+  frontUri: string,
+  backUri: string,
+  fields: { rcUserId?: string; stableUserId?: string },
+): Promise<Response> {
+  const [frontFile, backFile] = await Promise.all([
+    prepareImageFile(frontUri),
+    prepareImageFile(backUri),
+  ]);
+  const form = new FormData();
+  form.append("front", { uri: frontFile, name: "front.jpg", type: "image/jpeg" } as any);
+  form.append("back", { uri: backFile, name: "back.jpg", type: "image/jpeg" } as any);
+  if (fields.rcUserId) form.append("rcUserId", fields.rcUserId);
+  if (fields.stableUserId) form.append("stableUserId", fields.stableUserId);
+  const url = new URL("/api/grade-job", getApiUrl()).toString();
+  // Do NOT set Content-Type — the runtime adds the multipart boundary itself.
+  return fetch(url, { method: "POST", body: form as any });
 }
 
 async function requestNotificationPermission(): Promise<boolean> {
@@ -333,14 +374,33 @@ export function GradingProvider({ children }: { children: ReactNode }) {
         if (saved.id && !saved.id.startsWith("unsaved_")) {
           if (rcAppUserId) {
             const sid = stableUserId || undefined;
-            uploadGrading(rcAppUserId, saved, sid).catch(() => {});
-            uploadGradingImages(rcAppUserId, saved.id, frontImage, backImage, sid)
-              .then(({ frontImageUrl, backImageUrl }) => {
-                if (frontImageUrl || backImageUrl) {
-                  updateGrading(saved.id, { frontImageUrl, backImageUrl }).catch(() => {});
-                }
-              })
-              .catch(() => {});
+            const serverFrontId = (result as any).frontImageId as string | undefined;
+            const serverBackId = (result as any).backImageId as string | undefined;
+            if (serverFrontId || serverBackId) {
+              // Server already stored the full-res originals during grading.
+              // Save the URLs locally and link the existing UUIDs to the history
+              // row — no second image upload needed.
+              const makeUrl = (id?: string) =>
+                id ? new URL(`/api/grading-image/${encodeURIComponent(id)}`, getApiUrl()).toString() : null;
+              const fUrl = makeUrl(serverFrontId);
+              const bUrl = makeUrl(serverBackId);
+              if (fUrl || bUrl) {
+                updateGrading(saved.id, { frontImageUrl: fUrl, backImageUrl: bUrl }).catch(() => {});
+              }
+              uploadGrading(rcAppUserId, saved, sid)
+                .then(() => linkGradingImages(rcAppUserId, saved.id, serverFrontId, serverBackId, sid))
+                .catch(() => {});
+            } else {
+              // Fallback (web / older builds): upload the images as base64.
+              uploadGrading(rcAppUserId, saved, sid).catch(() => {});
+              uploadGradingImages(rcAppUserId, saved.id, frontImage, backImage, sid)
+                .then(({ frontImageUrl, backImageUrl }) => {
+                  if (frontImageUrl || backImageUrl) {
+                    updateGrading(saved.id, { frontImageUrl, backImageUrl }).catch(() => {});
+                  }
+                })
+                .catch(() => {});
+            }
           } else {
             pendingUploadsRef.current.push(saved);
           }
@@ -474,9 +534,6 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      const frontBase64 = await getBase64FromUri(frontImage);
-      const backBase64 = await getBase64FromUri(backImage);
-
       if (Platform.OS !== "web") {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
@@ -484,12 +541,24 @@ export function GradingProvider({ children }: { children: ReactNode }) {
       // Ensure server has the correct tier before quota is checked
       await syncTierNow().catch(() => {});
 
-      const resp = await withSubmitTimeout(apiRequest("POST", "/api/grade-job", {
-        frontImage: frontBase64,
-        backImage: backBase64,
-        rcUserId: rcAppUserId || undefined,
-        stableUserId: stableUserId || undefined,
-      }), 60_000);
+      let resp: Response;
+      if (Platform.OS === "web") {
+        // Web is unaffected by the WAF — keep the proven base64 JSON path.
+        const frontBase64 = await getBase64FromUri(frontImage);
+        const backBase64 = await getBase64FromUri(backImage);
+        resp = await withSubmitTimeout(apiRequest("POST", "/api/grade-job", {
+          frontImage: frontBase64,
+          backImage: backBase64,
+          rcUserId: rcAppUserId || undefined,
+          stableUserId: stableUserId || undefined,
+        }), 60_000);
+      } else {
+        // Native: high-resolution binary multipart upload.
+        resp = await withSubmitTimeout(uploadGradeJobBinary(frontImage, backImage, {
+          rcUserId: rcAppUserId || undefined,
+          stableUserId: stableUserId || undefined,
+        }), 90_000);
+      }
 
       if (!resp.ok) {
         const text = await resp.text();
@@ -726,7 +795,16 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
           const result: GradingResult = job.result;
 
-          // Save to local history (no images — they were lost when the app was killed)
+          // The server stores full-res originals against the job, so recovered
+          // grades can now restore their images too (previously lost on kill).
+          const serverFrontId = (result as any).frontImageId as string | undefined;
+          const serverBackId = (result as any).backImageId as string | undefined;
+          const makeUrl = (id?: string) =>
+            id ? new URL(`/api/grading-image/${encodeURIComponent(id)}`, getApiUrl()).toString() : null;
+          const fUrl = makeUrl(serverFrontId);
+          const bUrl = makeUrl(serverBackId);
+
+          // Save to local history. Images come from the server URLs if available.
           let saved: any;
           try {
             saved = await saveGrading("", "", result, undefined);
@@ -736,7 +814,16 @@ export function GradingProvider({ children }: { children: ReactNode }) {
 
           if (saved.id && !saved.id.startsWith("unsaved_")) {
             const sid = stableUserId || undefined;
-            uploadGrading(rcAppUserId, saved, sid).catch(() => {});
+            if (fUrl || bUrl) {
+              updateGrading(saved.id, { frontImageUrl: fUrl, backImageUrl: bUrl }).catch(() => {});
+              // Chain link AFTER the row insert resolves, otherwise the link
+              // update can run before the row exists and silently no-op.
+              uploadGrading(rcAppUserId, saved, sid)
+                .then(() => linkGradingImages(rcAppUserId, saved.id, serverFrontId, serverBackId, sid))
+                .catch(() => {});
+            } else {
+              uploadGrading(rcAppUserId, saved, sid).catch(() => {});
+            }
           }
 
           // Surface only the first result so we don't stack multiple modals

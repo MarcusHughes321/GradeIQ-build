@@ -126,6 +126,30 @@ export async function uploadGradingImages(
   }
 }
 
+// Link already-stored image UUIDs (returned by the grade-job) to a history row,
+// without re-uploading the image bytes.
+export async function linkGradingImages(
+  rcUserId: string,
+  localId: string,
+  frontImageId?: string | null,
+  backImageId?: string | null,
+  stableId?: string,
+): Promise<void> {
+  if (!rcUserId || !localId || (!frontImageId && !backImageId)) return;
+  try {
+    const body: Record<string, string> = { rcUserId };
+    if (stableId) body.stableId = stableId;
+    if (frontImageId) body.frontImageId = frontImageId;
+    if (backImageId) body.backImageId = backImageId;
+    await fetch(apiUrl(`/api/history/${encodeURIComponent(localId)}/images`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {}
+}
+
 export async function deleteServerGrading(rcUserId: string, localId: string, stableId?: string): Promise<void> {
   if (!localId || (!rcUserId && !stableId)) return;
   try {

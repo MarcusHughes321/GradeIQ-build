@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
+import multer from "multer";
 import { uploadBuffer, downloadToResponse } from "./objectStorage";
 import { parse as parseHtml } from "node-html-parser";
 import { Pool } from "pg";
@@ -6135,6 +6136,14 @@ Return ONLY the JSON object. No other text.`;
 
   const gradingJobs = new Map<string, GradingJob>();
 
+  // Binary (multipart) upload handler for grade photos. Keeps images out of the
+  // JSON body, which permanently avoids Replit's WAF blocking the
+  // "data:image/jpeg;base64," string and is ~33% smaller than base64.
+  const gradeUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 4 },
+  });
+
   setInterval(() => {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     for (const [id, job] of gradingJobs) {
@@ -6210,7 +6219,81 @@ Return ONLY the JSON object. No other text.`;
     }
   }
 
-  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]"): Promise<any> {
+  const AUTO_CORNER_CROPS_ENABLED = true;
+
+  // Store a full-resolution original (capped at 1600px long edge) in Object
+  // Storage so the user's good photo survives reinstalls. Returns the storage
+  // UUID, or null on any failure (never throws — storage must not block grading).
+  async function storeGradeOriginal(b64OrDataUri: string): Promise<string | null> {
+    try {
+      const raw = b64OrDataUri.replace(/^data:image\/\w+;base64,/, "");
+      const input = Buffer.from(raw, "base64");
+      const out = await sharp(input)
+        .rotate()
+        .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 82 })
+        .toBuffer();
+      return await uploadBuffer(out, "image/jpeg", "grading-images");
+    } catch (e: any) {
+      console.log("[store-original] failed:", e?.message);
+      return null;
+    }
+  }
+
+  // Generate high-resolution close-up crops of the card's four corners from a
+  // full-card data URI. Detects the card rectangle first so the crops stay tight
+  // on the card even when it doesn't fill the frame. Never throws.
+  async function generateCornerCrops(dataUri: string, label: string): Promise<string[]> {
+    try {
+      const bounds = await detectCardBounds(dataUri);
+      const raw = dataUri.replace(/^data:image\/\w+;base64,/, "");
+      const input = Buffer.from(raw, "base64");
+      const meta = await sharp(input).metadata();
+      const W = meta.width || 0;
+      const H = meta.height || 0;
+      if (!W || !H) return [];
+
+      let cl = Math.round(((bounds.leftPercent ?? 0) / 100) * W);
+      let ct = Math.round(((bounds.topPercent ?? 0) / 100) * H);
+      let cr = Math.round(((bounds.rightPercent ?? 100) / 100) * W);
+      let cb = Math.round(((bounds.bottomPercent ?? 100) / 100) * H);
+      cl = Math.max(0, Math.min(cl, W - 1));
+      ct = Math.max(0, Math.min(ct, H - 1));
+      cr = Math.max(cl + 1, Math.min(cr, W));
+      cb = Math.max(ct + 1, Math.min(cb, H));
+      let cw = cr - cl;
+      let ch = cb - ct;
+      if (cw < 60 || ch < 60) { cl = 0; ct = 0; cw = W; ch = H; }
+
+      const cropW = Math.max(40, Math.round(cw * 0.42));
+      const cropH = Math.max(40, Math.round(ch * 0.42));
+      const positions = [
+        { left: cl, top: ct },                                 // top-left
+        { left: cl + cw - cropW, top: ct },                    // top-right
+        { left: cl, top: ct + ch - cropH },                    // bottom-left
+        { left: cl + cw - cropW, top: ct + ch - cropH },       // bottom-right
+      ];
+
+      const out: string[] = [];
+      for (const p of positions) {
+        const left = Math.max(0, Math.min(p.left, W - cropW));
+        const top = Math.max(0, Math.min(p.top, H - cropH));
+        const buf = await sharp(input)
+          .extract({ left, top, width: cropW, height: cropH })
+          .resize({ width: 600, height: 600, fit: "inside", withoutEnlargement: true })
+          .sharpen()
+          .jpeg({ quality: 88 })
+          .toBuffer();
+        out.push(`data:image/jpeg;base64,${buf.toString("base64")}`);
+      }
+      return out;
+    } catch (e: any) {
+      console.log(`[corner-crops] ${label} failed:`, e?.message);
+      return [];
+    }
+  }
+
+  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]", enableCornerCrops: boolean = true): Promise<any> {
     const gradeStartTime = Date.now();
     const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
     const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
@@ -6243,7 +6326,19 @@ Return ONLY the JSON object. No other text.`;
     }
 
     const claheActive = CLAHE_GRADING_ENABLED && claheFront && claheBack;
-    const imageList = claheActive
+
+    let cornerImages: string[] = [];
+    if (AUTO_CORNER_CROPS_ENABLED && enableCornerCrops) {
+      const cropStart = Date.now();
+      const [frontCorners, backCorners] = await Promise.all([
+        generateCornerCrops(frontUrl, "front"),
+        generateCornerCrops(backUrl, "back"),
+      ]);
+      cornerImages = [...frontCorners, ...backCorners];
+      console.log(`${logPrefix} Generated ${cornerImages.length} corner crops in ${Date.now() - cropStart}ms`);
+    }
+
+    const baseImageList = claheActive
       ? [
           toClaudeImage(frontUrl),
           toClaudeImage(backUrl),
@@ -6262,6 +6357,8 @@ Return ONLY the JSON object. No other text.`;
           toClaudeImage(enhancedFrontUrl),
           toClaudeImage(enhancedBackUrl),
         ];
+
+    const imageList = [...baseImageList, ...cornerImages.map(toClaudeImage)];
 
     const promptText = claheActive
       ? `Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.
@@ -6282,6 +6379,11 @@ CRITICAL — HOW TO USE THESE FILTERS:
 IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different details.`
       : `Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.\n\nYou are given 4 images:\n- Image 1: FRONT of card (standard)\n- Image 2: BACK of card (standard)\n- Image 3: FRONT of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n- Image 4: BACK of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n\nIMPORTANT: Use images 1 and 2 as your PRIMARY source for ALL grading — card identification, centering, corners, edges, and surface condition. Images 3 and 4 are SUPPLEMENTARY only.\n\nCRITICAL — ENHANCED IMAGE RULES:\n- The enhancement process amplifies EVERYTHING, including normal card features like holographic rainbow patterns, foil texture, print grain, and standard edge cuts.\n- A defect ONLY counts if you can also see it (even faintly) in the STANDARD images (1 or 2). If something appears ONLY in the enhanced images but is completely invisible in the standard images, it is likely a normal card feature amplified by the enhancement — do NOT count it.\n- Holographic, full-art, textured, and illustration rare cards naturally have complex surface patterns (rainbow reflections, embossed texture, foil speckling). These are NOT defects. Do not report holographic patterns, print texture, or foil grain as whitening, scratches, or wear.\n- Normal factory edge cuts can appear as slight whitening when enhanced — this is standard for all cards and is NOT a defect unless clearly visible as actual chipping or peeling in the standard images.\n- When in doubt, always defer to what you see in the STANDARD images. The enhanced images are a second opinion tool, not the primary judge.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different details.`;
 
+    const cornerAddon = cornerImages.length
+      ? `\n\nADDITIONAL CLOSE-UP CROPS: The final ${cornerImages.length} images are high-resolution zoom-ins of the card's CORNERS — the four FRONT corners first (top-left, top-right, bottom-left, bottom-right), then the four BACK corners in the same order. Use them ONLY to confirm corner sharpness, corner whitening, and edge wear immediately around the corners. A defect must still be plausibly visible (even faintly) in the standard whole-card images — do NOT invent new defects that only appear because of the extra magnification. Holographic/foil texture, print grain, and normal factory cut lines are NOT defects.`
+      : "";
+    const finalPrompt = promptText + cornerAddon;
+
     const gradingResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -6290,7 +6392,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
         {
           role: "user",
           content: [
-            { type: "text", text: promptText },
+            { type: "text", text: finalPrompt },
             ...imageList,
           ],
         },
@@ -9480,22 +9582,24 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/history/:localId/images", async (req, res) => {
     const { localId } = req.params;
-    const { rcUserId, stableId, frontB64, backB64 } = req.body;
-    if (!rcUserId || !localId || (!frontB64 && !backB64)) {
+    const { rcUserId, stableId, frontB64, backB64, frontImageId, backImageId } = req.body;
+    if (!rcUserId || !localId || (!frontB64 && !backB64 && !frontImageId && !backImageId)) {
       return res.status(400).json({ error: "rcUserId, localId, and at least one image required" });
     }
     try {
       const compress = async (b64: string): Promise<string> => {
         const input = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ""), "base64");
         const compressed = await sharp(input)
-          .resize({ width: 400, withoutEnlargement: true })
-          .jpeg({ quality: 60 })
+          .resize({ width: 1200, withoutEnlargement: true })
+          .jpeg({ quality: 78 })
           .toBuffer();
         return uploadBuffer(compressed, "image/jpeg", "grading-images");
       };
+      // New path: the grade-job already stored full-res originals — just link the
+      // existing UUIDs to this history row (no re-upload). Fallback: base64 upload.
       const [frontUuid, backUuid] = await Promise.all([
-        frontB64 ? compress(frontB64) : Promise.resolve(null),
-        backB64 ? compress(backB64) : Promise.resolve(null),
+        frontImageId ? Promise.resolve(frontImageId as string) : (frontB64 ? compress(frontB64) : Promise.resolve(null)),
+        backImageId ? Promise.resolve(backImageId as string) : (backB64 ? compress(backB64) : Promise.resolve(null)),
       ]);
       await db.query(
         `UPDATE grading_history
@@ -9523,9 +9627,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.post("/api/grade-job", async (req, res) => {
+  app.post("/api/grade-job", gradeUpload.fields([{ name: "front", maxCount: 1 }, { name: "back", maxCount: 1 }]), async (req, res) => {
     try {
-      const { frontImage, backImage, pushToken, rcUserId, stableUserId } = req.body;
+      // Dual-mode: binary multipart upload (new app builds) OR base64 JSON (web / older builds).
+      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+      const frontBuf = files?.front?.[0]?.buffer;
+      const backBuf = files?.back?.[0]?.buffer;
+      const frontImage: string | undefined = frontBuf ? frontBuf.toString("base64") : req.body.frontImage;
+      const backImage: string | undefined = backBuf ? backBuf.toString("base64") : req.body.backImage;
+      const { pushToken, rcUserId, stableUserId } = req.body;
       if (!frontImage || !backImage) {
         return res.status(400).json({ error: "Both front and back images required" });
       }
@@ -9550,7 +9660,18 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       (async () => {
         try {
+          // Store the full-resolution originals in parallel with grading so the
+          // extra upload adds (almost) no latency. Image IDs ride back inside the
+          // result JSON, so they flow through completeJobInDb, GET /grade-job, and
+          // /pending-grades — meaning images survive app kills and reinstalls.
+          const storePromise = Promise.all([
+            storeGradeOriginal(frontImage),
+            storeGradeOriginal(backImage),
+          ]);
           const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`);
+          const [frontImageId, backImageId] = await storePromise;
+          if (frontImageId) result.frontImageId = frontImageId;
+          if (backImageId) result.backImageId = backImageId;
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9613,7 +9734,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
             const batchResults = await Promise.allSettled(
               batch.map(async (card: { frontImage: string; backImage: string }, idx: number) => {
-                return await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`);
+                return await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`, false);
               })
             );
 
