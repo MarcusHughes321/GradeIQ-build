@@ -2308,16 +2308,29 @@ Analyze the card images carefully. Look for:
    - A card with clearly visible scratches that catch light differently from the surrounding surface should be graded accordingly. Multiple distinct scratches on the artwork = surface 5-7 depending on severity.
    - Minor factory print texture common to modern Pokemon cards is NORMAL and should not lower surface grades. Standard factory edge cuts with very slight whitening visible only under enhancement are also NORMAL.
 
-DEFECT MAPPING — For any flaw you identify that causes a sub-grade to drop below 10, report its approximate location on the card image as a "defect" entry. Each defect should include:
-- "side": "front" or "back" — which side of the card the defect is on
-- "x": 0-100 — horizontal position as a percentage of card width (0=left edge, 100=right edge)
-- "y": 0-100 — vertical position as a percentage of card height (0=top edge, 100=bottom edge)
+DEFECT MAPPING — For any flaw you identify that causes a sub-grade to drop below 10, report its approximate location as a "defect" entry. Each defect must include:
+- "side": "front" or "back" — which face of the card the defect is on
+- "x": 0-100 — horizontal position WITHIN THE CARD ONLY. Treat the card's left edge as 0 and its right edge as 100. These coordinates are relative to the card rectangle, NOT the full photo. Background, table, mat, sleeve, or holder areas do not have coordinates.
+- "y": 0-100 — vertical position WITHIN THE CARD ONLY. Treat the card's top edge as 0 and its bottom edge as 100.
 - "type": "corner", "edge", or "surface"
 - "severity": "minor" (9→8 level), "moderate" (8→7 level), or "major" (below 7)
-- "description": Brief description of the specific flaw (e.g., "Slight whitening on corner", "Minor edge chipping", "Light surface scratch")
-Corner positions: top-left≈(5,5), top-right≈(95,5), bottom-left≈(5,95), bottom-right≈(95,95).
-Edge positions: top edge≈y:2, bottom edge≈y:98, left edge≈x:2, right edge≈x:98.
-Only report defects for REAL flaws that lower grades — do NOT report defects for sub-grades that remain at 10. If a card is perfect (all 10s), the defects array should be empty.
+- "description": Brief description (e.g., "Slight whitening on top-left corner", "Minor chipping on right edge", "Light scratch across artwork")
+
+COORDINATE LANDMARKS (all relative to the card, not the photo):
+- Top-left corner: x≈5, y≈5  |  Top-right corner: x≈95, y≈5
+- Bottom-left corner: x≈5, y≈95  |  Bottom-right corner: x≈95, y≈95
+- Left edge midpoint: x≈2, y≈50  |  Right edge midpoint: x≈98, y≈50
+- Top edge midpoint: x≈50, y≈2  |  Bottom edge midpoint: x≈50, y≈98
+- Card centre (artwork area): x≈50, y≈50
+
+BACKGROUND RULE — CRITICAL: Photos may include background (table, mat, sleeve, holder, hands, packaging). You must ONLY report defects for physical damage ON THE CARD SURFACE ITSELF. Marks, textures, shadows, or objects in the background are NEVER card defects. If something is not physically part of the card, do not report it.
+
+SPATIAL CONSISTENCY CHECK: Before finalising each defect coordinate, verify:
+- "corner" type: x must be ≤30 OR ≥70, AND y must be ≤30 OR ≥70. A corner at (50,50) is invalid.
+- "edge" type: x must be ≤20 OR ≥80, OR y must be ≤20 OR ≥80. An edge defect at (50,50) is invalid.
+- "surface" type: can be anywhere on the card.
+
+Only report defects for REAL flaws that actually lower grades. If a card is perfect (all 10s), the defects array must be empty.
 
 LANGUAGE HANDLING:
 - Pokemon cards exist in MANY languages: English, Japanese, Korean, Chinese (Traditional & Simplified), French, German, Spanish, Italian, Portuguese, etc.
@@ -4258,6 +4271,57 @@ async function detectCardBounds(dataUri: string, slabMode?: boolean): Promise<{ 
     console.error("Card bounds detection failed:", err);
     return { leftPercent: 3, topPercent: 2, rightPercent: 97, bottomPercent: 98, angleDeg: 0, confidence: 0 };
   }
+}
+
+// Sanitize defect markers that came back from the AI.
+// Filters out: invalid structure, out-of-range coords, corner/edge defects
+// that are spatially inconsistent with their type, and (when cardBounds are
+// known) coords that would map outside the image after the bounds transform —
+// a clear sign Claude used photo-relative coords instead of card-relative.
+function sanitizeDefects(defects: any[], frontBounds?: any, backBounds?: any): any[] {
+  if (!Array.isArray(defects)) return [];
+  return defects.filter((d) => {
+    if (!d || typeof d !== "object") return false;
+    if (d.side !== "front" && d.side !== "back") return false;
+    const x = Number(d.x);
+    const y = Number(d.y);
+    if (isNaN(x) || isNaN(y) || x < 0 || x > 100 || y < 0 || y > 100) return false;
+    // Type-specific spatial consistency
+    if (d.type === "corner") {
+      const nearH = x <= 30 || x >= 70;
+      const nearV = y <= 30 || y >= 70;
+      if (!nearH || !nearV) {
+        console.log(`[defect-filter] dropping corner at (${x},${y}) — not in a corner quadrant`);
+        return false;
+      }
+    }
+    if (d.type === "edge") {
+      const nearEdge = x <= 20 || x >= 80 || y <= 20 || y >= 80;
+      if (!nearEdge) {
+        console.log(`[defect-filter] dropping edge defect at (${x},${y}) — not near an edge`);
+        return false;
+      }
+    }
+    // Coordinate-frame sanity: map card-relative → image-relative and check it
+    // lands inside the image. If it doesn't, Claude gave photo-relative coords
+    // instead of card-relative, and the overlay would place the pin off-card.
+    const bounds = d.side === "front" ? frontBounds : backBounds;
+    if (bounds && isValidCardBounds(bounds)) {
+      const cardW = bounds.rightPercent - bounds.leftPercent;
+      const cardH = bounds.bottomPercent - bounds.topPercent;
+      const imgX = bounds.leftPercent + (x / 100) * cardW;
+      const imgY = bounds.topPercent + (y / 100) * cardH;
+      if (imgX < -5 || imgX > 105 || imgY < -5 || imgY > 105) {
+        console.log(`[defect-filter] dropping defect at card(${x},${y}) → image(${imgX.toFixed(1)},${imgY.toFixed(1)}) — maps outside image`);
+        return false;
+      }
+    }
+    return true;
+  }).map((d) => ({
+    ...d,
+    x: parseFloat(Math.max(1, Math.min(99, Number(d.x))).toFixed(1)),
+    y: parseFloat(Math.max(1, Math.min(99, Number(d.y))).toFixed(1)),
+  }));
 }
 
 function enforceCardBounds(bounds: any): any {
@@ -6437,6 +6501,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     }
 
     gradingResult = enforceGradingScales(gradingResult);
+    gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
     const cardName = gradingResult.cardName || "";
     const cardNumber = gradingResult.setNumber || "";
@@ -6702,6 +6767,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     }
 
     gradingResult = enforceGradingScales(gradingResult);
+    gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
     const cardName = gradingResult.cardName || "";
     const cardNumber = gradingResult.setNumber || "";
@@ -6913,6 +6979,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       }
 
       gradingResult = enforceGradingScales(gradingResult);
+      gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
       gradingResult.cardName = cardName || gradingResult.cardName;
       gradingResult.setName = setName || gradingResult.setName;
