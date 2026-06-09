@@ -45,19 +45,17 @@ type MapItem = {
   color: string;
   title: string;
   desc: string;
+  summary?: string;
   stat?: string | null;
   status?: "live" | "soon";
-  expandable?: boolean;
 };
 
 function MapSection({
   items,
   variant,
-  expandable = false,
 }: {
   items: MapItem[];
   variant: SpineVariant;
-  expandable?: boolean;
 }) {
   const [lastY, setLastY] = useState(0);
   const dotY = useSharedValue(0);
@@ -108,7 +106,7 @@ function MapSection({
               </View>
             </View>
             <View style={styles.nodeContent}>
-              {expandable ? <PowerCard item={item} /> : <SimpleItem item={item} />}
+              <MapNode item={item} variant={variant} />
             </View>
           </View>
         );
@@ -117,25 +115,7 @@ function MapSection({
   );
 }
 
-function SimpleItem({ item }: { item: MapItem }) {
-  const soon = item.status === "soon";
-  return (
-    <View style={[styles.simpleWrap, soon && styles.soonWrap]}>
-      <View style={styles.simpleHeader}>
-        <Text style={[styles.simpleTitle, soon && { color: Colors.textSecondary }]}>{item.title}</Text>
-        {soon && (
-          <View style={styles.soonPill}>
-            <Ionicons name="time-outline" size={11} color={Colors.warning} />
-            <Text style={styles.soonPillTxt}>Coming Soon</Text>
-          </View>
-        )}
-      </View>
-      <Text style={styles.simpleDesc}>{item.desc}</Text>
-    </View>
-  );
-}
-
-function PowerCard({ item }: { item: MapItem }) {
+function MapNode({ item, variant }: { item: MapItem; variant: SpineVariant }) {
   const [open, setOpen] = useState(false);
   const rot = useSharedValue(0);
 
@@ -147,20 +127,41 @@ function PowerCard({ item }: { item: MapItem }) {
     transform: [{ rotate: `${rot.value * 180}deg` }],
   }));
 
+  const soon = item.status === "soon";
+  const showLive = variant === "primary" && !soon;
+  const teaser = item.summary ?? item.stat ?? null;
+
   return (
-    <Pressable onPress={() => setOpen((o) => !o)} style={({ pressed }) => [styles.powerCard, { opacity: pressed ? 0.85 : 1 }]}>
-      <View style={styles.powerTopRow}>
-        <Text style={styles.powerTitle}>{item.title}</Text>
-        <View style={styles.liveTag}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveTxt}>Live</Text>
-        </View>
+    <Pressable
+      onPress={() => setOpen((o) => !o)}
+      style={({ pressed }) => [styles.nodeCard, soon && styles.soonCard, { opacity: pressed ? 0.85 : 1 }]}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+    >
+      <View style={styles.nodeTopRow}>
+        <Text style={[styles.nodeTitle, soon && { color: Colors.textSecondary }]} numberOfLines={1}>
+          {item.title}
+        </Text>
+        {showLive && (
+          <View style={styles.liveTag}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveTxt}>Live</Text>
+          </View>
+        )}
+        {soon && (
+          <View style={styles.soonPill}>
+            <Ionicons name="time-outline" size={11} color={Colors.warning} />
+            <Text style={styles.soonPillTxt}>Coming Soon</Text>
+          </View>
+        )}
         <Animated.View style={chevStyle}>
           <Ionicons name="chevron-down" size={18} color={Colors.textMuted} />
         </Animated.View>
       </View>
-      <Text style={[styles.powerStat, { color: item.color }]}>{item.stat ?? item.desc}</Text>
-      {open && <Text style={styles.powerBody}>{item.desc}</Text>}
+      {teaser && (
+        <Text style={[styles.nodeTeaser, { color: soon ? Colors.textMuted : item.color }]}>{teaser}</Text>
+      )}
+      {open && <Text style={styles.nodeBody}>{item.desc}</Text>}
     </Pressable>
   );
 }
@@ -188,12 +189,12 @@ export default function HowItWorksScreen() {
   ];
 
   const journey: MapItem[] = [
-    { key: "capture", icon: "camera", color: Colors.primary, title: "Capture", desc: "You snap clear photos of your card — front and back." },
-    { key: "enhance", icon: "color-wand", color: Colors.warning, title: "Enhance", desc: "We auto-crop, straighten and sharpen every photo for a clean, even look." },
-    { key: "analyse", icon: "sparkles", color: "#A78BFA", title: "Analyse", desc: "Claude AI inspects centering, corners, edges and surface — just like a real grader." },
-    { key: "identify", icon: "search", color: "#60A5FA", title: "Identify", desc: "We match your card against our English and Japanese card databases." },
-    { key: "value", icon: "cash", color: Colors.success, title: "Value", desc: "Live market prices are pulled in so you can see what each grade is worth." },
-    { key: "result", icon: "ribbon", color: Colors.primary, title: "Result", desc: "You get an estimated grade and value — saved safely to your history." },
+    { key: "capture", icon: "camera", color: Colors.primary, title: "Capture", summary: "Front & back photos", desc: "You snap clear photos of your card — front and back." },
+    { key: "enhance", icon: "color-wand", color: Colors.warning, title: "Enhance", summary: "Auto-crop & sharpen", desc: "We auto-crop, straighten and sharpen every photo for a clean, even look." },
+    { key: "analyse", icon: "sparkles", color: "#A78BFA", title: "Analyse", summary: "AI checks the 4 grade factors", desc: "Claude AI inspects centering, corners, edges and surface — just like a real grader." },
+    { key: "identify", icon: "search", color: "#60A5FA", title: "Identify", summary: "Matched to our databases", desc: "We match your card against our English and Japanese card databases." },
+    { key: "value", icon: "cash", color: Colors.success, title: "Value", summary: "Live market prices pulled in", desc: "Live market prices are pulled in so you can see what each grade is worth." },
+    { key: "result", icon: "ribbon", color: Colors.primary, title: "Result", summary: "Grade + value, saved to history", desc: "You get an estimated grade and value — saved safely to your history." },
   ];
 
   const powers: MapItem[] = [
@@ -264,9 +265,9 @@ export default function HowItWorksScreen() {
   ];
 
   const roadmap: MapItem[] = [
-    { key: "cn", icon: "language", color: "#FBBF24", title: "Chinese Card Database", status: "soon", desc: "Pricing and identification for Chinese Pokémon cards, joining English and Japanese." },
-    { key: "kr", icon: "language", color: "#34D399", title: "Korean Card Database", status: "soon", desc: "Full support for Korean cards and their market values." },
-    { key: "accuracy", icon: "rocket", color: "#60A5FA", title: "Even Sharper Accuracy", status: "soon", desc: "Ongoing improvements to grading accuracy, card detection and value estimates." },
+    { key: "cn", icon: "language", color: "#FBBF24", title: "Chinese Card Database", status: "soon", summary: "Chinese cards & prices", desc: "Pricing and identification for Chinese Pokémon cards, joining English and Japanese." },
+    { key: "kr", icon: "language", color: "#34D399", title: "Korean Card Database", status: "soon", summary: "Korean cards & prices", desc: "Full support for Korean cards and their market values." },
+    { key: "accuracy", icon: "rocket", color: "#60A5FA", title: "Even Sharper Accuracy", status: "soon", summary: "Sharper grades over time", desc: "Ongoing improvements to grading accuracy, card detection and value estimates." },
   ];
 
   return (
@@ -325,7 +326,7 @@ export default function HowItWorksScreen() {
 
         {/* Zone 2 — What powers it */}
         <SectionHeader title="What powers Grade.IQ" subtitle="The engines and data behind the app" />
-        <MapSection items={powers} variant="primary" expandable />
+        <MapSection items={powers} variant="primary" />
 
         {/* Zone 3 — Roadmap */}
         <SectionHeader title="On the roadmap" subtitle="What we're building next" />
@@ -450,11 +451,24 @@ const styles = StyleSheet.create({
   },
   nodeContent: { flex: 1, marginLeft: 14 },
 
-  simpleWrap: { minHeight: NODE, justifyContent: "center", paddingVertical: 2 },
-  soonWrap: { opacity: 0.85 },
-  simpleHeader: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  simpleTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.text },
-  simpleDesc: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19, color: Colors.textSecondary, marginTop: 3 },
+  nodeCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 14,
+  },
+  soonCard: { opacity: 0.9 },
+  nodeTopRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  nodeTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.text, flex: 1 },
+  nodeTeaser: { fontFamily: "Inter_600SemiBold", fontSize: 13, marginTop: 7 },
+  nodeBody: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 20,
+    color: Colors.textSecondary,
+    marginTop: 10,
+  },
 
   soonPill: {
     flexDirection: "row",
@@ -467,15 +481,6 @@ const styles = StyleSheet.create({
   },
   soonPillTxt: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.warning },
 
-  powerCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 14,
-  },
-  powerTopRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  powerTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.text, flex: 1 },
   liveTag: {
     flexDirection: "row",
     alignItems: "center",
@@ -487,14 +492,6 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.success },
   liveTxt: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.success },
-  powerStat: { fontFamily: "Inter_600SemiBold", fontSize: 13, marginTop: 7 },
-  powerBody: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    lineHeight: 20,
-    color: Colors.textSecondary,
-    marginTop: 10,
-  },
 
   footer: {
     fontFamily: "Inter_400Regular",
