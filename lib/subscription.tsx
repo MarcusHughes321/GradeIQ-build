@@ -22,6 +22,15 @@ export function isGradePending(g: {
   );
 }
 
+// Outcome of a backup pass: how many pending grades we tried to upload, how many
+// reached the server, and how many failed (network/server error or no local
+// file to read). Drives the "Back up now" result message on the dashboard.
+export interface BackupResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const CROSSOVER_USAGE_KEY = "gradeiq_crossover_monthly_usage";
@@ -101,7 +110,7 @@ interface SubscriptionContextValue {
   backupPendingCount: number;
   backupInProgress: boolean;
   backupProgress: { done: number; total: number };
-  backupAllMissingImages: () => Promise<number>;
+  backupAllMissingImages: () => Promise<BackupResult>;
   refreshBackupStatus: () => Promise<number>;
 }
 
@@ -398,25 +407,27 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   // that does not yet have a server image URL. No per-launch cap — it processes
   // ALL pending grades sequentially (yielding between each so the UI stays
   // responsive). `onProgress` reports {done,total} as each grade finishes.
-  // Returns the number of grades successfully backed up.
+  // Returns a BackupResult: how many were attempted, succeeded, and failed.
   const runImageBackup = async (
     rcUserId: string,
     stableId?: string,
     onProgress?: (done: number, total: number) => void,
-  ): Promise<number> => {
-    if (!rcUserId || Platform.OS === "web") return 0;
+  ): Promise<BackupResult> => {
+    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0 };
+    if (!rcUserId || Platform.OS === "web") return empty;
     // Single-flight guard shared by ALL entry points (startup backfill + manual
     // "Back up now") so the same pending grades are never uploaded concurrently.
-    if (backupInProgressRef.current) return 0;
+    if (backupInProgressRef.current) return empty;
     backupInProgressRef.current = true;
     let uploaded = 0;
+    let total = 0;
     try {
       const gradings = await getGradings();
       const needsUpload = gradings.filter(g => g.id && isGradePending(g));
-      const total = needsUpload.length;
+      total = needsUpload.length;
       if (total === 0) {
         onProgress?.(0, 0);
-        return 0;
+        return empty;
       }
       console.log(`[history] Image backup: ${total} grades need backup`);
       let done = 0;
@@ -455,7 +466,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } finally {
       backupInProgressRef.current = false;
     }
-    return uploaded;
+    return { total, succeeded: uploaded, failed: total - uploaded };
   };
 
   // Startup backfill — background/non-blocking, no progress UI.
@@ -477,22 +488,24 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Manual "Back up now" — backs up ALL pending grades with progress feedback.
-  // Reuses the rc/stable IDs already held in context. Native-only (web returns 0).
+  // Reuses the rc/stable IDs already held in context. Native-only (web returns
+  // an empty result). Returns a BackupResult so the dashboard can report outcome.
   // The single-flight guard lives in runImageBackup; we check the ref here only
   // to avoid flashing the "Backing up…" UI when a backup is already running.
-  const backupAllMissingImages = useCallback(async (): Promise<number> => {
-    if (Platform.OS === "web" || !rcAppUserId) return 0;
-    if (backupInProgressRef.current) return 0;
+  const backupAllMissingImages = useCallback(async (): Promise<BackupResult> => {
+    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0 };
+    if (Platform.OS === "web" || !rcAppUserId) return empty;
+    if (backupInProgressRef.current) return empty;
     setBackupInProgress(true);
     setBackupProgress({ done: 0, total: 0 });
     try {
-      const uploaded = await runImageBackup(
+      const result = await runImageBackup(
         rcAppUserId,
         stableUserId || undefined,
         (done, total) => setBackupProgress({ done, total }),
       );
       await refreshBackupStatus();
-      return uploaded;
+      return result;
     } finally {
       setBackupInProgress(false);
     }

@@ -237,8 +237,17 @@ export default function HomeScreen() {
   );
 
   const handleBackupNow = useCallback(async () => {
-    await backupAllMissingImages();
+    const result = await backupAllMissingImages();
     await loadGradings();
+    if (result.total === 0) return;
+    if (result.failed === 0) {
+      Alert.alert("Backup complete", "All your grades are safely backed up to the cloud.");
+    } else {
+      Alert.alert(
+        "Some photos didn't upload",
+        `Backed up ${result.succeeded} of ${result.total} — ${result.failed} couldn't upload. Check your connection and tap "Back up now" again to retry.`,
+      );
+    }
   }, [backupAllMissingImages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
