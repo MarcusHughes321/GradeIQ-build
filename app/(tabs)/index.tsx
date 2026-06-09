@@ -28,7 +28,7 @@ import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES, type CurrencyCode } from "@/lib/settings";
-import { useSubscription } from "@/lib/subscription";
+import { useSubscription, isGradePending } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 const BUBBLE_PAD = 20;
@@ -40,6 +40,10 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
     day: "numeric",
     year: "numeric",
   });
+
+  // "Pending" = a locally-stored photo (front or back) has no server URL yet.
+  // Per-side aware, so a half-uploaded grade still reads as not-backed-up.
+  const isBackedUp = !isGradePending(item);
 
   const avgValue = useMemo(() => {
     const cv = item.result.cardValue;
@@ -93,7 +97,14 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           <Text numberOfLines={1} style={styles.histCardName}>
             {item.result.cardName || "Unknown Card"}
           </Text>
-          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+          <View style={styles.histTopRight}>
+            <Ionicons
+              name={isBackedUp ? "cloud-done" : "cloud-upload-outline"}
+              size={14}
+              color={isBackedUp ? Colors.success : Colors.warning}
+            />
+            <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+          </View>
         </View>
         <View style={styles.histBottomRow}>
           <Image source={{ uri: item.frontImage || item.frontImageUrl || "" }} style={styles.thumbnail} contentFit="cover" />
@@ -216,8 +227,19 @@ export default function HomeScreen() {
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId, backupInProgress, backupProgress, backupAllMissingImages } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
+
+  // Pending = local photo present but not yet backed up to the server.
+  const pendingBackupCount = useMemo(
+    () => gradings.filter(isGradePending).length,
+    [gradings]
+  );
+
+  const handleBackupNow = useCallback(async () => {
+    await backupAllMissingImages();
+    await loadGradings();
+  }, [backupAllMissingImages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -495,6 +517,51 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
+
+      {gradings.length > 0 && (
+        <View style={[styles.backupBanner, pendingBackupCount === 0 && styles.backupBannerDone]}>
+          <Ionicons
+            name={pendingBackupCount === 0 ? "cloud-done" : "cloud-upload-outline"}
+            size={18}
+            color={pendingBackupCount === 0 ? Colors.success : Colors.warning}
+          />
+          <View style={styles.backupInfo}>
+            {backupInProgress ? (
+              <>
+                <Text style={styles.backupTitle}>Backing up…</Text>
+                <Text style={styles.backupSubtitle}>
+                  {backupProgress.total > 0
+                    ? `${backupProgress.done} of ${backupProgress.total} grades`
+                    : "Preparing…"}
+                </Text>
+              </>
+            ) : pendingBackupCount === 0 ? (
+              <Text style={styles.backupTitle}>All grades backed up</Text>
+            ) : (
+              <>
+                <Text style={styles.backupTitle}>
+                  {pendingBackupCount} {pendingBackupCount === 1 ? "grade" : "grades"} not backed up
+                </Text>
+                <Text style={styles.backupSubtitle}>
+                  Photos still only on this device
+                </Text>
+              </>
+            )}
+          </View>
+          {backupInProgress ? (
+            <ActivityIndicator size="small" color={Colors.warning} />
+          ) : (
+            pendingBackupCount > 0 && Platform.OS !== "web" && (
+              <Pressable
+                onPress={handleBackupNow}
+                style={({ pressed }) => [styles.backupBtn, { opacity: pressed ? 0.8 : 1 }]}
+              >
+                <Text style={styles.backupBtnText}>Back up now</Text>
+              </Pressable>
+            )
+          )}
+        </View>
+      )}
 
       {stats && (
         <>
@@ -803,6 +870,47 @@ const styles = StyleSheet.create({
   bgJobDismissBtn: {
     padding: 4,
     marginLeft: 4,
+  },
+  backupBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+  },
+  backupBannerDone: {
+    borderColor: "rgba(16, 185, 129, 0.3)",
+  },
+  backupInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  backupTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  backupSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  backupBtn: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  backupBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
   },
   heroSection: {
     alignItems: "center",
@@ -1180,6 +1288,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+  },
+  histTopRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   histBottomRow: {
     flexDirection: "row",

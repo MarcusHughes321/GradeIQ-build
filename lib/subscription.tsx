@@ -8,6 +8,20 @@ import { getStableUserId } from "@/lib/stable-user-id";
 import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
 import * as FileSystem from "expo-file-system/legacy";
 
+// A grade still needs backup when a locally-stored photo (front or back) has no
+// corresponding server URL yet. Per-side aware: if one side uploaded but the
+// other still has only a local copy, the grade is still pending.
+export function isGradePending(g: {
+  frontImage?: string | null;
+  backImage?: string | null;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
+}): boolean {
+  return Boolean(
+    (g.frontImage && !g.frontImageUrl) || (g.backImage && !g.backImageUrl),
+  );
+}
+
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const CROSSOVER_USAGE_KEY = "gradeiq_crossover_monthly_usage";
@@ -84,6 +98,11 @@ interface SubscriptionContextValue {
   canBulk: boolean;
   isAdminMode: boolean;
   toggleAdminMode: () => Promise<void>;
+  backupPendingCount: number;
+  backupInProgress: boolean;
+  backupProgress: { done: number; total: number };
+  backupAllMissingImages: () => Promise<number>;
+  refreshBackupStatus: () => Promise<number>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -188,6 +207,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [rcAppUserId, setRcAppUserId] = useState<string>("");
   const [stableUserId, setStableUserId] = useState<string>("");
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [backupPendingCount, setBackupPendingCount] = useState(0);
+  const [backupInProgress, setBackupInProgress] = useState(false);
+  const [backupProgress, setBackupProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const backupInProgressRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const rcConfiguredRef = useRef(false);
 
@@ -371,15 +394,32 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const retroactiveImageUpload = async (rcUserId: string, stableId?: string) => {
-    if (!rcUserId || Platform.OS === "web") return;
+  // Core backup pass: uploads the front/back photo of every locally-stored grade
+  // that does not yet have a server image URL. No per-launch cap — it processes
+  // ALL pending grades sequentially (yielding between each so the UI stays
+  // responsive). `onProgress` reports {done,total} as each grade finishes.
+  // Returns the number of grades successfully backed up.
+  const runImageBackup = async (
+    rcUserId: string,
+    stableId?: string,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<number> => {
+    if (!rcUserId || Platform.OS === "web") return 0;
+    // Single-flight guard shared by ALL entry points (startup backfill + manual
+    // "Back up now") so the same pending grades are never uploaded concurrently.
+    if (backupInProgressRef.current) return 0;
+    backupInProgressRef.current = true;
+    let uploaded = 0;
     try {
       const gradings = await getGradings();
-      const needsUpload = gradings.filter(
-        g => g.id && (g.frontImage || g.backImage) && !g.frontImageUrl && !g.backImageUrl
-      ).slice(0, 30);
-      if (needsUpload.length === 0) return;
-      console.log(`[history] Retroactive image upload: ${needsUpload.length} grades need backup`);
+      const needsUpload = gradings.filter(g => g.id && isGradePending(g));
+      const total = needsUpload.length;
+      if (total === 0) {
+        onProgress?.(0, 0);
+        return 0;
+      }
+      console.log(`[history] Image backup: ${total} grades need backup`);
+      let done = 0;
       for (const grading of needsUpload) {
         try {
           const readSafe = async (uri: string): Promise<string | null> => {
@@ -394,20 +434,69 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
             readSafe(grading.frontImage),
             readSafe(grading.backImage),
           ]);
-          if (!frontB64 && !backB64) continue;
-          const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64, stableId);
-          if (urls.frontImageUrl || urls.backImageUrl) {
-            await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
-            console.log(`[history] Backed up images for grade ${grading.id}`);
+          if (frontB64 || backB64) {
+            const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64, stableId);
+            if (urls.frontImageUrl || urls.backImageUrl) {
+              await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
+              uploaded++;
+              console.log(`[history] Backed up images for grade ${grading.id}`);
+            }
           }
         } catch (e) {
           console.log(`[history] Failed to backup images for ${grading.id}:`, e);
         }
+        done++;
+        onProgress?.(done, total);
+        // Yield to the event loop so the UI stays responsive during a long pass.
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
     } catch (e) {
-      console.log("[history] Retroactive image upload failed (non-critical):", e);
+      console.log("[history] Image backup failed (non-critical):", e);
+    } finally {
+      backupInProgressRef.current = false;
     }
+    return uploaded;
   };
+
+  // Startup backfill — background/non-blocking, no progress UI.
+  const retroactiveImageUpload = async (rcUserId: string, stableId?: string) => {
+    await runImageBackup(rcUserId, stableId);
+  };
+
+  // Recompute how many local grades still need a server backup, without any
+  // network call. Drives the dashboard "N pending" / "All backed up" status.
+  const refreshBackupStatus = useCallback(async (): Promise<number> => {
+    try {
+      const gradings = await getGradings();
+      const pending = gradings.filter(g => g.id && isGradePending(g)).length;
+      setBackupPendingCount(pending);
+      return pending;
+    } catch {
+      return 0;
+    }
+  }, []);
+
+  // Manual "Back up now" — backs up ALL pending grades with progress feedback.
+  // Reuses the rc/stable IDs already held in context. Native-only (web returns 0).
+  // The single-flight guard lives in runImageBackup; we check the ref here only
+  // to avoid flashing the "Backing up…" UI when a backup is already running.
+  const backupAllMissingImages = useCallback(async (): Promise<number> => {
+    if (Platform.OS === "web" || !rcAppUserId) return 0;
+    if (backupInProgressRef.current) return 0;
+    setBackupInProgress(true);
+    setBackupProgress({ done: 0, total: 0 });
+    try {
+      const uploaded = await runImageBackup(
+        rcAppUserId,
+        stableUserId || undefined,
+        (done, total) => setBackupProgress({ done, total }),
+      );
+      await refreshBackupStatus();
+      return uploaded;
+    } finally {
+      setBackupInProgress(false);
+    }
+  }, [rcAppUserId, stableUserId, refreshBackupStatus]);
 
   const initRevenueCat = async (stableIdPromise: Promise<string>) => {
     try {
@@ -447,7 +536,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         if (stableId) claimHistoryForStableId(userId, stableId).catch(() => {});
         syncHistoryWithServer(userId, stableId || undefined)
           .catch(() => {})
-          .finally(() => { retroactiveImageUpload(userId, stableId || undefined).catch(() => {}); });
+          .finally(() => {
+            retroactiveImageUpload(userId, stableId || undefined)
+              .catch(() => {})
+              .finally(() => { refreshBackupStatus().catch(() => {}); });
+          });
       });
 
       // RC pushes real-time updates whenever entitlement status changes
@@ -846,8 +939,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       canBulk,
       isAdminMode,
       toggleAdminMode,
+      backupPendingCount,
+      backupInProgress,
+      backupProgress,
+      backupAllMissingImages,
+      refreshBackupStatus,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, syncTierNow, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, syncTierNow, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode, backupPendingCount, backupInProgress, backupProgress, backupAllMissingImages, refreshBackupStatus]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;
