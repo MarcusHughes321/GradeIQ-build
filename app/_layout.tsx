@@ -65,6 +65,7 @@ function RootLayoutNav() {
       <Stack.Screen name="grading-fees" options={{ headerShown: false }} />
       <Stack.Screen name="terms" />
       <Stack.Screen name="about" />
+      <Stack.Screen name="how-it-works" />
       <Stack.Screen name="feedback" />
       <Stack.Screen name="privacy" />
       <Stack.Screen name="disclaimer" options={{ animation: "fade" }} />

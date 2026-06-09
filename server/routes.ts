@@ -4900,6 +4900,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── System map stats: public, non-sensitive catalog numbers for the
+  //    "How Grade.IQ Works" page. Cached in memory for 1h. NEVER returns any
+  //    cost/financial data — only public counts.
+  let systemMapStatsCache: { data: any; ts: number } | null = null;
+  const SYSTEM_MAP_TTL_MS = 60 * 60 * 1000;
+  app.get("/api/system-map/stats", async (_req, res) => {
+    try {
+      if (systemMapStatsCache && Date.now() - systemMapStatsCache.ts < SYSTEM_MAP_TTL_MS) {
+        return res.json(systemMapStatsCache.data);
+      }
+      const safeCount = async (sql: string): Promise<number | null> => {
+        try {
+          const { rows } = await db.query<{ cnt: string }>(sql);
+          const n = parseInt(rows[0]?.cnt ?? "0", 10);
+          return Number.isFinite(n) ? n : null;
+        } catch {
+          return null;
+        }
+      };
+      const [enCards, jaCards, setsTracked, gradesCompleted] = await Promise.all([
+        safeCount(`SELECT COUNT(*) AS cnt FROM card_catalog WHERE COALESCE(lang,'en') = 'en'`),
+        safeCount(`SELECT COUNT(*) AS cnt FROM card_catalog WHERE lang = 'ja'`),
+        safeCount(`SELECT COUNT(DISTINCT set_id) AS cnt FROM card_catalog`),
+        safeCount(`SELECT COALESCE(SUM(card_count), 0) AS cnt FROM grade_analytics WHERE status = 'completed'`),
+      ]);
+      const data = { enCards, jaCards, setsTracked, gradesCompleted, updatedAt: new Date().toISOString() };
+      // Don't cache a fully-empty result (transient DB hiccup) — otherwise the
+      // page would show blank "—" tiles for up to an hour.
+      const allNull = enCards == null && jaCards == null && setsTracked == null && gradesCompleted == null;
+      if (!allNull) systemMapStatsCache = { data, ts: Date.now() };
+      return res.json(data);
+    } catch (err: any) {
+      return res.status(500).json({ error: "Failed to load system stats" });
+    }
+  });
+
   app.get("/api/admin/price-flags", async (req, res) => {
     try {
       const { status } = req.query;
