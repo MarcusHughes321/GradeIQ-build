@@ -1049,7 +1049,7 @@ export default function GradeScreen() {
           </View>
 
           <Text style={styles.analysisWait}>
-            {mode === "deep" ? "Deep analysis takes 30-60 seconds" : mode === "crossover" ? "Crossover analysis takes 15-30 seconds" : "This usually takes 15-30 seconds"}
+            {mode === "deep" ? "Deep analysis takes 45-90 seconds" : mode === "crossover" ? "Crossover analysis takes 30-60 seconds" : "This usually takes 30-60 seconds"}
           </Text>
 
           <Pressable
