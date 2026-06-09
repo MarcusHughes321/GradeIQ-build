@@ -227,7 +227,7 @@ export default function HomeScreen() {
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId, backupInProgress, backupProgress, backupAllMissingImages } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId, backupInProgress, backupProgress, backupPendingCount, backupAllMissingImages } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
 
   // Pending = local photo present but not yet backed up to the server.
@@ -310,6 +310,21 @@ export default function HomeScreen() {
       loadGradings();
     }
   }, [activeJob?.status]);
+
+  // Reload the local list on every backup progress tick so per-grade cloud
+  // badges flip live as each photo finishes uploading during a manual backup.
+  useEffect(() => {
+    if (backupProgress.done > 0) {
+      loadGradings();
+    }
+  }, [backupProgress.done]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refresh when a backup finishes (manual) or the background startup pass
+  // updates the pending count, so the status/count visibly converges to zero
+  // without the user needing to navigate away or pull-to-refresh.
+  useEffect(() => {
+    loadGradings();
+  }, [backupInProgress, backupPendingCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadGradings = async () => {
     const data = await getGradings();
