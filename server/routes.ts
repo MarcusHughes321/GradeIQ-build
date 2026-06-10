@@ -11347,6 +11347,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   // On first run this populates the whole catalog; subsequent runs only refresh
   // sets whose prices might be stale (fetched > 20h ago) or new sets.
   let cardCatalogSyncRunning = false;
+  let cardCatalogLastRun: Date | null = null;
   async function syncAllEnglishSets(mode: "full" | "prices-only" = "full"): Promise<void> {
     if (cardCatalogSyncRunning) { console.log("[card-catalog] Sync already in progress — skipping"); return; }
     cardCatalogSyncRunning = true;
@@ -11391,6 +11392,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         await new Promise(r => setTimeout(r, 300));
       }
       console.log(`[card-catalog] Sync complete — ${synced} synced, ${skipped} skipped (fresh), ${errors} errors`);
+      cardCatalogLastRun = new Date();
     } finally {
       cardCatalogSyncRunning = false;
     }
@@ -11971,6 +11973,41 @@ RESPONSE FORMAT (JSON only, no markdown):
     "star-birth", "vmax-climax", "shiny-star-v",
   ];
 
+  // Derive a PokeTrace-style slug from an English set name (matches the curated
+  // JP_SET_SLUGS style and the frontend's set-cards slug derivation).
+  function jpNameToSlug(nameEn: string): string {
+    return nameEn.toLowerCase()
+      .replace(/['\u2019]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  }
+
+  // Build the JP Top Picks candidate set list dynamically: the curated known-good
+  // slugs UNION slugs derived from the newest TCGdex JP sets that have an English
+  // name. This lets newly-released JP sets flow into Top Picks automatically
+  // (once named/priced upstream) without editing the hardcoded list.
+  // Returns the candidate slugs plus an `augmented` flag indicating whether the
+  // dynamic TCGdex augmentation actually ran. When augmentation fails (e.g.
+  // TCGdex outage) we fall back to curated-only slugs, and callers must NOT run
+  // the cleanup DELETE — otherwise a transient outage would wipe the picks of
+  // every dynamically-added set for the day.
+  async function getJpTopPicksSlugs(): Promise<{ slugs: string[]; augmented: boolean }> {
+    const slugs = new Set<string>(JP_SET_SLUGS);
+    let augmented = false;
+    try {
+      const allSets = await buildTcgdexSetList("ja");
+      for (const s of allSets.slice(0, 40)) {
+        if (!s.nameEn) continue;
+        const slug = jpNameToSlug(s.nameEn);
+        if (slug) slugs.add(slug);
+      }
+      augmented = true;
+    } catch (e: any) {
+      console.warn("[jp-top-picks] Could not augment set list dynamically:", e.message);
+    }
+    return { slugs: Array.from(slugs), augmented };
+  }
+
   async function runJapaneseTopPicksJob(): Promise<void> {
     if (jpTopPicksJobRunning) {
       console.log("[jp-top-picks] Job already running, skipping");
@@ -11985,13 +12022,20 @@ RESPONSE FORMAT (JSON only, no markdown):
       const apiKey  = process.env.POKETRACE_API_KEY;
       if (!apiKey) throw new Error("POKETRACE_API_KEY not configured");
 
-      // Remove any stale picks for sets that are no longer in JP_SET_SLUGS
-      // (e.g. English sets accidentally included in a previous run)
-      if (JP_SET_SLUGS.length > 0) {
-        const slugPlaceholders = JP_SET_SLUGS.map((_: string, i: number) => `$${i + 1}`).join(',');
+      // Candidate set list: curated known-good slugs + newest JP sets (dynamic),
+      // so newly-released sets are picked up automatically.
+      const { slugs: setSlugs, augmented } = await getJpTopPicksSlugs();
+
+      // Remove any stale picks for sets that are no longer candidates
+      // (e.g. English sets accidentally included in a previous run).
+      // Skip the cleanup when dynamic augmentation failed: the fallback list is
+      // curated-only, so deleting "not in" it would wipe every dynamically-added
+      // set's picks on a transient TCGdex outage.
+      if (augmented && setSlugs.length > 0) {
+        const slugPlaceholders = setSlugs.map((_: string, i: number) => `$${i + 1}`).join(',');
         const delResult = await db.query(
           `DELETE FROM top_picks_precomputed WHERE lang='ja' AND set_id NOT IN (${slugPlaceholders})`,
-          JP_SET_SLUGS
+          setSlugs
         );
         if (delResult.rowCount && delResult.rowCount > 0) {
           console.log(`[jp-top-picks] Cleaned up ${delResult.rowCount} stale picks for removed/English sets`);
@@ -12004,7 +12048,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         number: string; imageUrl: string | null; nmEUR: number;
       }> = [];
 
-      for (const slug of JP_SET_SLUGS) {
+      for (const slug of setSlugs) {
         try {
           // Paginate through all cards in this set — PokeTrace has no price sort,
           // so we must fetch all cards and pick the most valuable ourselves.
@@ -12051,7 +12095,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         }
       }
 
-      console.log(`[jp-top-picks] Collected ${candidates.length} candidates across ${JP_SET_SLUGS.length} sets`);
+      console.log(`[jp-top-picks] Collected ${candidates.length} candidates across ${setSlugs.length} sets`);
 
       const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
@@ -12312,23 +12356,46 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
-  function scheduleDailyCardCatalogSync() {
+  // Includes boot catch-up: if the server restarted past today's window before the
+  // sync ran, run it shortly after boot (once/day, guarded by MAX(price_updated_at)).
+  async function scheduleDailyCardCatalogSync() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(3, 30, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    const delayMin = Math.round(delay / 60000);
-    console.log(`[card-catalog] Daily sync scheduled in ${delayMin} min`);
-    setTimeout(async () => {
-      await syncAllEnglishSets("prices-only");
-      await fillMeSetPricesFromPokeTrace();
+    const todayAt = new Date();
+    todayAt.setUTCHours(3, 30, 0, 0);
+    const nextAt = new Date(todayAt);
+    if (nextAt <= now) nextAt.setUTCDate(nextAt.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = cardCatalogLastRun;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(price_updated_at) AS latest FROM card_catalog WHERE lang='en'`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) { const dbTs = new Date(ts); if (!lastRanAt || dbTs > lastRanAt) lastRanAt = dbTs; }
+    } catch { /* ignore */ }
+
+    const hasRunToday = lastRanAt != null && lastRanAt >= todayAt;
+    const missedToday = now >= todayAt && !hasRunToday;
+
+    const runOnce = async () => {
+      await syncAllEnglishSets("prices-only").catch(e => console.error("[card-catalog] Sync error:", e.message));
+      await fillMeSetPricesFromPokeTrace().catch(e => console.error("[card-catalog] ME fill error:", e.message));
       scheduleDailyCardCatalogSync();
-    }, delay);
+    };
+
+    if (missedToday) {
+      console.log("[card-catalog] Missed today's sync — catching up in 6 min");
+      setTimeout(runOnce, 6 * 60 * 1000);
+    } else {
+      const delay = nextAt.getTime() - now.getTime();
+      console.log(`[card-catalog] Daily sync scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(runOnce, delay);
+    }
   }
 
   // Sync all Japanese sets into card_catalog (same pattern as syncAllEnglishSets)
   let jpCatalogSyncRunning = false;
+  let jpCatalogLastRun: Date | null = null;
   async function syncAllJapaneseSets(mode: "full" | "prices-only" = "full"): Promise<void> {
     if (jpCatalogSyncRunning) { console.log("[jp-catalog] Sync already in progress — skipping"); return; }
     jpCatalogSyncRunning = true;
@@ -12385,27 +12452,50 @@ RESPONSE FORMAT (JSON only, no markdown):
         await new Promise(r => setTimeout(r, 600));
       }
       console.log(`[jp-catalog] Sync complete — ${synced} synced, ${skipped} skipped, ${errors} errors`);
+      jpCatalogLastRun = new Date();
     } finally {
       jpCatalogSyncRunning = false;
     }
   }
 
   // Schedule daily JP catalog price refresh (4:00 AM UTC — 30 min after EN refresh)
-  function scheduleDailyJpCatalogSync() {
+  // Includes boot catch-up (see scheduleDailyCardCatalogSync) keyed on MAX(price_updated_at) ja.
+  async function scheduleDailyJpCatalogSync() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(4, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    const delayMin = Math.round(delay / 60000);
-    console.log(`[jp-catalog] Daily sync scheduled in ${delayMin} min`);
-    setTimeout(async () => {
-      await syncAllJapaneseSets("prices-only");
+    const todayAt = new Date();
+    todayAt.setUTCHours(4, 0, 0, 0);
+    const nextAt = new Date(todayAt);
+    if (nextAt <= now) nextAt.setUTCDate(nextAt.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = jpCatalogLastRun;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(price_updated_at) AS latest FROM card_catalog WHERE lang='ja'`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) { const dbTs = new Date(ts); if (!lastRanAt || dbTs > lastRanAt) lastRanAt = dbTs; }
+    } catch { /* ignore */ }
+
+    const hasRunToday = lastRanAt != null && lastRanAt >= todayAt;
+    const missedToday = now >= todayAt && !hasRunToday;
+
+    const runOnce = async () => {
+      await syncAllJapaneseSets("prices-only").catch(e => console.error("[jp-catalog] Sync error:", e.message));
       scheduleDailyJpCatalogSync();
-    }, delay);
+    };
+
+    if (missedToday) {
+      console.log("[jp-catalog] Missed today's sync — catching up in 12 min");
+      setTimeout(runOnce, 12 * 60 * 1000);
+    } else {
+      const delay = nextAt.getTime() - now.getTime();
+      console.log(`[jp-catalog] Daily sync scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(runOnce, delay);
+    }
   }
   const PRICE_STATUS_TTL = 23 * 60 * 60 * 1000; // 23h — re-check after 1 day
   let priceStatusPrePopStarted = false;
+  let setStatusLastRun: Date | null = null;
 
   // Write to both memory cache and DB atomically
   function upsertSetPriceStatus(setId: string, hasCards: boolean, hasPrices: boolean) {
@@ -12492,20 +12582,43 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   // Schedule a daily full refresh so price status stays current (2 AM UTC)
-  function scheduleDailySetStatusRefresh() {
+  // Includes boot catch-up (see scheduleDailyCardCatalogSync) keyed on MAX(checked_at).
+  async function scheduleDailySetStatusRefresh() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(2, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    console.log(`[price-status] Daily refresh scheduled in ${Math.round(delay / 60000)} min`);
-    setTimeout(async () => {
+    const todayAt = new Date();
+    todayAt.setUTCHours(2, 0, 0, 0);
+    const nextAt = new Date(todayAt);
+    if (nextAt <= now) nextAt.setUTCDate(nextAt.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = setStatusLastRun;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(checked_at) AS latest FROM set_price_status`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) { const dbTs = new Date(Number(ts)); if (!lastRanAt || dbTs > lastRanAt) lastRanAt = dbTs; }
+    } catch { /* ignore */ }
+
+    const hasRunToday = lastRanAt != null && lastRanAt >= todayAt;
+    const missedToday = now >= todayAt && !hasRunToday;
+
+    const runOnce = async () => {
       console.log("[price-status] Daily refresh starting...");
       priceStatusPrePopStarted = false;
       const sets = await ensureSetsCached().catch(() => [] as CachedSet[]);
       if (sets.length > 0) await backgroundPrePopulatePriceStatus(sets);
+      setStatusLastRun = new Date();
       scheduleDailySetStatusRefresh();
-    }, delay);
+    };
+
+    if (missedToday) {
+      console.log("[price-status] Missed today's refresh — catching up in 4 min");
+      setTimeout(runOnce, 4 * 60 * 1000);
+    } else {
+      const delay = nextAt.getTime() - now.getTime();
+      console.log(`[price-status] Daily refresh scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(runOnce, delay);
+    }
   }
 
   // --- TCGdex series metadata cache (set → serie mapping for logo URLs & sort order) ---
