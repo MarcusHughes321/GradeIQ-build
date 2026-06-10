@@ -10549,7 +10549,12 @@ RESPONSE FORMAT (JSON only, no markdown):
   let rcTiersCache: { data: RCTiers; ts: number } | null = null;
   const RC_TIERS_CACHE_TTL = 10 * 60 * 1000;
 
-  type RCTiers = { curious: number; enthusiast: number; obsessed: number; other: number; productIds: string[] };
+  type PlatformTierCounts = { curious: number; enthusiast: number; obsessed: number };
+  type RCTiers = {
+    curious: number; enthusiast: number; obsessed: number; other: number;
+    productIds: string[];
+    byPlatform: { ios: PlatformTierCounts; android: PlatformTierCounts; other: PlatformTierCounts };
+  };
 
   async function fetchRCTierBreakdown(): Promise<RCTiers | null> {
     if (rcTiersCache && Date.now() - rcTiersCache.ts < RC_TIERS_CACHE_TTL) {
@@ -10561,12 +10566,27 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!v2Key || !projectId) return null;
 
     try {
-      const tiers: RCTiers = { curious: 0, enthusiast: 0, obsessed: 0, other: 0, productIds: [] };
+      const tiers: RCTiers = {
+        curious: 0, enthusiast: 0, obsessed: 0, other: 0, productIds: [],
+        byPlatform: {
+          ios: { curious: 0, enthusiast: 0, obsessed: 0 },
+          android: { curious: 0, enthusiast: 0, obsessed: 0 },
+          other: { curious: 0, enthusiast: 0, obsessed: 0 },
+        },
+      };
       const seenStoreIds = new Set<string>();
+      // Map a RevenueCat store enum to a platform bucket. App Store = iPhone, Play Store = Android.
+      const normalizePlatform = (store?: string | null): "ios" | "android" | "other" => {
+        const s = (store ?? "").toLowerCase();
+        if (s === "app_store" || s === "mac_app_store") return "ios";
+        if (s === "play_store") return "android";
+        return "other"; // amazon, stripe, rc_billing, promotional, etc.
+      };
 
       // Step 1: Pre-fetch all products to build productId → tier map
       // There are only ~7 products so this is a single cheap API call
       const productTierMap = new Map<string, string>(); // RC product id → store identifier
+      const productPlatformMap = new Map<string, "ios" | "android" | "other">(); // RC product id → platform
       const pRes = await fetch(
         `https://api.revenuecat.com/v2/projects/${projectId}/products?limit=100`,
         { headers: { Authorization: `Bearer ${v2Key}` } }
@@ -10576,6 +10596,9 @@ RESPONSE FORMAT (JSON only, no markdown):
         for (const p of (pJson.items ?? [])) {
           if (p.id && p.store_identifier) {
             productTierMap.set(p.id, p.store_identifier.toLowerCase());
+          }
+          if (p.id && p.store) {
+            productPlatformMap.set(p.id, normalizePlatform(p.store));
           }
         }
       }
@@ -10600,7 +10623,8 @@ RESPONSE FORMAT (JSON only, no markdown):
       // Step 3: For each customer, check their V2 subscriptions for active gives_access=true
       // Deduplicate per customer — count each customer once in their highest tier
       const TIER_RANK: Record<string, number> = { obsessed: 3, enthusiast: 2, curious: 1, other: 0 };
-      const customerTier = new Map<string, string>(); // customerId → best tier
+      // Count each customer once, in their highest tier, with that subscription's platform
+      const customerBest = new Map<string, { tier: string; platform: "ios" | "android" | "other" }>();
 
       for (let i = 0; i < Math.min(customerIds.length, 2000); i += 15) {
         const batch = customerIds.slice(i, i + 15);
@@ -10620,21 +10644,29 @@ RESPONSE FORMAT (JSON only, no markdown):
                 : storeId.includes("enthusiast") ? "enthusiast"
                 : storeId.includes("curious") ? "curious"
                 : "other";
-              const current = customerTier.get(cid);
-              if (!current || (TIER_RANK[tier] ?? 0) > (TIER_RANK[current] ?? 0)) {
-                customerTier.set(cid, tier);
+              // Prefer the subscription's own store; fall back to the product's store
+              let platform = normalizePlatform(sub.store);
+              if (platform === "other") {
+                platform = productPlatformMap.get(sub.product_id ?? "") ?? "other";
+              }
+              const current = customerBest.get(cid);
+              if (!current || (TIER_RANK[tier] ?? 0) > (TIER_RANK[current.tier] ?? 0)) {
+                customerBest.set(cid, { tier, platform });
               }
             }
           } catch {}
         }));
       }
 
-      // Tally from deduplicated customer map
-      for (const tier of customerTier.values()) {
+      // Tally from deduplicated customer map (overall totals + per-platform breakdown)
+      for (const { tier, platform } of customerBest.values()) {
         if (tier === "curious") tiers.curious++;
         else if (tier === "enthusiast") tiers.enthusiast++;
         else if (tier === "obsessed") tiers.obsessed++;
         else tiers.other++;
+        if (tier === "curious" || tier === "enthusiast" || tier === "obsessed") {
+          tiers.byPlatform[platform][tier]++;
+        }
       }
 
       tiers.productIds = Array.from(seenStoreIds).sort();
@@ -10819,7 +10851,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         prevMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
       }
 
-      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult, aiAllTimeResult] = await Promise.all([
+      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult, aiAllTimeResult, perModeResult] = await Promise.all([
         fetchRCTierBreakdown(),
         db.query(`SELECT key, value FROM admin_settings`),
         db.query(
@@ -10834,6 +10866,8 @@ RESPONSE FORMAT (JSON only, no markdown):
         ),
         // All-time AI spend across every month ever logged
         db.query(`SELECT SUM(cost_usd) AS total, COUNT(*) AS calls FROM ai_cost_log`),
+        // Real per-mode AI spend (all time) → average cost per grade type
+        db.query(`SELECT mode, SUM(cost_usd) AS total, COUNT(*) AS calls FROM ai_cost_log GROUP BY mode`),
       ]);
 
       const settings: Record<string, string> = {};
@@ -10868,14 +10902,54 @@ RESPONSE FORMAT (JSON only, no markdown):
       const enthusiast = rcTiers?.enthusiast ?? 0;
       const obsessed = rcTiers?.obsessed ?? 0;
 
-      const grossMrrGbp = curious * TIER_PRICES_GBP.curious
-        + enthusiast * TIER_PRICES_GBP.enthusiast
-        + obsessed * TIER_PRICES_GBP.obsessed;
+      // ── Revenue split by platform (App Store / Play Store / other) ──
+      const emptyPlat = { curious: 0, enthusiast: 0, obsessed: 0 };
+      const bp = rcTiers?.byPlatform ?? { ios: emptyPlat, android: emptyPlat, other: emptyPlat };
+      const mrrForPlatform = (t: { curious: number; enthusiast: number; obsessed: number }) =>
+        t.curious * TIER_PRICES_GBP.curious
+        + t.enthusiast * TIER_PRICES_GBP.enthusiast
+        + t.obsessed * TIER_PRICES_GBP.obsessed;
 
-      const platformFeeGbp = grossMrrGbp * PLATFORM_FEE;
+      const iosGrossGbp = mrrForPlatform(bp.ios);
+      const androidGrossGbp = mrrForPlatform(bp.android);
+      const otherGrossGbp = mrrForPlatform(bp.other);
+      const grossMrrGbp = iosGrossGbp + androidGrossGbp + otherGrossGbp;
+
+      // Apple and Google take separate store cuts. Default each to the legacy
+      // single platform fee if set, otherwise 15% (small-business programme rate).
+      const appleFeePct = parseFloat(settings["apple_fee_pct"] ?? settings["platform_fee_pct"] ?? "15");
+      const googleFeePct = parseFloat(settings["google_fee_pct"] ?? settings["platform_fee_pct"] ?? "15");
+      const appleFeeGbp = iosGrossGbp * (appleFeePct / 100);
+      const googleFeeGbp = androidGrossGbp * (googleFeePct / 100);
+      const platformFeeGbp = appleFeeGbp + googleFeeGbp; // 'other' (web/promo) has no store fee
       const afterPlatformGbp = grossMrrGbp - platformFeeGbp;
       const rcFeeGbp = afterPlatformGbp > RC_MRR_THRESHOLD_GBP ? afterPlatformGbp * RC_FEE_PCT : 0;
       const netMrrGbp = afterPlatformGbp - rcFeeGbp;
+
+      // ── AI cost per grade type (real average from ai_cost_log, else estimate) ──
+      const realByMode: Record<string, { total: number; calls: number }> = {};
+      perModeResult.rows.forEach((r: any) => {
+        realByMode[r.mode] = { total: parseFloat(r.total) || 0, calls: parseInt(r.calls) || 0 };
+      });
+      const GRADE_MODES: { key: string; label: string; logKey: string }[] = [
+        { key: "quick", label: "Quick Grade", logKey: "quick" },
+        { key: "bulk", label: "Bulk (per card)", logKey: "quick" }, // bulk uses the same single-card Claude call as quick
+        { key: "deep", label: "Deep Grade", logKey: "deep" },
+        { key: "crossover", label: "Crossover", logKey: "crossover" },
+      ];
+      const perGradeCost = GRADE_MODES.map((m) => {
+        const real = realByMode[m.logKey];
+        const realAvgUsd = real && real.calls > 0 ? real.total / real.calls : null;
+        const usd = realAvgUsd ?? (COST_PER_GRADE_USD[m.key] ?? 0.018);
+        return {
+          key: m.key,
+          label: m.label,
+          usd: parseFloat(usd.toFixed(4)),
+          gbp: parseFloat((usd * GBP_PER_USD).toFixed(4)),
+          isReal: realAvgUsd !== null,
+          calls: real?.calls ?? 0,
+        };
+      });
 
       const aiCurrentUsd = parseFloat(aiCurrentResult.rows[0]?.total ?? "0") || 0;
       const aiCurrentGbp = aiCurrentUsd * GBP_PER_USD;
@@ -10900,14 +10974,40 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       res.json({
         month: currentMonth,
-        tiers: { curious, enthusiast, obsessed },
+        tiers: { curious, enthusiast, obsessed, byPlatform: bp },
         revenue: {
           grossMrrGbp: parseFloat(grossMrrGbp.toFixed(2)),
-          platformFeePct,
+          platformFeePct, // legacy blended fee (kept for compatibility)
           platformFeeGbp: parseFloat(platformFeeGbp.toFixed(2)),
+          appleFeePct,
+          googleFeePct,
           rcFeeGbp: parseFloat(rcFeeGbp.toFixed(2)),
           netMrrGbp: parseFloat(netMrrGbp.toFixed(2)),
+          byPlatform: {
+            ios: {
+              grossGbp: parseFloat(iosGrossGbp.toFixed(2)),
+              feePct: appleFeePct,
+              feeGbp: parseFloat(appleFeeGbp.toFixed(2)),
+              netGbp: parseFloat((iosGrossGbp - appleFeeGbp).toFixed(2)),
+              curious: bp.ios.curious, enthusiast: bp.ios.enthusiast, obsessed: bp.ios.obsessed,
+            },
+            android: {
+              grossGbp: parseFloat(androidGrossGbp.toFixed(2)),
+              feePct: googleFeePct,
+              feeGbp: parseFloat(googleFeeGbp.toFixed(2)),
+              netGbp: parseFloat((androidGrossGbp - googleFeeGbp).toFixed(2)),
+              curious: bp.android.curious, enthusiast: bp.android.enthusiast, obsessed: bp.android.obsessed,
+            },
+            other: {
+              grossGbp: parseFloat(otherGrossGbp.toFixed(2)),
+              feePct: 0,
+              feeGbp: 0,
+              netGbp: parseFloat(otherGrossGbp.toFixed(2)),
+              curious: bp.other.curious, enthusiast: bp.other.enthusiast, obsessed: bp.other.obsessed,
+            },
+          },
         },
+        perGradeCost,
         costs: {
           aiThisMonthGbp: parseFloat(aiCurrentGbp.toFixed(2)),
           ai3MonthAvgGbp: ai3MonthAvgGbp !== null ? parseFloat(ai3MonthAvgGbp.toFixed(2)) : null,
