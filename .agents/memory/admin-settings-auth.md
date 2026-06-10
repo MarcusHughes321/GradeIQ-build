@@ -22,5 +22,10 @@ matching the body-password pattern used by the other `/api/admin/*` endpoints.
   stored in SecureStore (`lib/admin-auth.ts`) on successful admin verify and
   cleared when admin mode is disabled. Any new admin data call must send the
   header or it will 401.
-- Residual gap (not yet closed): `/api/admin/financials` and
-  `/api/admin/analytics` are still unauthenticated and leak revenue/usage data.
+- `/api/admin/analytics` and `/api/admin/financials` are now ALSO gated by
+  `isAdminRequest` (the helper lives just above the analytics route so every
+  admin route below shares it). The admin-analytics screen sends the
+  `x-admin-password` header on both fetches and treats 401 as "re-enter your
+  admin code"; both queries use `retry: false`.
+- Still-open admin routes a future change should consider gating (write paths
+  included): `price-flags*`, `card-variants*`, `scan-cache`, `trigger-picks`.

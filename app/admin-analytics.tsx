@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
-import { adminSaveSetting as saveSetting } from "@/lib/admin-auth";
+import { adminSaveSetting as saveSetting, getAdminPassword } from "@/lib/admin-auth";
 import Colors from "@/constants/colors";
 
 const MODE_COLORS: Record<string, string> = {
@@ -34,15 +34,19 @@ const MODE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 async function fetchAnalytics() {
+  const password = await getAdminPassword();
   const url = new URL("/api/admin/analytics", getApiUrl());
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { "x-admin-password": password } });
+  if (res.status === 401) throw new Error("Admin session expired — re-enter your admin code from Settings.");
   if (!res.ok) throw new Error("Failed to fetch analytics");
   return res.json();
 }
 
 async function fetchFinancials() {
+  const password = await getAdminPassword();
   const url = new URL("/api/admin/financials", getApiUrl());
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { "x-admin-password": password } });
+  if (res.status === 401) throw new Error("Admin session expired — re-enter your admin code from Settings.");
   if (!res.ok) throw new Error("Failed to fetch financials");
   return res.json();
 }
@@ -96,12 +100,14 @@ export default function AdminAnalyticsScreen() {
     queryKey: ["/api/admin/analytics"],
     queryFn: fetchAnalytics,
     refetchInterval: 30000,
+    retry: false,
   });
 
   const { data: fin, isLoading: finLoading, refetch: finRefetch } = useQuery({
     queryKey: ["/api/admin/financials"],
     queryFn: fetchFinancials,
     refetchInterval: 60000,
+    retry: false,
   });
 
   const onRefresh = async () => {

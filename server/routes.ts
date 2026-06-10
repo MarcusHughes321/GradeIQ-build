@@ -10688,7 +10688,19 @@ RESPONSE FORMAT (JSON only, no markdown):
     bulk: 0.018,
   };
 
+  // Admin auth: these endpoints expose sensitive business data (revenue,
+  // subscriber counts, investment to date) and admin settings. Require the
+  // admin password, sent as an x-admin-password header (matched against
+  // ADMIN_PASSWORD). Defined here so every admin route below can use it.
+  const isAdminRequest = (req: any): boolean => {
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) return false;
+    const provided = req.headers["x-admin-password"];
+    return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
+  };
+
   app.get("/api/admin/analytics", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const [totals, daily, byMode, recent] = await Promise.all([
         db.query(`
@@ -10773,16 +10785,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   // ── Admin settings ──────────────────────────────────────────────────────
-  // Admin auth: settings reads/writes require the admin password (sent as an
-  // x-admin-password header). The bulletin message is shown to ALL users, so an
-  // unauthenticated write here would be a phishing/defacement vector.
-  const isAdminRequest = (req: any): boolean => {
-    const adminPassword = process.env.ADMIN_PASSWORD;
-    if (!adminPassword) return false;
-    const provided = req.headers["x-admin-password"];
-    return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
-  };
-
+  // Admin auth (isAdminRequest) is defined above, near the analytics route.
   app.get("/api/admin/settings", async (req, res) => {
     if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
@@ -10835,7 +10838,8 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   // ── Admin financials ─────────────────────────────────────────────────────
-  app.get("/api/admin/financials", async (_req, res) => {
+  app.get("/api/admin/financials", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const GBP_PER_USD = 0.79;
       // Tier prices in GBP per month
