@@ -11,3 +11,4 @@
 - [Admin settings auth](admin-settings-auth.md) — /api/admin/settings is password-gated (x-admin-password) because the bulletin key is shown to all users; financials/analytics still open.
 - [Secret restart ordering](secret-restart-ordering.md) — restart a workflow only AFTER the "secrets have been added" confirmation, else it boots with the old secret value.
 - [Grading fee constants](grading-fee-constants.md) — fees live in 1 client module (constants/grading-fees.ts) + 2 server constants; update all together or the app contradicts itself.
+- [Always-mounted tab query staleness](mounted-tab-query-staleness.md) — queries on permanently-mounted tabs (Home) need refetchInterval + refetchOnMount:"always", not just staleTime, or they never refresh mid-session.

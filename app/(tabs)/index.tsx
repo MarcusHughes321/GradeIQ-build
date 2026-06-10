@@ -239,7 +239,7 @@ export default function HomeScreen() {
   const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId, backupInProgress, backupProgress, backupPendingCount, backupAllMissingImages } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
 
-  const { data: bulletin } = useQuery<Bulletin>({
+  const { data: bulletin, refetch: refetchBulletin } = useQuery<Bulletin>({
     queryKey: ["/api/bulletin"],
     queryFn: async () => {
       const url = new URL("/api/bulletin", getApiUrl());
@@ -247,7 +247,9 @@ export default function HomeScreen() {
       if (!res.ok) throw new Error("Failed to load bulletin");
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchOnMount: "always",
   });
   const homeBulletinStyle = HOME_BULLETIN_STYLES[bulletin?.style ?? "info"] ?? HOME_BULLETIN_STYLES.info;
 
@@ -365,11 +367,12 @@ export default function HomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     fetchingValuesRef.current = false;
+    refetchBulletin();
     const data = await getGradings();
     setGradings(data);
     setRefreshing(false);
     fetchCardValues(data, false);
-  }, []);
+  }, [refetchBulletin]);
 
   const fetchCardValues = async (data: SavedGrading[], onlyMissing: boolean = true) => {
     if (fetchingValuesRef.current) return;

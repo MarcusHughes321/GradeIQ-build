@@ -309,6 +309,17 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.companyList}>
               <Pressable
+                onPress={() => router.push("/admin-bulletin")}
+                style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View style={styles.menuRowLeft}>
+                  <Ionicons name="megaphone-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.menuRowLabel}>Announcement</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              </Pressable>
+              <View style={styles.menuDivider} />
+              <Pressable
                 onPress={() => router.push("/admin-analytics")}
                 style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
               >
