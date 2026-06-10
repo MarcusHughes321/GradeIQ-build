@@ -388,6 +388,17 @@ export default function SettingsScreen() {
           </Pressable>
           <View style={styles.menuDivider} />
           <Pressable
+            onPress={() => router.push("/welcome?preview=1")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="hand-left-outline" size={20} color={Colors.primary} />
+              <Text style={styles.menuRowLabel}>Welcome Note</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
             onPress={() => router.push("/how-it-works")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
           >

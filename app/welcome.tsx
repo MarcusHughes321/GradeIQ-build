@@ -8,7 +8,7 @@ import {
   Platform,
   Linking,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -34,10 +34,24 @@ const FEATURES: FeatureRow[] = [
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ preview?: string }>();
+  const isPreview = params.preview === "1";
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 16;
 
-  const getStarted = async () => {
+  const closePreview = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/settings");
+    }
+  };
+
+  const handleContinue = async () => {
+    if (isPreview) {
+      closePreview();
+      return;
+    }
     try {
       await AsyncStorage.setItem(WELCOME_KEY, "true");
     } catch (e) {
@@ -48,6 +62,16 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
+      {isPreview && (
+        <Pressable
+          onPress={closePreview}
+          hitSlop={12}
+          style={[styles.previewBack, { top: insets.top + webTopInset + 4 }]}
+        >
+          <Ionicons name="chevron-back" size={26} color={Colors.text} />
+        </Pressable>
+      )}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{
@@ -126,14 +150,14 @@ export default function WelcomeScreen() {
         ]}
       >
         <Pressable
-          onPress={getStarted}
+          onPress={handleContinue}
           style={({ pressed }) => [
             styles.ctaBtn,
             { transform: [{ scale: pressed ? 0.97 : 1 }] },
           ]}
         >
-          <Text style={styles.ctaText}>Get Started</Text>
-          <Ionicons name="arrow-forward" size={20} color="#fff" />
+          <Text style={styles.ctaText}>{isPreview ? "Close" : "Get Started"}</Text>
+          <Ionicons name={isPreview ? "checkmark" : "arrow-forward"} size={20} color="#fff" />
         </Pressable>
       </View>
     </View>
@@ -147,6 +171,15 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  previewBack: {
+    position: "absolute",
+    left: 12,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   logoArea: {
     alignItems: "center",
