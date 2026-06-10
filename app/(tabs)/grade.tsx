@@ -624,19 +624,9 @@ export default function GradeScreen() {
         <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </Pressable>
 
-      <Pressable
-        style={({ pressed }) => [styles.hubCard, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}
-        onPress={() => router.push("/collection-scan")}
-      >
-        <View style={[styles.hubIconWrap, styles.hubIconBlue]}>
-          <Ionicons name="library-outline" size={22} color="#3B82F6" />
-        </View>
-        <View style={styles.hubCardText}>
-          <Text style={styles.hubCardTitle}>Collection Scan</Text>
-          <Text style={styles.hubCardSub}>Condition check · CSV export</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-      </Pressable>
+      {/* Collection Scan is intentionally hidden from users. The feature code is
+          kept (app/collection-scan.tsx, app/collection-results.tsx, and the
+          /api/collection/* backend routes); re-add this hub card to restore it. */}
 
       {/* PRO SECTION */}
       <View style={[styles.hubSectionHeader, { marginTop: 28 }]}>

@@ -204,7 +204,7 @@ export default function HowItWorksScreen() {
       color: "#A78BFA",
       title: "Claude AI Analyzer",
       stat: "The brain behind every grade",
-      desc: "Every card is examined by Anthropic's Claude — a powerful AI vision model. It scores the four things graders care about (centering, corners, edges, surface), identifies the exact card and set, and also powers the Card Advisor and Collection Scan tools.",
+      desc: "Every card is examined by Anthropic's Claude — a powerful AI vision model. It scores the four things graders care about (centering, corners, edges, surface), identifies the exact card and set, and also powers the Card Advisor.",
     },
     {
       key: "en-db",
