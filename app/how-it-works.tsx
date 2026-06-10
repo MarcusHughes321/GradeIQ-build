@@ -191,7 +191,7 @@ export default function HowItWorksScreen() {
   const journey: MapItem[] = [
     { key: "capture", icon: "camera", color: Colors.primary, title: "Capture", summary: "Front & back photos", desc: "You snap clear photos of your card — front and back." },
     { key: "enhance", icon: "color-wand", color: Colors.warning, title: "Enhance", summary: "Auto-crop & sharpen", desc: "We auto-crop, straighten and sharpen every photo for a clean, even look." },
-    { key: "analyse", icon: "sparkles", color: "#A78BFA", title: "Analyse", summary: "AI checks the 4 grade factors", desc: "Claude AI inspects centering, corners, edges and surface — just like a real grader." },
+    { key: "analyse", icon: "sparkles", color: "#A78BFA", title: "Analyse", summary: "AI checks the 4 grade factors", desc: "Your card is examined against the four things graders score: centering, corners, edges and surface." },
     { key: "identify", icon: "search", color: "#60A5FA", title: "Identify", summary: "Matched to our databases", desc: "We match your card against our English and Japanese card databases." },
     { key: "value", icon: "cash", color: Colors.success, title: "Value", summary: "Live market prices pulled in", desc: "Live market prices are pulled in so you can see what each grade is worth." },
     { key: "result", icon: "ribbon", color: Colors.primary, title: "Result", summary: "Grade + value, saved to history", desc: "You get an estimated grade and value — saved safely to your history." },
@@ -235,8 +235,8 @@ export default function HowItWorksScreen() {
       icon: "pricetags",
       color: Colors.warning,
       title: "eBay Graded Prices",
-      stat: "Real, recently-sold prices",
-      desc: "For graded values we use real, recently-sold eBay prices for each grade (PSA 10/9, BGS, ACE, TAG, CGC) — actual sales, not guesses.",
+      stat: "Powered by PokeTrace",
+      desc: "For graded values we use real, recently-sold eBay prices for each grade (PSA 10/9, BGS, ACE, TAG, CGC), sourced through the PokeTrace market data API — actual sales, not guesses.",
     },
     {
       key: "cardmarket",

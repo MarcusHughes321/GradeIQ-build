@@ -19,10 +19,11 @@ import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
 import { deleteServerGrading } from "@/lib/server-history";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
@@ -32,6 +33,14 @@ import { useSubscription, isGradePending } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 const BUBBLE_PAD = 20;
+
+type Bulletin = { enabled: boolean; title?: string; message?: string; style?: string };
+
+const HOME_BULLETIN_STYLES: Record<string, { color: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  info: { color: Colors.primary, icon: "megaphone" },
+  maintenance: { color: Colors.warning, icon: "construct" },
+  success: { color: Colors.success, icon: "checkmark-circle" },
+};
 
 function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySymbol }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean; currencySymbol: string }) {
   const date = new Date(item.timestamp);
@@ -229,6 +238,18 @@ export default function HomeScreen() {
   const prevCurrencyRef = useRef(settings.currency || "GBP");
   const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId, backupInProgress, backupProgress, backupPendingCount, backupAllMissingImages } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
+
+  const { data: bulletin } = useQuery<Bulletin>({
+    queryKey: ["/api/bulletin"],
+    queryFn: async () => {
+      const url = new URL("/api/bulletin", getApiUrl());
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error("Failed to load bulletin");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const homeBulletinStyle = HOME_BULLETIN_STYLES[bulletin?.style ?? "info"] ?? HOME_BULLETIN_STYLES.info;
 
   // Pending = local photo present but not yet backed up to the server.
   const pendingBackupCount = useMemo(
@@ -541,6 +562,23 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
+      {bulletin?.enabled && !!bulletin.message && (
+        <View
+          style={[
+            styles.bulletinBanner,
+            {
+              borderColor: homeBulletinStyle.color + "55",
+              backgroundColor: homeBulletinStyle.color + "14",
+            },
+          ]}
+        >
+          <Ionicons name={homeBulletinStyle.icon} size={20} color={homeBulletinStyle.color} />
+          <View style={styles.bulletinTextWrap}>
+            {!!bulletin.title && <Text style={styles.bulletinBannerTitle}>{bulletin.title}</Text>}
+            <Text style={styles.bulletinBannerMsg}>{bulletin.message}</Text>
+          </View>
+        </View>
+      )}
 
       {gradings.length > 0 && (
         <View style={[styles.backupBanner, pendingBackupCount === 0 && styles.backupBannerDone]}>
@@ -894,6 +932,32 @@ const styles = StyleSheet.create({
   bgJobDismissBtn: {
     padding: 4,
     marginLeft: 4,
+  },
+  bulletinBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  bulletinTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  bulletinBannerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  bulletinBannerMsg: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+    color: Colors.textSecondary,
   },
   backupBanner: {
     flexDirection: "row",

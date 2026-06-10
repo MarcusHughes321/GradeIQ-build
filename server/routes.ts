@@ -10767,6 +10767,29 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  // ── Public bulletin (admin-authored announcement shown on Home) ──────────
+  app.get("/api/bulletin", async (_req, res) => {
+    try {
+      const { rows } = await db.query(
+        `SELECT key, value FROM admin_settings
+         WHERE key IN ('bulletin_enabled','bulletin_title','bulletin_message','bulletin_style')`
+      );
+      const s: Record<string, string> = {};
+      rows.forEach((r: any) => { s[r.key] = r.value; });
+      const enabled = s["bulletin_enabled"] === "true";
+      const message = (s["bulletin_message"] ?? "").trim();
+      if (!enabled || !message) return res.json({ enabled: false });
+      res.json({
+        enabled: true,
+        title: (s["bulletin_title"] ?? "").trim(),
+        message,
+        style: s["bulletin_style"] || "info",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Admin financials ─────────────────────────────────────────────────────
   app.get("/api/admin/financials", async (_req, res) => {
     try {
