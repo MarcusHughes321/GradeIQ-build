@@ -45,3 +45,30 @@ export async function adminFetchSettings(): Promise<Record<string, string>> {
   if (!res.ok) throw new Error("Failed to fetch settings");
   return res.json();
 }
+
+// Generic authenticated admin request. Mirrors apiRequest from query-client but
+// injects the stored x-admin-password header and surfaces a 401 as a friendly
+// "session expired" error so admin screens can prompt a re-login. Returns the
+// raw Response (callers check res.ok / parse the body themselves), exactly like
+// apiRequest, so it is a drop-in replacement on admin-only endpoints.
+export async function adminApiRequest(
+  method: string,
+  route: string,
+  data?: unknown,
+): Promise<Response> {
+  const password = await getAdminPassword();
+  const url = new URL(route, getApiUrl());
+  const res = await fetch(url.toString(), {
+    method,
+    headers: {
+      ...(data ? { "Content-Type": "application/json" } : {}),
+      "x-admin-password": password,
+    },
+    body: data ? JSON.stringify(data) : undefined,
+    credentials: "include",
+  });
+  if (res.status === 401) {
+    throw new Error("Admin session expired — re-enter your admin code from Settings.");
+  }
+  return res;
+}

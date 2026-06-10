@@ -8,7 +8,7 @@
 - [Agentic tool-loop final answer](agentic-tool-loop-final-answer.md) — bounded Claude tool-use loops must drop tools on the final turn to force text, else they fall into a canned fallback.
 - [Trade-eval tool cash+grade](trade-tool-cash-and-grade.md) — AI trade evaluator invents a phantom card for an empty side unless cash+grade are first-class inputs; grade→tier map must cover every tier or graded cards silently price as raw.
 - [Verifying Expo UI](expo-ui-screenshot.md) — screenshot/app_preview hits port 5000 (API+landing), can't render Expo screens; use the testing skill (runTest) on 8081.
-- [Admin settings auth](admin-settings-auth.md) — settings + analytics + financials are all x-admin-password-gated; some other admin routes (price-flags/card-variants/scan-cache/trigger-picks) still open.
+- [Admin settings auth](admin-settings-auth.md) — all /api/admin/* data/action routes are x-admin-password-gated via top-level isAdminRequest; client uses adminApiRequest. Open: verify (login).
 - [Secret restart ordering](secret-restart-ordering.md) — restart a workflow only AFTER the "secrets have been added" confirmation, else it boots with the old secret value.
 - [Grading fee constants](grading-fee-constants.md) — fees live in 1 client module (constants/grading-fees.ts) + 2 server constants; update all together or the app contradicts itself.
 - [Always-mounted tab query staleness](mounted-tab-query-staleness.md) — permanently-mounted tab queries (Home) need refetchInterval + refetchOnMount:"always", not just staleTime.

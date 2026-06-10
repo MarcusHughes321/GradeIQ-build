@@ -4799,6 +4799,17 @@ async function logAiCost(
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Admin auth helper: admin-only endpoints (analytics, financials, settings,
+  // price-flags, card-variants, scan-cache, trigger jobs) require the admin
+  // password sent as an x-admin-password header, matched against ADMIN_PASSWORD.
+  // Defined at the top so every admin route below can use it.
+  const isAdminRequest = (req: any): boolean => {
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) return false;
+    const provided = req.headers["x-admin-password"];
+    return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
+  };
+
   // Ensure DB tables exist before any requests come in
   await initUsageTrackingTable();
   await initAdminUsersTable();
@@ -4889,7 +4900,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Price flags admin: count of flags needing review (lightweight) ────
-  app.get("/api/admin/price-flags/count", async (_req, res) => {
+  app.get("/api/admin/price-flags/count", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { rows } = await db.query<{ cnt: string }>(
         `SELECT COUNT(*) AS cnt FROM price_flags WHERE status = 'needs_admin'`
@@ -4937,6 +4949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/admin/price-flags", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { status } = req.query;
       let whereClause: string;
@@ -4983,6 +4996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Price flags admin: manual resolve ─────────────────────────────────
   app.post("/api/admin/price-flags/:id/resolve", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       const { outcome } = req.body ?? {}; // "resolved" | "no_fix"
@@ -5002,6 +5016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Price flags admin: apply Claude's suggested fix now ───────────────
   app.post("/api/admin/price-flags/:id/apply-fix", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       let { rows } = await db.query(
@@ -5117,6 +5132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Price flags admin: manual price override ──────────────────────────
   // Admin enters correct USD prices directly — writes to cache, marks resolved.
   app.post("/api/admin/price-flags/:id/manual-prices", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       const { prices } = req.body ?? {}; // e.g. { psa10: 380, psa9: 220, psa8: 120, raw: 60 }
@@ -5210,6 +5226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Fetches all ebay_price_cache entries, batches them to Claude with the
   // corrections history as context, and auto-creates flags for suspicious ones.
   app.post("/api/admin/scan-cache", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       // Fetch all cache entries
       const { rows: cacheRows } = await db.query<{
@@ -5366,6 +5383,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // ── Price flags admin: submit admin response → re-trigger AI ──────────
   app.post("/api/admin/price-flags/:id/respond", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       const { adminResponse } = req.body ?? {};
@@ -5599,6 +5617,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: list all variants (searchable)
   app.get("/api/admin/card-variants", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { search } = req.query;
       const { rows } = await db.query(
@@ -5615,6 +5634,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: create a variant
   app.post("/api/admin/card-variants", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { base_card_name, base_set_name, base_set_id, base_card_number,
               stamp_type, display_name, image_url, poketrace_search_term, notes } = req.body;
@@ -5635,6 +5655,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: update a variant
   app.patch("/api/admin/card-variants/:id", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { display_name, image_url, poketrace_search_term, notes } = req.body;
       await db.query(
@@ -5656,6 +5677,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: delete a variant
   app.delete("/api/admin/card-variants/:id", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       await db.query(`DELETE FROM card_variants WHERE id = $1`, [req.params.id]);
       return res.json({ ok: true });
@@ -5665,7 +5687,8 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
   });
 
   // Admin: sync from TCGdex stamp endpoints
-  app.post("/api/admin/card-variants/sync-tcgdex", async (_req, res) => {
+  app.post("/api/admin/card-variants/sync-tcgdex", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const stampTypes = [
         { tcgdex: "pre-release",      display: "Prerelease Stamp", type: "prerelease",       keyword: "prerelease" },
@@ -10688,16 +10711,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     bulk: 0.018,
   };
 
-  // Admin auth: these endpoints expose sensitive business data (revenue,
-  // subscriber counts, investment to date) and admin settings. Require the
-  // admin password, sent as an x-admin-password header (matched against
-  // ADMIN_PASSWORD). Defined here so every admin route below can use it.
-  const isAdminRequest = (req: any): boolean => {
-    const adminPassword = process.env.ADMIN_PASSWORD;
-    if (!adminPassword) return false;
-    const provided = req.headers["x-admin-password"];
-    return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
-  };
+  // Admin auth helper (isAdminRequest) is defined at the top of registerRoutes.
 
   app.get("/api/admin/analytics", async (req, res) => {
     if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
@@ -13240,6 +13254,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── Admin: manually trigger picks job ─────────────────────────────────────
   app.post("/api/admin/trigger-picks", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     const secret = req.headers["x-admin-secret"] || req.query.secret;
     if (secret !== "@dm!nM@rceus2026") {
       return res.status(401).json({ error: "Unauthorized" });
@@ -13265,6 +13280,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── Admin: trigger JP catalog image refresh (re-syncs all JP sets with updated image logic) ──
   app.post("/api/admin/trigger-jp-catalog-sync", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     const secret = req.headers["x-admin-secret"] || req.query.secret;
     if (secret !== "@dm!nM@rceus2026") return res.status(401).json({ error: "Unauthorized" });
     if (jpCatalogSyncRunning) return res.json({ status: "already_running" });

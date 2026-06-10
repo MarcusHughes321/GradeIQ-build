@@ -4,7 +4,7 @@ import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
-import { setAdminPassword } from "@/lib/admin-auth";
+import { setAdminPassword, adminApiRequest } from "@/lib/admin-auth";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
@@ -32,8 +32,7 @@ export default function SettingsScreen() {
   const { data: flagCountData } = useQuery<{ needsReview: number }>({
     queryKey: ["/api/admin/price-flags/count"],
     queryFn: async () => {
-      const url = new URL("/api/admin/price-flags/count", getApiUrl());
-      const res = await fetch(url.toString());
+      const res = await adminApiRequest("GET", "/api/admin/price-flags/count");
       return res.json();
     },
     enabled: isAdminMode,

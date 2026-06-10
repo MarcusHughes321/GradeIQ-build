@@ -17,7 +17,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { adminApiRequest } from "@/lib/admin-auth";
 import Colors from "@/constants/colors";
 
 type FlagStatus = "pending" | "ai_processing" | "needs_admin" | "resolved" | "no_fix";
@@ -120,8 +120,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
 
     const poll = async () => {
       try {
-        const url = new URL(`/api/admin/price-flags?status=needs_admin`, getApiUrl());
-        const res = await fetch(url.toString());
+        const res = await adminApiRequest("GET", `/api/admin/price-flags?status=needs_admin`);
         const body = await res.json();
         const updated: PriceFlag | undefined = body.flags?.find((f: PriceFlag) => f.id === flag.id);
         if (updated && !cancelled) {
@@ -141,12 +140,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
     if (!trimmed) return;
     setSending(true);
     try {
-      const url = new URL(`/api/admin/price-flags/${flag.id}/respond`, getApiUrl());
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminResponse: trimmed }),
-      });
+      const res = await adminApiRequest("POST", `/api/admin/price-flags/${flag.id}/respond`, { adminResponse: trimmed });
       if (!res.ok) throw new Error("Server error");
       // Stay on screen — show analysing state, poll for results
       setFlag(f => ({ ...f, status: "ai_processing", suggested_prices: null, suggested_card: null }));
@@ -172,12 +166,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
           onPress: async () => {
             setResolving(true);
             try {
-              const url = new URL(`/api/admin/price-flags/${flag.id}/resolve`, getApiUrl());
-              const res = await fetch(url.toString(), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ outcome }),
-              });
+              const res = await adminApiRequest("POST", `/api/admin/price-flags/${flag.id}/resolve`, { outcome });
               if (!res.ok) throw new Error("Server error");
               setFlag(f => ({ ...f, status: outcome, resolution_method: "admin", resolved_at: new Date().toISOString() }));
               qc.invalidateQueries({ queryKey: ["/api/admin/price-flags"] });
@@ -195,8 +184,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
   const handleApplyFix = useCallback(async () => {
     setApplyingFix(true);
     try {
-      const url = new URL(`/api/admin/price-flags/${flag.id}/apply-fix`, getApiUrl());
-      const res = await fetch(url.toString(), { method: "POST" });
+      const res = await adminApiRequest("POST", `/api/admin/price-flags/${flag.id}/apply-fix`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Server error");
       const outcome: "resolved" | "no_fix" = body.status;
@@ -234,12 +222,7 @@ function FlagDetail({ flag: initialFlag, onClose }: { flag: PriceFlag; onClose: 
     }
     setApplyingManual(true);
     try {
-      const url = new URL(`/api/admin/price-flags/${flag.id}/manual-prices`, getApiUrl());
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prices }),
-      });
+      const res = await adminApiRequest("POST", `/api/admin/price-flags/${flag.id}/manual-prices`, { prices });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Server error");
       setFlag(f => ({
@@ -630,8 +613,7 @@ export default function AdminPriceFlagsScreen() {
   const { data, isLoading, refetch } = useQuery<{ flags: PriceFlag[] }>({
     queryKey: ["/api/admin/price-flags", filterTab],
     queryFn: async () => {
-      const url = new URL(`/api/admin/price-flags?status=${filterTab}`, getApiUrl());
-      const res = await fetch(url.toString());
+      const res = await adminApiRequest("GET", `/api/admin/price-flags?status=${filterTab}`);
       if (!res.ok) throw new Error("Failed to load flags");
       return res.json();
     },
@@ -644,8 +626,7 @@ export default function AdminPriceFlagsScreen() {
     setScanning(true);
     setScanResult(null);
     try {
-      const url = new URL("/api/admin/scan-cache", getApiUrl());
-      const res = await fetch(url.toString(), { method: "POST" });
+      const res = await adminApiRequest("POST", "/api/admin/scan-cache");
       if (!res.ok) throw new Error("Scan failed");
       const body = await res.json();
       setScanResult({ scanned: body.scanned, claudeReviewed: body.claudeReviewed, flagged: body.flagged });
