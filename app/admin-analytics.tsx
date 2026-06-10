@@ -74,8 +74,6 @@ export default function AdminAnalyticsScreen() {
   const [activeTab, setActiveTab] = useState<"stats" | "finance">("stats");
   const [editingReplit, setEditingReplit] = useState(false);
   const [replitCostInput, setReplitCostInput] = useState("");
-  const [editingPlatformFee, setEditingPlatformFee] = useState(false);
-  const [platformFeeInput, setPlatformFeeInput] = useState("");
   const [editingAppleFee, setEditingAppleFee] = useState(false);
   const [appleFeeInput, setAppleFeeInput] = useState("");
   const [editingGoogleFee, setEditingGoogleFee] = useState(false);
@@ -119,16 +117,6 @@ export default function AdminAnalyticsScreen() {
       await saveSetting("replit_monthly_gbp", val.toFixed(2));
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
       setEditingReplit(false);
-    } catch { Alert.alert("Error", "Failed to save setting"); }
-  };
-
-  const savePlatformFee = async () => {
-    const val = parseFloat(platformFeeInput);
-    if (isNaN(val) || val < 0 || val > 100) { Alert.alert("Invalid", "Enter a percentage between 0 and 100"); return; }
-    try {
-      await saveSetting("platform_fee_pct", val.toFixed(1));
-      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
-      setEditingPlatformFee(false);
     } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
@@ -281,7 +269,7 @@ export default function AdminAnalyticsScreen() {
             showsVerticalScrollIndicator={false}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
           >
-            {fin ? (
+            {fin && fin.revenue?.byPlatform ? (
               <>
                 {/* ── Revenue Card (split by platform) ── */}
                 <Text style={styles.sectionTitle}>Revenue ({fin.month})</Text>
@@ -479,7 +467,13 @@ export default function AdminAnalyticsScreen() {
                         <View key={g.key} style={[styles.profitRow, i < fin.perGradeCost.length - 1 && styles.rowBorder]}>
                           <View style={{ flex: 1 }}>
                             <Text style={styles.profitLabel}>{g.label}</Text>
-                            <Text style={styles.profitSub}>{g.isReal ? `Real avg · ${g.calls} call${g.calls !== 1 ? "s" : ""}` : "Estimated"}</Text>
+                            <Text style={styles.profitSub}>
+                              {g.key === "bulk"
+                                ? "Same Claude call as Quick"
+                                : g.isReal
+                                  ? `Real avg · ${g.calls} call${g.calls !== 1 ? "s" : ""}`
+                                  : "Estimated"}
+                            </Text>
                           </View>
                           <Text style={styles.profitValue}>£{g.gbp.toFixed(4)}</Text>
                         </View>
