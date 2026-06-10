@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
+import { getAdminPassword } from "@/lib/admin-auth";
 import Colors from "@/constants/colors";
 
 const MODE_COLORS: Record<string, string> = {
@@ -47,18 +48,24 @@ async function fetchFinancials() {
 }
 
 async function saveSetting(key: string, value: string) {
+  const password = await getAdminPassword();
   const url = new URL("/api/admin/settings", getApiUrl());
   const res = await fetch(url.toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-admin-password": password },
     body: JSON.stringify({ key, value }),
   });
+  if (res.status === 401) throw new Error("Admin session expired — re-enter your admin code from Settings.");
   if (!res.ok) throw new Error("Failed to save setting");
 }
 
 async function fetchSettings(): Promise<Record<string, string>> {
+  const password = await getAdminPassword();
   const url = new URL("/api/admin/settings", getApiUrl());
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    headers: { "x-admin-password": password },
+  });
+  if (res.status === 401) throw new Error("Admin session expired — re-enter your admin code from Settings.");
   if (!res.ok) throw new Error("Failed to fetch settings");
   return res.json();
 }

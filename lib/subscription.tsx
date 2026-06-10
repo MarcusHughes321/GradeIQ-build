@@ -5,6 +5,7 @@ import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases"
 import { getApiUrl } from "@/lib/query-client";
 import { fetchServerHistory, uploadBulkGradings, uploadGradingImages, claimHistoryForStableId } from "@/lib/server-history";
 import { getStableUserId } from "@/lib/stable-user-id";
+import { clearAdminPassword } from "@/lib/admin-auth";
 import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Network from "expo-network";
@@ -325,6 +326,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     const next = !isAdminMode;
     setIsAdminMode(next);
     await AsyncStorage.setItem(ADMIN_KEY, next ? "enabled" : "disabled");
+    if (!next) await clearAdminPassword();
   }, [isAdminMode]);
 
   const syncTierToServer = async (rcUserId: string, tier: string) => {

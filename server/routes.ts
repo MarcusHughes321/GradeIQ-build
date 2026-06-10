@@ -10741,7 +10741,18 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   // ── Admin settings ──────────────────────────────────────────────────────
-  app.get("/api/admin/settings", async (_req, res) => {
+  // Admin auth: settings reads/writes require the admin password (sent as an
+  // x-admin-password header). The bulletin message is shown to ALL users, so an
+  // unauthenticated write here would be a phishing/defacement vector.
+  const isAdminRequest = (req: any): boolean => {
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) return false;
+    const provided = req.headers["x-admin-password"];
+    return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
+  };
+
+  app.get("/api/admin/settings", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { rows } = await db.query(`SELECT key, value FROM admin_settings`);
       const out: Record<string, string> = {};
@@ -10753,6 +10764,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   app.post("/api/admin/settings", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     const { key, value } = req.body as { key?: string; value?: string };
     if (!key || value === undefined) return res.status(400).json({ error: "key and value required" });
     try {

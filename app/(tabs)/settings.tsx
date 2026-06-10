@@ -4,6 +4,7 @@ import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
+import { setAdminPassword } from "@/lib/admin-auth";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
@@ -78,6 +79,7 @@ export default function SettingsScreen() {
         body: JSON.stringify({ password: adminCodeInput }),
       });
       if (res.ok) {
+        await setAdminPassword(adminCodeInput.trim());
         toggleAdminMode();
         setAdminModalVisible(false);
         setAdminCodeInput("");
