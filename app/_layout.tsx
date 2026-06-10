@@ -18,6 +18,7 @@ import { getSettings } from "@/lib/settings";
 
 SplashScreen.preventAutoHideAsync();
 
+const WELCOME_KEY = "gradeiq_welcome_seen";
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
 const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
 const WHATS_NEW_KEY = "gradeiq_whats_new_version";
@@ -26,12 +27,15 @@ const CURRENT_VERSION = "1.0.11";
 function RootLayoutNav() {
   useEffect(() => {
     Promise.all([
+      AsyncStorage.getItem(WELCOME_KEY),
       AsyncStorage.getItem(ONBOARDING_KEY),
       AsyncStorage.getItem(DISCLAIMER_KEY),
       AsyncStorage.getItem(WHATS_NEW_KEY),
       getSettings(),
-    ]).then(([onboardingVal, disclaimerVal, seenVersion, settings]) => {
-      if (onboardingVal !== "true") {
+    ]).then(([welcomeVal, onboardingVal, disclaimerVal, seenVersion, settings]) => {
+      if (welcomeVal !== "true" && onboardingVal !== "true") {
+        router.replace("/welcome");
+      } else if (onboardingVal !== "true") {
         router.replace("/onboarding");
       } else if (disclaimerVal !== "true") {
         router.replace("/disclaimer");
@@ -55,6 +59,7 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="welcome" options={{ animation: "fade" }} />
       <Stack.Screen name="onboarding" options={{ animation: "fade" }} />
       <Stack.Screen name="company-select" options={{ animation: "fade" }} />
       <Stack.Screen name="results" />
