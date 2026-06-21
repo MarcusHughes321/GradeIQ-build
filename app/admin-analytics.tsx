@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
+import { adminSaveSetting as saveSetting, getAdminPassword } from "@/lib/admin-auth";
 import Colors from "@/constants/colors";
 
 const MODE_COLORS: Record<string, string> = {
@@ -33,27 +34,21 @@ const MODE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 async function fetchAnalytics() {
+  const password = await getAdminPassword();
   const url = new URL("/api/admin/analytics", getApiUrl());
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { "x-admin-password": password } });
+  if (res.status === 401) throw new Error("Admin session expired — re-enter your admin code from Settings.");
   if (!res.ok) throw new Error("Failed to fetch analytics");
   return res.json();
 }
 
 async function fetchFinancials() {
+  const password = await getAdminPassword();
   const url = new URL("/api/admin/financials", getApiUrl());
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: { "x-admin-password": password } });
+  if (res.status === 401) throw new Error("Admin session expired — re-enter your admin code from Settings.");
   if (!res.ok) throw new Error("Failed to fetch financials");
   return res.json();
-}
-
-async function saveSetting(key: string, value: string) {
-  const url = new URL("/api/admin/settings", getApiUrl());
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key, value }),
-  });
-  if (!res.ok) throw new Error("Failed to save setting");
 }
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
@@ -83,8 +78,10 @@ export default function AdminAnalyticsScreen() {
   const [activeTab, setActiveTab] = useState<"stats" | "finance">("stats");
   const [editingReplit, setEditingReplit] = useState(false);
   const [replitCostInput, setReplitCostInput] = useState("");
-  const [editingPlatformFee, setEditingPlatformFee] = useState(false);
-  const [platformFeeInput, setPlatformFeeInput] = useState("");
+  const [editingAppleFee, setEditingAppleFee] = useState(false);
+  const [appleFeeInput, setAppleFeeInput] = useState("");
+  const [editingGoogleFee, setEditingGoogleFee] = useState(false);
+  const [googleFeeInput, setGoogleFeeInput] = useState("");
   const [editingReplitTotal, setEditingReplitTotal] = useState(false);
   const [replitTotalInput, setReplitTotalInput] = useState("");
   const [editingApple, setEditingApple] = useState(false);
@@ -103,12 +100,14 @@ export default function AdminAnalyticsScreen() {
     queryKey: ["/api/admin/analytics"],
     queryFn: fetchAnalytics,
     refetchInterval: 30000,
+    retry: false,
   });
 
   const { data: fin, isLoading: finLoading, refetch: finRefetch } = useQuery({
     queryKey: ["/api/admin/financials"],
     queryFn: fetchFinancials,
     refetchInterval: 60000,
+    retry: false,
   });
 
   const onRefresh = async () => {
@@ -127,13 +126,23 @@ export default function AdminAnalyticsScreen() {
     } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
-  const savePlatformFee = async () => {
-    const val = parseFloat(platformFeeInput);
+  const saveAppleFee = async () => {
+    const val = parseFloat(appleFeeInput);
     if (isNaN(val) || val < 0 || val > 100) { Alert.alert("Invalid", "Enter a percentage between 0 and 100"); return; }
     try {
-      await saveSetting("platform_fee_pct", val.toFixed(1));
+      await saveSetting("apple_fee_pct", val.toFixed(1));
       await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
-      setEditingPlatformFee(false);
+      setEditingAppleFee(false);
+    } catch { Alert.alert("Error", "Failed to save setting"); }
+  };
+
+  const saveGoogleFee = async () => {
+    const val = parseFloat(googleFeeInput);
+    if (isNaN(val) || val < 0 || val > 100) { Alert.alert("Invalid", "Enter a percentage between 0 and 100"); return; }
+    try {
+      await saveSetting("google_fee_pct", val.toFixed(1));
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/financials"] });
+      setEditingGoogleFee(false);
     } catch { Alert.alert("Error", "Failed to save setting"); }
   };
 
@@ -202,7 +211,14 @@ export default function AdminAnalyticsScreen() {
   const daily: { day: string; count: string; cards: string }[] = data?.daily || [];
   const recent: { job_id: string; mode: string; card_count: number; status: string; created_at: string; duration_secs: number | null }[] = data?.recent || [];
   const rc: Record<string, number> | null = data?.rc ?? null;
-  const rcTiers: { curious: number; enthusiast: number; obsessed: number; other: number; productIds?: string[] } | null = data?.rcTiers ?? null;
+  const rcTiers: {
+    curious: number; enthusiast: number; obsessed: number; other: number; productIds?: string[];
+    byPlatform?: {
+      ios: { curious: number; enthusiast: number; obsessed: number };
+      android: { curious: number; enthusiast: number; obsessed: number };
+      other: { curious: number; enthusiast: number; obsessed: number };
+    };
+  } | null = data?.rcTiers ?? null;
   const costs: { byMode: Record<string, number>; totalUsd: number } | null = data?.costs ?? null;
   const revenue: { mrrUsd: number; revenueUsd: number; profitUsd: number; marginPct: number } | null = data?.revenue ?? null;
 
@@ -259,51 +275,97 @@ export default function AdminAnalyticsScreen() {
             showsVerticalScrollIndicator={false}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
           >
-            {fin ? (
+            {fin && fin.revenue?.byPlatform ? (
               <>
-                {/* ── Revenue Card ── */}
+                {/* ── Revenue Card (split by platform) ── */}
                 <Text style={styles.sectionTitle}>Revenue ({fin.month})</Text>
                 <View style={styles.card}>
+                  {/* iPhone — App Store */}
                   <View style={[styles.profitRow, styles.rowBorder]}>
-                    <View>
-                      <Text style={styles.profitLabel}>Gross MRR</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>iPhone — App Store</Text>
                       <Text style={styles.profitSub}>
-                        {fin.tiers.curious} Curious · {fin.tiers.enthusiast} Enthusiast · {fin.tiers.obsessed} Obsessed
+                        {fin.revenue.byPlatform.ios.curious} Curious · {fin.revenue.byPlatform.ios.enthusiast} Enthusiast · {fin.revenue.byPlatform.ios.obsessed} Obsessed
                       </Text>
                     </View>
-                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.grossMrrGbp.toFixed(2)}</Text>
+                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.byPlatform.ios.grossGbp.toFixed(2)}</Text>
                   </View>
                   <Pressable
-                    onPress={() => {
-                      setPlatformFeeInput(fin.revenue.platformFeePct.toString());
-                      setEditingPlatformFee(true);
-                    }}
+                    onPress={() => { setAppleFeeInput(fin.revenue.appleFeePct.toString()); setEditingAppleFee(true); }}
                     style={[styles.profitRow, styles.rowBorder]}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.profitLabel}>Platform Fee ({fin.revenue.platformFeePct}%)</Text>
-                      <Text style={styles.profitSub}>Apple SBP=15% · Standard=30% · Tap to edit</Text>
+                      <Text style={styles.profitLabel}>Apple Fee ({fin.revenue.appleFeePct}%)</Text>
+                      <Text style={styles.profitSub}>SBP=15% · Standard=30% · Tap to edit</Text>
                     </View>
-                    {editingPlatformFee ? (
+                    {editingAppleFee ? (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <TextInput
                           style={[styles.finInput, { width: 50 }]}
-                          value={platformFeeInput}
-                          onChangeText={setPlatformFeeInput}
+                          value={appleFeeInput}
+                          onChangeText={setAppleFeeInput}
                           keyboardType="decimal-pad"
                           autoFocus
-                          onBlur={savePlatformFee}
-                          onSubmitEditing={savePlatformFee}
+                          onBlur={saveAppleFee}
+                          onSubmitEditing={saveAppleFee}
                         />
                         <Text style={styles.profitValue}>%</Text>
                       </View>
                     ) : (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.platformFeeGbp.toFixed(2)}</Text>
+                        <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.byPlatform.ios.feeGbp.toFixed(2)}</Text>
                         <Ionicons name="pencil" size={12} color={Colors.textMuted} />
                       </View>
                     )}
                   </Pressable>
+                  {/* Android — Play Store */}
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>Android — Play Store</Text>
+                      <Text style={styles.profitSub}>
+                        {fin.revenue.byPlatform.android.curious} Curious · {fin.revenue.byPlatform.android.enthusiast} Enthusiast · {fin.revenue.byPlatform.android.obsessed} Obsessed
+                      </Text>
+                    </View>
+                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.byPlatform.android.grossGbp.toFixed(2)}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => { setGoogleFeeInput(fin.revenue.googleFeePct.toString()); setEditingGoogleFee(true); }}
+                    style={[styles.profitRow, styles.rowBorder]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>Google Fee ({fin.revenue.googleFeePct}%)</Text>
+                      <Text style={styles.profitSub}>15% first year · 30% standard · Tap to edit</Text>
+                    </View>
+                    {editingGoogleFee ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <TextInput
+                          style={[styles.finInput, { width: 50 }]}
+                          value={googleFeeInput}
+                          onChangeText={setGoogleFeeInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onBlur={saveGoogleFee}
+                          onSubmitEditing={saveGoogleFee}
+                        />
+                        <Text style={styles.profitValue}>%</Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.byPlatform.android.feeGbp.toFixed(2)}</Text>
+                        <Ionicons name="pencil" size={12} color={Colors.textMuted} />
+                      </View>
+                    )}
+                  </Pressable>
+                  {/* Other (web / promo) — only when present */}
+                  {fin.revenue.byPlatform.other.grossGbp > 0 && (
+                    <View style={[styles.profitRow, styles.rowBorder]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.profitLabel}>Other (Web / Promo)</Text>
+                        <Text style={styles.profitSub}>No store fee applied</Text>
+                      </View>
+                      <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.byPlatform.other.grossGbp.toFixed(2)}</Text>
+                    </View>
+                  )}
                   {fin.revenue.rcFeeGbp > 0 && (
                     <View style={[styles.profitRow, styles.rowBorder]}>
                       <Text style={styles.profitLabel}>RevenueCat Fee (1%)</Text>
@@ -401,6 +463,30 @@ export default function AdminAnalyticsScreen() {
                     <Text style={[styles.profitValue, { color: "#F87171", fontSize: 18 }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
                   </View>
                 </View>
+
+                {/* ── AI Cost per Grade Type ── */}
+                {Array.isArray(fin.perGradeCost) && fin.perGradeCost.length > 0 && (
+                  <>
+                    <Text style={styles.sectionTitle}>AI Cost per Grade Type</Text>
+                    <View style={styles.card}>
+                      {fin.perGradeCost.map((g: any, i: number) => (
+                        <View key={g.key} style={[styles.profitRow, i < fin.perGradeCost.length - 1 && styles.rowBorder]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.profitLabel}>{g.label}</Text>
+                            <Text style={styles.profitSub}>
+                              {g.key === "bulk"
+                                ? "Same Claude call as Quick"
+                                : g.isReal
+                                  ? `Real avg · ${g.calls} call${g.calls !== 1 ? "s" : ""}`
+                                  : "Estimated"}
+                            </Text>
+                          </View>
+                          <Text style={styles.profitValue}>£{g.gbp.toFixed(4)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
 
                 {/* ── Investment to Date ── */}
                 <Text style={styles.sectionTitle}>Investment to Date</Text>
@@ -581,30 +667,50 @@ export default function AdminAnalyticsScreen() {
                   </View>
                 </View>
 
-                {/* ── P&L Card ── */}
-                <Text style={styles.sectionTitle}>Profit & Loss</Text>
+                {/* ── Step-by-step P&L ── */}
+                <Text style={styles.sectionTitle}>Profit & Loss (step by step)</Text>
                 <View style={[styles.plCard, { borderColor: fin.pl.isProfit ? "rgba(52,211,153,0.3)" : "rgba(255,60,49,0.3)" }]}>
-                  <View style={styles.plBig}>
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <Text style={styles.profitLabel}>1. Gross MRR</Text>
+                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.grossMrrGbp.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>2. − Store fees</Text>
+                      <Text style={styles.profitSub}>Apple £{fin.revenue.byPlatform.ios.feeGbp.toFixed(2)} + Google £{fin.revenue.byPlatform.android.feeGbp.toFixed(2)}</Text>
+                    </View>
+                    <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.platformFeeGbp.toFixed(2)}</Text>
+                  </View>
+                  {fin.revenue.rcFeeGbp > 0 && (
+                    <View style={[styles.profitRow, styles.rowBorder]}>
+                      <Text style={styles.profitLabel}>3. − RevenueCat fee (1%)</Text>
+                      <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.revenue.rcFeeGbp.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <Text style={[styles.profitLabel, { fontFamily: "Inter_700Bold" }]}>= Net MRR</Text>
+                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.netMrrGbp.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.profitRow, styles.rowBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.profitLabel}>4. − Monthly running costs</Text>
+                      <Text style={styles.profitSub}>AI £{fin.costs.aiThisMonthGbp.toFixed(2)} · Replit £{fin.costs.replitMonthlyGbp.toFixed(2)} · PokeTrace £{fin.costs.poktraceMonthlyGbp.toFixed(2)}</Text>
+                    </View>
+                    <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.plBig, { borderTopWidth: 1, borderTopColor: Colors.surfaceBorder, marginTop: 4 }]}>
                     <Text style={[styles.plAmount, { color: fin.pl.isProfit ? "#34D399" : "#FF3C31" }]}>
                       {fin.pl.isProfit ? "+" : ""}£{fin.pl.profitGbp.toFixed(2)}
                     </Text>
                     <Text style={styles.plLabel}>
-                      {fin.pl.isProfit ? "Profit" : "Loss"} this month
+                      = {fin.pl.isProfit ? "Profit" : "Loss"} this month
                     </Text>
                     <Text style={[styles.plMargin, { color: fin.pl.marginPct >= 60 ? "#34D399" : fin.pl.marginPct >= 30 ? "#F59E0B" : "#FF3C31" }]}>
                       {fin.pl.marginPct}% margin
                     </Text>
                   </View>
-                  <View style={[styles.profitRow, styles.rowBorder, { borderTopWidth: 1 }]}>
-                    <Text style={styles.profitLabel}>Net MRR</Text>
-                    <Text style={[styles.profitValue, { color: "#34D399" }]}>£{fin.revenue.netMrrGbp.toFixed(2)}</Text>
-                  </View>
-                  <View style={[styles.profitRow, fin.pl.breakevenMonths !== null ? styles.rowBorder : {}]}>
-                    <Text style={styles.profitLabel}>Monthly Costs</Text>
-                    <Text style={[styles.profitValue, { color: "#F87171" }]}>-£{fin.costs.totalGbp.toFixed(2)}</Text>
-                  </View>
                   {fin.pl.breakevenMonths !== null && (
-                    <View style={styles.profitRow}>
+                    <View style={[styles.profitRow, { borderTopWidth: 1, borderTopColor: Colors.surfaceBorder }]}>
                       <View>
                         <Text style={styles.profitLabel}>Investment Payback</Text>
                         <Text style={styles.profitSub}>£{fin.costsToDate?.totalInvestedGbp?.toFixed(0) ?? "?"} total ÷ £{fin.pl.profitGbp.toFixed(0)}/mo</Text>
@@ -718,17 +824,33 @@ export default function AdminAnalyticsScreen() {
                       { key: "curious", label: "Grade Curious", color: "#60A5FA", icon: "sparkles" as const },
                       { key: "enthusiast", label: "Grade Enthusiast", color: "#F59E0B", icon: "flame" as const },
                       { key: "obsessed", label: "Grade Obsessed", color: "#A78BFA", icon: "diamond" as const },
-                    ] as const).map((tier, i) => (
-                      <View key={tier.key} style={[styles.tierRow, styles.rowBorder]}>
-                        <View style={[styles.tierIconWrap, { backgroundColor: tier.color + "18" }]}>
-                          <Ionicons name={tier.icon} size={16} color={tier.color} />
+                    ] as const).map((tier) => {
+                      const ios = rcTiers.byPlatform?.ios?.[tier.key] ?? 0;
+                      const android = rcTiers.byPlatform?.android?.[tier.key] ?? 0;
+                      const otherP = rcTiers.byPlatform?.other?.[tier.key] ?? 0;
+                      return (
+                        <View key={tier.key} style={[styles.tierRow, styles.rowBorder]}>
+                          <View style={[styles.tierIconWrap, { backgroundColor: tier.color + "18" }]}>
+                            <Ionicons name={tier.icon} size={16} color={tier.color} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.tierLabel}>{tier.label}</Text>
+                            <View style={styles.tierPlatformRow}>
+                              <Ionicons name="logo-apple" size={11} color={Colors.textMuted} />
+                              <Text style={styles.tierPlatformText}>{ios}</Text>
+                              <Ionicons name="logo-android" size={11} color={Colors.textMuted} style={{ marginLeft: 10 }} />
+                              <Text style={styles.tierPlatformText}>{android}</Text>
+                              {otherP > 0 && (
+                                <Text style={[styles.tierPlatformText, { marginLeft: 10 }]}>· Other {otherP}</Text>
+                              )}
+                            </View>
+                          </View>
+                          <Text style={[styles.tierCount, { color: tier.color }]}>
+                            {rcTiers[tier.key]}
+                          </Text>
                         </View>
-                        <Text style={styles.tierLabel}>{tier.label}</Text>
-                        <Text style={[styles.tierCount, { color: tier.color }]}>
-                          {rcTiers[tier.key]}
-                        </Text>
-                      </View>
-                    ))}
+                      );
+                    })}
                     {(rcTiers.other ?? 0) > 0 && (
                       <View style={styles.tierRow}>
                         <View style={[styles.tierIconWrap, { backgroundColor: Colors.textMuted + "18" }]}>
@@ -1128,6 +1250,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
     marginTop: 1,
+  },
+  tierPlatformRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 3,
+  },
+  tierPlatformText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginLeft: 3,
   },
   tierWarning: {
     fontFamily: "Inter_400Regular",

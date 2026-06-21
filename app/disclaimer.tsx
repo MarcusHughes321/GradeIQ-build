@@ -87,6 +87,18 @@ export default function DisclaimerScreen() {
               </Text>
             </View>
           </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.bulletRow}>
+            <Ionicons name="person-circle-outline" size={20} color={Colors.primary} />
+            <View style={styles.bulletContent}>
+              <Text style={styles.bulletTitle}>Independent & Early-Stage</Text>
+              <Text style={styles.bulletBody}>
+                Grade.IQ is a new, independently built app developed and maintained by a single developer (Marceus). You may occasionally experience bugs or service disruptions. We are actively working to improve the app and resolve issues as quickly as possible. Thank you for your patience and support.
+              </Text>
+            </View>
+          </View>
         </View>
 
         <Text style={styles.trademark}>

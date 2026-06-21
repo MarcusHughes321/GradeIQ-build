@@ -8,7 +8,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/query-client";
+import { adminApiRequest } from "@/lib/admin-auth";
 import Colors from "@/constants/colors";
 
 interface CardVariant {
@@ -68,7 +68,7 @@ export default function AdminCardVariants() {
   const { data: variants = [], isLoading, refetch } = useQuery<CardVariant[]>({
     queryKey: ["/api/admin/card-variants", search],
     queryFn: () =>
-      apiRequest("GET", `/api/admin/card-variants${search ? `?search=${encodeURIComponent(search)}` : ""}`)
+      adminApiRequest("GET", `/api/admin/card-variants${search ? `?search=${encodeURIComponent(search)}` : ""}`)
         .then(r => r.json()),
     staleTime: 0,
   });
@@ -76,14 +76,14 @@ export default function AdminCardVariants() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (editingId) {
-        return apiRequest("PATCH", `/api/admin/card-variants/${editingId}`, {
+        return adminApiRequest("PATCH", `/api/admin/card-variants/${editingId}`, {
           display_name: form.display_name || undefined,
           image_url: form.image_url || undefined,
           poketrace_search_term: form.poketrace_search_term || undefined,
           notes: form.notes || undefined,
         });
       }
-      return apiRequest("POST", "/api/admin/card-variants", {
+      return adminApiRequest("POST", "/api/admin/card-variants", {
         base_card_name: form.base_card_name,
         base_set_name: form.base_set_name || null,
         base_card_number: form.base_card_number || null,
@@ -104,7 +104,7 @@ export default function AdminCardVariants() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/card-variants/${id}`),
+    mutationFn: (id: number) => adminApiRequest("DELETE", `/api/admin/card-variants/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/card-variants"] }),
     onError: (e: any) => Alert.alert("Error", e.message),
   });
@@ -134,7 +134,7 @@ export default function AdminCardVariants() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const r = await apiRequest("POST", "/api/admin/card-variants/sync-tcgdex");
+      const r = await adminApiRequest("POST", "/api/admin/card-variants/sync-tcgdex");
       const data = await r.json();
       Alert.alert("Sync Complete", `Added ${data.added} new variants, skipped ${data.skipped} existing.`);
       qc.invalidateQueries({ queryKey: ["/api/admin/card-variants"] });

@@ -44,10 +44,30 @@ type CardResult = {
   number: string;
   imageUrl: string | null;
   priceUsd: number | null;
+  rarity?: string | null;
   lang?: string;
 };
 
 type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
+
+type DealSideCard = { cardName: string; setName: string; number?: string; imageUrl: string | null; value: number | null; alternatives?: CardResult[] };
+type DealSide = { cards: DealSideCard[]; cash?: number | null; total: number };
+type DealVerdict = {
+  gave: DealSide;
+  received: DealSide;
+  net: number;
+  verdict: "good" | "fair" | "bad" | "incomplete";
+  complete: boolean;
+  grade?: string | null;
+};
+type ProfitBreakdown = {
+  cardName: string;
+  raw: number | null;
+  gradedLabel: string;
+  gradedValue: number;
+  fee: number;
+  net: number | null;
+};
 
 type Message = {
   id: string;
@@ -56,6 +76,10 @@ type Message = {
   prices?: Prices | null;
   cards?: CardResult[] | null;
   segments?: Segment[] | null;
+  options?: CardResult[] | null;
+  needsSelection?: boolean;
+  deal?: DealVerdict | null;
+  profit?: ProfitBreakdown | null;
   isError?: boolean;
   retryText?: string;
 };
@@ -229,12 +253,12 @@ function BotAvatar() {
   );
 }
 
-function CardThumb({ card, style }: { card: CardResult; style?: object }) {
+function CardThumb({ card, style, onPress }: { card: CardResult; style?: object; onPress?: () => void }) {
   const { Image } = require("expo-image");
   return (
     <Pressable
       style={({ pressed }) => [cardRowStyles.thumb, style, { opacity: pressed ? 0.7 : 1 }]}
-      onPress={() =>
+      onPress={onPress ? onPress : () =>
         router.push({
           pathname: "/card-profit",
           params: {
@@ -282,6 +306,31 @@ function CardRow({ cards }: { cards: CardResult[] }) {
     </View>
   );
 }
+
+function CardPicker({ options, onSelect, disabled }: { options: CardResult[]; onSelect: (card: CardResult) => void; disabled?: boolean }) {
+  if (options.length === 0) return null;
+  return (
+    <View style={pickerStyles.grid}>
+      {options.map(c => (
+        <View key={c.cardId} style={pickerStyles.cell}>
+          <CardThumb card={c} style={pickerStyles.thumb} onPress={disabled ? () => {} : () => onSelect(c)} />
+          <View style={pickerStyles.tapHint}>
+            <Ionicons name="hand-left-outline" size={11} color={Colors.primary} />
+            <Text style={pickerStyles.tapHintText}>Tap</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const pickerStyles = StyleSheet.create({
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 12 },
+  cell: { alignItems: "center", gap: 4 },
+  thumb: { width: 86 },
+  tapHint: { flexDirection: "row", alignItems: "center", gap: 3 },
+  tapHintText: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.primary },
+});
 
 const inlineCardStyles = StyleSheet.create({
   wrap: {
@@ -375,8 +424,216 @@ const priceStyles = StyleSheet.create({
   value: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
 });
 
+function DealSideColumn({ title, side, sideName, onCorrect, disabled }: {
+  title: string;
+  side: DealSide;
+  sideName: "gave" | "received";
+  onCorrect?: (side: "gave" | "received", index: number, chosen: CardResult) => void;
+  disabled?: boolean;
+}) {
+  const { Image } = require("expo-image");
+  const hasCash = side.cash != null && side.cash > 0;
+  const [openIdx, setOpenIdx] = useState<number>(-1);
+  return (
+    <View style={dealStyles.col}>
+      <Text style={dealStyles.colTitle}>{title}</Text>
+      {hasCash && (
+        <View style={dealStyles.dealCard}>
+          <View style={[dealStyles.dealThumb, dealStyles.cashThumb]}>
+            <Ionicons name="cash-outline" size={16} color={Colors.success} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={dealStyles.dealName} numberOfLines={1}>Cash</Text>
+            <Text style={dealStyles.dealValue}>£{side.cash!.toFixed(0)}</Text>
+          </View>
+        </View>
+      )}
+      {side.cards.map((c, i) => {
+        const canCorrect = !disabled && !!onCorrect && Array.isArray(c.alternatives) && c.alternatives.length > 1;
+        const isOpen = openIdx === i;
+        return (
+          <View key={i}>
+            <Pressable
+              onPress={canCorrect ? () => setOpenIdx(isOpen ? -1 : i) : undefined}
+              style={({ pressed }) => [dealStyles.dealCard, { opacity: canCorrect && pressed ? 0.6 : 1 }]}
+            >
+              {c.imageUrl ? (
+                <Image source={{ uri: c.imageUrl }} style={dealStyles.dealThumb} contentFit="cover" />
+              ) : (
+                <View style={[dealStyles.dealThumb, dealStyles.dealThumbPlaceholder]}>
+                  <Ionicons name="image-outline" size={14} color={Colors.textMuted} />
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={dealStyles.dealName} numberOfLines={2}>{c.cardName}{c.number ? ` #${c.number}` : ""}</Text>
+                <Text style={dealStyles.dealValue}>{c.value != null ? `£${c.value.toFixed(0)}` : "—"}</Text>
+              </View>
+              {canCorrect && (
+                <Ionicons name={isOpen ? "chevron-up" : "create-outline"} size={13} color={Colors.primary} />
+              )}
+            </Pressable>
+            {canCorrect && isOpen && (
+              <View style={dealStyles.altBox}>
+                <Text style={dealStyles.altHint}>Wrong card? Tap the right one:</Text>
+                {c.alternatives!.map(alt => {
+                  const selected = alt.number === c.number;
+                  return (
+                    <Pressable
+                      key={alt.cardId}
+                      onPress={() => { setOpenIdx(-1); onCorrect!(sideName, i, alt); }}
+                      style={({ pressed }) => [dealStyles.altRow, selected && dealStyles.altRowActive, { opacity: pressed ? 0.6 : 1 }]}
+                    >
+                      {alt.imageUrl ? (
+                        <Image source={{ uri: alt.imageUrl }} style={dealStyles.altThumb} contentFit="cover" />
+                      ) : (
+                        <View style={[dealStyles.altThumb, dealStyles.dealThumbPlaceholder]}>
+                          <Ionicons name="image-outline" size={12} color={Colors.textMuted} />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={dealStyles.altName} numberOfLines={1}>{alt.cardName}{alt.number ? ` #${alt.number}` : ""}</Text>
+                        {alt.rarity ? <Text style={dealStyles.altRarity} numberOfLines={1}>{alt.rarity}</Text> : null}
+                      </View>
+                      {alt.priceUsd != null ? <Text style={dealStyles.altPrice}>£{(alt.priceUsd * 0.79).toFixed(0)} raw</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        );
+      })}
+      {!hasCash && side.cards.length === 0 && <Text style={dealStyles.dealValue}>—</Text>}
+      <Text style={dealStyles.colTotal}>£{side.total.toFixed(0)}</Text>
+    </View>
+  );
+}
+
+function DealCard({ deal, onReevaluate, disabled }: { deal: DealVerdict; onReevaluate?: (msg: string) => void; disabled?: boolean }) {
+  const VERDICT: Record<DealVerdict["verdict"], { label: string; color: string; bg: string }> = {
+    good: { label: "Good deal", color: Colors.success, bg: "rgba(16,185,129,0.12)" },
+    fair: { label: "Fair deal", color: Colors.warning, bg: "rgba(245,158,11,0.12)" },
+    bad: { label: "Bad deal", color: Colors.primary, bg: "rgba(255,60,49,0.12)" },
+    incomplete: { label: "Can't fully price", color: Colors.textMuted, bg: Colors.surface },
+  };
+  const v = VERDICT[deal.verdict];
+  const netPositive = deal.net >= 0;
+  const paidCash = (deal.gave.cash ?? 0) > 0 && deal.gave.cards.length === 0;
+
+  // Rebuild the deal as an explicit instruction with the corrected card swapped
+  // in (numbers included so the server matches the exact printing), then re-ask.
+  const handleCorrect = (sideName: "gave" | "received", index: number, chosen: CardResult) => {
+    if (!onReevaluate) return;
+    const describe = (s: DealSide, name: "gave" | "received") =>
+      s.cards.map((c, i) => {
+        const card = (name === sideName && i === index)
+          ? { cardName: chosen.cardName, number: chosen.number, setName: chosen.setName }
+          : { cardName: c.cardName, number: c.number ?? "", setName: c.setName };
+        return `${card.cardName}${card.number ? ` #${card.number}` : ""} from ${card.setName}`;
+      });
+    const gParts: string[] = [];
+    if ((deal.gave.cash ?? 0) > 0) gParts.push(`£${deal.gave.cash} cash`);
+    gParts.push(...describe(deal.gave, "gave"));
+    const rParts: string[] = [];
+    if ((deal.received.cash ?? 0) > 0) rParts.push(`£${deal.received.cash} cash`);
+    rParts.push(...describe(deal.received, "received"));
+    const gradeStr = deal.grade ? ` at ${deal.grade}` : "";
+    onReevaluate(`Re-evaluate this exact deal${gradeStr}. I gave: ${gParts.join(", ") || "nothing"}. I received: ${rParts.join(", ") || "nothing"}.`);
+  };
+
+  return (
+    <View style={dealStyles.card}>
+      {deal.grade ? <Text style={dealStyles.gradeTag}>{deal.grade} values</Text> : null}
+      <View style={dealStyles.columns}>
+        <DealSideColumn title={paidCash ? "You paid" : "You gave"} side={deal.gave} sideName="gave" onCorrect={handleCorrect} disabled={disabled} />
+        <View style={dealStyles.swap}>
+          <Ionicons name="swap-horizontal" size={18} color={Colors.textMuted} />
+        </View>
+        <DealSideColumn title="You got" side={deal.received} sideName="received" onCorrect={handleCorrect} disabled={disabled} />
+      </View>
+      <View style={dealStyles.footer}>
+        <View style={[dealStyles.badge, { backgroundColor: v.bg }]}>
+          <Text style={[dealStyles.badgeText, { color: v.color }]}>{v.label}</Text>
+        </View>
+        {deal.complete && (
+          <Text style={[dealStyles.net, { color: netPositive ? Colors.success : Colors.primary }]}>
+            {netPositive ? "+" : "−"}£{Math.abs(deal.net).toFixed(0)}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const dealStyles = StyleSheet.create({
+  card: { marginTop: 10, backgroundColor: Colors.background, borderRadius: 10, padding: 12 },
+  columns: { flexDirection: "row", alignItems: "flex-start" },
+  col: { flex: 1, gap: 6 },
+  colTitle: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  swap: { paddingHorizontal: 8, paddingTop: 24 },
+  gradeTag: { fontFamily: "Inter_700Bold", fontSize: 10, color: Colors.primary, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
+  dealCard: { flexDirection: "row", gap: 6, alignItems: "center" },
+  dealThumb: { width: 34, height: 48, borderRadius: 4, backgroundColor: Colors.surface },
+  dealThumbPlaceholder: { alignItems: "center", justifyContent: "center" },
+  cashThumb: { alignItems: "center", justifyContent: "center", backgroundColor: "rgba(16,185,129,0.12)" },
+  dealName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text, lineHeight: 14 },
+  dealValue: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textSecondary, marginTop: 1 },
+  colTotal: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.text, marginTop: 2 },
+  footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
+  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  badgeText: { fontFamily: "Inter_700Bold", fontSize: 12 },
+  net: { fontFamily: "Inter_700Bold", fontSize: 18 },
+  altBox: { marginTop: 6, marginBottom: 4, backgroundColor: Colors.surface, borderRadius: 8, padding: 8, gap: 6 },
+  altHint: { fontFamily: "Inter_600SemiBold", fontSize: 10, color: Colors.primary, marginBottom: 2 },
+  altRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  altRowActive: { opacity: 1 },
+  altThumb: { width: 28, height: 40, borderRadius: 3, backgroundColor: Colors.background },
+  altName: { fontFamily: "Inter_500Medium", fontSize: 11, color: Colors.text },
+  altRarity: { fontFamily: "Inter_400Regular", fontSize: 9, color: Colors.textMuted, marginTop: 1 },
+  altPrice: { fontFamily: "Inter_700Bold", fontSize: 11, color: Colors.textSecondary },
+});
+
+function ProfitCard({ profit }: { profit: ProfitBreakdown }) {
+  const netPositive = profit.net != null && profit.net >= 0;
+  return (
+    <View style={profitStyles.card}>
+      <Text style={profitStyles.title}>{profit.cardName} · {profit.gradedLabel}</Text>
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.label}>Raw cost</Text>
+        <Text style={profitStyles.value}>{profit.raw != null ? `£${profit.raw.toFixed(0)}` : "—"}</Text>
+      </View>
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.label}>Grading fee</Text>
+        <Text style={profitStyles.value}>−£{profit.fee.toFixed(0)}</Text>
+      </View>
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.label}>{profit.gradedLabel} value</Text>
+        <Text style={profitStyles.value}>£{profit.gradedValue.toFixed(0)}</Text>
+      </View>
+      <View style={profitStyles.divider} />
+      <View style={profitStyles.row}>
+        <Text style={profitStyles.netLabel}>Net profit</Text>
+        <Text style={[profitStyles.netValue, { color: profit.net == null ? Colors.textMuted : netPositive ? Colors.success : Colors.primary }]}>
+          {profit.net == null ? "—" : `${netPositive ? "+" : "−"}£${Math.abs(profit.net).toFixed(0)}`}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const profitStyles = StyleSheet.create({
+  card: { marginTop: 10, backgroundColor: Colors.background, borderRadius: 10, padding: 12, gap: 7 },
+  title: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: Colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  label: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
+  value: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.text },
+  divider: { height: 1, backgroundColor: Colors.surfaceBorder, marginVertical: 2 },
+  netLabel: { fontFamily: "Inter_700Bold", fontSize: 14, color: Colors.text },
+  netValue: { fontFamily: "Inter_700Bold", fontSize: 18 },
+});
+
 function AssistantBubble({
-  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry,
+  msg, isSpeaking, isPaused, isTtsLoading, onSpeak, onPauseResume, onStop, onRetry, onSelectCard, onReevaluate, selectionDisabled,
 }: {
   msg: Message;
   isSpeaking: boolean;
@@ -386,6 +643,9 @@ function AssistantBubble({
   onPauseResume: () => void;
   onStop: () => void;
   onRetry?: () => void;
+  onSelectCard?: (card: CardResult) => void;
+  onReevaluate?: (msg: string) => void;
+  selectionDisabled?: boolean;
 }) {
   if (msg.isError) {
     return (
@@ -409,7 +669,12 @@ function AssistantBubble({
       <BotAvatar />
       <View style={{ flex: 1 }}>
         <View style={msgStyles.aiBubble}>
-          {msg.segments && msg.segments.length > 0 ? (
+          {msg.needsSelection && msg.options && msg.options.length > 0 ? (
+            <>
+              <Text style={msgStyles.aiText}>{stripMarkdown(msg.text)}</Text>
+              <CardPicker options={msg.options} onSelect={onSelectCard ?? (() => {})} disabled={selectionDisabled} />
+            </>
+          ) : msg.segments && msg.segments.length > 0 ? (
             <>
               {msg.segments.map((seg, i) => {
                 if (seg.type === "text") {
@@ -429,7 +694,9 @@ function AssistantBubble({
               {msg.cards && msg.cards.length > 0 && <CardRow cards={msg.cards} />}
             </>
           )}
-          {msg.prices && <PricesCard prices={msg.prices} />}
+          {!msg.needsSelection && msg.deal && <DealCard deal={msg.deal} onReevaluate={onReevaluate} disabled={selectionDisabled} />}
+          {!msg.needsSelection && msg.profit && <ProfitCard profit={msg.profit} />}
+          {!msg.needsSelection && msg.prices && <PricesCard prices={msg.prices} />}
         </View>
         {Platform.OS !== "web" && (
           isSpeaking ? (
@@ -621,6 +888,10 @@ export default function PokeBotScreen() {
               prices: data.prices ?? null,
               cards: Array.isArray(data.cards) && data.cards.length > 0 ? data.cards : null,
               segments: Array.isArray(data.segments) && data.segments.length > 0 ? data.segments : null,
+              options: Array.isArray(data.options) && data.options.length > 0 ? data.options : null,
+              needsSelection: !!data.needsSelection,
+              deal: data.deal ?? null,
+              profit: data.profit ?? null,
             }, ...prev]);
           } catch {
             setMessages(prev => [{
@@ -858,7 +1129,7 @@ export default function PokeBotScreen() {
             : messages
           }
           keyExtractor={item => item.id}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             if (item.id === "typing") return <TypingIndicator />;
             if (item.role === "user") return <UserBubble text={item.text} />;
             return (
@@ -871,6 +1142,9 @@ export default function PokeBotScreen() {
                 onPauseResume={pauseResumeSound}
                 onStop={stopSound}
                 onRetry={item.isError && item.retryText ? () => sendMessage(item.retryText!) : undefined}
+                onSelectCard={(card) => sendMessage(`${card.cardName}${card.number ? ` #${card.number}` : ""} from ${card.setName}`)}
+                onReevaluate={(m) => sendMessage(m)}
+                selectionDisabled={loading || index > 0}
               />
             );
           }}

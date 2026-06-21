@@ -5,8 +5,33 @@ import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases"
 import { getApiUrl } from "@/lib/query-client";
 import { fetchServerHistory, uploadBulkGradings, uploadGradingImages, claimHistoryForStableId } from "@/lib/server-history";
 import { getStableUserId } from "@/lib/stable-user-id";
+import { clearAdminPassword } from "@/lib/admin-auth";
 import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Network from "expo-network";
+
+// A grade still needs backup when a locally-stored photo (front or back) has no
+// corresponding server URL yet. Per-side aware: if one side uploaded but the
+// other still has only a local copy, the grade is still pending.
+export function isGradePending(g: {
+  frontImage?: string | null;
+  backImage?: string | null;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
+}): boolean {
+  return Boolean(
+    (g.frontImage && !g.frontImageUrl) || (g.backImage && !g.backImageUrl),
+  );
+}
+
+// Outcome of a backup pass: how many pending grades we tried to upload, how many
+// reached the server, and how many failed (network/server error or no local
+// file to read). Drives the "Back up now" result message on the dashboard.
+export interface BackupResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+}
 
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
@@ -84,6 +109,11 @@ interface SubscriptionContextValue {
   canBulk: boolean;
   isAdminMode: boolean;
   toggleAdminMode: () => Promise<void>;
+  backupPendingCount: number;
+  backupInProgress: boolean;
+  backupProgress: { done: number; total: number };
+  backupAllMissingImages: () => Promise<BackupResult>;
+  refreshBackupStatus: () => Promise<number>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
@@ -188,14 +218,36 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [rcAppUserId, setRcAppUserId] = useState<string>("");
   const [stableUserId, setStableUserId] = useState<string>("");
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [backupPendingCount, setBackupPendingCount] = useState(0);
+  const [backupInProgress, setBackupInProgress] = useState(false);
+  const [backupProgress, setBackupProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const backupInProgressRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const rcConfiguredRef = useRef(false);
+  // Mirror the rc/stable IDs into refs so the AppState + connectivity listeners
+  // (which capture a single closure) always read the latest values.
+  const rcAppUserIdRef = useRef("");
+  const stableUserIdRef = useRef("");
+  // Growing backoff for automatic retry so we don't hammer the server while
+  // offline. Resets to zero once a backup pass fully succeeds.
+  const backupBackoffRef = useRef<{ failures: number; nextAttemptAt: number }>({ failures: 0, nextAttemptAt: 0 });
+  // Last-seen connectivity, so we only retry on a real offline→online edge.
+  const wasConnectedRef = useRef(true);
+  // Holds the latest auto-retry fn so the [] AppState callback can invoke it.
+  const retryFailedBackupsRef = useRef<((reason: string) => Promise<void>) | undefined>(undefined);
+
+  // Keep the ID refs in lock-step with state on every render.
+  rcAppUserIdRef.current = rcAppUserId;
+  stableUserIdRef.current = stableUserId;
 
   // Defined before useEffect so the closure captures it correctly
   const handleAppStateChange = useCallback(async (nextState: AppStateStatus) => {
     const prev = appStateRef.current;
     appStateRef.current = nextState;
     if (prev.match(/inactive|background/) && nextState === "active" && rcConfiguredRef.current) {
+      // Quietly retry any photo backups that previously failed — the user no
+      // longer has to notice and tap "Back up now". Fire-and-forget.
+      retryFailedBackupsRef.current?.("app foregrounded").catch(() => {});
       try {
         await Purchases.invalidateCustomerInfoCache();
         const info = await Purchases.getCustomerInfo();
@@ -246,7 +298,22 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     // clear the loading spinner after 10 seconds so the UI isn't stuck.
     const rcTimeout = setTimeout(() => setRcLoading(false), 10000);
 
-    initRevenueCat().finally(() => clearTimeout(rcTimeout));
+    // Load the stable UUID ONCE, independent of RevenueCat. This is the anchor
+    // for recovery and persists across reinstalls (iOS Keychain / Android SSAID).
+    const stableIdPromise = getStableUserId()
+      .then(id => { setStableUserId(id); return id; })
+      .catch(() => "");
+
+    // Recovery that does NOT depend on RevenueCat succeeding — restores the
+    // correct credit count and scan history even if RC is offline/slow/failing
+    // at launch. Uses the stable UUID alone (the server prefers it).
+    stableIdPromise.then(stableId => {
+      if (!stableId) return;
+      syncServerUsage("", stableId).catch(() => {});
+      syncHistoryWithServer("", stableId).catch(() => {});
+    });
+
+    initRevenueCat(stableIdPromise).finally(() => clearTimeout(rcTimeout));
 
     const sub = AppState.addEventListener("change", handleAppStateChange);
     return () => {
@@ -259,6 +326,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     const next = !isAdminMode;
     setIsAdminMode(next);
     await AsyncStorage.setItem(ADMIN_KEY, next ? "enabled" : "disabled");
+    if (!next) await clearAdminPassword();
   }, [isAdminMode]);
 
   const syncTierToServer = async (rcUserId: string, tier: string) => {
@@ -356,15 +424,34 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const retroactiveImageUpload = async (rcUserId: string, stableId?: string) => {
-    if (!rcUserId || Platform.OS === "web") return;
+  // Core backup pass: uploads the front/back photo of every locally-stored grade
+  // that does not yet have a server image URL. No per-launch cap — it processes
+  // ALL pending grades sequentially (yielding between each so the UI stays
+  // responsive). `onProgress` reports {done,total} as each grade finishes.
+  // Returns a BackupResult: how many were attempted, succeeded, and failed.
+  const runImageBackup = async (
+    rcUserId: string,
+    stableId?: string,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<BackupResult> => {
+    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0 };
+    if (!rcUserId || Platform.OS === "web") return empty;
+    // Single-flight guard shared by ALL entry points (startup backfill + manual
+    // "Back up now") so the same pending grades are never uploaded concurrently.
+    if (backupInProgressRef.current) return empty;
+    backupInProgressRef.current = true;
+    let uploaded = 0;
+    let total = 0;
     try {
       const gradings = await getGradings();
-      const needsUpload = gradings.filter(
-        g => g.id && (g.frontImage || g.backImage) && !g.frontImageUrl && !g.backImageUrl
-      ).slice(0, 30);
-      if (needsUpload.length === 0) return;
-      console.log(`[history] Retroactive image upload: ${needsUpload.length} grades need backup`);
+      const needsUpload = gradings.filter(g => g.id && isGradePending(g));
+      total = needsUpload.length;
+      if (total === 0) {
+        onProgress?.(0, 0);
+        return empty;
+      }
+      console.log(`[history] Image backup: ${total} grades need backup`);
+      let done = 0;
       for (const grading of needsUpload) {
         try {
           const readSafe = async (uri: string): Promise<string | null> => {
@@ -379,22 +466,130 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
             readSafe(grading.frontImage),
             readSafe(grading.backImage),
           ]);
-          if (!frontB64 && !backB64) continue;
-          const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64, stableId);
-          if (urls.frontImageUrl || urls.backImageUrl) {
-            await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
-            console.log(`[history] Backed up images for grade ${grading.id}`);
+          if (frontB64 || backB64) {
+            const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64, stableId);
+            if (urls.frontImageUrl || urls.backImageUrl) {
+              await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
+              uploaded++;
+              console.log(`[history] Backed up images for grade ${grading.id}`);
+            }
           }
         } catch (e) {
           console.log(`[history] Failed to backup images for ${grading.id}:`, e);
         }
+        done++;
+        onProgress?.(done, total);
+        // Yield to the event loop so the UI stays responsive during a long pass.
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
     } catch (e) {
-      console.log("[history] Retroactive image upload failed (non-critical):", e);
+      console.log("[history] Image backup failed (non-critical):", e);
+    } finally {
+      backupInProgressRef.current = false;
     }
+    return { total, succeeded: uploaded, failed: total - uploaded };
   };
 
-  const initRevenueCat = async () => {
+  // Startup backfill — background/non-blocking, no progress UI.
+  const retroactiveImageUpload = async (rcUserId: string, stableId?: string) => {
+    await runImageBackup(rcUserId, stableId);
+  };
+
+  // Recompute how many local grades still need a server backup, without any
+  // network call. Drives the dashboard "N pending" / "All backed up" status.
+  const refreshBackupStatus = useCallback(async (): Promise<number> => {
+    try {
+      const gradings = await getGradings();
+      const pending = gradings.filter(g => g.id && isGradePending(g)).length;
+      setBackupPendingCount(pending);
+      return pending;
+    } catch {
+      return 0;
+    }
+  }, []);
+
+  // Manual "Back up now" — backs up ALL pending grades with progress feedback.
+  // Reuses the rc/stable IDs already held in context. Native-only (web returns
+  // an empty result). Returns a BackupResult so the dashboard can report outcome.
+  // The single-flight guard lives in runImageBackup; we check the ref here only
+  // to avoid flashing the "Backing up…" UI when a backup is already running.
+  const backupAllMissingImages = useCallback(async (): Promise<BackupResult> => {
+    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0 };
+    if (Platform.OS === "web" || !rcAppUserId) return empty;
+    if (backupInProgressRef.current) return empty;
+    setBackupInProgress(true);
+    setBackupProgress({ done: 0, total: 0 });
+    try {
+      const result = await runImageBackup(
+        rcAppUserId,
+        stableUserId || undefined,
+        (done, total) => setBackupProgress({ done, total }),
+      );
+      await refreshBackupStatus();
+      return result;
+    } finally {
+      setBackupInProgress(false);
+    }
+  }, [rcAppUserId, stableUserId, refreshBackupStatus]);
+
+  // Automatic, silent retry of photo backups that previously failed. Triggered
+  // when the app returns to the foreground or regains connectivity, so the user
+  // never has to notice and manually re-tap "Back up now". Reuses the SAME
+  // single-flight guard as every other backup path (via runImageBackup), keeps
+  // the pending-count in sync, and honours a growing backoff after failures so
+  // we don't hammer the server while offline. Does NOT drive the "Backing up…"
+  // UI — it runs quietly in the background.
+  const BACKUP_RETRY_BASE_MS = 30_000; // 30s after the first failure
+  const BACKUP_RETRY_MAX_MS = 5 * 60_000; // cap at 5 minutes
+  const retryFailedBackups = useCallback(async (reason: string): Promise<void> => {
+    if (Platform.OS === "web") return;
+    const rcUserId = rcAppUserIdRef.current;
+    if (!rcUserId) return;
+    if (backupInProgressRef.current) return;
+
+    const pending = await refreshBackupStatus();
+    if (pending === 0) {
+      backupBackoffRef.current = { failures: 0, nextAttemptAt: 0 };
+      return;
+    }
+
+    // Respect the backoff window after a recent failed attempt.
+    if (Date.now() < backupBackoffRef.current.nextAttemptAt) return;
+
+    console.log(`[history] Auto-retrying ${pending} pending backup(s) — trigger: ${reason}`);
+    const result = await runImageBackup(rcUserId, stableUserIdRef.current || undefined);
+    await refreshBackupStatus();
+
+    if (result.failed > 0) {
+      const failures = backupBackoffRef.current.failures + 1;
+      const delay = Math.min(BACKUP_RETRY_BASE_MS * 2 ** (failures - 1), BACKUP_RETRY_MAX_MS);
+      backupBackoffRef.current = { failures, nextAttemptAt: Date.now() + delay };
+      console.log(`[history] Backup retry: ${result.failed} still failing, next attempt in ~${Math.round(delay / 1000)}s`);
+    } else {
+      backupBackoffRef.current = { failures: 0, nextAttemptAt: 0 };
+    }
+  }, [refreshBackupStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Expose the latest retry fn to the [] AppState callback above.
+  retryFailedBackupsRef.current = retryFailedBackups;
+
+  // Retry failed backups the moment connectivity is regained (offline→online
+  // edge), resetting the backoff window so the attempt fires immediately.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const sub = Network.addNetworkStateListener(({ isConnected }) => {
+      const connected = isConnected === true;
+      const was = wasConnectedRef.current;
+      wasConnectedRef.current = connected;
+      if (!was && connected) {
+        backupBackoffRef.current = { ...backupBackoffRef.current, nextAttemptAt: 0 };
+        retryFailedBackups("connectivity regained").catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, [retryFailedBackups]);
+
+  const initRevenueCat = async (stableIdPromise: Promise<string>) => {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
       if (!apiKey) {
@@ -423,23 +618,20 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
-      syncServerUsage(userId).catch(() => {});
       syncTierToServer(userId, tier).catch(() => {});
-      // Read stable UUID (persists across reinstalls via Keychain / Android Auto Backup),
-      // claim existing rows for this user, then sync history and usage using it.
-      getStableUserId().then(stableId => {
-        setStableUserId(stableId);
-        // Re-sync usage with the stable ID so the server returns the canonical count
-        // (the first call above used only rc_user_id, which resets on reinstall)
-        syncServerUsage(userId, stableId).catch(() => {});
-        claimHistoryForStableId(userId, stableId).catch(() => {});
-        syncHistoryWithServer(userId, stableId)
+      // Now that we also have the RC id, run the FULL recovery (write + link):
+      // claim existing rows for the stable UUID, upload any local-only grades,
+      // and back up images. The stable UUID was loaded independently at mount.
+      stableIdPromise.then(stableId => {
+        syncServerUsage(userId, stableId || undefined).catch(() => {});
+        if (stableId) claimHistoryForStableId(userId, stableId).catch(() => {});
+        syncHistoryWithServer(userId, stableId || undefined)
           .catch(() => {})
-          .finally(() => { retroactiveImageUpload(userId, stableId).catch(() => {}); });
-      }).catch(() => {
-        syncHistoryWithServer(userId)
-          .catch(() => {})
-          .finally(() => { retroactiveImageUpload(userId).catch(() => {}); });
+          .finally(() => {
+            retroactiveImageUpload(userId, stableId || undefined)
+              .catch(() => {})
+              .finally(() => { refreshBackupStatus().catch(() => {}); });
+          });
       });
 
       // RC pushes real-time updates whenever entitlement status changes
@@ -838,8 +1030,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       canBulk,
       isAdminMode,
       toggleAdminMode,
+      backupPendingCount,
+      backupInProgress,
+      backupProgress,
+      backupAllMissingImages,
+      refreshBackupStatus,
     }),
-    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, syncTierNow, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode]
+    [isGateEnabled, isSubscribed, currentTier, tierInfo, monthlyUsageCount, monthlyLimit, remainingGrades, canGrade, recordUsage, checkCanGrade, loading, rcLoading, purchaseTier, restorePurchases, refreshSubscription, forceSyncSubscription, rcConfigured, rcAppUserId, stableUserId, syncTierNow, deepMonthlyUsageCount, deepMonthlyLimit, remainingDeepGrades, canDeepGrade, checkCanDeepGrade, recordDeepUsage, crossoverMonthlyUsageCount, crossoverMonthlyLimit, remainingCrossoverGrades, canCrossover, checkCanCrossoverGrade, recordCrossoverUsage, canBulk, isAdminMode, toggleAdminMode, backupPendingCount, backupInProgress, backupProgress, backupAllMissingImages, refreshBackupStatus]
   );
 
   return <SubscriptionContext.Provider value={value}>{children}</SubscriptionContext.Provider>;

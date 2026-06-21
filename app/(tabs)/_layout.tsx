@@ -7,7 +7,7 @@ import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGrading } from "@/lib/grading-context";
 import { useSubscription } from "@/lib/subscription";
-import { getApiUrl } from "@/lib/query-client";
+import { adminApiRequest } from "@/lib/admin-auth";
 
 function useAdminFlagCount(isAdmin: boolean) {
   const [count, setCount] = useState(0);
@@ -18,8 +18,7 @@ function useAdminFlagCount(isAdmin: boolean) {
     let cancelled = false;
     const fetch_ = async () => {
       try {
-        const url = new URL("/api/admin/price-flags/count", getApiUrl());
-        const res = await fetch(url.toString());
+        const res = await adminApiRequest("GET", "/api/admin/price-flags/count");
         if (!res.ok) return;
         const body = await res.json();
         if (!cancelled) setCount(body.needsReview ?? 0);

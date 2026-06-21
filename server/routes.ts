@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
+import multer from "multer";
 import { uploadBuffer, downloadToResponse } from "./objectStorage";
 import { parse as parseHtml } from "node-html-parser";
 import { Pool } from "pg";
@@ -2307,16 +2308,29 @@ Analyze the card images carefully. Look for:
    - A card with clearly visible scratches that catch light differently from the surrounding surface should be graded accordingly. Multiple distinct scratches on the artwork = surface 5-7 depending on severity.
    - Minor factory print texture common to modern Pokemon cards is NORMAL and should not lower surface grades. Standard factory edge cuts with very slight whitening visible only under enhancement are also NORMAL.
 
-DEFECT MAPPING — For any flaw you identify that causes a sub-grade to drop below 10, report its approximate location on the card image as a "defect" entry. Each defect should include:
-- "side": "front" or "back" — which side of the card the defect is on
-- "x": 0-100 — horizontal position as a percentage of card width (0=left edge, 100=right edge)
-- "y": 0-100 — vertical position as a percentage of card height (0=top edge, 100=bottom edge)
+DEFECT MAPPING — For any flaw you identify that causes a sub-grade to drop below 10, report its approximate location as a "defect" entry. Each defect must include:
+- "side": "front" or "back" — which face of the card the defect is on
+- "x": 0-100 — horizontal position WITHIN THE CARD ONLY. Treat the card's left edge as 0 and its right edge as 100. These coordinates are relative to the card rectangle, NOT the full photo. Background, table, mat, sleeve, or holder areas do not have coordinates.
+- "y": 0-100 — vertical position WITHIN THE CARD ONLY. Treat the card's top edge as 0 and its bottom edge as 100.
 - "type": "corner", "edge", or "surface"
 - "severity": "minor" (9→8 level), "moderate" (8→7 level), or "major" (below 7)
-- "description": Brief description of the specific flaw (e.g., "Slight whitening on corner", "Minor edge chipping", "Light surface scratch")
-Corner positions: top-left≈(5,5), top-right≈(95,5), bottom-left≈(5,95), bottom-right≈(95,95).
-Edge positions: top edge≈y:2, bottom edge≈y:98, left edge≈x:2, right edge≈x:98.
-Only report defects for REAL flaws that lower grades — do NOT report defects for sub-grades that remain at 10. If a card is perfect (all 10s), the defects array should be empty.
+- "description": Brief description (e.g., "Slight whitening on top-left corner", "Minor chipping on right edge", "Light scratch across artwork")
+
+COORDINATE LANDMARKS (all relative to the card, not the photo):
+- Top-left corner: x≈5, y≈5  |  Top-right corner: x≈95, y≈5
+- Bottom-left corner: x≈5, y≈95  |  Bottom-right corner: x≈95, y≈95
+- Left edge midpoint: x≈2, y≈50  |  Right edge midpoint: x≈98, y≈50
+- Top edge midpoint: x≈50, y≈2  |  Bottom edge midpoint: x≈50, y≈98
+- Card centre (artwork area): x≈50, y≈50
+
+BACKGROUND RULE — CRITICAL: Photos may include background (table, mat, sleeve, holder, hands, packaging). You must ONLY report defects for physical damage ON THE CARD SURFACE ITSELF. Marks, textures, shadows, or objects in the background are NEVER card defects. If something is not physically part of the card, do not report it.
+
+SPATIAL CONSISTENCY CHECK: Before finalising each defect coordinate, verify:
+- "corner" type: x must be ≤30 OR ≥70, AND y must be ≤30 OR ≥70. A corner at (50,50) is invalid.
+- "edge" type: x must be ≤20 OR ≥80, OR y must be ≤20 OR ≥80. An edge defect at (50,50) is invalid.
+- "surface" type: can be anywhere on the card.
+
+Only report defects for REAL flaws that actually lower grades. If a card is perfect (all 10s), the defects array must be empty.
 
 LANGUAGE HANDLING:
 - Pokemon cards exist in MANY languages: English, Japanese, Korean, Chinese (Traditional & Simplified), French, German, Spanish, Italian, Portuguese, etc.
@@ -4259,6 +4273,57 @@ async function detectCardBounds(dataUri: string, slabMode?: boolean): Promise<{ 
   }
 }
 
+// Sanitize defect markers that came back from the AI.
+// Filters out: invalid structure, out-of-range coords, corner/edge defects
+// that are spatially inconsistent with their type, and (when cardBounds are
+// known) coords that would map outside the image after the bounds transform —
+// a clear sign Claude used photo-relative coords instead of card-relative.
+function sanitizeDefects(defects: any[], frontBounds?: any, backBounds?: any): any[] {
+  if (!Array.isArray(defects)) return [];
+  return defects.filter((d) => {
+    if (!d || typeof d !== "object") return false;
+    if (d.side !== "front" && d.side !== "back") return false;
+    const x = Number(d.x);
+    const y = Number(d.y);
+    if (isNaN(x) || isNaN(y) || x < 0 || x > 100 || y < 0 || y > 100) return false;
+    // Type-specific spatial consistency
+    if (d.type === "corner") {
+      const nearH = x <= 30 || x >= 70;
+      const nearV = y <= 30 || y >= 70;
+      if (!nearH || !nearV) {
+        console.log(`[defect-filter] dropping corner at (${x},${y}) — not in a corner quadrant`);
+        return false;
+      }
+    }
+    if (d.type === "edge") {
+      const nearEdge = x <= 20 || x >= 80 || y <= 20 || y >= 80;
+      if (!nearEdge) {
+        console.log(`[defect-filter] dropping edge defect at (${x},${y}) — not near an edge`);
+        return false;
+      }
+    }
+    // Coordinate-frame sanity: map card-relative → image-relative and check it
+    // lands inside the image. If it doesn't, Claude gave photo-relative coords
+    // instead of card-relative, and the overlay would place the pin off-card.
+    const bounds = d.side === "front" ? frontBounds : backBounds;
+    if (bounds && isValidCardBounds(bounds)) {
+      const cardW = bounds.rightPercent - bounds.leftPercent;
+      const cardH = bounds.bottomPercent - bounds.topPercent;
+      const imgX = bounds.leftPercent + (x / 100) * cardW;
+      const imgY = bounds.topPercent + (y / 100) * cardH;
+      if (imgX < -5 || imgX > 105 || imgY < -5 || imgY > 105) {
+        console.log(`[defect-filter] dropping defect at card(${x},${y}) → image(${imgX.toFixed(1)},${imgY.toFixed(1)}) — maps outside image`);
+        return false;
+      }
+    }
+    return true;
+  }).map((d) => ({
+    ...d,
+    x: parseFloat(Math.max(1, Math.min(99, Number(d.x))).toFixed(1)),
+    y: parseFloat(Math.max(1, Math.min(99, Number(d.y))).toFixed(1)),
+  }));
+}
+
 function enforceCardBounds(bounds: any): any {
   if (!bounds) return { leftPercent: 4, topPercent: 3, rightPercent: 96, bottomPercent: 97 };
   const result: any = {
@@ -4677,8 +4742,10 @@ async function initGradingJobsTable(): Promise<void> {
     `);
     // Add columns introduced after initial table creation (safe to run repeatedly)
     await db.query(`ALTER TABLE grading_jobs ADD COLUMN IF NOT EXISTS rc_user_id TEXT`);
+    await db.query(`ALTER TABLE grading_jobs ADD COLUMN IF NOT EXISTS stable_user_id TEXT`);
     await db.query(`ALTER TABLE grading_jobs ADD COLUMN IF NOT EXISTS delivered BOOLEAN NOT NULL DEFAULT FALSE`);
     await db.query(`CREATE INDEX IF NOT EXISTS grading_jobs_rc_user_idx ON grading_jobs(rc_user_id) WHERE delivered = FALSE`);
+    await db.query(`CREATE INDEX IF NOT EXISTS grading_jobs_stable_user_idx ON grading_jobs(stable_user_id) WHERE delivered = FALSE`);
     // Clean up jobs older than 24 hours daily
     await db.query(`DELETE FROM grading_jobs WHERE created_at < NOW() - INTERVAL '24 hours'`);
     console.log("[grading-jobs] DB table ready");
@@ -4732,6 +4799,17 @@ async function logAiCost(
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Admin auth helper: admin-only endpoints (analytics, financials, settings,
+  // price-flags, card-variants, scan-cache, trigger jobs) require the admin
+  // password sent as an x-admin-password header, matched against ADMIN_PASSWORD.
+  // Defined at the top so every admin route below can use it.
+  const isAdminRequest = (req: any): boolean => {
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) return false;
+    const provided = req.headers["x-admin-password"];
+    return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
+  };
+
   // Ensure DB tables exist before any requests come in
   await initUsageTrackingTable();
   await initAdminUsersTable();
@@ -4822,7 +4900,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Price flags admin: count of flags needing review (lightweight) ────
-  app.get("/api/admin/price-flags/count", async (_req, res) => {
+  app.get("/api/admin/price-flags/count", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { rows } = await db.query<{ cnt: string }>(
         `SELECT COUNT(*) AS cnt FROM price_flags WHERE status = 'needs_admin'`
@@ -4833,7 +4912,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── System map stats: public, non-sensitive catalog numbers for the
+  //    "How Grade.IQ Works" page. Cached in memory for 1h. NEVER returns any
+  //    cost/financial data — only public counts.
+  let systemMapStatsCache: { data: any; ts: number } | null = null;
+  const SYSTEM_MAP_TTL_MS = 60 * 60 * 1000;
+  app.get("/api/system-map/stats", async (_req, res) => {
+    try {
+      if (systemMapStatsCache && Date.now() - systemMapStatsCache.ts < SYSTEM_MAP_TTL_MS) {
+        return res.json(systemMapStatsCache.data);
+      }
+      const safeCount = async (sql: string): Promise<number | null> => {
+        try {
+          const { rows } = await db.query<{ cnt: string }>(sql);
+          const n = parseInt(rows[0]?.cnt ?? "0", 10);
+          return Number.isFinite(n) ? n : null;
+        } catch {
+          return null;
+        }
+      };
+      const [enCards, jaCards, setsTracked, gradesCompleted] = await Promise.all([
+        safeCount(`SELECT COUNT(*) AS cnt FROM card_catalog WHERE COALESCE(lang,'en') = 'en'`),
+        safeCount(`SELECT COUNT(*) AS cnt FROM card_catalog WHERE lang = 'ja'`),
+        safeCount(`SELECT COUNT(DISTINCT set_id) AS cnt FROM card_catalog`),
+        safeCount(`SELECT COALESCE(SUM(card_count), 0) AS cnt FROM grade_analytics WHERE status = 'completed'`),
+      ]);
+      const data = { enCards, jaCards, setsTracked, gradesCompleted, updatedAt: new Date().toISOString() };
+      // Don't cache a fully-empty result (transient DB hiccup) — otherwise the
+      // page would show blank "—" tiles for up to an hour.
+      const allNull = enCards == null && jaCards == null && setsTracked == null && gradesCompleted == null;
+      if (!allNull) systemMapStatsCache = { data, ts: Date.now() };
+      return res.json(data);
+    } catch (err: any) {
+      return res.status(500).json({ error: "Failed to load system stats" });
+    }
+  });
+
   app.get("/api/admin/price-flags", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { status } = req.query;
       let whereClause: string;
@@ -4880,6 +4996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Price flags admin: manual resolve ─────────────────────────────────
   app.post("/api/admin/price-flags/:id/resolve", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       const { outcome } = req.body ?? {}; // "resolved" | "no_fix"
@@ -4899,6 +5016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Price flags admin: apply Claude's suggested fix now ───────────────
   app.post("/api/admin/price-flags/:id/apply-fix", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       let { rows } = await db.query(
@@ -5014,6 +5132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Price flags admin: manual price override ──────────────────────────
   // Admin enters correct USD prices directly — writes to cache, marks resolved.
   app.post("/api/admin/price-flags/:id/manual-prices", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       const { prices } = req.body ?? {}; // e.g. { psa10: 380, psa9: 220, psa8: 120, raw: 60 }
@@ -5107,6 +5226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Fetches all ebay_price_cache entries, batches them to Claude with the
   // corrections history as context, and auto-creates flags for suspicious ones.
   app.post("/api/admin/scan-cache", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       // Fetch all cache entries
       const { rows: cacheRows } = await db.query<{
@@ -5263,6 +5383,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // ── Price flags admin: submit admin response → re-trigger AI ──────────
   app.post("/api/admin/price-flags/:id/respond", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const flagId = parseInt(req.params.id, 10);
       const { adminResponse } = req.body ?? {};
@@ -5496,6 +5617,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: list all variants (searchable)
   app.get("/api/admin/card-variants", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { search } = req.query;
       const { rows } = await db.query(
@@ -5512,6 +5634,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: create a variant
   app.post("/api/admin/card-variants", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { base_card_name, base_set_name, base_set_id, base_card_number,
               stamp_type, display_name, image_url, poketrace_search_term, notes } = req.body;
@@ -5532,6 +5655,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: update a variant
   app.patch("/api/admin/card-variants/:id", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { display_name, image_url, poketrace_search_term, notes } = req.body;
       await db.query(
@@ -5553,6 +5677,7 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
 
   // Admin: delete a variant
   app.delete("/api/admin/card-variants/:id", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       await db.query(`DELETE FROM card_variants WHERE id = $1`, [req.params.id]);
       return res.json({ ok: true });
@@ -5562,7 +5687,8 @@ Return [] if all prices look reasonable. Only flag genuine data quality concerns
   });
 
   // Admin: sync from TCGdex stamp endpoints
-  app.post("/api/admin/card-variants/sync-tcgdex", async (_req, res) => {
+  app.post("/api/admin/card-variants/sync-tcgdex", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const stampTypes = [
         { tcgdex: "pre-release",      display: "Prerelease Stamp", type: "prerelease",       keyword: "prerelease" },
@@ -6131,9 +6257,41 @@ Return ONLY the JSON object. No other text.`;
     error?: string;
     pushToken?: string;
     createdAt: number;
+    progress?: { stage: string; pct: number };
   }
 
   const gradingJobs = new Map<string, GradingJob>();
+
+  // Real, server-driven grading progress. The phone polls /api/grade-job/:id and
+  // shows the TRUE stage instead of a fake timeline. "analyzing" is the single
+  // Claude call — one opaque block — so it is the longest phase by design.
+  const JOB_STAGE_PCT: Record<string, number> = {
+    received: 0.08,
+    preparing: 0.22,
+    analyzing: 0.45,
+    finalizing: 0.95,
+  };
+  function setJobProgress(jobId: string, stage: string): void {
+    const j = gradingJobs.get(jobId);
+    if (j && j.status === "processing") {
+      j.progress = { stage, pct: JOB_STAGE_PCT[stage] ?? 0.1 };
+    }
+  }
+
+  // Binary (multipart) upload handler for grade photos. Keeps images out of the
+  // JSON body, which permanently avoids Replit's WAF blocking the
+  // "data:image/jpeg;base64," string and is ~33% smaller than base64.
+  const gradeUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 4 },
+  });
+
+  // Deep grade sends many parts (front, back, angled x2, plus up to 8 corner
+  // close-ups), so it needs a higher file ceiling than the quick-grade uploader.
+  const deepUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 20 },
+  });
 
   setInterval(() => {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
@@ -6143,13 +6301,13 @@ Return ONLY the JSON object. No other text.`;
   }, 10 * 60 * 1000);
 
   // ── DB persistence helpers (survive backend restarts) ─────────────────────
-  async function persistJobToDb(job: GradingJob, rcUserId?: string): Promise<void> {
+  async function persistJobToDb(job: GradingJob, rcUserId?: string, stableUserId?: string): Promise<void> {
     try {
       await db.query(
-        `INSERT INTO grading_jobs (id, type, status, rc_user_id, created_at)
-         VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0))
+        `INSERT INTO grading_jobs (id, type, status, rc_user_id, stable_user_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0))
          ON CONFLICT (id) DO NOTHING`,
-        [job.id, job.type, job.status, rcUserId || null, job.createdAt]
+        [job.id, job.type, job.status, rcUserId || null, stableUserId || null, job.createdAt]
       );
     } catch {}
   }
@@ -6173,7 +6331,7 @@ Return ONLY the JSON object. No other text.`;
       );
       if (r.rows.length === 0) return null;
       const row = r.rows[0];
-      return {
+      const job: GradingJob = {
         id: row.id,
         type: row.type,
         status: row.status,
@@ -6181,6 +6339,16 @@ Return ONLY the JSON object. No other text.`;
         error: row.error ?? undefined,
         createdAt: Number(row.created_ms),
       };
+      // Bulk jobs persist their per-card array inside the result JSON
+      // ({ results, totalCards }). Rehydrate the bulk-shaped fields so a poll
+      // after a server restart still returns progress/results correctly.
+      if (row.type === "bulk" && row.result && Array.isArray(row.result.results)) {
+        job.results = row.result.results;
+        job.totalCards = row.result.totalCards ?? row.result.results.length;
+        job.completedCards = row.result.results.length;
+        job.result = undefined;
+      }
+      return job;
     } catch {
       return null;
     }
@@ -6210,7 +6378,81 @@ Return ONLY the JSON object. No other text.`;
     }
   }
 
-  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]"): Promise<any> {
+  const AUTO_CORNER_CROPS_ENABLED = true;
+
+  // Store a full-resolution original (capped at 1600px long edge) in Object
+  // Storage so the user's good photo survives reinstalls. Returns the storage
+  // UUID, or null on any failure (never throws — storage must not block grading).
+  async function storeGradeOriginal(b64OrDataUri: string): Promise<string | null> {
+    try {
+      const raw = b64OrDataUri.replace(/^data:image\/\w+;base64,/, "");
+      const input = Buffer.from(raw, "base64");
+      const out = await sharp(input)
+        .rotate()
+        .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 82 })
+        .toBuffer();
+      return await uploadBuffer(out, "image/jpeg", "grading-images");
+    } catch (e: any) {
+      console.log("[store-original] failed:", e?.message);
+      return null;
+    }
+  }
+
+  // Generate high-resolution close-up crops of the card's four corners from a
+  // full-card data URI. Detects the card rectangle first so the crops stay tight
+  // on the card even when it doesn't fill the frame. Never throws.
+  async function generateCornerCrops(dataUri: string, label: string): Promise<string[]> {
+    try {
+      const bounds = await detectCardBounds(dataUri);
+      const raw = dataUri.replace(/^data:image\/\w+;base64,/, "");
+      const input = Buffer.from(raw, "base64");
+      const meta = await sharp(input).metadata();
+      const W = meta.width || 0;
+      const H = meta.height || 0;
+      if (!W || !H) return [];
+
+      let cl = Math.round(((bounds.leftPercent ?? 0) / 100) * W);
+      let ct = Math.round(((bounds.topPercent ?? 0) / 100) * H);
+      let cr = Math.round(((bounds.rightPercent ?? 100) / 100) * W);
+      let cb = Math.round(((bounds.bottomPercent ?? 100) / 100) * H);
+      cl = Math.max(0, Math.min(cl, W - 1));
+      ct = Math.max(0, Math.min(ct, H - 1));
+      cr = Math.max(cl + 1, Math.min(cr, W));
+      cb = Math.max(ct + 1, Math.min(cb, H));
+      let cw = cr - cl;
+      let ch = cb - ct;
+      if (cw < 60 || ch < 60) { cl = 0; ct = 0; cw = W; ch = H; }
+
+      const cropW = Math.max(40, Math.round(cw * 0.42));
+      const cropH = Math.max(40, Math.round(ch * 0.42));
+      const positions = [
+        { left: cl, top: ct },                                 // top-left
+        { left: cl + cw - cropW, top: ct },                    // top-right
+        { left: cl, top: ct + ch - cropH },                    // bottom-left
+        { left: cl + cw - cropW, top: ct + ch - cropH },       // bottom-right
+      ];
+
+      const out: string[] = [];
+      for (const p of positions) {
+        const left = Math.max(0, Math.min(p.left, W - cropW));
+        const top = Math.max(0, Math.min(p.top, H - cropH));
+        const buf = await sharp(input)
+          .extract({ left, top, width: cropW, height: cropH })
+          .resize({ width: 600, height: 600, fit: "inside", withoutEnlargement: true })
+          .sharpen()
+          .jpeg({ quality: 88 })
+          .toBuffer();
+        out.push(`data:image/jpeg;base64,${buf.toString("base64")}`);
+      }
+      return out;
+    } catch (e: any) {
+      console.log(`[corner-crops] ${label} failed:`, e?.message);
+      return [];
+    }
+  }
+
+  async function performGrading(frontImage: string, backImage: string, logPrefix: string = "[grade]", enableCornerCrops: boolean = true, onProgress?: (stage: string) => void): Promise<any> {
     const gradeStartTime = Date.now();
     const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
     const rawBackUrl = backImage.startsWith("data:") ? backImage : `data:image/jpeg;base64,${backImage}`;
@@ -6243,7 +6485,19 @@ Return ONLY the JSON object. No other text.`;
     }
 
     const claheActive = CLAHE_GRADING_ENABLED && claheFront && claheBack;
-    const imageList = claheActive
+
+    let cornerImages: string[] = [];
+    if (AUTO_CORNER_CROPS_ENABLED && enableCornerCrops) {
+      const cropStart = Date.now();
+      const [frontCorners, backCorners] = await Promise.all([
+        generateCornerCrops(frontUrl, "front"),
+        generateCornerCrops(backUrl, "back"),
+      ]);
+      cornerImages = [...frontCorners, ...backCorners];
+      console.log(`${logPrefix} Generated ${cornerImages.length} corner crops in ${Date.now() - cropStart}ms`);
+    }
+
+    const baseImageList = claheActive
       ? [
           toClaudeImage(frontUrl),
           toClaudeImage(backUrl),
@@ -6262,6 +6516,8 @@ Return ONLY the JSON object. No other text.`;
           toClaudeImage(enhancedFrontUrl),
           toClaudeImage(enhancedBackUrl),
         ];
+
+    const imageList = [...baseImageList, ...cornerImages.map(toClaudeImage)];
 
     const promptText = claheActive
       ? `Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.
@@ -6282,6 +6538,12 @@ CRITICAL — HOW TO USE THESE FILTERS:
 IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different details.`
       : `Please analyze this Pokemon card and provide estimated grades from PSA, Beckett (BGS), Ace Grading, TAG Grading, and CGC Cards.\n\nYou are given 4 images:\n- Image 1: FRONT of card (standard)\n- Image 2: BACK of card (standard)\n- Image 3: FRONT of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n- Image 4: BACK of card (SURFACE-ENHANCED — contrast-boosted to help reveal scratches and scuffs)\n\nIMPORTANT: Use images 1 and 2 as your PRIMARY source for ALL grading — card identification, centering, corners, edges, and surface condition. Images 3 and 4 are SUPPLEMENTARY only.\n\nCRITICAL — ENHANCED IMAGE RULES:\n- The enhancement process amplifies EVERYTHING, including normal card features like holographic rainbow patterns, foil texture, print grain, and standard edge cuts.\n- A defect ONLY counts if you can also see it (even faintly) in the STANDARD images (1 or 2). If something appears ONLY in the enhanced images but is completely invisible in the standard images, it is likely a normal card feature amplified by the enhancement — do NOT count it.\n- Holographic, full-art, textured, and illustration rare cards naturally have complex surface patterns (rainbow reflections, embossed texture, foil speckling). These are NOT defects. Do not report holographic patterns, print texture, or foil grain as whitening, scratches, or wear.\n- Normal factory edge cuts can appear as slight whitening when enhanced — this is standard for all cards and is NOT a defect unless clearly visible as actual chipping or peeling in the standard images.\n- When in doubt, always defer to what you see in the STANDARD images. The enhanced images are a second opinion tool, not the primary judge.\n\nIMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the bottom of the card. Read the Pokemon name from the top. The set code + card number uniquely identify this card — report them EXACTLY as printed. Do NOT guess or substitute different details.`;
 
+    const cornerAddon = cornerImages.length
+      ? `\n\nADDITIONAL CLOSE-UP CROPS: The final ${cornerImages.length} images are high-resolution zoom-ins of the card's CORNERS — the four FRONT corners first (top-left, top-right, bottom-left, bottom-right), then the four BACK corners in the same order. Use them ONLY to confirm corner sharpness, corner whitening, and edge wear immediately around the corners. A defect must still be plausibly visible (even faintly) in the standard whole-card images — do NOT invent new defects that only appear because of the extra magnification. Holographic/foil texture, print grain, and normal factory cut lines are NOT defects.`
+      : "";
+    const finalPrompt = promptText + cornerAddon;
+
+    onProgress?.("analyzing");
     const gradingResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -6290,7 +6552,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
         {
           role: "user",
           content: [
-            { type: "text", text: promptText },
+            { type: "text", text: finalPrompt },
             ...imageList,
           ],
         },
@@ -6317,6 +6579,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     }
 
     gradingResult = enforceGradingScales(gradingResult);
+    gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
     const cardName = gradingResult.cardName || "";
     const cardNumber = gradingResult.setNumber || "";
@@ -6462,6 +6725,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     logPrefix: string = "[deep-grade]",
     userFrontCorners?: string[],
     userBackCorners?: string[],
+    onProgress?: (stage: string) => void,
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawFrontUrl = frontImage.startsWith("data:") ? frontImage : `data:image/jpeg;base64,${frontImage}`;
@@ -6552,6 +6816,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       }
     }
 
+    onProgress?.("analyzing");
     const gradingResponse = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
@@ -6580,6 +6845,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
     }
 
     gradingResult = enforceGradingScales(gradingResult);
+    gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
     const cardName = gradingResult.cardName || "";
     const cardNumber = gradingResult.setNumber || "";
@@ -6791,6 +7057,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       }
 
       gradingResult = enforceGradingScales(gradingResult);
+      gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
       gradingResult.cardName = cardName || gradingResult.cardName;
       gradingResult.setName = setName || gradingResult.setName;
@@ -7409,35 +7676,35 @@ The name "${previousCardName}" was INCORRECT — find the real name by reading t
     {
       id: "PSA",
       name: "PSA",
-      submissionFeeGBP: 18,
-      turnaround: "45–60 business days",
+      submissionFeeGBP: 63,
+      turnaround: "40–50 business days",
       gradeMultipliers: { 7: 1.2, 8: 1.6, 8.5: 0, 9: 2.2, 9.5: 0, 10: 5.5 },
     },
     {
       id: "BGS",
       name: "BGS (Beckett)",
-      submissionFeeGBP: 22,
+      submissionFeeGBP: 20,
       turnaround: "45–75 business days",
       gradeMultipliers: { 7: 1.1, 8: 1.5, 8.5: 1.9, 9: 2.1, 9.5: 3.8, 10: 6.0 },
     },
     {
       id: "ACE",
       name: "ACE",
-      submissionFeeGBP: 10,
-      turnaround: "14–21 business days",
+      submissionFeeGBP: 18,
+      turnaround: "~45 business days",
       gradeMultipliers: { 7: 1.0, 8: 1.3, 8.5: 1.6, 9: 1.8, 9.5: 2.5, 10: 3.5 },
     },
     {
       id: "CGC",
       name: "CGC",
-      submissionFeeGBP: 15,
+      submissionFeeGBP: 16,
       turnaround: "30–45 business days",
       gradeMultipliers: { 7: 1.1, 8: 1.4, 8.5: 1.7, 9: 1.9, 9.5: 2.8, 10: 4.2 },
     },
     {
       id: "TAG",
       name: "TAG",
-      submissionFeeGBP: 12,
+      submissionFeeGBP: 17,
       turnaround: "21–35 business days",
       gradeMultipliers: { 7: 0.9, 8: 1.2, 8.5: 1.5, 9: 1.7, 9.5: 2.3, 10: 3.2 },
     },
@@ -8672,6 +8939,7 @@ Return ONLY this JSON:
     logPrefix: string = "[crossover-grade]",
     slabBackImage?: string,
     certData?: { company: string; grade: string; certNumber: string },
+    onProgress?: (stage: string) => void,
   ): Promise<any> {
     const gradeStartTime = Date.now();
     const rawSlabUrl = slabImage.startsWith("data:") ? slabImage : `data:image/jpeg;base64,${slabImage}`;
@@ -8784,6 +9052,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       contentParts.push({ type: "image_url", image_url: { url: slabBackUrl, detail: "high" } });
     }
 
+    onProgress?.("analyzing");
     const [response, detectedFront, detectedBack, aiFront, aiBack] = await Promise.all([
       anthropic.messages.create({
         model: "claude-sonnet-4-6",
@@ -9231,9 +9500,21 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.post("/api/crossover-grade-job", async (req, res) => {
+  app.post("/api/crossover-grade-job", gradeUpload.fields([
+    { name: "slab", maxCount: 1 },
+    { name: "slabBack", maxCount: 1 },
+  ]), async (req, res) => {
     try {
-      const { slabImage, slabBackImage, pushToken, certData, rcUserId, stableUserId } = req.body;
+      // Dual-mode: binary multipart upload (new app builds) OR base64 JSON (web / older builds).
+      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+      const slabImage: string | undefined = files?.slab?.[0]?.buffer.toString("base64") ?? req.body.slabImage;
+      const slabBackImage: string | undefined = files?.slabBack?.[0]?.buffer.toString("base64") ?? req.body.slabBackImage;
+      const { pushToken, rcUserId, stableUserId } = req.body;
+      // certData arrives as a JSON string over multipart, or as an object over JSON.
+      let certData = req.body.certData;
+      if (typeof certData === "string") {
+        try { certData = JSON.parse(certData); } catch { certData = undefined; }
+      }
       if (!slabImage) {
         return res.status(400).json({ error: "slabImage is required" });
       }
@@ -9249,10 +9530,11 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: "single",
         pushToken,
         createdAt: Date.now(),
+        progress: { stage: "received", pct: JOB_STAGE_PCT.received },
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "crossover");
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId });
 
@@ -9262,10 +9544,12 @@ RESPONSE FORMAT (JSON only, no markdown):
           setTimeout(() => reject(new Error("Crossover grading timed out — please try again.")), CROSSOVER_TIMEOUT_MS)
         );
         try {
+          setJobProgress(jobId, "preparing");
           const result = await Promise.race([
-            performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData),
+            performCrossoverGrading(slabImage, `[crossover-grade-job:${jobId}]`, slabBackImage, certData, (stage) => setJobProgress(jobId, stage)),
             timeoutPromise,
           ]);
+          setJobProgress(jobId, "finalizing");
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9480,22 +9764,24 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/history/:localId/images", async (req, res) => {
     const { localId } = req.params;
-    const { rcUserId, stableId, frontB64, backB64 } = req.body;
-    if (!rcUserId || !localId || (!frontB64 && !backB64)) {
+    const { rcUserId, stableId, frontB64, backB64, frontImageId, backImageId } = req.body;
+    if (!rcUserId || !localId || (!frontB64 && !backB64 && !frontImageId && !backImageId)) {
       return res.status(400).json({ error: "rcUserId, localId, and at least one image required" });
     }
     try {
       const compress = async (b64: string): Promise<string> => {
         const input = Buffer.from(b64.replace(/^data:image\/\w+;base64,/, ""), "base64");
         const compressed = await sharp(input)
-          .resize({ width: 400, withoutEnlargement: true })
-          .jpeg({ quality: 60 })
+          .resize({ width: 1200, withoutEnlargement: true })
+          .jpeg({ quality: 78 })
           .toBuffer();
         return uploadBuffer(compressed, "image/jpeg", "grading-images");
       };
+      // New path: the grade-job already stored full-res originals — just link the
+      // existing UUIDs to this history row (no re-upload). Fallback: base64 upload.
       const [frontUuid, backUuid] = await Promise.all([
-        frontB64 ? compress(frontB64) : Promise.resolve(null),
-        backB64 ? compress(backB64) : Promise.resolve(null),
+        frontImageId ? Promise.resolve(frontImageId as string) : (frontB64 ? compress(frontB64) : Promise.resolve(null)),
+        backImageId ? Promise.resolve(backImageId as string) : (backB64 ? compress(backB64) : Promise.resolve(null)),
       ]);
       await db.query(
         `UPDATE grading_history
@@ -9523,9 +9809,15 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.post("/api/grade-job", async (req, res) => {
+  app.post("/api/grade-job", gradeUpload.fields([{ name: "front", maxCount: 1 }, { name: "back", maxCount: 1 }]), async (req, res) => {
     try {
-      const { frontImage, backImage, pushToken, rcUserId, stableUserId } = req.body;
+      // Dual-mode: binary multipart upload (new app builds) OR base64 JSON (web / older builds).
+      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+      const frontBuf = files?.front?.[0]?.buffer;
+      const backBuf = files?.back?.[0]?.buffer;
+      const frontImage: string | undefined = frontBuf ? frontBuf.toString("base64") : req.body.frontImage;
+      const backImage: string | undefined = backBuf ? backBuf.toString("base64") : req.body.backImage;
+      const { pushToken, rcUserId, stableUserId } = req.body;
       if (!frontImage || !backImage) {
         return res.status(400).json({ error: "Both front and back images required" });
       }
@@ -9541,16 +9833,30 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: "single",
         pushToken,
         createdAt: Date.now(),
+        progress: { stage: "received", pct: JOB_STAGE_PCT.received },
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "quick");
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId });
 
       (async () => {
         try {
-          const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`);
+          // Store the full-resolution originals in parallel with grading so the
+          // extra upload adds (almost) no latency. Image IDs ride back inside the
+          // result JSON, so they flow through completeJobInDb, GET /grade-job, and
+          // /pending-grades — meaning images survive app kills and reinstalls.
+          setJobProgress(jobId, "preparing");
+          const storePromise = Promise.all([
+            storeGradeOriginal(frontImage),
+            storeGradeOriginal(backImage),
+          ]);
+          const result = await performGrading(frontImage, backImage, `[grade-job:${jobId}]`, true, (stage) => setJobProgress(jobId, stage));
+          const [frontImageId, backImageId] = await storePromise;
+          if (frontImageId) result.frontImageId = frontImageId;
+          if (backImageId) result.backImageId = backImageId;
+          setJobProgress(jobId, "finalizing");
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9580,7 +9886,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   app.post("/api/bulk-grade-job", async (req, res) => {
     try {
-      const { cards, pushToken, rcUserId } = req.body;
+      const { cards, pushToken, rcUserId, stableUserId } = req.body;
       if (!cards || !Array.isArray(cards) || cards.length === 0) {
         return res.status(400).json({ error: "At least one card required" });
       }
@@ -9599,7 +9905,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "bulk", cards.length);
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId, totalCards: cards.length });
 
@@ -9613,7 +9919,18 @@ RESPONSE FORMAT (JSON only, no markdown):
 
             const batchResults = await Promise.allSettled(
               batch.map(async (card: { frontImage: string; backImage: string }, idx: number) => {
-                return await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`);
+                // Store the full-res originals in parallel with grading so the image
+                // IDs ride back inside the result JSON — giving bulk cards the same
+                // cloud photo backup + reinstall recovery as single-card grades.
+                const storePromise = Promise.all([
+                  storeGradeOriginal(card.frontImage),
+                  storeGradeOriginal(card.backImage),
+                ]);
+                const result = await performGrading(card.frontImage, card.backImage, `[bulk-grade:${jobId}:${i + idx}]`, false);
+                const [frontImageId, backImageId] = await storePromise;
+                if (frontImageId) result.frontImageId = frontImageId;
+                if (backImageId) result.backImageId = backImageId;
+                return result;
               })
             );
 
@@ -9634,6 +9951,16 @@ RESPONSE FORMAT (JSON only, no markdown):
           console.log(`[bulk-grade-job] Job ${jobId} completed: ${successCount}/${cards.length} succeeded`);
           await completeGradeEvent(jobId, "completed");
 
+          // Record each successful card against the canonical server usage row
+          // (matches single-card grading, so free-tier counts survive reinstall).
+          for (let n = 0; n < successCount; n++) {
+            await recordServerUsage(rcUserId, "quick", stableUserId);
+          }
+
+          // Persist the per-card results so the job survives a server restart AND
+          // can be recovered via /api/pending-grades after an app kill/reinstall.
+          void completeJobInDb(jobId, "completed", { results, totalCards: cards.length });
+
           if (job.pushToken) {
             sendPushNotification(
               job.pushToken,
@@ -9646,6 +9973,7 @@ RESPONSE FORMAT (JSON only, no markdown):
           job.status = "failed";
           job.error = err.message || "Unknown error";
           await completeGradeEvent(jobId, "failed");
+          void completeJobInDb(jobId, "failed", undefined, job.error);
 
           if (job.pushToken) {
             sendPushNotification(job.pushToken, "Bulk Grading Failed", "There was an error with your bulk grading. Please try again.");
@@ -9657,9 +9985,26 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
-  app.post("/api/deep-grade-job", async (req, res) => {
+  app.post("/api/deep-grade-job", deepUpload.fields([
+    { name: "front", maxCount: 1 },
+    { name: "back", maxCount: 1 },
+    { name: "angled", maxCount: 1 },
+    { name: "angledBack", maxCount: 1 },
+    { name: "frontCorners", maxCount: 8 },
+    { name: "backCorners", maxCount: 8 },
+  ]), async (req, res) => {
     try {
-      const { frontImage, backImage, angledImage, angledBackImage, frontCorners, backCorners, pushToken, rcUserId, stableUserId } = req.body;
+      // Dual-mode: binary multipart upload (new app builds) OR base64 JSON (web / older builds).
+      const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+      const toB64 = (f?: Express.Multer.File) => (f ? f.buffer.toString("base64") : undefined);
+      const toB64Arr = (arr?: Express.Multer.File[]) => (arr && arr.length ? arr.map((f) => f.buffer.toString("base64")) : undefined);
+      const frontImage: string | undefined = toB64(files?.front?.[0]) ?? req.body.frontImage;
+      const backImage: string | undefined = toB64(files?.back?.[0]) ?? req.body.backImage;
+      const angledImage: string | undefined = toB64(files?.angled?.[0]) ?? req.body.angledImage;
+      const angledBackImage: string | undefined = toB64(files?.angledBack?.[0]) ?? req.body.angledBackImage;
+      const frontCorners: string[] | undefined = toB64Arr(files?.frontCorners) ?? req.body.frontCorners;
+      const backCorners: string[] | undefined = toB64Arr(files?.backCorners) ?? req.body.backCorners;
+      const { pushToken, rcUserId, stableUserId } = req.body;
       if (!frontImage || !backImage || !angledImage) {
         return res.status(400).json({ error: "Front, back, and angled images are all required" });
       }
@@ -9675,16 +10020,19 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: "deep",
         pushToken,
         createdAt: Date.now(),
+        progress: { stage: "received", pct: JOB_STAGE_PCT.received },
       };
       gradingJobs.set(jobId, job);
       await logGradeEvent(jobId, "deep");
-      void persistJobToDb(job, rcUserId);
+      void persistJobToDb(job, rcUserId, stableUserId);
 
       res.json({ jobId });
 
       (async () => {
         try {
-          const result = await performDeepGrading(frontImage, backImage, angledImage, angledBackImage || undefined, undefined, `[deep-grade-job:${jobId}]`, frontCorners, backCorners);
+          setJobProgress(jobId, "preparing");
+          const result = await performDeepGrading(frontImage, backImage, angledImage, angledBackImage || undefined, undefined, `[deep-grade-job:${jobId}]`, frontCorners, backCorners, (stage) => setJobProgress(jobId, stage));
+          setJobProgress(jobId, "finalizing");
           job.status = "completed";
           job.result = result;
           await completeGradeEvent(jobId, "completed");
@@ -9720,6 +10068,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         type: job.type,
         result: job.status === "completed" ? job.result : undefined,
         error: job.status === "failed" ? job.error : undefined,
+        progress: job.status === "processing" ? job.progress : undefined,
       });
     } else {
       res.json({
@@ -9788,19 +10137,20 @@ RESPONSE FORMAT (JSON only, no markdown):
   // The client calls this on every launch. If the app was killed mid-grade,
   // the result sits here until the user relaunches and the client acknowledges.
   app.get("/api/pending-grades", async (req, res) => {
-    const rcUserId = req.query.rcUserId as string;
-    if (!rcUserId) return res.status(400).json({ error: "rcUserId required" });
+    const rcUserId = req.query.rcUserId as string | undefined;
+    const stableId = req.query.stableId as string | undefined;
+    if (!rcUserId && !stableId) return res.status(400).json({ error: "rcUserId or stableId required" });
     try {
       const r = await db.query(
         `SELECT id, type, result, error, status
          FROM grading_jobs
-         WHERE rc_user_id = $1
+         WHERE (rc_user_id = $1 OR (stable_user_id IS NOT NULL AND stable_user_id = $2))
            AND status = 'completed'
            AND delivered = FALSE
-           AND type IN ('single', 'deep')
+           AND type IN ('single', 'deep', 'bulk')
            AND created_at > NOW() - INTERVAL '24 hours'
          ORDER BY completed_at ASC`,
-        [rcUserId]
+        [rcUserId || null, stableId || null]
       );
       res.json({ jobs: r.rows });
     } catch (e: any) {
@@ -10222,7 +10572,12 @@ RESPONSE FORMAT (JSON only, no markdown):
   let rcTiersCache: { data: RCTiers; ts: number } | null = null;
   const RC_TIERS_CACHE_TTL = 10 * 60 * 1000;
 
-  type RCTiers = { curious: number; enthusiast: number; obsessed: number; other: number; productIds: string[] };
+  type PlatformTierCounts = { curious: number; enthusiast: number; obsessed: number };
+  type RCTiers = {
+    curious: number; enthusiast: number; obsessed: number; other: number;
+    productIds: string[];
+    byPlatform: { ios: PlatformTierCounts; android: PlatformTierCounts; other: PlatformTierCounts };
+  };
 
   async function fetchRCTierBreakdown(): Promise<RCTiers | null> {
     if (rcTiersCache && Date.now() - rcTiersCache.ts < RC_TIERS_CACHE_TTL) {
@@ -10234,12 +10589,27 @@ RESPONSE FORMAT (JSON only, no markdown):
     if (!v2Key || !projectId) return null;
 
     try {
-      const tiers: RCTiers = { curious: 0, enthusiast: 0, obsessed: 0, other: 0, productIds: [] };
+      const tiers: RCTiers = {
+        curious: 0, enthusiast: 0, obsessed: 0, other: 0, productIds: [],
+        byPlatform: {
+          ios: { curious: 0, enthusiast: 0, obsessed: 0 },
+          android: { curious: 0, enthusiast: 0, obsessed: 0 },
+          other: { curious: 0, enthusiast: 0, obsessed: 0 },
+        },
+      };
       const seenStoreIds = new Set<string>();
+      // Map a RevenueCat store enum to a platform bucket. App Store = iPhone, Play Store = Android.
+      const normalizePlatform = (store?: string | null): "ios" | "android" | "other" => {
+        const s = (store ?? "").toLowerCase();
+        if (s === "app_store" || s === "mac_app_store") return "ios";
+        if (s === "play_store") return "android";
+        return "other"; // amazon, stripe, rc_billing, promotional, etc.
+      };
 
       // Step 1: Pre-fetch all products to build productId → tier map
       // There are only ~7 products so this is a single cheap API call
       const productTierMap = new Map<string, string>(); // RC product id → store identifier
+      const productPlatformMap = new Map<string, "ios" | "android" | "other">(); // RC product id → platform
       const pRes = await fetch(
         `https://api.revenuecat.com/v2/projects/${projectId}/products?limit=100`,
         { headers: { Authorization: `Bearer ${v2Key}` } }
@@ -10249,6 +10619,9 @@ RESPONSE FORMAT (JSON only, no markdown):
         for (const p of (pJson.items ?? [])) {
           if (p.id && p.store_identifier) {
             productTierMap.set(p.id, p.store_identifier.toLowerCase());
+          }
+          if (p.id && p.store) {
+            productPlatformMap.set(p.id, normalizePlatform(p.store));
           }
         }
       }
@@ -10273,7 +10646,8 @@ RESPONSE FORMAT (JSON only, no markdown):
       // Step 3: For each customer, check their V2 subscriptions for active gives_access=true
       // Deduplicate per customer — count each customer once in their highest tier
       const TIER_RANK: Record<string, number> = { obsessed: 3, enthusiast: 2, curious: 1, other: 0 };
-      const customerTier = new Map<string, string>(); // customerId → best tier
+      // Count each customer once, in their highest tier, with that subscription's platform
+      const customerBest = new Map<string, { tier: string; platform: "ios" | "android" | "other" }>();
 
       for (let i = 0; i < Math.min(customerIds.length, 2000); i += 15) {
         const batch = customerIds.slice(i, i + 15);
@@ -10293,21 +10667,29 @@ RESPONSE FORMAT (JSON only, no markdown):
                 : storeId.includes("enthusiast") ? "enthusiast"
                 : storeId.includes("curious") ? "curious"
                 : "other";
-              const current = customerTier.get(cid);
-              if (!current || (TIER_RANK[tier] ?? 0) > (TIER_RANK[current] ?? 0)) {
-                customerTier.set(cid, tier);
+              // Prefer the subscription's own store; fall back to the product's store
+              let platform = normalizePlatform(sub.store);
+              if (platform === "other") {
+                platform = productPlatformMap.get(sub.product_id ?? "") ?? "other";
+              }
+              const current = customerBest.get(cid);
+              if (!current || (TIER_RANK[tier] ?? 0) > (TIER_RANK[current.tier] ?? 0)) {
+                customerBest.set(cid, { tier, platform });
               }
             }
           } catch {}
         }));
       }
 
-      // Tally from deduplicated customer map
-      for (const tier of customerTier.values()) {
+      // Tally from deduplicated customer map (overall totals + per-platform breakdown)
+      for (const { tier, platform } of customerBest.values()) {
         if (tier === "curious") tiers.curious++;
         else if (tier === "enthusiast") tiers.enthusiast++;
         else if (tier === "obsessed") tiers.obsessed++;
         else tiers.other++;
+        if (tier === "curious" || tier === "enthusiast" || tier === "obsessed") {
+          tiers.byPlatform[platform][tier]++;
+        }
       }
 
       tiers.productIds = Array.from(seenStoreIds).sort();
@@ -10329,7 +10711,10 @@ RESPONSE FORMAT (JSON only, no markdown):
     bulk: 0.018,
   };
 
+  // Admin auth helper (isAdminRequest) is defined at the top of registerRoutes.
+
   app.get("/api/admin/analytics", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const [totals, daily, byMode, recent] = await Promise.all([
         db.query(`
@@ -10414,7 +10799,9 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   // ── Admin settings ──────────────────────────────────────────────────────
-  app.get("/api/admin/settings", async (_req, res) => {
+  // Admin auth (isAdminRequest) is defined above, near the analytics route.
+  app.get("/api/admin/settings", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const { rows } = await db.query(`SELECT key, value FROM admin_settings`);
       const out: Record<string, string> = {};
@@ -10426,6 +10813,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   });
 
   app.post("/api/admin/settings", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     const { key, value } = req.body as { key?: string; value?: string };
     if (!key || value === undefined) return res.status(400).json({ error: "key and value required" });
     try {
@@ -10440,8 +10828,32 @@ RESPONSE FORMAT (JSON only, no markdown):
     }
   });
 
+  // ── Public bulletin (admin-authored announcement shown on Home) ──────────
+  app.get("/api/bulletin", async (_req, res) => {
+    try {
+      const { rows } = await db.query(
+        `SELECT key, value FROM admin_settings
+         WHERE key IN ('bulletin_enabled','bulletin_title','bulletin_message','bulletin_style')`
+      );
+      const s: Record<string, string> = {};
+      rows.forEach((r: any) => { s[r.key] = r.value; });
+      const enabled = s["bulletin_enabled"] === "true";
+      const message = (s["bulletin_message"] ?? "").trim();
+      if (!enabled || !message) return res.json({ enabled: false });
+      res.json({
+        enabled: true,
+        title: (s["bulletin_title"] ?? "").trim(),
+        message,
+        style: s["bulletin_style"] || "info",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Admin financials ─────────────────────────────────────────────────────
-  app.get("/api/admin/financials", async (_req, res) => {
+  app.get("/api/admin/financials", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const GBP_PER_USD = 0.79;
       // Tier prices in GBP per month
@@ -10457,7 +10869,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         prevMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
       }
 
-      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult, aiAllTimeResult] = await Promise.all([
+      const [rcTiers, settingsResult, aiCurrentResult, aiPrevResult, aiAllTimeResult, perModeResult] = await Promise.all([
         fetchRCTierBreakdown(),
         db.query(`SELECT key, value FROM admin_settings`),
         db.query(
@@ -10472,6 +10884,8 @@ RESPONSE FORMAT (JSON only, no markdown):
         ),
         // All-time AI spend across every month ever logged
         db.query(`SELECT SUM(cost_usd) AS total, COUNT(*) AS calls FROM ai_cost_log`),
+        // Real per-mode AI spend (all time) → average cost per grade type
+        db.query(`SELECT mode, SUM(cost_usd) AS total, COUNT(*) AS calls FROM ai_cost_log GROUP BY mode`),
       ]);
 
       const settings: Record<string, string> = {};
@@ -10506,14 +10920,54 @@ RESPONSE FORMAT (JSON only, no markdown):
       const enthusiast = rcTiers?.enthusiast ?? 0;
       const obsessed = rcTiers?.obsessed ?? 0;
 
-      const grossMrrGbp = curious * TIER_PRICES_GBP.curious
-        + enthusiast * TIER_PRICES_GBP.enthusiast
-        + obsessed * TIER_PRICES_GBP.obsessed;
+      // ── Revenue split by platform (App Store / Play Store / other) ──
+      const emptyPlat = { curious: 0, enthusiast: 0, obsessed: 0 };
+      const bp = rcTiers?.byPlatform ?? { ios: emptyPlat, android: emptyPlat, other: emptyPlat };
+      const mrrForPlatform = (t: { curious: number; enthusiast: number; obsessed: number }) =>
+        t.curious * TIER_PRICES_GBP.curious
+        + t.enthusiast * TIER_PRICES_GBP.enthusiast
+        + t.obsessed * TIER_PRICES_GBP.obsessed;
 
-      const platformFeeGbp = grossMrrGbp * PLATFORM_FEE;
+      const iosGrossGbp = mrrForPlatform(bp.ios);
+      const androidGrossGbp = mrrForPlatform(bp.android);
+      const otherGrossGbp = mrrForPlatform(bp.other);
+      const grossMrrGbp = iosGrossGbp + androidGrossGbp + otherGrossGbp;
+
+      // Apple and Google take separate store cuts. Default each to the legacy
+      // single platform fee if set, otherwise 15% (small-business programme rate).
+      const appleFeePct = parseFloat(settings["apple_fee_pct"] ?? settings["platform_fee_pct"] ?? "15");
+      const googleFeePct = parseFloat(settings["google_fee_pct"] ?? settings["platform_fee_pct"] ?? "15");
+      const appleFeeGbp = iosGrossGbp * (appleFeePct / 100);
+      const googleFeeGbp = androidGrossGbp * (googleFeePct / 100);
+      const platformFeeGbp = appleFeeGbp + googleFeeGbp; // 'other' (web/promo) has no store fee
       const afterPlatformGbp = grossMrrGbp - platformFeeGbp;
       const rcFeeGbp = afterPlatformGbp > RC_MRR_THRESHOLD_GBP ? afterPlatformGbp * RC_FEE_PCT : 0;
       const netMrrGbp = afterPlatformGbp - rcFeeGbp;
+
+      // ── AI cost per grade type (real average from ai_cost_log, else estimate) ──
+      const realByMode: Record<string, { total: number; calls: number }> = {};
+      perModeResult.rows.forEach((r: any) => {
+        realByMode[r.mode] = { total: parseFloat(r.total) || 0, calls: parseInt(r.calls) || 0 };
+      });
+      const GRADE_MODES: { key: string; label: string; logKey: string }[] = [
+        { key: "quick", label: "Quick Grade", logKey: "quick" },
+        { key: "bulk", label: "Bulk (per card)", logKey: "quick" }, // bulk uses the same single-card Claude call as quick
+        { key: "deep", label: "Deep Grade", logKey: "deep" },
+        { key: "crossover", label: "Crossover", logKey: "crossover" },
+      ];
+      const perGradeCost = GRADE_MODES.map((m) => {
+        const real = realByMode[m.logKey];
+        const realAvgUsd = real && real.calls > 0 ? real.total / real.calls : null;
+        const usd = realAvgUsd ?? (COST_PER_GRADE_USD[m.key] ?? 0.018);
+        return {
+          key: m.key,
+          label: m.label,
+          usd: parseFloat(usd.toFixed(4)),
+          gbp: parseFloat((usd * GBP_PER_USD).toFixed(4)),
+          isReal: realAvgUsd !== null,
+          calls: real?.calls ?? 0,
+        };
+      });
 
       const aiCurrentUsd = parseFloat(aiCurrentResult.rows[0]?.total ?? "0") || 0;
       const aiCurrentGbp = aiCurrentUsd * GBP_PER_USD;
@@ -10538,14 +10992,40 @@ RESPONSE FORMAT (JSON only, no markdown):
 
       res.json({
         month: currentMonth,
-        tiers: { curious, enthusiast, obsessed },
+        tiers: { curious, enthusiast, obsessed, byPlatform: bp },
         revenue: {
           grossMrrGbp: parseFloat(grossMrrGbp.toFixed(2)),
-          platformFeePct,
+          platformFeePct, // legacy blended fee (kept for compatibility)
           platformFeeGbp: parseFloat(platformFeeGbp.toFixed(2)),
+          appleFeePct,
+          googleFeePct,
           rcFeeGbp: parseFloat(rcFeeGbp.toFixed(2)),
           netMrrGbp: parseFloat(netMrrGbp.toFixed(2)),
+          byPlatform: {
+            ios: {
+              grossGbp: parseFloat(iosGrossGbp.toFixed(2)),
+              feePct: appleFeePct,
+              feeGbp: parseFloat(appleFeeGbp.toFixed(2)),
+              netGbp: parseFloat((iosGrossGbp - appleFeeGbp).toFixed(2)),
+              curious: bp.ios.curious, enthusiast: bp.ios.enthusiast, obsessed: bp.ios.obsessed,
+            },
+            android: {
+              grossGbp: parseFloat(androidGrossGbp.toFixed(2)),
+              feePct: googleFeePct,
+              feeGbp: parseFloat(googleFeeGbp.toFixed(2)),
+              netGbp: parseFloat((androidGrossGbp - googleFeeGbp).toFixed(2)),
+              curious: bp.android.curious, enthusiast: bp.android.enthusiast, obsessed: bp.android.obsessed,
+            },
+            other: {
+              grossGbp: parseFloat(otherGrossGbp.toFixed(2)),
+              feePct: 0,
+              feeGbp: 0,
+              netGbp: parseFloat(otherGrossGbp.toFixed(2)),
+              curious: bp.other.curious, enthusiast: bp.other.enthusiast, obsessed: bp.other.obsessed,
+            },
+          },
         },
+        perGradeCost,
         costs: {
           aiThisMonthGbp: parseFloat(aiCurrentGbp.toFixed(2)),
           ai3MonthAvgGbp: ai3MonthAvgGbp !== null ? parseFloat(ai3MonthAvgGbp.toFixed(2)) : null,
@@ -10985,6 +11465,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   // On first run this populates the whole catalog; subsequent runs only refresh
   // sets whose prices might be stale (fetched > 20h ago) or new sets.
   let cardCatalogSyncRunning = false;
+  let cardCatalogLastRun: Date | null = null;
   async function syncAllEnglishSets(mode: "full" | "prices-only" = "full"): Promise<void> {
     if (cardCatalogSyncRunning) { console.log("[card-catalog] Sync already in progress — skipping"); return; }
     cardCatalogSyncRunning = true;
@@ -11029,6 +11510,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         await new Promise(r => setTimeout(r, 300));
       }
       console.log(`[card-catalog] Sync complete — ${synced} synced, ${skipped} skipped (fresh), ${errors} errors`);
+      cardCatalogLastRun = new Date();
     } finally {
       cardCatalogSyncRunning = false;
     }
@@ -11609,6 +12091,41 @@ RESPONSE FORMAT (JSON only, no markdown):
     "star-birth", "vmax-climax", "shiny-star-v",
   ];
 
+  // Derive a PokeTrace-style slug from an English set name (matches the curated
+  // JP_SET_SLUGS style and the frontend's set-cards slug derivation).
+  function jpNameToSlug(nameEn: string): string {
+    return nameEn.toLowerCase()
+      .replace(/['\u2019]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  }
+
+  // Build the JP Top Picks candidate set list dynamically: the curated known-good
+  // slugs UNION slugs derived from the newest TCGdex JP sets that have an English
+  // name. This lets newly-released JP sets flow into Top Picks automatically
+  // (once named/priced upstream) without editing the hardcoded list.
+  // Returns the candidate slugs plus an `augmented` flag indicating whether the
+  // dynamic TCGdex augmentation actually ran. When augmentation fails (e.g.
+  // TCGdex outage) we fall back to curated-only slugs, and callers must NOT run
+  // the cleanup DELETE — otherwise a transient outage would wipe the picks of
+  // every dynamically-added set for the day.
+  async function getJpTopPicksSlugs(): Promise<{ slugs: string[]; augmented: boolean }> {
+    const slugs = new Set<string>(JP_SET_SLUGS);
+    let augmented = false;
+    try {
+      const allSets = await buildTcgdexSetList("ja");
+      for (const s of allSets.slice(0, 40)) {
+        if (!s.nameEn) continue;
+        const slug = jpNameToSlug(s.nameEn);
+        if (slug) slugs.add(slug);
+      }
+      augmented = true;
+    } catch (e: any) {
+      console.warn("[jp-top-picks] Could not augment set list dynamically:", e.message);
+    }
+    return { slugs: Array.from(slugs), augmented };
+  }
+
   async function runJapaneseTopPicksJob(): Promise<void> {
     if (jpTopPicksJobRunning) {
       console.log("[jp-top-picks] Job already running, skipping");
@@ -11623,13 +12140,20 @@ RESPONSE FORMAT (JSON only, no markdown):
       const apiKey  = process.env.POKETRACE_API_KEY;
       if (!apiKey) throw new Error("POKETRACE_API_KEY not configured");
 
-      // Remove any stale picks for sets that are no longer in JP_SET_SLUGS
-      // (e.g. English sets accidentally included in a previous run)
-      if (JP_SET_SLUGS.length > 0) {
-        const slugPlaceholders = JP_SET_SLUGS.map((_: string, i: number) => `$${i + 1}`).join(',');
+      // Candidate set list: curated known-good slugs + newest JP sets (dynamic),
+      // so newly-released sets are picked up automatically.
+      const { slugs: setSlugs, augmented } = await getJpTopPicksSlugs();
+
+      // Remove any stale picks for sets that are no longer candidates
+      // (e.g. English sets accidentally included in a previous run).
+      // Skip the cleanup when dynamic augmentation failed: the fallback list is
+      // curated-only, so deleting "not in" it would wipe every dynamically-added
+      // set's picks on a transient TCGdex outage.
+      if (augmented && setSlugs.length > 0) {
+        const slugPlaceholders = setSlugs.map((_: string, i: number) => `$${i + 1}`).join(',');
         const delResult = await db.query(
           `DELETE FROM top_picks_precomputed WHERE lang='ja' AND set_id NOT IN (${slugPlaceholders})`,
-          JP_SET_SLUGS
+          setSlugs
         );
         if (delResult.rowCount && delResult.rowCount > 0) {
           console.log(`[jp-top-picks] Cleaned up ${delResult.rowCount} stale picks for removed/English sets`);
@@ -11642,7 +12166,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         number: string; imageUrl: string | null; nmEUR: number;
       }> = [];
 
-      for (const slug of JP_SET_SLUGS) {
+      for (const slug of setSlugs) {
         try {
           // Paginate through all cards in this set — PokeTrace has no price sort,
           // so we must fetch all cards and pick the most valuable ourselves.
@@ -11689,7 +12213,7 @@ RESPONSE FORMAT (JSON only, no markdown):
         }
       }
 
-      console.log(`[jp-top-picks] Collected ${candidates.length} candidates across ${JP_SET_SLUGS.length} sets`);
+      console.log(`[jp-top-picks] Collected ${candidates.length} candidates across ${setSlugs.length} sets`);
 
       const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
@@ -11950,23 +12474,46 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   // Schedule daily card catalog price refresh (3:30 AM UTC — 30 min after status refresh)
-  function scheduleDailyCardCatalogSync() {
+  // Includes boot catch-up: if the server restarted past today's window before the
+  // sync ran, run it shortly after boot (once/day, guarded by MAX(price_updated_at)).
+  async function scheduleDailyCardCatalogSync() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(3, 30, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    const delayMin = Math.round(delay / 60000);
-    console.log(`[card-catalog] Daily sync scheduled in ${delayMin} min`);
-    setTimeout(async () => {
-      await syncAllEnglishSets("prices-only");
-      await fillMeSetPricesFromPokeTrace();
+    const todayAt = new Date();
+    todayAt.setUTCHours(3, 30, 0, 0);
+    const nextAt = new Date(todayAt);
+    if (nextAt <= now) nextAt.setUTCDate(nextAt.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = cardCatalogLastRun;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(price_updated_at) AS latest FROM card_catalog WHERE lang='en'`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) { const dbTs = new Date(ts); if (!lastRanAt || dbTs > lastRanAt) lastRanAt = dbTs; }
+    } catch { /* ignore */ }
+
+    const hasRunToday = lastRanAt != null && lastRanAt >= todayAt;
+    const missedToday = now >= todayAt && !hasRunToday;
+
+    const runOnce = async () => {
+      await syncAllEnglishSets("prices-only").catch(e => console.error("[card-catalog] Sync error:", e.message));
+      await fillMeSetPricesFromPokeTrace().catch(e => console.error("[card-catalog] ME fill error:", e.message));
       scheduleDailyCardCatalogSync();
-    }, delay);
+    };
+
+    if (missedToday) {
+      console.log("[card-catalog] Missed today's sync — catching up in 6 min");
+      setTimeout(runOnce, 6 * 60 * 1000);
+    } else {
+      const delay = nextAt.getTime() - now.getTime();
+      console.log(`[card-catalog] Daily sync scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(runOnce, delay);
+    }
   }
 
   // Sync all Japanese sets into card_catalog (same pattern as syncAllEnglishSets)
   let jpCatalogSyncRunning = false;
+  let jpCatalogLastRun: Date | null = null;
   async function syncAllJapaneseSets(mode: "full" | "prices-only" = "full"): Promise<void> {
     if (jpCatalogSyncRunning) { console.log("[jp-catalog] Sync already in progress — skipping"); return; }
     jpCatalogSyncRunning = true;
@@ -12023,27 +12570,50 @@ RESPONSE FORMAT (JSON only, no markdown):
         await new Promise(r => setTimeout(r, 600));
       }
       console.log(`[jp-catalog] Sync complete — ${synced} synced, ${skipped} skipped, ${errors} errors`);
+      jpCatalogLastRun = new Date();
     } finally {
       jpCatalogSyncRunning = false;
     }
   }
 
   // Schedule daily JP catalog price refresh (4:00 AM UTC — 30 min after EN refresh)
-  function scheduleDailyJpCatalogSync() {
+  // Includes boot catch-up (see scheduleDailyCardCatalogSync) keyed on MAX(price_updated_at) ja.
+  async function scheduleDailyJpCatalogSync() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(4, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    const delayMin = Math.round(delay / 60000);
-    console.log(`[jp-catalog] Daily sync scheduled in ${delayMin} min`);
-    setTimeout(async () => {
-      await syncAllJapaneseSets("prices-only");
+    const todayAt = new Date();
+    todayAt.setUTCHours(4, 0, 0, 0);
+    const nextAt = new Date(todayAt);
+    if (nextAt <= now) nextAt.setUTCDate(nextAt.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = jpCatalogLastRun;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(price_updated_at) AS latest FROM card_catalog WHERE lang='ja'`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) { const dbTs = new Date(ts); if (!lastRanAt || dbTs > lastRanAt) lastRanAt = dbTs; }
+    } catch { /* ignore */ }
+
+    const hasRunToday = lastRanAt != null && lastRanAt >= todayAt;
+    const missedToday = now >= todayAt && !hasRunToday;
+
+    const runOnce = async () => {
+      await syncAllJapaneseSets("prices-only").catch(e => console.error("[jp-catalog] Sync error:", e.message));
       scheduleDailyJpCatalogSync();
-    }, delay);
+    };
+
+    if (missedToday) {
+      console.log("[jp-catalog] Missed today's sync — catching up in 12 min");
+      setTimeout(runOnce, 12 * 60 * 1000);
+    } else {
+      const delay = nextAt.getTime() - now.getTime();
+      console.log(`[jp-catalog] Daily sync scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(runOnce, delay);
+    }
   }
   const PRICE_STATUS_TTL = 23 * 60 * 60 * 1000; // 23h — re-check after 1 day
   let priceStatusPrePopStarted = false;
+  let setStatusLastRun: Date | null = null;
 
   // Write to both memory cache and DB atomically
   function upsertSetPriceStatus(setId: string, hasCards: boolean, hasPrices: boolean) {
@@ -12130,20 +12700,43 @@ RESPONSE FORMAT (JSON only, no markdown):
   }
 
   // Schedule a daily full refresh so price status stays current (2 AM UTC)
-  function scheduleDailySetStatusRefresh() {
+  // Includes boot catch-up (see scheduleDailyCardCatalogSync) keyed on MAX(checked_at).
+  async function scheduleDailySetStatusRefresh() {
     const now = new Date();
-    const next = new Date();
-    next.setUTCHours(2, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = next.getTime() - now.getTime();
-    console.log(`[price-status] Daily refresh scheduled in ${Math.round(delay / 60000)} min`);
-    setTimeout(async () => {
+    const todayAt = new Date();
+    todayAt.setUTCHours(2, 0, 0, 0);
+    const nextAt = new Date(todayAt);
+    if (nextAt <= now) nextAt.setUTCDate(nextAt.getUTCDate() + 1);
+
+    let lastRanAt: Date | null = setStatusLastRun;
+    try {
+      const row = await db.query<{ latest: string }>(
+        `SELECT MAX(checked_at) AS latest FROM set_price_status`
+      );
+      const ts = row.rows[0]?.latest;
+      if (ts) { const dbTs = new Date(Number(ts)); if (!lastRanAt || dbTs > lastRanAt) lastRanAt = dbTs; }
+    } catch { /* ignore */ }
+
+    const hasRunToday = lastRanAt != null && lastRanAt >= todayAt;
+    const missedToday = now >= todayAt && !hasRunToday;
+
+    const runOnce = async () => {
       console.log("[price-status] Daily refresh starting...");
       priceStatusPrePopStarted = false;
       const sets = await ensureSetsCached().catch(() => [] as CachedSet[]);
       if (sets.length > 0) await backgroundPrePopulatePriceStatus(sets);
+      setStatusLastRun = new Date();
       scheduleDailySetStatusRefresh();
-    }, delay);
+    };
+
+    if (missedToday) {
+      console.log("[price-status] Missed today's refresh — catching up in 4 min");
+      setTimeout(runOnce, 4 * 60 * 1000);
+    } else {
+      const delay = nextAt.getTime() - now.getTime();
+      console.log(`[price-status] Daily refresh scheduled in ${Math.round(delay / 60000)} min`);
+      setTimeout(runOnce, delay);
+    }
   }
 
   // --- TCGdex series metadata cache (set → serie mapping for logo URLs & sort order) ---
@@ -12661,6 +13254,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── Admin: manually trigger picks job ─────────────────────────────────────
   app.post("/api/admin/trigger-picks", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     const secret = req.headers["x-admin-secret"] || req.query.secret;
     if (secret !== "@dm!nM@rceus2026") {
       return res.status(401).json({ error: "Unauthorized" });
@@ -12686,6 +13280,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── Admin: trigger JP catalog image refresh (re-syncs all JP sets with updated image logic) ──
   app.post("/api/admin/trigger-jp-catalog-sync", async (req, res) => {
+    if (!isAdminRequest(req)) return res.status(401).json({ error: "Unauthorized" });
     const secret = req.headers["x-admin-secret"] || req.query.secret;
     if (secret !== "@dm!nM@rceus2026") return res.status(401).json({ error: "Unauthorized" });
     if (jpCatalogSyncRunning) return res.json({ status: "already_running" });
@@ -13057,13 +13652,43 @@ RESPONSE FORMAT (JSON only, no markdown):
       if (!message?.trim()) return res.status(400).json({ error: "message required" });
 
       const GBP_PER_USD = 0.79;
+      const GBP_PER_EUR = 0.86;
 
-      // Reusable helper: search card_catalog for a single query, return top result
+      // Map a variant/rarity keyword in the query to rarity LIKE patterns so we can
+      // boost the right printing (e.g. "SIR" -> Special Illustration Rare). Single
+      // additive boost (any pattern match), so "sir" lifts ONLY the SIR sibling.
+      const detectRarityPatterns = (lowered: string): string[] => {
+        const out: string[] = [];
+        const add = (...ps: string[]) => ps.forEach(p => { if (!out.includes(p)) out.push(p); });
+        if (/\b(sir|special illustration)\b/.test(lowered)) add("%special illustration%");
+        else if (/\b(alt art|altart|alternate|illustration rare|illustration)\b/.test(lowered)) add("%illustration rare%", "%special illustration%");
+        if (/\b(secret|rainbow)\b/.test(lowered)) add("%rainbow%", "%secret%");
+        if (/\b(gold|hyper)\b/.test(lowered)) add("%hyper%", "%rainbow%");
+        if (/\b(full art|fullart)\b/.test(lowered)) add("%ultra rare%", "%rare ultra%");
+        if (/\bvmax\b/.test(lowered)) add("%vmax%");
+        if (/\bvstar\b/.test(lowered)) add("%vstar%");
+        return out;
+      };
+      // Single-token rarity words to keep OUT of name/set matching (they are never
+      // part of a Pokémon name). vmax/vstar/gx are intentionally absent — they ARE
+      // part of names, so they stay in the name hints.
+      const RARITY_ONLY_WORDS = new Set(["sir", "alt", "altart", "alternate", "secret", "rainbow", "gold", "hyper", "fullart", "illustration", "special", "art"]);
+
       const searchOneCard = async (query: string): Promise<{ card: any | null; summary: string }> => {
-        const rawTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+        const lowered = query.toLowerCase();
+        const rawTokens = lowered.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+        const rarityPatterns = detectRarityPatterns(lowered);
+
         const sigIdx = rawTokens.findIndex(w => ["from", "in", "of"].includes(w));
         const hasSignal = sigIdx > 0 && sigIdx < rawTokens.length - 1;
-        const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w)).slice(0, 5);
+        // A card number token: contains a digit and is short (e.g. "214", "tg12", "sv107").
+        // Only look in the card-name portion (before "from/in/of") so digit-only SET
+        // names like "151" or "Base Set 2" are not mistaken for a card number.
+        const numberSearchTokens = hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens;
+        const numberTokens = numberSearchTokens.filter(t => /\d/.test(t) && t.length <= 6);
+        const numberToken = numberTokens.length > 0 ? numberTokens[numberTokens.length - 1] : null;
+        const stripWord = (w: string) => RARITY_ONLY_WORDS.has(w) || (numberToken !== null && w === numberToken);
+        const clean = (toks: string[]) => toks.filter(w => w.length >= 3 && !ADVISOR_STOP_WORDS.has(w) && !stripWord(w)).slice(0, 5);
         const cardHints = clean(hasSignal ? rawTokens.slice(0, sigIdx) : rawTokens);
         const setHints = clean(hasSignal ? rawTokens.slice(sigIdx + 1) : []).filter(w => !new Set(cardHints).has(w));
         const allWords = [...cardHints, ...setHints];
@@ -13090,13 +13715,27 @@ RESPONSE FORMAT (JSON only, no markdown):
         });
         if (nameParts.length === 0) return { card: null, summary: "No cards found." };
 
-        const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")})`;
+        // Exact card-number match is a strong, deterministic signal (used when the
+        // user corrects a card via the picker, which sends "#<number>").
+        let numClause = "0";
+        if (numberToken) {
+          params.push(numberToken);
+          numClause = `CASE WHEN LOWER(number) = $${params.length} THEN 10 ELSE 0 END`;
+        }
+        // Variant/rarity boost — any matching pattern lifts the row equally.
+        let rarityClause = "0";
+        if (rarityPatterns.length > 0) {
+          const conds = rarityPatterns.map(p => { params.push(p); return `LOWER(rarity) LIKE $${params.length}`; });
+          rarityClause = `CASE WHEN ${conds.join(" OR ")} THEN 6 ELSE 0 END`;
+        }
+
+        const scoreExpr = `(${nameParts.join(" + ")}) + (${setParts.join(" + ")}) + (${numClause}) + (${rarityClause})`;
         const sql = `
-          SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, set_name_en, image_url, price_usd,
+          SELECT card_id, COALESCE(name_en, name) AS name, set_name, number, lang, rarity, set_name_en, image_url, price_usd, price_eur,
                  (${scoreExpr}) AS score
           FROM card_catalog
           WHERE lang = ANY($1) AND (${whereParts.join(" OR ")})
-          ORDER BY score DESC LIMIT 3`;
+          ORDER BY score DESC, price_usd DESC NULLS LAST LIMIT 3`;
         const result = await db.query(sql, params);
         if (result.rows.length === 0) return { card: null, summary: "No cards found." };
 
@@ -13106,14 +13745,44 @@ RESPONSE FORMAT (JSON only, no markdown):
           cardName: top.name,
           setName: top.set_name_en || top.set_name,
           number: top.number || "",
+          rarity: top.rarity || null,
           imageUrl: top.image_url || null,
           priceUsd: top.price_usd || null,
+          priceEur: top.price_eur || null,
           lang: top.lang || "en",
         };
         const summary = result.rows.map((r: any) =>
           `${r.name} | ${r.set_name_en || r.set_name}${r.number ? ` #${r.number}` : ""}${r.rarity ? ` | ${r.rarity}` : ""}${r.lang === "ja" ? " [JP]" : ""}`
         ).join("\n");
         return { card, summary };
+      };
+
+      // All printings of a card that share a name + set (different number/rarity),
+      // so the user can correct a wrong variant inside a trade verdict. Ordered by
+      // value so the chase card surfaces first.
+      const findVariants = async (name: string, setName: string): Promise<any[]> => {
+        try {
+          const sql = `
+            SELECT card_id, COALESCE(name_en, name) AS name, set_name, set_name_en, number, lang, rarity, image_url, price_usd
+            FROM card_catalog
+            WHERE lang = ANY($1)
+              AND LOWER(COALESCE(name_en, name)) = LOWER($2)
+              AND LOWER(COALESCE(set_name_en, set_name)) = LOWER($3)
+            ORDER BY price_usd DESC NULLS LAST, number LIMIT 8`;
+          const r = await db.query(sql, [["en", "ja"], name, setName]);
+          return r.rows.map((row: any) => ({
+            cardId: row.card_id,
+            cardName: row.name,
+            setName: row.set_name_en || row.set_name,
+            number: row.number || "",
+            rarity: row.rarity || null,
+            imageUrl: row.image_url || null,
+            priceUsd: row.price_usd || null,
+            lang: row.lang || "en",
+          }));
+        } catch {
+          return [];
+        }
       };
 
       const tools: Anthropic.Tool[] = [
@@ -13156,6 +13825,50 @@ RESPONSE FORMAT (JSON only, no markdown):
             required: ["card_name", "set_name"],
           },
         },
+        {
+          name: "present_card_options",
+          description: "Show the user a set of candidate cards to choose from when their description is ambiguous and could match several DISTINCT cards. Pass 2-4 specific candidate queries (full 'Name Set' strings). The user will tap the one they meant. Do NOT call any other tool in the same turn.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              candidates: {
+                type: "array",
+                items: { type: "string" },
+                description: "2-4 candidate card queries e.g. ['Charizard ex Obsidian Flames', 'Charizard ex 151', 'Charizard VMAX Champions Path']",
+              },
+            },
+            required: ["candidates"],
+          },
+        },
+        {
+          name: "evaluate_trade",
+          description: "Evaluate a card TRADE or a card PURCHASE/SALE and show the user a visual verdict card. Use whenever the user swaps cards, OR buys/sells cards for money. CRITICAL: never invent a card the user did not name. If the user paid cash for cards, put the amount in gaveCash and leave gave empty. If they sold cards for cash, put the amount in receivedCash. If the cards are graded or the user states a grade (e.g. PSA 10), pass it in 'grade' so graded market prices are used instead of raw prices. Pass each card side as an array of full 'Name Set' strings WITHOUT the grade in the string. Do NOT call any other tool in the same turn.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              gave: { type: "array", items: { type: "string" }, description: "Cards the user GAVE AWAY (in a trade) — full 'Name Set' strings e.g. ['Pikachu VMAX Vivid Voltage']. Leave empty [] for a pure cash purchase." },
+              received: { type: "array", items: { type: "string" }, description: "Cards the user RECEIVED or BOUGHT — full 'Name Set' strings e.g. ['Umbreon VMAX Evolving Skies']." },
+              gaveCash: { type: "number", description: "Money the user PAID, in GBP. Use for purchases e.g. 'I got X and Y for £1275' → gaveCash 1275. Omit if no cash was paid." },
+              receivedCash: { type: "number", description: "Money the user RECEIVED, in GBP (if they sold cards or got cash back). Omit if none." },
+              grade: { type: "string", description: "Grade of the cards if stated or graded, e.g. 'PSA 10', 'PSA 9', 'BGS 9.5', 'CGC 10', 'ACE 10', 'TAG 10'. Applies to all cards in this deal and uses graded prices. Omit for raw/ungraded cards." },
+            },
+            required: ["received"],
+          },
+        },
+        {
+          name: "grading_profit",
+          description: "Show the user a visual grading profit breakdown (raw cost, grading fee, graded value, net profit) for a single card. Call this when the user asks whether a card is worth grading, or about grading profit/economics for a specific card. Optionally pass a company (PSA/BGS/ACE/TAG/CGC); defaults to PSA. Do NOT call any other tool in the same turn.",
+          input_schema: {
+            type: "object" as const,
+            properties: {
+              card_name: { type: "string", description: "English name of the card" },
+              set_name: { type: "string", description: "Name of the set" },
+              card_number: { type: "string", description: "Card number (optional)" },
+              company: { type: "string", description: "Grading company: PSA, BGS, ACE, TAG, or CGC (optional, defaults to PSA)" },
+            },
+            required: ["card_name", "set_name"],
+          },
+        },
       ];
 
       const systemPrompt = `You are TCG Advisor, a Pokemon TCG expert inside the Grade.IQ grading app.
@@ -13176,7 +13889,13 @@ RESPONSE RULES (strict):
 - For grading economics, include grading cost (PSA ~£25, ACE ~£18, BGS ~£40) and net profit
 - Never use markdown headers or bold text
 - Always search for cards BEFORE writing your answer so images load with the text
-- CARD MARKERS: After each bullet point or sentence that refers to a specific card from search_multiple_cards, append [C0], [C1], [C2] etc. (the index of that card in the queries array you passed). For search_pokemon_cards results use [C0]. Do NOT put the marker mid-sentence — put it at the very end of the line that mentions the card.`;
+- CARD MARKERS: After each bullet point or sentence that refers to a specific card from search_multiple_cards, append [C0], [C1], [C2] etc. (the index of that card in the queries array you passed). For search_pokemon_cards results use [C0]. Do NOT put the marker mid-sentence — put it at the very end of the line that mentions the card.
+
+DISAMBIGUATION: For a SINGLE-CARD question (price, profit, "what's this worth") where the user names a card without enough detail to pin down ONE specific card (no set named, or a Pokémon with many famous cards/variants), call present_card_options with 2-4 specific candidate queries instead of guessing. Add a short line like "A few match — which did you mean?". Do not call any other tool in that turn. Once the user picks a specific card, answer their original question for that card. NEVER use present_card_options for a TRADE or PURCHASE — see TRADES below.
+
+TRADES & PURCHASES: When the user describes a trade (gave X, got Y / swapped) OR a purchase/sale (bought / got / paid £X for cards, or sold cards for £X), call evaluate_trade — it renders a visual verdict card. NEVER invent or guess a card the user did not name; if they paid money, put the amount in gaveCash and leave gave empty (do not fabricate a card for the cash side). If they state a grade like "PSA 10", pass it in 'grade' and keep the grade OUT of each card query string. VARIANT/NUMBER: if the user mentions a variant or rarity (SIR / special illustration, alt art, secret, rainbow, gold, full art) or a card number, KEEP those words IN that card's query string (e.g. "Greninja ex SIR Twilight Masquerade" or "Greninja ex #214 Twilight Masquerade") so the correct printing is matched — only the grade is excluded. If the user does NOT specify a variant/number, still call evaluate_trade with your best single guess (the most likely / most valuable printing) — do NOT call present_card_options; the verdict card shows the other printings inline so the user can correct the pick with one tap. After it returns, add ONE short sentence of context; do not re-list all the numbers.
+
+GRADING PROFIT: When the user asks whether a specific card is worth grading, or about grading profit/economics for a specific card, call grading_profit (optionally with a company) — it renders a visual raw→fee→graded→net breakdown. After it returns, add ONE short sentence of recommendation; do not re-list all the numbers.`;
 
       const msgs: Anthropic.MessageParam[] = [
         ...history.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -13185,14 +13904,24 @@ RESPONSE RULES (strict):
 
       let pricesOut: any = null;
       let cardsOut: any[] = [];
-      let toolLoopCount = 0;
+      let pickerOut: any[] | null = null;
+      let dealOut: any = null;
+      let profitOut: any = null;
+      // Give the model enough turns to search cards AND fetch prices for several
+      // cards (a follow-up often makes it re-search + price multiple cards). On
+      // the FINAL turn we drop the tools entirely so the model is forced to write
+      // a text answer from what it already gathered, instead of attempting yet
+      // another tool call and falling through to the canned "having trouble"
+      // fallback — which is what previously broke follow-up questions.
+      const MAX_TOOL_TURNS = 5;
 
-      while (toolLoopCount < 3) {
+      for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+        const allowTools = turn < MAX_TOOL_TURNS - 1;
         const resp = await anthropic.messages.create({
           model: "claude-sonnet-4-6",
           max_tokens: 400,
           system: systemPrompt,
-          tools,
+          ...(allowTools ? { tools } : {}),
           messages: msgs,
         });
 
@@ -13207,7 +13936,7 @@ RESPONSE RULES (strict):
           // right below the text line that references it
           type Segment = { type: "text"; text: string } | { type: "card"; cardIndex: number };
           const segments: Segment[] = [];
-          const markerRe = /\[C(\d)\]/g;
+          const markerRe = /\[C(\d+)\]/g;
           let last = 0;
           let m: RegExpExecArray | null;
           while ((m = markerRe.exec(rawReply)) !== null) {
@@ -13219,13 +13948,17 @@ RESPONSE RULES (strict):
           const tail = rawReply.slice(last).trimStart();
           if (tail) segments.push({ type: "text", text: tail });
 
-          const cleanReply = rawReply.replace(/\[C\d\]/g, "").trim();
+          const cleanReply = rawReply.replace(/\[C\d+\]/g, "").trim();
           const hasSegments = segments.some(s => s.type === "card");
           return res.json({
             reply: cleanReply,
             prices: pricesOut,
             cards: cardsOut.length > 0 ? cardsOut : null,
             segments: hasSegments ? segments : null,
+            deal: dealOut,
+            profit: profitOut,
+            options: null,
+            needsSelection: false,
           });
         }
 
@@ -13292,14 +14025,192 @@ RESPONSE RULES (strict):
             } catch (e: any) {
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Price lookup failed: ${e.message}` });
             }
+
+          } else if (block.name === "present_card_options") {
+            const { candidates } = block.input as { candidates: string[] };
+            try {
+              const results = await Promise.all((candidates || []).slice(0, 5).map(q => searchOneCard(q)));
+              const opts: any[] = [];
+              for (const { card } of results) {
+                if (card && !opts.find(o => o.cardId === card.cardId)) opts.push(card);
+              }
+              pickerOut = opts;
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: opts.length > 0 ? opts.map(o => `${o.cardName} | ${o.setName}${o.number ? ` #${o.number}` : ""}`).join("\n") : "No matching cards found." });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Card search failed: ${e.message}` });
+            }
+
+          } else if (block.name === "evaluate_trade") {
+            const { gave, received, gaveCash, receivedCash, grade } = block.input as { gave?: string[]; received?: string[]; gaveCash?: number; receivedCash?: number; grade?: string };
+            try {
+              const GRADE_TIERS: Record<string, keyof EbayAllGrades> = {
+                "psa 10": "psa10", "psa 9": "psa9", "psa 8": "psa8", "psa 7": "psa7",
+                "bgs 10": "bgs10", "bgs 9.5": "bgs95", "bgs 9": "bgs9", "bgs 8.5": "bgs85", "bgs 8": "bgs8",
+                "ace 10": "ace10", "ace 9": "ace9", "ace 8": "ace8",
+                "tag 10": "tag10", "tag 9": "tag9", "tag 8": "tag8",
+                "cgc 10": "cgc10", "cgc 9.5": "cgc95", "cgc 9": "cgc9", "cgc 8": "cgc8",
+              };
+              // Normalise "PSA10" / "psa-10" / "BGS9.5" → "psa 10" / "bgs 9.5"
+              const gradeNorm = (grade || "")
+                .toLowerCase()
+                .replace(/[-_]/g, " ")
+                .replace(/(psa|bgs|ace|tag|cgc)\s*/g, "$1 ")
+                .replace(/\s+/g, " ")
+                .trim();
+              const tier = GRADE_TIERS[gradeNorm] || null;
+              const gradeLabel = tier ? gradeNorm.toUpperCase() : null;
+              const priceSide = async (queries: string[] | undefined, cash: number) => {
+                const results = await Promise.all((queries || []).slice(0, 6).map(q => searchOneCard(q)));
+                const cards: any[] = [];
+                let cardsTotal = 0;
+                let allPriced = true;
+                for (const { card } of results) {
+                  if (!card) { allPriced = false; continue; }
+                  let value: number | null = null;
+                  if (tier) {
+                    const ebay = await fetchEbayGradedPrices(card.cardName, card.setName, card.number || undefined);
+                    const usd = Number((ebay as any)[tier]) || 0;
+                    if (usd > 0) value = +(usd * GBP_PER_USD).toFixed(2);
+                  } else if (card.priceUsd != null && parseFloat(card.priceUsd) > 0) {
+                    value = +(parseFloat(card.priceUsd) * GBP_PER_USD).toFixed(2);
+                  } else if (card.priceEur != null && parseFloat(card.priceEur) > 0) {
+                    value = +(parseFloat(card.priceEur) * GBP_PER_EUR).toFixed(2);
+                  }
+                  if (value == null) allPriced = false; else cardsTotal += value;
+                  // Sibling printings (same name + set) so the user can correct a
+                  // wrong variant from the verdict card itself.
+                  const variants = await findVariants(card.cardName, card.setName);
+                  const alternatives = variants.length > 1 ? variants : [];
+                  cards.push({
+                    cardName: card.cardName,
+                    setName: card.setName,
+                    number: card.number || "",
+                    rarity: card.rarity || null,
+                    imageUrl: card.imageUrl,
+                    value,
+                    alternatives,
+                  });
+                }
+                const cashNum = cash > 0 ? +cash.toFixed(2) : 0;
+                return { cards, cash: cashNum, total: +(cardsTotal + cashNum).toFixed(2), allPriced };
+              };
+              const gaveSide = await priceSide(gave, Number(gaveCash) || 0);
+              const recvSide = await priceSide(received, Number(receivedCash) || 0);
+              const gaveHasContent = gaveSide.cards.length > 0 || gaveSide.cash > 0;
+              const recvHasContent = recvSide.cards.length > 0 || recvSide.cash > 0;
+              const complete = gaveSide.allPriced && recvSide.allPriced && gaveHasContent && recvHasContent;
+              const net = +(recvSide.total - gaveSide.total).toFixed(2);
+              let verdict: "good" | "fair" | "bad" | "incomplete";
+              if (!complete || gaveSide.total === 0) {
+                verdict = "incomplete";
+              } else {
+                const pct = net / gaveSide.total;
+                if (pct > 0.1) verdict = "good";
+                else if (pct < -0.1) verdict = "bad";
+                else verdict = "fair";
+              }
+              dealOut = {
+                gave: { cards: gaveSide.cards, cash: gaveSide.cash || null, total: gaveSide.total },
+                received: { cards: recvSide.cards, cash: recvSide.cash || null, total: recvSide.total },
+                net,
+                verdict,
+                complete,
+                grade: gradeLabel,
+              };
+              const gaveDesc = `${gaveSide.cash > 0 ? `£${gaveSide.cash} cash` : ""}${gaveSide.cash > 0 && gaveSide.cards.length ? " + " : ""}${gaveSide.cards.length ? `${gaveSide.cards.length} card(s)` : ""}`.trim() || "nothing";
+              const recvDesc = `${recvSide.cash > 0 ? `£${recvSide.cash} cash` : ""}${recvSide.cash > 0 && recvSide.cards.length ? " + " : ""}${recvSide.cards.length ? `${recvSide.cards.length} card(s)` : ""}`.trim() || "nothing";
+              const summary = verdict === "incomplete"
+                ? `Deal priced partially${gradeLabel ? ` at ${gradeLabel}` : ""}: gave ${gaveDesc} (~£${gaveSide.total}), received ${recvDesc} (~£${recvSide.total}). Some cards could not be priced, so the verdict is incomplete.`
+                : `${gradeLabel ? `${gradeLabel} values — ` : ""}gave ~£${gaveSide.total}, received ~£${recvSide.total}, net ${net >= 0 ? "+" : ""}£${net} (${verdict} deal).`;
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Trade evaluation failed: ${e.message}` });
+            }
+
+          } else if (block.name === "grading_profit") {
+            const { card_name, set_name, card_number, company } = block.input as { card_name: string; set_name: string; card_number?: string; company?: string };
+            try {
+              const prices = await fetchEbayGradedPrices(card_name, set_name, card_number);
+              const FEES_GBP: Record<string, number> = { PSA: 63, BGS: 20, ACE: 18, TAG: 17, CGC: 16 };
+              const comp = (company || "PSA").toUpperCase();
+              const fee = FEES_GBP[comp] ?? 25;
+              // Preferred graded grade per company, then fall back to any available graded price
+              const preferred: [string, number][] = comp === "BGS"
+                ? [["BGS 9.5", prices.bgs95], ["BGS 9", prices.bgs9]]
+                : comp === "ACE" ? [["ACE 10", prices.ace10]]
+                : comp === "TAG" ? [["TAG 10", prices.tag10]]
+                : comp === "CGC" ? [["CGC 10", prices.cgc10]]
+                : [["PSA 10", prices.psa10], ["PSA 9", prices.psa9]];
+              const fallbackOrder: [string, number][] = [
+                ["PSA 10", prices.psa10], ["PSA 9", prices.psa9], ["BGS 9.5", prices.bgs95],
+                ["BGS 9", prices.bgs9], ["ACE 10", prices.ace10], ["TAG 10", prices.tag10], ["CGC 10", prices.cgc10],
+              ];
+              let gradedLabel = "";
+              let gradedUsd = 0;
+              for (const [label, v] of [...preferred, ...fallbackOrder]) {
+                if (v > 0) { gradedLabel = label; gradedUsd = v; break; }
+              }
+              // Raw: prefer live eBay raw, else fall back to catalog price
+              let rawUsd = prices.raw > 0 ? prices.raw : 0;
+              if (rawUsd === 0) {
+                const { card } = await searchOneCard(`${card_name} ${set_name}`);
+                if (card?.priceUsd != null && parseFloat(card.priceUsd) > 0) rawUsd = parseFloat(card.priceUsd);
+                else if (card?.priceEur != null && parseFloat(card.priceEur) > 0) rawUsd = parseFloat(card.priceEur) * (GBP_PER_EUR / GBP_PER_USD);
+              }
+              const rawGbp = rawUsd > 0 ? +(rawUsd * GBP_PER_USD).toFixed(2) : null;
+              const gradedGbp = +(gradedUsd * GBP_PER_USD).toFixed(2);
+              const net = rawGbp != null && gradedUsd > 0 ? +(gradedGbp - rawGbp - fee).toFixed(2) : null;
+
+              if (gradedUsd > 0) {
+                profitOut = { cardName: card_name, raw: rawGbp, gradedLabel, gradedValue: gradedGbp, fee, net };
+                if (!pricesOut) {
+                  pricesOut = {
+                    psa10: prices.psa10 > 0 ? +(prices.psa10 * GBP_PER_USD).toFixed(2) : null,
+                    psa9:  prices.psa9  > 0 ? +(prices.psa9  * GBP_PER_USD).toFixed(2) : null,
+                    bgs95: prices.bgs95 > 0 ? +(prices.bgs95 * GBP_PER_USD).toFixed(2) : null,
+                    ace10: prices.ace10 > 0 ? +(prices.ace10 * GBP_PER_USD).toFixed(2) : null,
+                    tag10: prices.tag10 > 0 ? +(prices.tag10 * GBP_PER_USD).toFixed(2) : null,
+                    cgc10: prices.cgc10 > 0 ? +(prices.cgc10 * GBP_PER_USD).toFixed(2) : null,
+                    raw:   prices.raw   > 0 ? +(prices.raw   * GBP_PER_USD).toFixed(2) : null,
+                    allGrades: prices,
+                  };
+                }
+              }
+              const summary = gradedUsd > 0
+                ? `${comp} grading — raw ${rawGbp != null ? `£${rawGbp}` : "unknown"}, ${gradedLabel} £${gradedGbp}, fee £${fee}${net != null ? `, net £${net}` : " (net unknown — raw price not found)"}.`
+                : "No graded sale prices found for this card, so grading profit cannot be estimated.";
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: summary });
+            } catch (e: any) {
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: `Grading profit failed: ${e.message}` });
+            }
           }
         }
 
         msgs.push({ role: "user", content: toolResults });
-        toolLoopCount++;
+
+        // Disambiguation: the model asked the user to choose between several
+        // candidate cards. Stop the loop and let the user tap one; suppress any
+        // half-gathered cards/prices so they don't render alongside the picker.
+        if (pickerOut && pickerOut.length >= 2) {
+          const pickerText = resp.content
+            .filter((b): b is Anthropic.TextBlock => b.type === "text")
+            .map(b => b.text).join("").replace(/\[C\d+\]/g, "").trim();
+          return res.json({
+            reply: pickerText || "I found a few cards that match — which one did you mean?",
+            needsSelection: true,
+            options: pickerOut,
+            prices: null,
+            cards: null,
+            segments: null,
+            deal: null,
+            profit: null,
+          });
+        }
       }
 
-      return res.json({ reply: "I'm having trouble right now — please try again.", prices: null });
+      // Safety net — should be unreachable now that the final turn drops tools and
+      // forces a text answer. Return whatever prices we gathered just in case.
+      return res.json({ reply: "I'm having trouble right now — please try again.", prices: pricesOut });
     } catch (e: any) {
       console.error("[pokemon-chat]", e.message);
       res.status(500).json({ error: "Chat failed" });

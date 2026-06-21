@@ -263,6 +263,13 @@ export default function PaywallScreen() {
             Subscriptions auto-renew monthly unless cancelled at least 24 hours before the end of the current period. Manage or cancel anytime in your App Store or Google Play settings.
           </Text>
 
+          <View style={styles.indieNotice}>
+            <Ionicons name="person-circle-outline" size={15} color={Colors.textMuted} />
+            <Text style={styles.indieNoticeText}>
+              Grade.IQ is an independent app built by a single developer. As an early-stage product, occasional bugs may affect your experience. We appreciate your support while we continue to improve.
+            </Text>
+          </View>
+
           <View style={styles.legalLinks}>
             <Pressable onPress={() => router.push("/terms")}>
               <Text style={styles.legalLinkText}>Terms of Use</Text>
@@ -511,6 +518,25 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingHorizontal: 16,
     lineHeight: 16,
+  },
+  indieNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    width: "100%",
+  },
+  indieNoticeText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    lineHeight: 16,
+    flex: 1,
   },
   legalLinks: {
     flexDirection: "row",

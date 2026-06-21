@@ -1,0 +1,15 @@
+- [Upload size proxy limit](upload-size-proxy-limit.md) — total POST body must be <~10MB; size image dimension by count (base64 1024, binary 2048, deep multi-image 1600).
+- [Android quota race condition](android-quota-race.md) — AppState 'active' restarts polling; overlapping ticks each call recordUsage. Fix: null recordUsageRef before calling.
+- [Replit WAF blocks data URI in POST body](replit-waf-data-uri.md) — POST body with a 'data:image;base64,' prefix 403s before Express; strip it client-side, server re-adds.
+- [Kill-safe recovery re-saves locally](killsafe-recovery-resaves.md) — pending-grades recovery re-saves grades under new ids; ack unconditionally on completion or rows duplicate next launch.
+- [Grading waiting-screen progress](grading-progress-bar.md) — bar is server-stage-driven; opaque AI step must creep toward a sub-1.0 cap, never rewind, never hit 1.0 before the result.
+- [Reinstall recovery on stable UUID](reinstall-recovery-stable-id.md) — anchor recovery on the stable UUID, decoupled from RevenueCat init; pending-grades effect fires twice, so dedupe by job.id.
+- [Expo module install pinning](expo-module-install-pinning.md) — no `expo install`; pin Expo/native modules to expo/bundledNativeModules.json ranges; only those are Expo Go safe.
+- [Agentic tool-loop final answer](agentic-tool-loop-final-answer.md) — bounded Claude tool-use loops must drop tools on the final turn to force text, else they fall into a canned fallback.
+- [Trade-eval tool cash+grade](trade-tool-cash-and-grade.md) — AI trade evaluator invents a phantom card for an empty side unless cash+grade are first-class inputs; grade→tier map must cover every tier or graded cards silently price as raw.
+- [Verifying Expo UI](expo-ui-screenshot.md) — screenshot/app_preview hits port 5000 (API+landing), can't render Expo screens; use the testing skill (runTest) on 8081.
+- [Admin settings auth](admin-settings-auth.md) — all /api/admin/* data/action routes are x-admin-password-gated via top-level isAdminRequest; client uses adminApiRequest. Open: verify (login).
+- [Secret restart ordering](secret-restart-ordering.md) — restart a workflow only AFTER the "secrets have been added" confirmation, else it boots with the old secret value.
+- [Grading fee constants](grading-fee-constants.md) — fees live in 1 client module (constants/grading-fees.ts) + 2 server constants; update all together or the app contradicts itself.
+- [Always-mounted tab query staleness](mounted-tab-query-staleness.md) — permanently-mounted tab queries (Home) need refetchInterval + refetchOnMount:"always", not just staleTime.
+- [Values daily-job catch-up & dynamic set cleanup](values-daily-job-catchup.md) — boot catch-up guard is a MAX(col) proxy (suppressible); dynamic-set cleanup DELETE must gate on augmentation success or an upstream outage wipes picks.

@@ -4,6 +4,7 @@ import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/query-client";
+import { setAdminPassword, adminApiRequest } from "@/lib/admin-auth";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
@@ -31,8 +32,7 @@ export default function SettingsScreen() {
   const { data: flagCountData } = useQuery<{ needsReview: number }>({
     queryKey: ["/api/admin/price-flags/count"],
     queryFn: async () => {
-      const url = new URL("/api/admin/price-flags/count", getApiUrl());
-      const res = await fetch(url.toString());
+      const res = await adminApiRequest("GET", "/api/admin/price-flags/count");
       return res.json();
     },
     enabled: isAdminMode,
@@ -78,6 +78,7 @@ export default function SettingsScreen() {
         body: JSON.stringify({ password: adminCodeInput }),
       });
       if (res.ok) {
+        await setAdminPassword(adminCodeInput.trim());
         toggleAdminMode();
         setAdminModalVisible(false);
         setAdminCodeInput("");
@@ -307,6 +308,17 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.companyList}>
               <Pressable
+                onPress={() => router.push("/admin-bulletin")}
+                style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View style={styles.menuRowLeft}>
+                  <Ionicons name="megaphone-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.menuRowLabel}>Announcement</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              </Pressable>
+              <View style={styles.menuDivider} />
+              <Pressable
                 onPress={() => router.push("/admin-analytics")}
                 style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
               >
@@ -370,6 +382,28 @@ export default function SettingsScreen() {
             <View style={styles.menuRowLeft}>
               <Ionicons name="heart-outline" size={20} color={Colors.primary} />
               <Text style={styles.menuRowLabel}>About Grade.IQ</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
+            onPress={() => router.push("/welcome?preview=1")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="hand-left-outline" size={20} color={Colors.primary} />
+              <Text style={styles.menuRowLabel}>Welcome Note</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
+            onPress={() => router.push("/how-it-works")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="hardware-chip-outline" size={20} color={Colors.primary} />
+              <Text style={styles.menuRowLabel}>How Grade.IQ Works</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </Pressable>

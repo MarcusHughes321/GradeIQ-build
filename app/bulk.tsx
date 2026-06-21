@@ -20,10 +20,11 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { saveGrading, updateGrading } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
-import type { GradingResult } from "@/lib/types";
+import type { GradingResult, SavedGrading } from "@/lib/types";
+import { uploadBulkGradings, linkGradingImages } from "@/lib/server-history";
 import CardCamera from "@/components/CardCamera";
 import ImageAdjustModal from "@/components/ImageAdjustModal";
 import { useSubscription } from "@/lib/subscription";
@@ -59,7 +60,7 @@ export default function BulkScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
-  const { canGrade, checkCanGrade, recordUsage, isGateEnabled } = useSubscription();
+  const { canGrade, checkCanGrade, recordUsage, isGateEnabled, rcAppUserId, stableUserId } = useSubscription();
 
   const readyCards = cards.filter((c) => c.frontImage && c.backImage);
 
@@ -261,7 +262,6 @@ export default function BulkScreen() {
   };
 
   const bulkPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cardImagesRef = useRef<Array<{ frontImage: string; backImage: string }>>([]);
   const scheduledNotifRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -302,12 +302,12 @@ export default function BulkScreen() {
         })
       );
 
-      cardImagesRef.current = cardImages;
-
       setCurrentCardName(`Submitting ${readyCards.length} cards to server...`);
 
       const resp = await apiRequest("POST", "/api/bulk-grade-job", {
         cards: cardImages,
+        rcUserId: rcAppUserId || undefined,
+        stableUserId: stableUserId || undefined,
       });
 
       const { jobId } = await resp.json();
@@ -358,14 +358,37 @@ export default function BulkScreen() {
             const savedIds: string[] = [];
             let failedCount = 0;
             const failedCardImages: string[] = [];
+            const savedForSync: SavedGrading[] = [];
+            const imageLinks: Array<{ id: string; frontImageId?: string; backImageId?: string }> = [];
+            const sid = stableUserId || undefined;
+            const makeImageUrl = (id?: string) =>
+              id ? new URL(`/api/grading-image/${encodeURIComponent(id)}`, getApiUrl()).toString() : null;
 
             for (let i = 0; i < data.results.length; i++) {
               const r = data.results[i];
               if (r.status === "completed" && r.result) {
                 const gr = r.result as GradingResult;
-                const images = cardImagesRef.current[i];
-                const saved = await saveGrading(images?.frontImage || "", images?.backImage || "", gr);
+                // Save the original file URIs (not base64) so local display works and
+                // the image-backup pipeline can read them; cloud backup comes from the
+                // server image IDs below.
+                const origCard = readyCards[i];
+                const saved = await saveGrading(origCard?.frontImage || "", origCard?.backImage || "", gr);
                 savedIds.push(saved.id);
+                savedForSync.push(saved);
+
+                // The server stored the full-res originals during grading and returned
+                // their IDs inside the result — save the URLs locally so the card is
+                // already backed up (never flagged "not backed up") and restorable.
+                const serverFrontId = (gr as any).frontImageId as string | undefined;
+                const serverBackId = (gr as any).backImageId as string | undefined;
+                const fUrl = makeImageUrl(serverFrontId);
+                const bUrl = makeImageUrl(serverBackId);
+                if (fUrl || bUrl) {
+                  updateGrading(saved.id, { frontImageUrl: fUrl, backImageUrl: bUrl }).catch(() => {});
+                }
+                if (serverFrontId || serverBackId) {
+                  imageLinks.push({ id: saved.id, frontImageId: serverFrontId, backImageId: serverBackId });
+                }
 
                 (async () => {
                   try {
@@ -393,6 +416,25 @@ export default function BulkScreen() {
             }
 
             await recordUsage(savedIds.length);
+
+            // Sync the graded cards to server history (reinstall recovery) and link
+            // the backed-up images to those rows. The sync needs the RC user id; if
+            // it isn't ready yet the cards are still saved locally above.
+            if (rcAppUserId && savedForSync.length > 0) {
+              uploadBulkGradings(rcAppUserId, savedForSync, sid)
+                .then(() => {
+                  imageLinks.forEach((p) =>
+                    linkGradingImages(rcAppUserId, p.id, p.frontImageId, p.backImageId, sid).catch(() => {})
+                  );
+                })
+                .catch(() => {});
+            }
+            // Acknowledge unconditionally once the cards are saved locally (matches
+            // the single-card path). The recovery path RE-SAVES cards locally — not
+            // just syncs — so leaving this unacked would duplicate every card's
+            // history row on the next launch whenever the RC user id wasn't ready in
+            // time (e.g. RevenueCat still initialising).
+            apiRequest("POST", `/api/grade-job/${jobId}/acknowledge`).catch(() => {});
 
             if (Platform.OS !== "web") {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

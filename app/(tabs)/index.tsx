@@ -19,19 +19,28 @@ import { Image } from "expo-image";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { useQuery } from "@tanstack/react-query";
 import Colors from "@/constants/colors";
 import { getGradings, deleteGrading, clearAllGradings, updateGrading } from "@/lib/storage";
 import { deleteServerGrading } from "@/lib/server-history";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import type { SavedGrading } from "@/lib/types";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES, type CurrencyCode } from "@/lib/settings";
-import { useSubscription } from "@/lib/subscription";
+import { useSubscription, isGradePending } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 const BUBBLE_PAD = 20;
+
+type Bulletin = { enabled: boolean; title?: string; message?: string; style?: string };
+
+const HOME_BULLETIN_STYLES: Record<string, { color: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  info: { color: Colors.primary, icon: "megaphone" },
+  maintenance: { color: Colors.warning, icon: "construct" },
+  success: { color: Colors.success, icon: "checkmark-circle" },
+};
 
 function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySymbol }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean; currencySymbol: string }) {
   const date = new Date(item.timestamp);
@@ -40,6 +49,10 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
     day: "numeric",
     year: "numeric",
   });
+
+  // "Pending" = a locally-stored photo (front or back) has no server URL yet.
+  // Per-side aware, so a half-uploaded grade still reads as not-backed-up.
+  const isBackedUp = !isGradePending(item);
 
   const avgValue = useMemo(() => {
     const cv = item.result.cardValue;
@@ -93,7 +106,14 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           <Text numberOfLines={1} style={styles.histCardName}>
             {item.result.cardName || "Unknown Card"}
           </Text>
-          <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+          <View style={styles.histTopRight}>
+            <Ionicons
+              name={isBackedUp ? "cloud-done" : "cloud-upload-outline"}
+              size={14}
+              color={isBackedUp ? Colors.success : Colors.warning}
+            />
+            <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+          </View>
         </View>
         <View style={styles.histBottomRow}>
           <Image source={{ uri: item.frontImage || item.frontImageUrl || "" }} style={styles.thumbnail} contentFit="cover" />
@@ -216,8 +236,42 @@ export default function HomeScreen() {
   const enabledCompanies = settings.enabledCompanies;
   const currencySymbol = getCurrencySymbol(settings.currency || "GBP");
   const prevCurrencyRef = useRef(settings.currency || "GBP");
-  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId } = useSubscription();
+  const { isSubscribed, isGateEnabled, remainingGrades, monthlyLimit, currentTier, tierInfo, isAdminMode, rcAppUserId, stableUserId, backupInProgress, backupProgress, backupPendingCount, backupAllMissingImages } = useSubscription();
   const { activeJob, dismissJob, cancelJob } = useGrading();
+
+  const { data: bulletin, refetch: refetchBulletin } = useQuery<Bulletin>({
+    queryKey: ["/api/bulletin"],
+    queryFn: async () => {
+      const url = new URL("/api/bulletin", getApiUrl());
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error("Failed to load bulletin");
+      return res.json();
+    },
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchOnMount: "always",
+  });
+  const homeBulletinStyle = HOME_BULLETIN_STYLES[bulletin?.style ?? "info"] ?? HOME_BULLETIN_STYLES.info;
+
+  // Pending = local photo present but not yet backed up to the server.
+  const pendingBackupCount = useMemo(
+    () => gradings.filter(isGradePending).length,
+    [gradings]
+  );
+
+  const handleBackupNow = useCallback(async () => {
+    const result = await backupAllMissingImages();
+    await loadGradings();
+    if (result.total === 0) return;
+    if (result.failed === 0) {
+      Alert.alert("Backup complete", "All your grades are safely backed up to the cloud.");
+    } else {
+      Alert.alert(
+        "Some photos didn't upload",
+        `Backed up ${result.succeeded} of ${result.total} — ${result.failed} couldn't upload. Check your connection and tap "Back up now" again to retry.`,
+      );
+    }
+  }, [backupAllMissingImages]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -289,6 +343,21 @@ export default function HomeScreen() {
     }
   }, [activeJob?.status]);
 
+  // Reload the local list on every backup progress tick so per-grade cloud
+  // badges flip live as each photo finishes uploading during a manual backup.
+  useEffect(() => {
+    if (backupProgress.done > 0) {
+      loadGradings();
+    }
+  }, [backupProgress.done]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refresh when a backup finishes (manual) or the background startup pass
+  // updates the pending count, so the status/count visibly converges to zero
+  // without the user needing to navigate away or pull-to-refresh.
+  useEffect(() => {
+    loadGradings();
+  }, [backupInProgress, backupPendingCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadGradings = async () => {
     const data = await getGradings();
     setGradings(data);
@@ -298,11 +367,12 @@ export default function HomeScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     fetchingValuesRef.current = false;
+    refetchBulletin();
     const data = await getGradings();
     setGradings(data);
     setRefreshing(false);
     fetchCardValues(data, false);
-  }, []);
+  }, [refetchBulletin]);
 
   const fetchCardValues = async (data: SavedGrading[], onlyMissing: boolean = true) => {
     if (fetchingValuesRef.current) return;
@@ -495,6 +565,68 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
+      {bulletin?.enabled && !!bulletin.message && (
+        <View
+          style={[
+            styles.bulletinBanner,
+            {
+              borderColor: homeBulletinStyle.color + "55",
+              backgroundColor: homeBulletinStyle.color + "14",
+            },
+          ]}
+        >
+          <Ionicons name={homeBulletinStyle.icon} size={20} color={homeBulletinStyle.color} />
+          <View style={styles.bulletinTextWrap}>
+            {!!bulletin.title && <Text style={styles.bulletinBannerTitle}>{bulletin.title}</Text>}
+            <Text style={styles.bulletinBannerMsg}>{bulletin.message}</Text>
+          </View>
+        </View>
+      )}
+
+      {gradings.length > 0 && (
+        <View style={[styles.backupBanner, pendingBackupCount === 0 && styles.backupBannerDone]}>
+          <Ionicons
+            name={pendingBackupCount === 0 ? "cloud-done" : "cloud-upload-outline"}
+            size={18}
+            color={pendingBackupCount === 0 ? Colors.success : Colors.warning}
+          />
+          <View style={styles.backupInfo}>
+            {backupInProgress ? (
+              <>
+                <Text style={styles.backupTitle}>Backing up…</Text>
+                <Text style={styles.backupSubtitle}>
+                  {backupProgress.total > 0
+                    ? `${backupProgress.done} of ${backupProgress.total} grades`
+                    : "Preparing…"}
+                </Text>
+              </>
+            ) : pendingBackupCount === 0 ? (
+              <Text style={styles.backupTitle}>All grades backed up</Text>
+            ) : (
+              <>
+                <Text style={styles.backupTitle}>
+                  {pendingBackupCount} {pendingBackupCount === 1 ? "grade" : "grades"} not backed up
+                </Text>
+                <Text style={styles.backupSubtitle}>
+                  Photos still only on this device
+                </Text>
+              </>
+            )}
+          </View>
+          {backupInProgress ? (
+            <ActivityIndicator size="small" color={Colors.warning} />
+          ) : (
+            pendingBackupCount > 0 && Platform.OS !== "web" && (
+              <Pressable
+                onPress={handleBackupNow}
+                style={({ pressed }) => [styles.backupBtn, { opacity: pressed ? 0.8 : 1 }]}
+              >
+                <Text style={styles.backupBtnText}>Back up now</Text>
+              </Pressable>
+            )
+          )}
+        </View>
+      )}
 
       {stats && (
         <>
@@ -803,6 +935,73 @@ const styles = StyleSheet.create({
   bgJobDismissBtn: {
     padding: 4,
     marginLeft: 4,
+  },
+  bulletinBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  bulletinTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  bulletinBannerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  bulletinBannerMsg: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+    color: Colors.textSecondary,
+  },
+  backupBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+  },
+  backupBannerDone: {
+    borderColor: "rgba(16, 185, 129, 0.3)",
+  },
+  backupInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  backupTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: Colors.text,
+  },
+  backupSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  backupBtn: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  backupBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
   },
   heroSection: {
     alignItems: "center",
@@ -1180,6 +1379,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+  },
+  histTopRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   histBottomRow: {
     flexDirection: "row",
