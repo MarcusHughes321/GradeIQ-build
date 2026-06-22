@@ -25,3 +25,4 @@ yarn-error.*
 .vercel
 /tmp/
 .local/
+server/set-image-cache/
