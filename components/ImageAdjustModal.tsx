@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import ViewShot, { captureRef } from "react-native-view-shot";
+import * as ImageManipulator from "expo-image-manipulator";
 import Colors from "@/constants/colors";
 
 interface ImageAdjustModalProps {
@@ -15,7 +16,9 @@ interface ImageAdjustModalProps {
 }
 
 const MIN_SCALE = 0.3;
-const MAX_SCALE = 1.0;
+// Allow zooming IN up to 1.5x (not just out). Capped at 1.5x so a centred crop
+// never eats into the card's own edges/corners, which grading needs to see.
+const MAX_SCALE = 1.5;
 const SCALE_STEP = 0.05;
 const CARD_ASPECT = 63 / 88;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -50,12 +53,58 @@ export default function ImageAdjustModal({ visible, imageUri, onConfirm, onCance
 
   const handleConfirm = useCallback(async () => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Zoom IN (scale > 1): the user magnified the card to fill the frame. A
+    // screenshot of the preview would be low-res, so crop the ORIGINAL full-res
+    // image to the exact region shown on screen and return that sharp crop.
+    if (scale > 1.001) {
+      try {
+        // Read the original pixel dimensions AND get a normalized copy. On Android
+        // manipulateAsync only bakes in EXIF orientation when a transform is
+        // present, so we prepend { rotate: 0 } (the project-wide pattern). This
+        // guarantees meta.uri's pixels match the returned width/height, so the
+        // crop below operates in the same coordinate space (no sideways crops).
+        const normTransforms: ImageManipulator.Action[] =
+          Platform.OS === "android" ? [{ rotate: 0 }] : [];
+        const meta = await ImageManipulator.manipulateAsync(imageUri, normTransforms, {});
+        const W = meta.width;
+        const H = meta.height;
+        // The preview cover-fits the image into the frame (using the LARGER axis
+        // ratio), so at 1x the frame shows a centred window of the original of
+        // size PREVIEW / coverScale. Magnifying by `scale` shrinks that window.
+        const coverScale = Math.max(PREVIEW_WIDTH / W, PREVIEW_HEIGHT / H);
+        const cropW = PREVIEW_WIDTH / coverScale / scale;
+        const cropH = PREVIEW_HEIGHT / coverScale / scale;
+        // Centre the crop (this UI has no pan) and clamp to the image bounds.
+        const cw = Math.max(1, Math.min(Math.round(cropW), W));
+        const ch = Math.max(1, Math.min(Math.round(cropH), H));
+        const originX = Math.max(0, Math.min(Math.round((W - cw) / 2), W - cw));
+        const originY = Math.max(0, Math.min(Math.round((H - ch) / 2), H - ch));
+        const cropped = await ImageManipulator.manipulateAsync(
+          meta.uri,
+          [{ crop: { originX, originY, width: cw, height: ch } }],
+          { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        onConfirm(cropped.uri);
+        setScale(1);
+        return;
+      } catch {
+        onConfirm(imageUri);
+        setScale(1);
+        return;
+      }
+    }
+
+    // No meaningful zoom (scale ~1): use the original photo untouched.
     if (scale >= 0.95) {
       onConfirm(imageUri);
       setScale(1);
       return;
     }
 
+    // Zoom OUT (scale < 1): the card was shrunk with padding so the whole card
+    // fits. A preview screenshot is acceptable here — we're adding border, not
+    // recovering detail — so keep the existing captureRef path.
     try {
       const uri = await captureRef(viewShotRef, {
         format: "jpg",
@@ -88,7 +137,7 @@ export default function ImageAdjustModal({ visible, imageUri, onConfirm, onCance
         </View>
 
         <Text style={styles.subtitle}>
-          Resize the photo so the card fits within the frame
+          Zoom in or out so the card fills the frame
         </Text>
 
         <View style={styles.previewArea}>
@@ -138,7 +187,7 @@ export default function ImageAdjustModal({ visible, imageUri, onConfirm, onCance
             </Pressable>
           </View>
 
-          {scale < 0.95 && (
+          {Math.abs(scale - 1) > 0.001 && (
             <Pressable
               onPress={handleReset}
               style={({ pressed }) => [styles.resetLink, { opacity: pressed ? 0.6 : 1 }]}

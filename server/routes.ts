@@ -4810,23 +4810,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return typeof provided === "string" && provided.length > 0 && provided === adminPassword;
   };
 
-  // Ensure DB tables exist before any requests come in
-  await initUsageTrackingTable();
-  await initAdminUsersTable();
-  await initGradingHistoryTable();
-  await initGradingHistoryImageColumns();
-  await initAiCostLogTable();
-  await initAdminSettingsTable();
-  await initSubscriptionCacheTable();
-  await initGradingJobsTable();
-  await initEbayPriceCacheTable();
-  await initPriceHistoryTable();
-  await initSetPriceStatusTable();
-  await initCardCatalogTable();
-  await initTopPicksPrecomputedTable();
-  await initGradingFeedbackTable();
+  // ── Non-blocking DB bootstrap ────────────────────────────────────────────
+  // Create all tables in the background (in parallel) instead of awaiting them
+  // one-by-one. This lets registerRoutes return immediately so the HTTP server
+  // starts listening and passes health checks right away — the health check hits
+  // "/" (the landing page), which touches no DB. Table creation is idempotent
+  // (CREATE TABLE IF NOT EXISTS) and settles well before real traffic needs a
+  // table. Boot-time warm-ups that DO need the DB await `dbReady` (see below).
+  const dbReady = (async () => {
+    await Promise.all([
+      initUsageTrackingTable(),
+      initAdminUsersTable(),
+      // image columns ALTER grading_history — must run after that table exists
+      initGradingHistoryTable().then(() => initGradingHistoryImageColumns()),
+      initAiCostLogTable(),
+      initAdminSettingsTable(),
+      initSubscriptionCacheTable(),
+      initGradingJobsTable(),
+      initEbayPriceCacheTable(),
+      initPriceHistoryTable(),
+      initSetPriceStatusTable(),
+      initCardCatalogTable(),
+      initTopPicksPrecomputedTable(),
+      initGradingFeedbackTable(),
+    ]);
+    console.log("[startup] all DB tables ready");
+  })().catch((e: any) =>
+    console.error("[startup] DB table init failed:", e?.message ?? e),
+  );
+
   // Non-blocking: repair any rows that historically ended up with blank set names
-  void repairEmptySetNames();
+  // (needs card_catalog — wait for the bootstrap above first).
+  void dbReady.then(() => repairEmptySetNames());
 
   // Pre-fetch today's exchange rates on startup (non-blocking)
   void getExchangeRates();
@@ -9654,7 +9669,11 @@ RESPONSE FORMAT (JSON only, no markdown):
       const rows = result.rows.map((r: any) => ({
         id: r.local_id,
         result: r.result_json,
-        timestamp: r.timestamp,
+        // `timestamp` is a BIGINT column, which node-postgres returns as a STRING.
+        // Coerce to a real number here so the client can do `new Date(timestamp)`
+        // (a string yields "Invalid Date") and numeric sorts work. ms-epoch values
+        // are far below 2^53, so Number() is lossless.
+        timestamp: Number(r.timestamp),
         isDeepGrade: r.is_deep_grade,
         isCrossover: r.is_crossover,
         frontImageId: r.front_image_url ?? null,
@@ -9676,41 +9695,119 @@ RESPONSE FORMAT (JSON only, no markdown):
     const { rcUserId, stableId } = req.body as { rcUserId?: string; stableId?: string };
     if (!rcUserId || !stableId) return res.status(400).json({ error: "rcUserId and stableId required" });
     try {
-      // Step 1: assign stable_user_id to existing rows that don't have it yet
-      const claimed = await db.query(
-        `UPDATE grading_history
-         SET stable_user_id = $2
-         WHERE rc_user_id = $1 AND (stable_user_id IS NULL OR stable_user_id = $2)
-         RETURNING local_id`,
+      // Gather every row that belongs to this user under EITHER id. The old claim
+      // did two blind UPDATEs; that could leave two rows for the same local_id
+      // (one under an old churned rc_user_id + this stable id, one under the new
+      // rc_user_id) and then throw a UNIQUE violation when re-keying both to the
+      // new rc — permanently 500-ing claim on every launch. We instead collapse
+      // duplicates per local_id into a single survivor first, then re-key it.
+      const { rows } = await db.query(
+        `SELECT id, local_id, rc_user_id, stable_user_id, front_image_url, back_image_url, timestamp
+         FROM grading_history
+         WHERE rc_user_id = $1 OR stable_user_id = $2`,
         [rcUserId, stableId]
       );
-      // Step 2: on reinstall the rcUserId will differ — re-key those rows so
-      // the UNIQUE constraint (rc_user_id, local_id) works for future uploads.
-      const rekeyed = await db.query(
-        `UPDATE grading_history
-         SET rc_user_id = $1
-         WHERE stable_user_id = $2 AND rc_user_id != $1
-         RETURNING local_id`,
-        [rcUserId, stableId]
-      );
-      console.log(`[history] claim stableId=${stableId} rcUserId=${rcUserId}: ${claimed.rowCount} claimed, ${rekeyed.rowCount} re-keyed`);
-      res.json({ ok: true, claimed: claimed.rowCount, rekeyed: rekeyed.rowCount });
+      const byLocal = new Map<string, any[]>();
+      for (const r of rows) {
+        const arr = byLocal.get(r.local_id) ?? [];
+        arr.push(r);
+        byLocal.set(r.local_id, arr);
+      }
+      let claimed = 0, rekeyed = 0, merged = 0;
+      for (const [, group] of byLocal) {
+        // Prefer the row that already has a backed-up image, else the newest.
+        group.sort((a, b) => {
+          const ai = a.front_image_url || a.back_image_url ? 1 : 0;
+          const bi = b.front_image_url || b.back_image_url ? 1 : 0;
+          if (ai !== bi) return bi - ai;
+          return Number(b.timestamp) - Number(a.timestamp);
+        });
+        const survivor = group[0];
+        // Salvage the best image urls across ALL duplicates before deleting them.
+        const front = group.map((g) => g.front_image_url).find(Boolean) ?? null;
+        const back = group.map((g) => g.back_image_url).find(Boolean) ?? null;
+        // Delete losers FIRST so the (rc_user_id, local_id) unique slot the
+        // survivor is about to occupy is guaranteed free.
+        for (const loser of group.slice(1)) {
+          await db.query(`DELETE FROM grading_history WHERE id = $1`, [loser.id]);
+          merged++;
+        }
+        const needsRekey = survivor.rc_user_id !== rcUserId;
+        const needsClaim = survivor.stable_user_id !== stableId;
+        if (needsRekey || needsClaim || front !== survivor.front_image_url || back !== survivor.back_image_url) {
+          await db.query(
+            `UPDATE grading_history
+             SET rc_user_id = $1, stable_user_id = $2,
+                 front_image_url = COALESCE($4, front_image_url),
+                 back_image_url  = COALESCE($5, back_image_url)
+             WHERE id = $3`,
+            [rcUserId, stableId, survivor.id, front, back]
+          );
+        }
+        if (needsRekey) rekeyed++;
+        if (needsClaim) claimed++;
+      }
+      console.log(`[history] claim stableId=${stableId} rcUserId=${rcUserId}: ${claimed} claimed, ${rekeyed} re-keyed, ${merged} dup(s) merged`);
+      res.json({ ok: true, claimed, rekeyed, merged });
     } catch (e: any) {
       console.error("[history] claim failed:", e.message);
       res.status(500).json({ error: "Claim failed" });
     }
   });
 
+  // Idempotent upsert of a single history row that never creates a duplicate under
+  // RevenueCat id churn. When a stable id is present we UPDATE the row keyed by
+  // (stable_user_id, local_id) — re-keying rc_user_id to the current value IN PLACE
+  // — and only INSERT when no such stable-keyed row exists. Image urls are only
+  // ever filled in (COALESCE), never blanked, so passing null leaves an existing
+  // backup intact.
+  const upsertGradingRow = async (p: {
+    rcUserId: string; stableId: string | null; localId: string; result: any;
+    timestamp: number; isDeepGrade: boolean; isCrossover: boolean;
+    frontImageId?: string | null; backImageId?: string | null;
+  }): Promise<void> => {
+    const front = p.frontImageId ?? null;
+    const back = p.backImageId ?? null;
+    if (p.stableId) {
+      const updated = await db.query(
+        `UPDATE grading_history
+         SET rc_user_id = $1, result_json = $4, timestamp = $5,
+             is_deep_grade = $6, is_crossover = $7,
+             front_image_url = COALESCE($8, front_image_url),
+             back_image_url  = COALESCE($9, back_image_url)
+         WHERE stable_user_id = $2 AND local_id = $3`,
+        [p.rcUserId, p.stableId, p.localId, JSON.stringify(p.result), p.timestamp,
+         p.isDeepGrade, p.isCrossover, front, back]
+      );
+      if ((updated.rowCount ?? 0) > 0) return;
+    }
+    await db.query(
+      `INSERT INTO grading_history
+         (rc_user_id, stable_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover, front_image_url, back_image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (rc_user_id, local_id) DO UPDATE SET
+         stable_user_id  = COALESCE(EXCLUDED.stable_user_id, grading_history.stable_user_id),
+         result_json     = EXCLUDED.result_json,
+         timestamp       = EXCLUDED.timestamp,
+         is_deep_grade   = EXCLUDED.is_deep_grade,
+         is_crossover    = EXCLUDED.is_crossover,
+         front_image_url = COALESCE(EXCLUDED.front_image_url, grading_history.front_image_url),
+         back_image_url  = COALESCE(EXCLUDED.back_image_url, grading_history.back_image_url)`,
+      [p.rcUserId, p.stableId, p.localId, JSON.stringify(p.result), p.timestamp,
+       p.isDeepGrade, p.isCrossover, front, back]
+    );
+  };
+
   app.post("/api/history", async (req, res) => {
-    const { rcUserId, stableId, localId, result, timestamp, isDeepGrade, isCrossover } = req.body;
+    const { rcUserId, stableId, localId, result, timestamp, isDeepGrade, isCrossover, frontImageId, backImageId } = req.body;
     if (!rcUserId || !localId || !result) return res.status(400).json({ error: "rcUserId, localId, result required" });
     try {
-      await db.query(
-        `INSERT INTO grading_history (rc_user_id, stable_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (rc_user_id, local_id) DO UPDATE SET stable_user_id = COALESCE(EXCLUDED.stable_user_id, grading_history.stable_user_id)`,
-        [rcUserId, stableId || null, localId, JSON.stringify(result), timestamp || Date.now(), !!isDeepGrade, !!isCrossover]
-      );
+      await upsertGradingRow({
+        rcUserId, stableId: stableId || null, localId, result,
+        timestamp: Number(timestamp) || Date.now(),
+        isDeepGrade: !!isDeepGrade, isCrossover: !!isCrossover,
+        frontImageId: frontImageId ?? null, backImageId: backImageId ?? null,
+      });
       res.json({ ok: true });
     } catch (e: any) {
       console.error("[history] POST failed:", e.message);
@@ -9724,12 +9821,14 @@ RESPONSE FORMAT (JSON only, no markdown):
     try {
       for (const g of gradings) {
         if (!g.localId || !g.result) continue;
-        await db.query(
-          `INSERT INTO grading_history (rc_user_id, stable_user_id, local_id, result_json, timestamp, is_deep_grade, is_crossover)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (rc_user_id, local_id) DO UPDATE SET stable_user_id = COALESCE(EXCLUDED.stable_user_id, grading_history.stable_user_id)`,
-          [rcUserId, stableId || null, g.localId, JSON.stringify(g.result), g.timestamp || Date.now(), !!g.isDeepGrade, !!g.isCrossover]
-        );
+        await upsertGradingRow({
+          rcUserId, stableId: stableId || null, localId: g.localId, result: g.result,
+          timestamp: Number(g.timestamp) || Date.now(),
+          isDeepGrade: !!g.isDeepGrade, isCrossover: !!g.isCrossover,
+          // Carry per-card image ids so the reinstall safety net (which bulk-uploads
+          // any local-only grades) lands rows WITH their image urls, not NULL ones.
+          frontImageId: g.frontImageId ?? null, backImageId: g.backImageId ?? null,
+        });
       }
       res.json({ ok: true, count: gradings.length });
     } catch (e: any) {
@@ -9783,14 +9882,25 @@ RESPONSE FORMAT (JSON only, no markdown):
         frontImageId ? Promise.resolve(frontImageId as string) : (frontB64 ? compress(frontB64) : Promise.resolve(null)),
         backImageId ? Promise.resolve(backImageId as string) : (backB64 ? compress(backB64) : Promise.resolve(null)),
       ]);
-      await db.query(
+      // Match by rc_user_id OR stable_user_id so a churned RevenueCat id (after a
+      // reinstall) still links to the right row. RETURNING lets us tell the client
+      // whether it actually linked — the old code returned image ids even when it
+      // matched 0 rows, so the client showed a green "backed up" badge over a row
+      // with NULL image urls (unrestorable). `linked` closes that false-green gap.
+      const updated = await db.query(
         `UPDATE grading_history
-         SET front_image_url = COALESCE($3, front_image_url),
-             back_image_url  = COALESCE($4, back_image_url)
-         WHERE rc_user_id = $1 AND local_id = $2`,
-        [rcUserId, localId, frontUuid, backUuid]
+         SET front_image_url = COALESCE($4, front_image_url),
+             back_image_url  = COALESCE($5, back_image_url)
+         WHERE local_id = $2
+           AND (rc_user_id = $1 OR ($3::text IS NOT NULL AND stable_user_id = $3))
+         RETURNING id`,
+        [rcUserId, localId, stableId ?? null, frontUuid, backUuid]
       );
-      res.json({ frontImageId: frontUuid, backImageId: backUuid });
+      const linked = (updated.rowCount ?? 0) > 0;
+      if (!linked) {
+        console.warn(`[history] image link matched 0 rows for local_id=${localId} (rc/stable mismatch or row missing)`);
+      }
+      res.json({ frontImageId: frontUuid, backImageId: backUuid, linked });
     } catch (e: any) {
       console.error("[history] Image upload failed:", e.message);
       res.status(500).json({ error: "Image upload failed" });
@@ -10830,6 +10940,14 @@ RESPONSE FORMAT (JSON only, no markdown):
 
   // ── Public bulletin (admin-authored announcement shown on Home) ──────────
   app.get("/api/bulletin", async (_req, res) => {
+    // Never let a proxy or the device HTTP cache serve a stale banner: without
+    // this, Express's auto ETag returns 304 and a turned-off banner keeps showing.
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.set("Pragma", "no-cache");
+    // Drop conditional-request headers so Express never answers with a 304 —
+    // it always sends a fresh 200 body regardless of any cached ETag upstream.
+    delete _req.headers["if-none-match"];
+    delete _req.headers["if-modified-since"];
     try {
       const { rows } = await db.query(
         `SELECT key, value FROM admin_settings
@@ -11187,6 +11305,7 @@ RESPONSE FORMAT (JSON only, no markdown):
            name             = EXCLUDED.name,
            number           = EXCLUDED.number,
            rarity           = EXCLUDED.rarity,
+           set_name         = COALESCE(NULLIF(EXCLUDED.set_name, ''), card_catalog.set_name),
            image_url        = COALESCE(EXCLUDED.image_url, card_catalog.image_url),
            price_usd        = COALESCE(EXCLUDED.price_usd, card_catalog.price_usd),
            prices_json      = COALESCE(EXCLUDED.prices_json, card_catalog.prices_json),
@@ -12342,6 +12461,7 @@ RESPONSE FORMAT (JSON only, no markdown):
     "me2":    { slug: "me-phantasmal-flames", shortName: "Phantasmal Flames" },
     "me2pt5": { slug: "me-ascended-heroes",   shortName: "Ascended Heroes" },
     "me3":    { slug: "me03-perfect-order",   shortName: "Perfect Order" },
+    "me4":    { slug: "me04-chaos-rising",    shortName: "Chaos Rising" },
   };
 
   let mePriceFillRunning = false;
@@ -12654,7 +12774,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   // Background task: sample cards per English set to determine TCGPlayer price availability
   // Processes sets that haven't been checked yet OR whose status is older than PRICE_STATUS_TTL
   // ME-series sets use PokeTrace prices (not TCGPlayer), so we check card_catalog for those.
-  const ME_SERIES_SET_IDS = new Set(["me1", "me2", "me2pt5", "me3"]);
+  const ME_SERIES_SET_IDS = new Set(["me1", "me2", "me2pt5", "me3", "me4"]);
   async function backgroundPrePopulatePriceStatus(sets: CachedSet[]) {
     const PRICE_TYPES = ["holofoil", "reverseHolofoil", "normal", "1stEditionHolofoil", "1stEditionNormal", "unlimitedHolofoil", "unlimited"];
     const stale = sets.filter(s => {
@@ -12903,15 +13023,21 @@ RESPONSE FORMAT (JSON only, no markdown):
   void fetchTcgdexSeriesInfo("ko");
   void getTcgdexEnNames();
 
-  // Start the daily refresh schedulers
-  scheduleDailySetStatusRefresh();
-  scheduleDailyCardCatalogSync();
-  scheduleDailyJpCatalogSync();
-  scheduleDailyTopPicksJob();
-  scheduleDailyJpTopPicksJob();
+  // Start the daily refresh schedulers + first-run catalog population only after
+  // the DB tables are ready (dbReady, from the non-blocking bootstrap at the top
+  // of registerRoutes). These query catalog/price tables and must not run before
+  // those tables exist. Gating here — instead of awaiting up top — keeps the
+  // server listening and health checks green immediately.
+  void dbReady.then(() => {
+    scheduleDailySetStatusRefresh();
+    scheduleDailyCardCatalogSync();
+    scheduleDailyJpCatalogSync();
+    scheduleDailyTopPicksJob();
+    scheduleDailyJpTopPicksJob();
+  });
 
   // Kick off first-run catalog population if the DB is empty (non-blocking)
-  void (async () => {
+  void dbReady.then(() => { void (async () => {
     const count = await getCardCatalogCount();
     if (count === 0) {
       console.log("[card-catalog] Empty catalog — starting initial EN population in background...");
@@ -12966,7 +13092,7 @@ RESPONSE FORMAT (JSON only, no markdown):
       // added cards (e.g. me2pt5 SIR/MAR cards) are included in this pass.
       await fillMeSetPricesFromPokeTrace();
     })();
-  })();
+  })(); });
 
 
   app.get("/api/sets/english", async (req, res) => {

@@ -21,7 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
 import Colors from "@/constants/colors";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { saveGrading, updateGrading } from "@/lib/storage";
+import { saveGrading, updateGrading, markRowsBackedUp } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { uploadBulkGradings, linkGradingImages } from "@/lib/server-history";
@@ -385,6 +385,13 @@ export default function BulkScreen() {
                 const bUrl = makeImageUrl(serverBackId);
                 if (fUrl || bUrl) {
                   updateGrading(saved.id, { frontImageUrl: fUrl, backImageUrl: bUrl }).catch(() => {});
+                  // Mutate the in-memory object too (savedForSync holds this ref) so
+                  // uploadBulkGradings carries the image ids into the row atomically:
+                  // if the app is killed before the linkGradingImages chain runs, the
+                  // row still lands WITH its image urls (not NULL). Parity with the
+                  // bulk-recovery path in grading-context.tsx.
+                  saved.frontImageUrl = fUrl ?? undefined;
+                  saved.backImageUrl = bUrl ?? undefined;
                 }
                 if (serverFrontId || serverBackId) {
                   imageLinks.push({ id: saved.id, frontImageId: serverFrontId, backImageId: serverBackId });
@@ -422,7 +429,12 @@ export default function BulkScreen() {
             // it isn't ready yet the cards are still saved locally above.
             if (rcAppUserId && savedForSync.length > 0) {
               uploadBulkGradings(rcAppUserId, savedForSync, sid)
-                .then(() => {
+                .then((ok) => {
+                  if (!ok) return;
+                  // Rows confirmed on the server — mark them so these freshly-graded
+                  // bulk cards leave the pending state (their photos link below, but
+                  // it's the row that makes them restorable on reinstall).
+                  markRowsBackedUp(savedForSync.map((g) => g.id)).catch(() => {});
                   imageLinks.forEach((p) =>
                     linkGradingImages(rcAppUserId, p.id, p.frontImageId, p.backImageId, sid).catch(() => {})
                   );

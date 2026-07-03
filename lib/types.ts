@@ -149,4 +149,16 @@ export interface SavedGrading {
   timestamp: number;
   frontImageUrl?: string | null;
   backImageUrl?: string | null;
+  // Set true only when a side's local photo is CONFIRMED gone from the device and
+  // there is no server copy to recover it from. Distinguishes an honestly-missing
+  // photo (show a "photo unavailable" placeholder, grey badge) from a side that
+  // simply never had a photo (e.g. crossover front-only) or is still pending upload.
+  frontImageMissing?: boolean;
+  backImageMissing?: boolean;
+  // Set true ONLY when the grading-history ROW has been confirmed persisted on the
+  // server (uploadGrading returned ok, the grade was restored FROM the server, or a
+  // server sync saw the row). A grade is only truly "backed up" when this is true
+  // AND its photos are handled — a grade with photos uploaded but no server row is
+  // unrestorable on reinstall, so it must still count as pending until this is set.
+  historyRowBackedUp?: boolean;
 }

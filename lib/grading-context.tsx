@@ -4,7 +4,7 @@ import * as Haptics from "expo-haptics";
 import * as Notifications from "expo-notifications";
 import * as ImageManipulator from "expo-image-manipulator";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { saveGrading, updateGrading } from "@/lib/storage";
+import { saveGrading, updateGrading, markRowsBackedUp } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import type { GradingResult, SavedGrading } from "@/lib/types";
 import { useSubscription } from "@/lib/subscription";
@@ -327,7 +327,11 @@ export function GradingProvider({ children }: { children: ReactNode }) {
     if (!rcAppUserId || pendingUploadsRef.current.length === 0) return;
     const pending = [...pendingUploadsRef.current];
     pendingUploadsRef.current = [];
-    pending.forEach(g => uploadGrading(rcAppUserId, g, stableUserId || undefined).catch(() => {}));
+    pending.forEach(g =>
+      uploadGrading(rcAppUserId, g, stableUserId || undefined)
+        .then(ok => { if (ok) updateGrading(g.id, { historyRowBackedUp: true }).catch(() => {}); })
+        .catch(() => {}),
+    );
   }, [rcAppUserId, stableUserId]);
 
   const stopPolling = useCallback(() => {
@@ -457,19 +461,38 @@ export function GradingProvider({ children }: { children: ReactNode }) {
               if (fUrl || bUrl) {
                 updateGrading(saved.id, { frontImageUrl: fUrl, backImageUrl: bUrl }).catch(() => {});
               }
-              uploadGrading(rcAppUserId, saved, sid)
-                .then(() => linkGradingImages(rcAppUserId, saved.id, serverFrontId, serverBackId, sid))
+              // One atomic upsert writes the row AND its image ids together, so a
+              // reinstalled device never restores a row with NULL image urls.
+              uploadGrading(rcAppUserId, saved, sid, serverFrontId, serverBackId)
+                .then(ok => { if (ok) updateGrading(saved.id, { historyRowBackedUp: true }).catch(() => {}); })
                 .catch(() => {});
             } else {
-              // Fallback (web / older builds): upload the images as base64.
-              uploadGrading(rcAppUserId, saved, sid).catch(() => {});
-              uploadGradingImages(rcAppUserId, saved.id, frontImage, backImage, sid)
-                .then(({ frontImageUrl, backImageUrl }) => {
+              // Fallback (web / older builds): the grade-job did not return stored
+              // image ids, so we upload the photos ourselves. uploadGradingImages
+              // expects RAW BASE64 — passing the file URIs straight through (the old
+              // bug) made the server try to decode a file path as image bytes, which
+              // failed silently and left the grade un-backed-up. Convert first, and
+              // tolerate one side being empty/unreadable without dropping the other.
+              const toB64 = (uri: string) =>
+                uri ? getBase64FromUri(uri).catch(() => null) : Promise.resolve(null);
+              // Sequence: write the history row FIRST, then upload images. The image
+              // endpoint UPDATEs by (rc_user_id, local_id) and returns 200 even on 0
+              // rows, so uploading before the row exists would silently fail to link.
+              uploadGrading(rcAppUserId, saved, sid)
+                .then(async (ok) => {
+                  if (!ok) return;
+                  // Row confirmed on the server — record it even if the photo upload
+                  // below fails, so the grade is restorable and not falsely pending.
+                  updateGrading(saved.id, { historyRowBackedUp: true }).catch(() => {});
+                  const [frontB64, backB64] = await Promise.all([toB64(frontImage), toB64(backImage)]);
+                  if (!frontB64 && !backB64) return;
+                  const { frontImageUrl, backImageUrl } =
+                    await uploadGradingImages(rcAppUserId, saved.id, frontB64, backB64, sid);
                   if (frontImageUrl || backImageUrl) {
                     updateGrading(saved.id, { frontImageUrl, backImageUrl }).catch(() => {});
                   }
                 })
-                .catch(() => {});
+                .catch((e) => console.warn("[grading] fallback image upload failed:", e?.message ?? e));
             }
           } else {
             pendingUploadsRef.current.push(saved);
@@ -923,6 +946,10 @@ export function GradingProvider({ children }: { children: ReactNode }) {
                 const bU = makeBulkUrl(sBack);
                 if (fU || bU) {
                   updateGrading(cardSaved.id, { frontImageUrl: fU, backImageUrl: bU }).catch(() => {});
+                  // Set the URLs on the in-memory object too, so uploadBulkGradings
+                  // extracts the image ids and the row lands WITH its image urls.
+                  cardSaved.frontImageUrl = fU;
+                  cardSaved.backImageUrl = bU;
                 }
                 bulkSaved.push(cardSaved);
                 if (sFront || sBack) {
@@ -932,7 +959,12 @@ export function GradingProvider({ children }: { children: ReactNode }) {
             }
             if (rcAppUserId && bulkSaved.length > 0) {
               uploadBulkGradings(rcAppUserId, bulkSaved, sid)
-                .then(() => {
+                .then((ok) => {
+                  if (!ok) return;
+                  // Rows confirmed — mark them so the recovered bulk cards leave the
+                  // pending state (their photos link below, but the row is what makes
+                  // them restorable on reinstall).
+                  markRowsBackedUp(bulkSaved.map((g) => g.id)).catch(() => {});
                   bulkLinks.forEach((p) =>
                     linkGradingImages(rcAppUserId, p.id, p.frontImageId, p.backImageId, sid).catch(() => {})
                   );
@@ -980,13 +1012,15 @@ export function GradingProvider({ children }: { children: ReactNode }) {
             const sid = stableUserId || undefined;
             if (fUrl || bUrl) {
               updateGrading(saved.id, { frontImageUrl: fUrl, backImageUrl: bUrl }).catch(() => {});
-              // Chain link AFTER the row insert resolves, otherwise the link
-              // update can run before the row exists and silently no-op.
-              uploadGrading(rcAppUserId, saved, sid)
-                .then(() => linkGradingImages(rcAppUserId, saved.id, serverFrontId, serverBackId, sid))
+              // One atomic upsert writes the row AND its image ids together, so a
+              // reinstalled device never restores a row with NULL image urls.
+              uploadGrading(rcAppUserId, saved, sid, serverFrontId, serverBackId)
+                .then(ok => { if (ok) updateGrading(saved.id, { historyRowBackedUp: true }).catch(() => {}); })
                 .catch(() => {});
             } else {
-              uploadGrading(rcAppUserId, saved, sid).catch(() => {});
+              uploadGrading(rcAppUserId, saved, sid)
+                .then(ok => { if (ok) updateGrading(saved.id, { historyRowBackedUp: true }).catch(() => {}); })
+                .catch(() => {});
             }
           }
 

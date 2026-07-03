@@ -27,7 +27,7 @@ interface FeatureRow {
 const FEATURES: FeatureRow[] = [
   { icon: "scan", text: "AI grade estimates for PSA, BGS, ACE, TAG & CGC" },
   { icon: "cash", text: "See your card's market value at every grade" },
-  { icon: "layers", text: "Grade up to 20 cards at once with Bulk Grade" },
+  { icon: "git-compare", text: "Every company's standards built in — find where your card's worth most" },
   { icon: "swap-horizontal", text: "Crossover grades for cards already in a slab" },
 ];
 

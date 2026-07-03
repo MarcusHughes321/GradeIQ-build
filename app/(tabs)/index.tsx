@@ -16,6 +16,7 @@ import {
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
+import { FallbackImage } from "@/components/FallbackImage";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
@@ -29,7 +30,7 @@ import GradeCircle from "@/components/GradeCircle";
 import CompanyLabel from "@/components/CompanyLabel";
 import { useSettings } from "@/lib/settings-context";
 import { CURRENCIES, type CurrencyCode } from "@/lib/settings";
-import { useSubscription, isGradePending } from "@/lib/subscription";
+import { useSubscription, isGradePending, backupBadgeState } from "@/lib/subscription";
 import { useGrading } from "@/lib/grading-context";
 
 const BUBBLE_PAD = 20;
@@ -43,16 +44,17 @@ const HOME_BULLETIN_STYLES: Record<string, { color: string; icon: keyof typeof I
 };
 
 function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySymbol }: { item: SavedGrading; onDelete: (id: string) => void; enabledCompanies: string[]; hideValues?: boolean; currencySymbol: string }) {
-  const date = new Date(item.timestamp);
+  const date = new Date(Number(item.timestamp));
   const dateStr = date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
 
-  // "Pending" = a locally-stored photo (front or back) has no server URL yet.
-  // Per-side aware, so a half-uploaded grade still reads as not-backed-up.
-  const isBackedUp = !isGradePending(item);
+  // Three honest states: "pending" (local photo awaiting upload), "backedUp"
+  // (has a server URL — safe on reinstall), or "unavailable" (no local pending
+  // copy and no server copy — the photo is gone). Never show a false "backed up".
+  const badge = backupBadgeState(item);
 
   const avgValue = useMemo(() => {
     const cv = item.result.cardValue;
@@ -108,15 +110,15 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           </Text>
           <View style={styles.histTopRight}>
             <Ionicons
-              name={isBackedUp ? "cloud-done" : "cloud-upload-outline"}
+              name={badge === "backedUp" ? "cloud-done" : badge === "pending" ? "cloud-upload-outline" : "cloud-offline-outline"}
               size={14}
-              color={isBackedUp ? Colors.success : Colors.warning}
+              color={badge === "backedUp" ? Colors.success : badge === "pending" ? Colors.warning : Colors.textMuted}
             />
             <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
           </View>
         </View>
         <View style={styles.histBottomRow}>
-          <Image source={{ uri: item.frontImage || item.frontImageUrl || "" }} style={styles.thumbnail} contentFit="cover" />
+          <FallbackImage localUri={item.frontImage} remoteUri={item.frontImageUrl} style={styles.thumbnail} contentFit="cover" />
           <View style={styles.historyInfo}>
             <Text style={styles.histSetInfo} numberOfLines={1}>
               {[item.result.setName || item.result.setInfo, item.result.setNumber].filter(Boolean).join(" - ") || "Pokemon Card"}
@@ -243,7 +245,10 @@ export default function HomeScreen() {
     queryKey: ["/api/bulletin"],
     queryFn: async () => {
       const url = new URL("/api/bulletin", getApiUrl());
-      const res = await fetch(url.toString());
+      // Cache-bust so the device HTTP cache never serves a stale banner (no
+      // If-None-Match sent -> no 304), reinforcing the server's no-store header.
+      url.searchParams.set("t", Date.now().toString());
+      const res = await fetch(url.toString(), { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load bulletin");
       return res.json();
     },
@@ -262,13 +267,48 @@ export default function HomeScreen() {
   const handleBackupNow = useCallback(async () => {
     const result = await backupAllMissingImages();
     await loadGradings();
-    if (result.total === 0) return;
-    if (result.failed === 0) {
+    // Never end silently: explain the no-op cases instead of appearing dead.
+    if (result.status === "busy") {
+      Alert.alert(
+        "Backing up…",
+        "We're already backing up your photos. This can take a moment — the count updates as each one finishes.",
+      );
+      return;
+    }
+    if (result.status === "no_user") {
+      Alert.alert(
+        "Almost ready",
+        "We're still finishing setting up your account on this device. Give it a moment, then tap \"Back up now\" again.",
+      );
+      return;
+    }
+    if (result.total === 0) {
+      // A pass ran but nothing was actually pending (stale count) — reassure.
       Alert.alert("Backup complete", "All your grades are safely backed up to the cloud.");
+      return;
+    }
+    if (result.failed === 0) {
+      // Everything pending was resolved. Some grades may have had their photo
+      // purged by the device — nothing is broken, so we don't flag a retry.
+      if (result.unrecoverable > 0) {
+        const n = result.unrecoverable;
+        Alert.alert(
+          "Backup complete",
+          `Your grades are backed up. ${n} older ${n === 1 ? "grade's photo was" : "grades' photos were"} no longer on this device, so ${n === 1 ? "it" : "they"} couldn't be uploaded — the grading details are still saved.`,
+        );
+      } else {
+        Alert.alert("Backup complete", "All your grades are safely backed up to the cloud.");
+      }
     } else {
+      // Real, retryable failures remain. Separate them from photos that are simply
+      // gone from the device so we never blame the connection for a missing file.
+      const missingNote =
+        result.unrecoverable > 0
+          ? ` ${result.unrecoverable} older ${result.unrecoverable === 1 ? "grade's photo was" : "grades' photos were"} no longer on this device — those grades' details are still saved.`
+          : "";
       Alert.alert(
         "Some photos didn't upload",
-        `Backed up ${result.succeeded} of ${result.total} — ${result.failed} couldn't upload. Check your connection and tap "Back up now" again to retry.`,
+        `Backed up ${result.succeeded} of ${result.total}. ${result.failed} couldn't upload — check your connection and tap "Back up now" again to retry.${missingNote}`,
       );
     }
   }, [backupAllMissingImages]); // eslint-disable-line react-hooks/exhaustive-deps

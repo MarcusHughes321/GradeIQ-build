@@ -85,6 +85,27 @@ export async function clearAllGradings(): Promise<void> {
   } catch {}
 }
 
+// Mark a set of grades as having their server history ROW confirmed persisted, in
+// a SINGLE read-modify-write (calling updateGrading per id would re-read/re-write
+// the whole array O(n) times). Used by the bulk sync/recovery paths and by the
+// startup history sync when it sees rows already present on the server, so those
+// grades stop counting as pending without a redundant re-upload.
+export async function markRowsBackedUp(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  try {
+    const idSet = new Set(ids);
+    const existing = await getGradings();
+    let changed = false;
+    for (const g of existing) {
+      if (idSet.has(g.id) && !g.historyRowBackedUp) {
+        g.historyRowBackedUp = true;
+        changed = true;
+      }
+    }
+    if (changed) await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+  } catch {}
+}
+
 export async function saveServerGrading(serverGrading: {
   id: string;
   result: any;
@@ -102,7 +123,12 @@ export async function saveServerGrading(serverGrading: {
       frontImage: "",
       backImage: "",
       result: serverGrading.result,
-      timestamp: serverGrading.timestamp,
+      // Coerce in case the server sent a bigint-as-string timestamp — a string
+      // yields "Invalid Date" on render and breaks the numeric sort below.
+      timestamp: Number(serverGrading.timestamp),
+      // Restored straight from the server, so its history row is definitionally
+      // backed up — never let a restored grade show as "pending" / re-upload it.
+      historyRowBackedUp: true,
       ...(serverGrading.isDeepGrade ? { isDeepGrade: true } : {}),
       ...(serverGrading.frontImageUrl ? { frontImageUrl: serverGrading.frontImageUrl } : {}),
       ...(serverGrading.backImageUrl ? { backImageUrl: serverGrading.backImageUrl } : {}),

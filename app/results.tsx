@@ -25,12 +25,15 @@ import { router, useLocalSearchParams } from "expo-router";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
+import { FallbackImage } from "@/components/FallbackImage";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { COMPANY_FEE_OPTIONS, COMPANY_SUBMIT_URL, ACE_LABEL_ADDON_GBP, type FeeOption } from "@/constants/grading-fees";
 import { getGradings, updateGrading, deleteGrading } from "@/lib/storage";
 import type { SavedGrading, GradingResult, CenteringMeasurement, CardBounds, CardValueEstimate, DefectMarker } from "@/lib/types";
 import { apiRequest } from "@/lib/query-client";
+import { timeoutSignal } from "@/lib/server-history";
 import GradeCircle from "@/components/GradeCircle";
 import CompanyCard from "@/components/CompanyCard";
 import CenteringCard from "@/components/CenteringCard";
@@ -420,6 +423,140 @@ function ZoomableView({ children }: { children: React.ReactNode }) {
   );
 }
 
+type ViewerFilterId = "off" | "texture" | "emboss" | "edge";
+
+const VIEWER_FILTERS: {
+  id: ViewerFilterId;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  serverType?: string;
+}[] = [
+  { id: "off", label: "Off", icon: "image-outline" },
+  { id: "texture", label: "Texture", icon: "grid-outline", serverType: "texture" },
+  { id: "emboss", label: "Relief", icon: "layers-outline", serverType: "emboss" },
+  { id: "edge", label: "Edges", icon: "analytics-outline", serverType: "edge" },
+];
+
+// Before/after compare viewer used when a surface filter is active. Both the raw
+// and filtered layers share ONE Reanimated transform (zoom + pan) so a screen-space
+// clip stays pixel-aligned at any zoom. Used on iOS, Android and web in compare
+// mode (replaces the iOS ScrollView zoom, which can't drive two aligned layers).
+function CompareZoomView({
+  rawLocalUri, rawRemoteUri, filteredUri, isLoading, filterLabel,
+}: {
+  rawLocalUri?: string | null;
+  rawRemoteUri?: string | null;
+  filteredUri: string | null;
+  isLoading: boolean;
+  filterLabel: string;
+}) {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const savedTx = useSharedValue(0);
+  const savedTy = useSharedValue(0);
+  const dividerX = useSharedValue(SCREEN_WIDTH / 2);
+  const savedDividerX = useSharedValue(SCREEN_WIDTH / 2);
+
+  const pinch = Gesture.Pinch()
+    .onUpdate((e) => { scale.value = Math.max(1, Math.min(5, savedScale.value * e.scale)); })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+      if (scale.value < 1.05) {
+        scale.value = withSpring(1); savedScale.value = 1;
+        tx.value = withSpring(0); ty.value = withSpring(0);
+        savedTx.value = 0; savedTy.value = 0;
+      }
+    });
+
+  const pan = Gesture.Pan()
+    .minPointers(2)
+    .onUpdate((e) => {
+      if (scale.value > 1) {
+        tx.value = savedTx.value + e.translationX;
+        ty.value = savedTy.value + e.translationY;
+      }
+    })
+    .onEnd(() => { savedTx.value = tx.value; savedTy.value = ty.value; });
+
+  const doubleTap = Gesture.Tap().numberOfTaps(2).onEnd(() => {
+    scale.value = withSpring(1); savedScale.value = 1;
+    tx.value = withSpring(0); ty.value = withSpring(0);
+    savedTx.value = 0; savedTy.value = 0;
+  });
+
+  const zoomGesture = Gesture.Race(doubleTap, Gesture.Simultaneous(pinch, pan));
+
+  const dividerPan = Gesture.Pan()
+    .activeOffsetX([-5, 5])
+    .onBegin(() => { savedDividerX.value = dividerX.value; })
+    .onUpdate((e) => {
+      dividerX.value = Math.min(SCREEN_WIDTH - 24, Math.max(24, savedDividerX.value + e.translationX));
+    });
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }, { translateX: tx.value }, { translateY: ty.value }],
+  }));
+  const clipStyle = useAnimatedStyle(() => ({ width: dividerX.value }));
+  const handleStyle = useAnimatedStyle(() => ({ left: dividerX.value }));
+  const hitStyle = useAnimatedStyle(() => ({ left: dividerX.value - 22 }));
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Base layer: original photo */}
+      <GestureDetector gesture={zoomGesture}>
+        <Animated.View style={[styles.compareLayer, animStyle]}>
+          <View style={styles.modalImageWrap}>
+            <FallbackImage localUri={rawLocalUri} remoteUri={rawRemoteUri} style={styles.modalImage} contentFit="contain" />
+          </View>
+        </Animated.View>
+      </GestureDetector>
+
+      {/* Filtered layer — same transform, clipped to the left of the divider */}
+      <Animated.View style={[styles.compareClip, clipStyle]} pointerEvents="none">
+        <View style={{ width: SCREEN_WIDTH, height: "100%" }}>
+          <Animated.View style={[styles.compareLayer, animStyle]}>
+            <View style={styles.modalImageWrap}>
+              <FallbackImage
+                localUri={filteredUri ?? rawLocalUri}
+                remoteUri={filteredUri ? null : rawRemoteUri}
+                style={styles.modalImage}
+                contentFit="contain"
+              />
+            </View>
+          </Animated.View>
+        </View>
+      </Animated.View>
+
+      {/* Divider line + handle */}
+      <Animated.View style={[styles.compareDividerV, handleStyle]} pointerEvents="none">
+        <View style={styles.compareDividerLineV} />
+        <View style={styles.compareHandleV}>
+          <Ionicons name="chevron-back" size={14} color="#000" />
+          <Ionicons name="chevron-forward" size={14} color="#000" />
+        </View>
+      </Animated.View>
+
+      {/* Divider drag hit area (1-finger; zoom needs 2 fingers so no conflict) */}
+      <GestureDetector gesture={dividerPan}>
+        <Animated.View style={[styles.compareHit, hitStyle]} />
+      </GestureDetector>
+
+      <View style={styles.compareLabelRow} pointerEvents="none">
+        <View style={styles.compareLabelPill}><Text style={styles.compareLabelTxt}>{filterLabel}</Text></View>
+        <View style={styles.compareLabelPill}><Text style={styles.compareLabelTxtMuted}>Original</Text></View>
+      </View>
+
+      {isLoading && (
+        <View style={styles.compareLoading} pointerEvents="none">
+          <ActivityIndicator size="small" color={Colors.primary} />
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
@@ -467,6 +604,9 @@ export default function ResultsScreen() {
   const zoomScrollRef = useRef<ScrollView>(null);
   const imageViewerListRef = useRef<FlatList>(null);
   const [showDefectPins, setShowDefectPins] = useState(true);
+  const [viewerFilterId, setViewerFilterId] = useState<ViewerFilterId>("off");
+  const [filteredMap, setFilteredMap] = useState<Record<string, string>>({});
+  const [filterLoading, setFilterLoading] = useState<Record<string, boolean>>({});
   const [viewerNaturalSizes, setViewerNaturalSizes] = useState<Record<string, { w: number; h: number }>>({});
   const [feedbackHappy, setFeedbackHappy] = useState<boolean | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
@@ -800,6 +940,7 @@ export default function ResultsScreen() {
     setViewerShowFront(front);
     setShowAnnotations(true);
     setSelectedArea(null);
+    setViewerFilterId("off");
     setImageViewerVisible(true);
     setTimeout(() => {
       imageViewerListRef.current?.scrollToIndex({ index: front ? 0 : 1, animated: false });
@@ -810,6 +951,104 @@ export default function ResultsScreen() {
     setImageViewerVisible(false);
     setSelectedArea(null);
   };
+
+  const serverTypeFor = (id: ViewerFilterId) => VIEWER_FILTERS.find((f) => f.id === id)?.serverType;
+
+  // Fetches a server-rendered surface filter for one side and caches it by
+  // `${side}:${filterId}`. Falls back to the remote URL if the local file is a
+  // dead cache path (iOS purges the cache dir). Reverts to Off on hard failure.
+  const fetchViewerFilter = async (side: "front" | "back", filterId: ViewerFilterId) => {
+    const serverType = serverTypeFor(filterId);
+    if (!serverType || !grading) return;
+    const cacheKey = `${side}:${filterId}`;
+    if (filteredMap[cacheKey]) return;
+    const localUri = side === "front" ? grading.frontImage : grading.backImage;
+    const remoteUri = side === "front" ? grading.frontImageUrl : grading.backImageUrl;
+
+    setFilterLoading((p) => ({ ...p, [side]: true }));
+    try {
+      const toBase64 = async (uri: string) => {
+        if (uri.startsWith("data:")) return uri.split(",")[1];
+        try {
+          const transforms: ImageManipulator.Action[] = Platform.OS === "android"
+            ? [{ rotate: 0 }, { resize: { width: 800 } }]
+            : [{ resize: { width: 800 } }];
+          const c = await ImageManipulator.manipulateAsync(
+            uri,
+            transforms,
+            { compress: 0.88, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+          );
+          if (c.base64) return c.base64;
+        } catch {}
+        // ImageManipulator can't reliably read remote https URLs — which is what
+        // a grade restored after reinstall falls back to (the local file is gone).
+        // Download it via fetch + FileReader, then strip the data: prefix (the WAF
+        // rejects that prefix in a POST body; the server re-adds it).
+        const { signal, clear } = timeoutSignal(15000);
+        let blob: Blob;
+        try {
+          const response = await fetch(uri, { signal });
+          if (!response.ok) throw new Error(`fetch ${response.status}`);
+          blob = await response.blob();
+        } finally {
+          clear();
+        }
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const stripped = dataUrl.split(",")[1];
+        if (!stripped) throw new Error("no base64");
+        return stripped;
+      };
+      let base64: string | null = null;
+      if (localUri) {
+        try { base64 = await toBase64(localUri); } catch { base64 = null; }
+      }
+      if (!base64 && remoteUri) base64 = await toBase64(remoteUri);
+      if (!base64) throw new Error("no source image");
+      const resp = await apiRequest("POST", "/api/filter-image", { imageBase64: base64, filterType: serverType });
+      if (!resp.ok) throw new Error(`server ${resp.status}`);
+      const data = (await resp.json()) as { resultBase64: string };
+      setFilteredMap((m) => ({ ...m, [cacheKey]: `data:image/jpeg;base64,${data.resultBase64}` }));
+    } catch (err: any) {
+      console.error("[results] filter-image failed:", err?.message ?? err);
+      const currentSide = viewerShowFront ? "front" : "back";
+      if (side === currentSide) {
+        setViewerFilterId("off");
+        Alert.alert("Filter unavailable", "Couldn't apply that view right now. Please try again.");
+      }
+    } finally {
+      setFilterLoading((p) => ({ ...p, [side]: false }));
+    }
+  };
+
+  const handleViewerFilter = (filterId: ViewerFilterId) => {
+    setViewerFilterId(filterId);
+    setSelectedArea(null);
+    if (filterId === "off") return;
+    // The visible side is fetched by the effect below; prefetch the other side.
+    const other = viewerShowFront ? "back" : "front";
+    setTimeout(() => fetchViewerFilter(other, filterId), 600);
+  };
+
+  const compareMode = viewerFilterId !== "off";
+  const activeFilterLabel = VIEWER_FILTERS.find((f) => f.id === viewerFilterId)?.label ?? "Filter";
+
+  // Ensure the currently-visible side always has its filtered image. This drives
+  // the initial fetch and, crucially, RETRIES on side switch if the staggered
+  // prefetch for that side failed — otherwise the slider would silently compare
+  // raw-vs-raw while the label still claims the filter is applied.
+  useEffect(() => {
+    if (!imageViewerVisible || viewerFilterId === "off") return;
+    const side = viewerShowFront ? "front" : "back";
+    const cacheKey = `${side}:${viewerFilterId}`;
+    if (!filteredMap[cacheKey] && !filterLoading[side]) {
+      fetchViewerFilter(side, viewerFilterId);
+    }
+  }, [imageViewerVisible, viewerShowFront, viewerFilterId, filteredMap, filterLoading]);
 
   const handleDelete = () => {
     if (!grading) return;
@@ -1317,10 +1556,9 @@ export default function ResultsScreen() {
             onLongPress={() => setShowFront(!showFront)}
             style={({ pressed }) => [styles.cardImageWrapper, { opacity: pressed ? 0.85 : 1 }]}
           >
-            <Image
-              source={{ uri: showFront
-                ? (grading.frontImage || grading.frontImageUrl || "")
-                : (grading.backImage || grading.backImageUrl || "") }}
+            <FallbackImage
+              localUri={showFront ? grading.frontImage : grading.backImage}
+              remoteUri={showFront ? grading.frontImageUrl : grading.backImageUrl}
               style={styles.cardImage}
               contentFit="cover"
             />
@@ -1538,7 +1776,7 @@ export default function ResultsScreen() {
             style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
             onPress={() => openImageViewer(true)}
           >
-            <Image source={{ uri: grading.frontImage || grading.frontImageUrl || "" }} style={styles.imageThumbImg} contentFit="cover" />
+            <FallbackImage localUri={grading.frontImage} remoteUri={grading.frontImageUrl} style={styles.imageThumbImg} contentFit="cover" />
             <View style={styles.imageThumbLabel}>
               <Text style={styles.imageThumbText}>Front</Text>
               <Ionicons name="expand-outline" size={12} color="#fff" />
@@ -1548,7 +1786,7 @@ export default function ResultsScreen() {
             style={({ pressed }) => [styles.imageThumb, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
             onPress={() => openImageViewer(false)}
           >
-            <Image source={{ uri: grading.backImage || grading.backImageUrl || "" }} style={styles.imageThumbImg} contentFit="cover" />
+            <FallbackImage localUri={grading.backImage} remoteUri={grading.backImageUrl} style={styles.imageThumbImg} contentFit="cover" />
             <View style={styles.imageThumbLabel}>
               <Text style={styles.imageThumbText}>Back</Text>
               <Ionicons name="expand-outline" size={12} color="#fff" />
@@ -2240,7 +2478,7 @@ export default function ResultsScreen() {
             </Pressable>
             <Text style={styles.modalTitle}>{viewerShowFront ? "Front" : "Back"}</Text>
             <View style={styles.modalHeaderRight}>
-              {result.defects && result.defects.length > 0 && (
+              {!compareMode && result.defects && result.defects.length > 0 && (
                 <Pressable
                   onPress={() => setShowDefectPins(!showDefectPins)}
                   style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
@@ -2252,16 +2490,18 @@ export default function ResultsScreen() {
                   />
                 </Pressable>
               )}
-              <Pressable
-                onPress={() => { setShowAnnotations(!showAnnotations); setSelectedArea(null); }}
-                style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
-              >
-                <Ionicons
-                  name={showAnnotations ? "eye" : "eye-off-outline"}
-                  size={22}
-                  color={showAnnotations ? Colors.primary : "rgba(255,255,255,0.5)"}
-                />
-              </Pressable>
+              {!compareMode && (
+                <Pressable
+                  onPress={() => { setShowAnnotations(!showAnnotations); setSelectedArea(null); }}
+                  style={({ pressed }) => [styles.modalHeaderBtn, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Ionicons
+                    name={showAnnotations ? "eye" : "eye-off-outline"}
+                    size={22}
+                    color={showAnnotations ? Colors.primary : "rgba(255,255,255,0.5)"}
+                  />
+                </Pressable>
+              )}
               <Pressable
                 onPress={() => {
                   const next = !viewerShowFront;
@@ -2278,13 +2518,15 @@ export default function ResultsScreen() {
           <FlatList
             ref={imageViewerListRef}
             data={[
-              { side: "front" as const, uri: grading.frontImage || grading.frontImageUrl || "", bounds: result.frontCardBounds },
-              { side: "back" as const, uri: grading.backImage || grading.backImageUrl || "", bounds: result.backCardBounds },
+              { side: "front" as const, localUri: grading.frontImage, remoteUri: grading.frontImageUrl, bounds: result.frontCardBounds },
+              { side: "back" as const, localUri: grading.backImage, remoteUri: grading.backImageUrl, bounds: result.backCardBounds },
             ]}
             keyExtractor={(item) => item.side}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
+            scrollEnabled={!compareMode}
+            extraData={{ compareMode, viewerFilterId, showAnnotations, showDefectPins, filteredMap, filterLoading }}
             initialScrollIndex={viewerShowFront ? 0 : 1}
             getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
             onMomentumScrollEnd={(e) => {
@@ -2294,10 +2536,20 @@ export default function ResultsScreen() {
             }}
             renderItem={({ item }) => (
               <View style={{ width: SCREEN_WIDTH }}>
+                {compareMode ? (
+                  <CompareZoomView
+                    rawLocalUri={item.localUri}
+                    rawRemoteUri={item.remoteUri}
+                    filteredUri={filteredMap[`${item.side}:${viewerFilterId}`] ?? null}
+                    isLoading={!!filterLoading[item.side]}
+                    filterLabel={activeFilterLabel}
+                  />
+                ) : (
                 <ZoomableView>
                   <View style={styles.modalImageWrap}>
-                    <Image
-                      source={{ uri: item.uri }}
+                    <FallbackImage
+                      localUri={item.localUri}
+                      remoteUri={item.remoteUri}
                       style={styles.modalImage}
                       contentFit="contain"
                       onLoad={(e) => {
@@ -2380,6 +2632,7 @@ export default function ResultsScreen() {
                     )}
                   </View>
                 </ZoomableView>
+                )}
               </View>
             )}
           />
@@ -2402,12 +2655,33 @@ export default function ResultsScreen() {
             </View>
           )}
 
-          {!selectedAnnotation && showAnnotations && (
+          {compareMode ? (
+            <View style={styles.annotationHint}>
+              <Ionicons name="swap-horizontal-outline" size={14} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.annotationHintText}>Drag the divider · left = {activeFilterLabel}, right = original</Text>
+            </View>
+          ) : (!selectedAnnotation && showAnnotations && (
             <View style={styles.annotationHint}>
               <Ionicons name="hand-left-outline" size={14} color="rgba(255,255,255,0.5)" />
               <Text style={styles.annotationHintText}>Swipe to switch sides · Tap labels for details</Text>
             </View>
-          )}
+          ))}
+
+          <View style={styles.filterChipRow}>
+            {VIEWER_FILTERS.map((f) => {
+              const active = viewerFilterId === f.id;
+              return (
+                <Pressable
+                  key={f.id}
+                  onPress={() => handleViewerFilter(f.id)}
+                  style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Ionicons name={f.icon} size={14} color={active ? "#fff" : "rgba(255,255,255,0.6)"} />
+                  <Text style={[styles.filterChipTxt, active && styles.filterChipTxtActive]}>{f.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
           <View style={styles.modalFooter}>
             <Pressable
@@ -3600,6 +3874,118 @@ const styles = StyleSheet.create({
   },
   modalTabTextActive: {
     color: "#fff",
+  },
+  filterChipRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 2,
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  filterChipActive: {
+    backgroundColor: Colors.primary,
+  },
+  filterChipTxt: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+  },
+  filterChipTxtActive: {
+    color: "#fff",
+  },
+  compareLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compareClip: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    overflow: "hidden",
+  },
+  compareDividerV: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compareDividerLineV: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 2,
+    left: -1,
+    backgroundColor: "rgba(255,255,255,0.92)",
+  },
+  compareHandleV: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 5,
+  },
+  compareHit: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 44,
+  },
+  compareLabelRow: {
+    position: "absolute",
+    top: 10,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+  },
+  compareLabelPill: {
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  compareLabelTxt: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.5,
+    color: Colors.primary,
+  },
+  compareLabelTxtMuted: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    letterSpacing: 0.5,
+    color: "rgba(255,255,255,0.7)",
+  },
+  compareLoading: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
   reAnalyseOverlay: {
     position: "absolute",

@@ -3,12 +3,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform, AppState, type AppStateStatus } from "react-native";
 import Purchases, { LOG_LEVEL, type CustomerInfo } from "react-native-purchases";
 import { getApiUrl } from "@/lib/query-client";
-import { fetchServerHistory, uploadBulkGradings, uploadGradingImages, claimHistoryForStableId } from "@/lib/server-history";
-import { getStableUserId } from "@/lib/stable-user-id";
+import { fetchServerHistory, uploadGrading, uploadBulkGradings, uploadGradingImages, claimHistoryForStableId, timeoutSignal } from "@/lib/server-history";
+import { getStableUserId, isReinstall } from "@/lib/stable-user-id";
 import { clearAdminPassword } from "@/lib/admin-auth";
-import { getGradings, saveServerGrading, updateGradingImageUrls } from "@/lib/storage";
+import { getGradings, saveServerGrading, updateGrading, updateGradingImageUrls, markRowsBackedUp } from "@/lib/storage";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Network from "expo-network";
+import * as ImageManipulator from "expo-image-manipulator";
 
 // A grade still needs backup when a locally-stored photo (front or back) has no
 // corresponding server URL yet. Per-side aware: if one side uploaded but the
@@ -18,25 +19,73 @@ export function isGradePending(g: {
   backImage?: string | null;
   frontImageUrl?: string | null;
   backImageUrl?: string | null;
+  historyRowBackedUp?: boolean;
 }): boolean {
+  // The grading-history ROW itself must be confirmed on the server first. A grade
+  // whose row never persisted is unrestorable on reinstall REGARDLESS of its
+  // photos (a photo linked to a non-existent row is lost too), so it is pending
+  // until the row is confirmed — this is what stops the false-green "backed up"
+  // badge over a grade that silently vanishes after reinstall.
+  if (!g.historyRowBackedUp) return true;
+  // Row is safe; a side is still pending only if a local photo hasn't uploaded.
   return Boolean(
     (g.frontImage && !g.frontImageUrl) || (g.backImage && !g.backImageUrl),
   );
 }
 
-// Outcome of a backup pass: how many pending grades we tried to upload, how many
-// reached the server, and how many failed (network/server error or no local
-// file to read). Drives the "Back up now" result message on the dashboard.
+// Three honest states for the per-grade cloud badge shown on Home / History:
+//  - "pending":     the server row and/or a local photo is still waiting to upload
+//                   (orange, retryable) — INCLUDES a grade whose history row hasn't
+//                   been confirmed on the server yet, even if its photos uploaded
+//  - "backedUp":    the row is confirmed AND a side has a server URL (green, safe
+//                   on reinstall)
+//  - "unavailable": row is confirmed but there is no server photo copy — the photo
+//                   is gone or was never captured (grey/honest — never a false
+//                   "backed up")
+export type BackupBadge = "pending" | "backedUp" | "unavailable";
+export function backupBadgeState(g: {
+  frontImage?: string | null;
+  backImage?: string | null;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
+  frontImageMissing?: boolean;
+  backImageMissing?: boolean;
+  historyRowBackedUp?: boolean;
+}): BackupBadge {
+  if (isGradePending(g)) return "pending";
+  if (g.frontImageUrl || g.backImageUrl) return "backedUp";
+  return "unavailable";
+}
+
+// Outcome of a backup pass. Drives the "Back up now" result message on the
+// dashboard. `failed` counts only *retryable* failures (network/server error, or
+// a transient inability to read a file that is still on disk). Grades whose local
+// photo has been genuinely purged by the OS are NOT counted as failed — their
+// dangling local reference is cleared so they stop counting as pending, and they
+// are reported via `unrecoverable` instead (a retry would never help them).
 export interface BackupResult {
   total: number;
   succeeded: number;
   failed: number;
+  unrecoverable: number;
+  // Why the pass ended, so the caller can give the user honest feedback instead
+  // of silently doing nothing:
+  //  - "ran"     : the backup actually executed (total may still be 0 if nothing
+  //                was pending).
+  //  - "busy"    : another pass (e.g. the silent startup backfill) was already
+  //                running, so this request was skipped by the single-flight guard.
+  //  - "no_user" : the RevenueCat app-user id needed to key the upload wasn't
+  //                available yet — the user should retry in a moment.
+  status: "ran" | "busy" | "no_user";
 }
 
 const USAGE_KEY = "gradeiq_monthly_usage";
 const DEEP_USAGE_KEY = "gradeiq_deep_monthly_usage";
 const CROSSOVER_USAGE_KEY = "gradeiq_crossover_monthly_usage";
 const ADMIN_KEY = "gradeiq_admin_mode";
+// Marks that this install has already run the one-time fresh-install auto-restore
+// check. Lives in AsyncStorage (wiped on reinstall) so a reinstall re-triggers it.
+const AUTO_RESTORE_KEY = "gradeiq_auto_restore_done";
 const FREE_MONTHLY_LIMIT = 3;
 
 const GATE_ENABLED = (process.env.EXPO_PUBLIC_SUBSCRIPTION_GATE ?? "on") === "on";
@@ -298,9 +347,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     // clear the loading spinner after 10 seconds so the UI isn't stuck.
     const rcTimeout = setTimeout(() => setRcLoading(false), 10000);
 
+    // Detect a reinstall BEFORE getStableUserId (which CREATES the id) runs:
+    // isReinstall is true only when the id survives in the Keychain but is absent
+    // from the wiped AsyncStorage — excluding first installs and plain app updates.
+    // Chain the creation AFTER this read so the check can never be a false positive.
+    const reinstallPromise = isReinstall().catch(() => false);
+
     // Load the stable UUID ONCE, independent of RevenueCat. This is the anchor
     // for recovery and persists across reinstalls (iOS Keychain / Android SSAID).
-    const stableIdPromise = getStableUserId()
+    const stableIdPromise = reinstallPromise
+      .then(() => getStableUserId())
       .then(id => { setStableUserId(id); return id; })
       .catch(() => "");
 
@@ -313,7 +369,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       syncHistoryWithServer("", stableId).catch(() => {});
     });
 
-    initRevenueCat(stableIdPromise).finally(() => clearTimeout(rcTimeout));
+    initRevenueCat(stableIdPromise, reinstallPromise).finally(() => clearTimeout(rcTimeout));
 
     const sub = AppState.addEventListener("change", handleAppStateChange);
     return () => {
@@ -333,12 +389,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (!rcUserId || rcUserId === "unknown") return;
     try {
       const url = new URL("/api/subscription/sync", getApiUrl());
+      const t = timeoutSignal(8000);
       await fetch(url.toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rcUserId, tier }),
-        signal: AbortSignal.timeout(8000),
-      });
+        signal: t.signal,
+      }).finally(() => t.clear());
       console.log("[subscription] Tier synced to server:", tier);
     } catch (e) {
       console.log("[subscription] Tier sync failed (non-critical):", e);
@@ -361,7 +418,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       const url = new URL("/api/usage", getApiUrl());
       if (rcUserId) url.searchParams.set("rcUserId", rcUserId);
       if (stableId) url.searchParams.set("stableId", stableId);
-      const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+      const t = timeoutSignal(8000);
+      const resp = await fetch(url.toString(), { signal: t.signal }).finally(() => t.clear());
       if (!resp.ok) return;
       const data = await resp.json() as { quickCount: number; deepCount: number; crossoverCount: number };
       const [local, localDeep, localCrossover] = await Promise.all([
@@ -412,9 +470,31 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           backImageUrl: makeUrl(sg.backImageId),
         });
       }
+      // Any local grade whose row is ALREADY on the server is, by definition,
+      // backed up. Mark it so it stops counting as pending — without this every
+      // pre-existing grade would show orange until the backup pass re-upserted its
+      // row (a redundant network storm on the first launch after this change).
+      const alreadyOnServer = localGradings
+        .filter(g => g?.id && serverIds.has(g.id) && !g.historyRowBackedUp)
+        .map(g => g.id);
+      if (alreadyOnServer.length > 0) await markRowsBackedUp(alreadyOnServer);
+
       const missingOnServer = localGradings.filter(g => g?.id && !serverIds.has(g.id));
-      if (missingOnServer.length > 0) {
-        uploadBulkGradings(rcUserId, missingOnServer, stableId).catch(() => {});
+      // The server keys history rows on rc_user_id, so only push local-only grades
+      // once the RC id is known — the early stable-id-only pass (rcUserId="") can't
+      // create rows and would otherwise log a misleading "upload failed" warning.
+      if (rcUserId && missingOnServer.length > 0) {
+        // AWAIT so the history rows exist before retroactiveImageUpload (chained
+        // after this resolves at startup) tries to link images — the image endpoint
+        // UPDATEs by (rc_user_id, local_id) and silently no-ops if the row is absent.
+        const ok = await uploadBulkGradings(rcUserId, missingOnServer, stableId);
+        if (ok) {
+          // Rows are now persisted — record it so they leave the pending state
+          // without a second (redundant) upsert in the retroactive backup pass.
+          await markRowsBackedUp(missingOnServer.map(g => g.id));
+        } else {
+          console.warn(`[history] Bulk upload of ${missingOnServer.length} local-only grade(s) failed`);
+        }
       }
       if (newFromServer.length > 0) {
         console.log(`[history] Restored ${newFromServer.length} grades from server`);
@@ -434,13 +514,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     stableId?: string,
     onProgress?: (done: number, total: number) => void,
   ): Promise<BackupResult> => {
-    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0 };
-    if (!rcUserId || Platform.OS === "web") return empty;
+    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0, unrecoverable: 0, status: "ran" };
+    if (Platform.OS === "web") return empty;
+    if (!rcUserId) return { ...empty, status: "no_user" };
     // Single-flight guard shared by ALL entry points (startup backfill + manual
     // "Back up now") so the same pending grades are never uploaded concurrently.
-    if (backupInProgressRef.current) return empty;
+    if (backupInProgressRef.current) return { ...empty, status: "busy" };
     backupInProgressRef.current = true;
     let uploaded = 0;
+    let unrecoverable = 0;
+    let failed = 0;
     let total = 0;
     try {
       const gradings = await getGradings();
@@ -451,31 +534,186 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         return empty;
       }
       console.log(`[history] Image backup: ${total} grades need backup`);
+      // Prepare one image side for upload as RAW base64 (no "data:" prefix — the
+      // Replit edge-proxy blocks that string). Handles every reference kind the app
+      // stores, not just on-disk file paths (the old code threw instantly on data:
+      // and photo-library URIs, so the whole pass reported "couldn't upload"):
+      //   - ""                              -> nothing on this side, not an error
+      //   - "data:image/...;base64,XXXX"    -> use the embedded bytes directly
+      //   - "file://..." / "/..."           -> confirm it exists, then shrink to ~1200px
+      //   - "ph://" / "content://" lib ref  -> shrink directly (cannot be fs-statted)
+      // A ~1200px q0.7 JPEG is a few hundred KB, so front+back stay well under the
+      // proxy's ~10MB limit. `missing` is set ONLY when a file path is CONFIRMED
+      // gone, so its dangling reference can be safely cleared. Any other failure is
+      // transient (`errorMsg` set, `missing` false) and stays pending for a retry.
+      const prepImage = async (
+        uri: string,
+      ): Promise<{ base64: string | null; missing: boolean; errorMsg: string | null }> => {
+        if (!uri) return { base64: null, missing: false, errorMsg: null };
+
+        if (uri.startsWith("data:")) {
+          const b64 = uri.split(",")[1] ?? null;
+          return b64
+            ? { base64: b64, missing: false, errorMsg: null }
+            : { base64: null, missing: false, errorMsg: "empty data URI" };
+        }
+
+        // Only real file paths can be statted for existence. A confirmed-absent
+        // file is the one case we may treat as permanently missing.
+        const isFilePath = uri.startsWith("file://") || uri.startsWith("/");
+        if (isFilePath) {
+          try {
+            const info = await FileSystem.getInfoAsync(uri);
+            if (!info.exists) return { base64: null, missing: true, errorMsg: null };
+          } catch { /* stat failed — fall through and still try to read it */ }
+        }
+
+        // Primary path: shrink + re-encode to a small JPEG and grab its base64.
+        try {
+          // Android EXIF fix: rotate(0) forces a full decode respecting orientation.
+          const transforms: ImageManipulator.Action[] = Platform.OS === "android"
+            ? [{ rotate: 0 }, { resize: { width: 1200 } }]
+            : [{ resize: { width: 1200 } }];
+          const result = await ImageManipulator.manipulateAsync(
+            uri,
+            transforms,
+            { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+          );
+          if (result.base64) return { base64: result.base64, missing: false, errorMsg: null };
+        } catch (e: any) {
+          console.log(`[history] shrink failed (${uri.slice(0, 24)}…) — trying raw read: ${e?.message ?? e}`);
+        }
+
+        // Fallback: read the raw bytes straight off disk as base64. Covers sources
+        // ImageManipulator can't decode but that are still readable on disk.
+        try {
+          const raw = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          return raw
+            ? { base64: raw, missing: false, errorMsg: null }
+            : { base64: null, missing: false, errorMsg: "empty file read" };
+        } catch (e: any) {
+          return { base64: null, missing: false, errorMsg: e?.message ?? "read failed" };
+        }
+      };
+      const SKIP = { base64: null as string | null, missing: false, errorMsg: null as string | null };
+
       let done = 0;
       for (const grading of needsUpload) {
         try {
-          const readSafe = async (uri: string): Promise<string | null> => {
-            if (!uri) return null;
-            try {
-              const info = await FileSystem.getInfoAsync(uri);
-              if (!info.exists) return null;
-              return await FileSystem.readAsStringAsync(uri, { encoding: "base64" as any });
-            } catch { return null; }
-          };
-          const [frontB64, backB64] = await Promise.all([
-            readSafe(grading.frontImage),
-            readSafe(grading.backImage),
+          // Ensure the server ROW exists before linking any photos. "Back up now"
+          // used to upload photos only; if the completion-time row upload had failed,
+          // the image link silently no-op'd (0 rows matched) and the grade was
+          // unrestorable while still showing a green badge. Make the row a hard
+          // precondition — if it can't be created, defer this grade (retryable).
+          const rowWasPending = !grading.historyRowBackedUp;
+          const rowOk = await uploadGrading(rcUserId, grading, stableId);
+          if (!rowOk) {
+            failed++;
+            console.warn(`[history] Backup deferred for grade ${grading.id}: history row upload failed (will retry)`);
+            done++;
+            onProgress?.(done, total);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            continue;
+          }
+          // Row is now CONFIRMED on the server. Persist that so the badge/pending
+          // logic stops treating this grade as needing a row (without it, a grade
+          // whose photos are already uploaded but whose row upload failed at
+          // completion time would show green yet vanish on reinstall).
+          if (rowWasPending) {
+            await updateGrading(grading.id, { historyRowBackedUp: true });
+            grading.historyRowBackedUp = true;
+          }
+
+          // Only prepare the side(s) that still need a server copy. A side already
+          // backed up (URL present) must never be re-prepared or re-uploaded.
+          const frontPending = Boolean(grading.frontImage && !grading.frontImageUrl);
+          const backPending = Boolean(grading.backImage && !grading.backImageUrl);
+
+          const [front, back] = await Promise.all([
+            frontPending ? prepImage(grading.frontImage) : Promise.resolve(SKIP),
+            backPending ? prepImage(grading.backImage) : Promise.resolve(SKIP),
           ]);
-          if (frontB64 || backB64) {
-            const urls = await uploadGradingImages(rcUserId, grading.id, frontB64, backB64, stableId);
-            if (urls.frontImageUrl || urls.backImageUrl) {
-              await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
-              uploaded++;
-              console.log(`[history] Backed up images for grade ${grading.id}`);
+
+          // 1. Upload whatever bytes we managed to prepare.
+          let uploadFailed = false;
+          let uploadedSide = false;
+          if (front.base64 || back.base64) {
+            try {
+              const urls = await uploadGradingImages(rcUserId, grading.id, front.base64, back.base64, stableId);
+              if (urls.linked && (urls.frontImageUrl || urls.backImageUrl)) {
+                await updateGradingImageUrls(grading.id, urls.frontImageUrl, urls.backImageUrl);
+                uploadedSide = true;
+              } else {
+                // Reached the server but did NOT link to a row (or no URL) — a real,
+                // retryable failure. Never mark a grade "backed up" without a linked
+                // row, or the badge goes green over an unrestorable image.
+                uploadFailed = true;
+              }
+            } catch (e: any) {
+              uploadFailed = true;
+              console.warn(`[history] Upload request failed for grade ${grading.id}: ${e?.message ?? e}`);
             }
           }
-        } catch (e) {
-          console.log(`[history] Failed to backup images for ${grading.id}:`, e);
+
+          // 2. For pending sides whose local file is CONFIRMED gone, either RECOVER
+          //    the server copy (the grade-job stored full-res originals; their UUIDs
+          //    live on the result) or, if truly unrecoverable, clear the dead ref AND
+          //    record an honest "image missing" flag so the UI never shows a false
+          //    "backed up" badge over a blank thumbnail.
+          const resultAny = grading.result as any;
+          const recoverUrl = (id?: string | null) =>
+            id ? new URL(`/api/grading-image/${encodeURIComponent(id)}`, getApiUrl()).toString() : null;
+          const updates: {
+            frontImage?: string; backImage?: string;
+            frontImageUrl?: string; backImageUrl?: string;
+            frontImageMissing?: boolean; backImageMissing?: boolean;
+          } = {};
+          let recoveredSide = false;
+          if (frontPending && front.missing) {
+            const url = recoverUrl(resultAny?.frontImageId);
+            if (url) { updates.frontImageUrl = url; updates.frontImage = ""; recoveredSide = true; }
+            else { updates.frontImage = ""; updates.frontImageMissing = true; }
+          }
+          if (backPending && back.missing) {
+            const url = recoverUrl(resultAny?.backImageId);
+            if (url) { updates.backImageUrl = url; updates.backImage = ""; recoveredSide = true; }
+            else { updates.backImage = ""; updates.backImageMissing = true; }
+          }
+          if (Object.keys(updates).length > 0) await updateGrading(grading.id, updates);
+
+          // 3. Classify this grade into exactly one bucket and log the TRUE reason,
+          //    so a genuine failure is never silently swallowed or mislabelled.
+          const transientError =
+            (frontPending && !front.base64 && !front.missing) ||
+            (backPending && !back.base64 && !back.missing) ||
+            uploadFailed;
+
+          if (transientError) {
+            failed++;
+            const reason = uploadFailed
+              ? "upload request failed (network/server)"
+              : (front.errorMsg || back.errorMsg || "could not read photo");
+            console.warn(`[history] Backup failed (retryable) for grade ${grading.id}: ${reason}`);
+          } else if (uploadedSide || recoveredSide) {
+            uploaded++;
+            console.log(`[history] Backed up images for grade ${grading.id}${recoveredSide ? " (recovered from server copy)" : ""}`);
+          } else if (frontPending || backPending) {
+            // Had pending photo(s) but none could be uploaded or recovered — they are
+            // gone from the device with no server copy. Cleared + marked missing above
+            // so the UI shows an honest "photo unavailable" placeholder; grade kept.
+            unrecoverable++;
+            console.log(`[history] Photo(s) unrecoverable for grade ${grading.id} — marked missing, grade kept`);
+          } else {
+            // No photo was pending; the only thing outstanding was the server row,
+            // which we confirmed above. This grade is now fully backed up.
+            uploaded++;
+            console.log(`[history] Backed up history row for grade ${grading.id} (no photo pending)`);
+          }
+        } catch (e: any) {
+          failed++;
+          console.warn(`[history] Unexpected backup error for grade ${grading.id}: ${e?.message ?? e}`);
         }
         done++;
         onProgress?.(done, total);
@@ -487,7 +725,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } finally {
       backupInProgressRef.current = false;
     }
-    return { total, succeeded: uploaded, failed: total - uploaded };
+    return { total, succeeded: uploaded, failed, unrecoverable, status: "ran" };
   };
 
   // Startup backfill — background/non-blocking, no progress UI.
@@ -514,14 +752,41 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   // The single-flight guard lives in runImageBackup; we check the ref here only
   // to avoid flashing the "Backing up…" UI when a backup is already running.
   const backupAllMissingImages = useCallback(async (): Promise<BackupResult> => {
-    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0 };
-    if (Platform.OS === "web" || !rcAppUserId) return empty;
-    if (backupInProgressRef.current) return empty;
+    const empty: BackupResult = { total: 0, succeeded: 0, failed: 0, unrecoverable: 0, status: "ran" };
+    if (Platform.OS === "web") return empty;
+    // A pass is already running (e.g. the silent startup backfill still working
+    // through pending grades). Report it so the button can say "already backing
+    // up" rather than appearing dead — the shared single-flight guard would
+    // otherwise swallow this tap with no feedback at all.
+    if (backupInProgressRef.current) {
+      console.log("[history] Manual backup skipped — a pass is already in progress");
+      return { ...empty, status: "busy" };
+    }
+    // The server keys the upload row by the RevenueCat app-user id. If it hasn't
+    // resolved yet (the user tapped before RC finished configuring, or under
+    // Expo Go's mocked/Preview mode), fetch it on demand before giving up so a
+    // legitimate tap isn't silently a no-op.
+    // Treat the placeholder "unknown" (set when RC returned a null id) the same
+    // as empty — uploading under it would key server rows to a non-canonical id
+    // and falsely mark grades backed up.
+    const isResolved = (id: string) => !!id && id !== "unknown";
+    let userId = rcAppUserId;
+    if (!isResolved(userId) && rcConfiguredRef.current) {
+      try {
+        const info = await Purchases.getCustomerInfo();
+        userId = info.originalAppUserId ?? "";
+        if (isResolved(userId)) setRcAppUserId(userId);
+      } catch {}
+    }
+    if (!isResolved(userId)) {
+      console.log("[history] Manual backup skipped — no RC user id available yet");
+      return { ...empty, status: "no_user" };
+    }
     setBackupInProgress(true);
     setBackupProgress({ done: 0, total: 0 });
     try {
       const result = await runImageBackup(
-        rcAppUserId,
+        userId,
         stableUserId || undefined,
         (done, total) => setBackupProgress({ done, total }),
       );
@@ -589,7 +854,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [retryFailedBackups]);
 
-  const initRevenueCat = async (stableIdPromise: Promise<string>) => {
+  const initRevenueCat = async (stableIdPromise: Promise<string>, reinstallPromise: Promise<boolean>) => {
     try {
       const apiKey = Platform.OS === "ios" ? RC_API_KEY_IOS : RC_API_KEY_ANDROID;
       if (!apiKey) {
@@ -619,19 +884,70 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setCurrentTierSafe(tier);
       setRcAppUserId(userId);
       syncTierToServer(userId, tier).catch(() => {});
+
+      // ── Auto-restore purchases after a reinstall ─────────────────────────────
+      // On a reinstall the Keychain-persisted stable id survives but AsyncStorage
+      // is wiped, so RC hands the device a fresh anonymous app-user-id and the
+      // store subscription isn't linked until a restore — which today the user must
+      // trigger manually in Settings. isReinstall() (id in the Keychain but not in
+      // the wiped AsyncStorage) targets true reinstalls only, excluding first-ever
+      // installs and plain app updates. Do it at most once per install, silently.
+      try {
+        const [wasReinstall, alreadyAttempted] = await Promise.all([
+          reinstallPromise,
+          AsyncStorage.getItem(AUTO_RESTORE_KEY),
+        ]);
+        if (!alreadyAttempted && wasReinstall && tier === "free") {
+          console.log("[subscription] Reinstall detected — attempting silent auto-restore...");
+          await Purchases.invalidateCustomerInfoCache();
+          let restored = await Purchases.restorePurchases();
+          let restoredTier = determineTier(restored);
+          // The RC entitlement transfer takes time to propagate — the first
+          // snapshot can still read "free". Retry with the same 2/4/6s backoff the
+          // manual restore uses before accepting "free", so a slow transfer (the
+          // common reinstall case) isn't dropped and left needing a manual restore.
+          const retryDelays = [2000, 4000, 6000];
+          for (let i = 0; restoredTier === "free" && i < retryDelays.length; i++) {
+            await new Promise(resolve => setTimeout(resolve, retryDelays[i]));
+            await Purchases.invalidateCustomerInfoCache();
+            restored = await Purchases.getCustomerInfo();
+            restoredTier = determineTier(restored);
+            console.log(`[subscription] Auto-restore retry ${i + 1}: tier=`, restoredTier);
+          }
+          if (restoredTier !== "free") {
+            const rid = restored.originalAppUserId ?? "";
+            console.log("[subscription] Auto-restore recovered tier=", restoredTier, "| userId=", rid);
+            setCurrentTierSafe(restoredTier);
+            setRcAppUserId(rid);
+            syncTierToServer(rid, restoredTier).catch(() => {});
+          } else {
+            console.log("[subscription] Auto-restore: no active subscription to restore");
+          }
+        }
+        // Mark this install as checked so auto-restore runs at most once per install.
+        // Skipped only when a restore call THREW (jumps to catch), so a transient
+        // network failure is retried next launch; a completed check — even one that
+        // legitimately finds no subscription — sets the flag so we don't re-run.
+        if (!alreadyAttempted) {
+          await AsyncStorage.setItem(AUTO_RESTORE_KEY, "1");
+        }
+      } catch (e: any) {
+        console.log("[subscription] Auto-restore skipped (non-fatal):", e?.message ?? e);
+      }
+
       // Now that we also have the RC id, run the FULL recovery (write + link):
       // claim existing rows for the stable UUID, upload any local-only grades,
       // and back up images. The stable UUID was loaded independently at mount.
-      stableIdPromise.then(stableId => {
+      stableIdPromise.then(async stableId => {
         syncServerUsage(userId, stableId || undefined).catch(() => {});
-        if (stableId) claimHistoryForStableId(userId, stableId).catch(() => {});
-        syncHistoryWithServer(userId, stableId || undefined)
-          .catch(() => {})
-          .finally(() => {
-            retroactiveImageUpload(userId, stableId || undefined)
-              .catch(() => {})
-              .finally(() => { refreshBackupStatus().catch(() => {}); });
-          });
+        // AWAIT claim first: it re-keys any churned-rc rows to the current id and
+        // merges duplicates. Running sync/backup before it finishes could insert a
+        // duplicate row (old rc + this stable) that then blocks re-keying. Awaiting
+        // makes the recovery chain deterministic: claim → sync → backup → refresh.
+        if (stableId) await claimHistoryForStableId(userId, stableId).catch(() => {});
+        try { await syncHistoryWithServer(userId, stableId || undefined); } catch {}
+        try { await retroactiveImageUpload(userId, stableId || undefined); } catch {}
+        refreshBackupStatus().catch(() => {});
       });
 
       // RC pushes real-time updates whenever entitlement status changes

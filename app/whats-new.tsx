@@ -36,53 +36,38 @@ const SLIDES: Slide[] = [
     gradientColors: ["#8B5CF6", "#6D28D9"],
     accentColor: "#8B5CF6",
     title: "What's New",
-    subtitle: "Grade.IQ v1.0.11",
+    subtitle: "Grade.IQ v1.0.28",
     description:
-      "High-resolution card images across the whole app, plus the full Values hub to help you grade smarter and profit more.",
+      "A little polish to help you find your way around — replay the app tour whenever you like, and a cleaner, better-organized Settings menu.",
   },
   {
-    id: "top-picks",
-    icon: "trophy",
+    id: "tour",
+    icon: "compass",
+    gradientColors: ["#06B6D4", "#0E7490"],
+    accentColor: "#06B6D4",
+    title: "Replay the App Tour",
+    subtitle: "Anytime you like",
+    description:
+      "New here, or just want a refresher? The intro walkthrough now lives in Settings, so you can step through what Grade.IQ can do whenever you want.",
+    bullets: [
+      { icon: "compass-outline", text: "Find it under Settings → Guides" },
+      { icon: "play-circle", text: "Step through the highlights again" },
+      { icon: "close-circle", text: "Close any time — nothing resets" },
+    ],
+  },
+  {
+    id: "settings",
+    icon: "list",
     gradientColors: ["#F59E0B", "#B45309"],
     accentColor: "#F59E0B",
-    title: "Top Grading Picks",
-    subtitle: "Curated daily, just for you",
+    title: "A Cleaner Settings Menu",
+    subtitle: "Everything in its place",
     description:
-      "A daily feed of cards scored by profit potential. Real eBay data, not guesswork — so you know exactly what you stand to make before you grade.",
+      "We split the long list into clear sections, so guides, app info, support, and the legal pages are all easy to find.",
     bullets: [
-      { icon: "refresh", text: "Refreshed every day" },
-      { icon: "bar-chart", text: "Ranked by profit potential" },
-      { icon: "pricetag", text: "Raw vs graded price at a glance" },
-    ],
-  },
-  {
-    id: "profit",
-    icon: "trending-up",
-    gradientColors: ["#10B981", "#047857"],
-    accentColor: "#10B981",
-    title: "Full Profit Breakdown",
-    subtitle: "Real eBay sold prices",
-    description:
-      "Tap any card to see last-sold eBay prices for every grade — PSA, BGS, ACE, TAG and CGC — with 30-day averages, price ranges, and trend sparklines.",
-    bullets: [
-      { icon: "logo-usd", text: "Actual sold prices, not listings" },
-      { icon: "analytics", text: "30-day trends & price ranges" },
-      { icon: "calculator", text: "Grading cost factored in automatically" },
-    ],
-  },
-  {
-    id: "liquidity",
-    icon: "water",
-    gradientColors: ["#3B82F6", "#1D4ED8"],
-    accentColor: "#3B82F6",
-    title: "Liquidity Scores",
-    subtitle: "Know before you grade",
-    description:
-      "Each grade shows a liquidity score and sale count so you know which grades actually sell — and which ones sit in your binder.",
-    bullets: [
-      { icon: "speedometer", text: "Liquidity score per grade" },
-      { icon: "people", text: "Real sale counts from eBay" },
-      { icon: "checkmark-circle", text: "Tap any grade row to update" },
+      { icon: "book-outline", text: "Guides — tour, standards & fees" },
+      { icon: "information-circle-outline", text: "About, What's New & welcome" },
+      { icon: "shield-checkmark-outline", text: "Support and Legal on their own" },
     ],
   },
   {

@@ -360,43 +360,10 @@ export default function SettingsScreen() {
         )}
 
         <View style={[styles.section, { marginTop: 32 }]}>
-          <Text style={styles.sectionTitle}>About</Text>
+          <Text style={styles.sectionTitle}>Guides</Text>
         </View>
 
         <View style={styles.companyList}>
-          <Pressable
-            onPress={() => router.push("/whats-new")}
-            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <View style={styles.menuRowLeft}>
-              <Ionicons name="sparkles-outline" size={20} color="#8B5CF6" />
-              <Text style={styles.menuRowLabel}>What's New</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </Pressable>
-          <View style={styles.menuDivider} />
-          <Pressable
-            onPress={() => router.push("/about")}
-            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <View style={styles.menuRowLeft}>
-              <Ionicons name="heart-outline" size={20} color={Colors.primary} />
-              <Text style={styles.menuRowLabel}>About Grade.IQ</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </Pressable>
-          <View style={styles.menuDivider} />
-          <Pressable
-            onPress={() => router.push("/welcome?preview=1")}
-            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <View style={styles.menuRowLeft}>
-              <Ionicons name="hand-left-outline" size={20} color={Colors.primary} />
-              <Text style={styles.menuRowLabel}>Welcome Note</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </Pressable>
-          <View style={styles.menuDivider} />
           <Pressable
             onPress={() => router.push("/how-it-works")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
@@ -404,6 +371,17 @@ export default function SettingsScreen() {
             <View style={styles.menuRowLeft}>
               <Ionicons name="hardware-chip-outline" size={20} color={Colors.primary} />
               <Text style={styles.menuRowLabel}>How Grade.IQ Works</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
+            onPress={() => router.push("/onboarding?preview=1")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="compass-outline" size={20} color="#06B6D4" />
+              <Text style={styles.menuRowLabel}>App Tour</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </Pressable>
@@ -429,7 +407,52 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </Pressable>
+        </View>
+
+        <View style={[styles.section, { marginTop: 32 }]}>
+          <Text style={styles.sectionTitle}>About</Text>
+        </View>
+
+        <View style={styles.companyList}>
+          <Pressable
+            onPress={() => router.push("/about")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="heart-outline" size={20} color={Colors.primary} />
+              <Text style={styles.menuRowLabel}>About Grade.IQ</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
           <View style={styles.menuDivider} />
+          <Pressable
+            onPress={() => router.push("/whats-new")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="sparkles-outline" size={20} color="#8B5CF6" />
+              <Text style={styles.menuRowLabel}>What's New</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+          <View style={styles.menuDivider} />
+          <Pressable
+            onPress={() => router.push("/welcome?preview=1")}
+            style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={styles.menuRowLeft}>
+              <Ionicons name="hand-left-outline" size={20} color={Colors.primary} />
+              <Text style={styles.menuRowLabel}>Welcome Note</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+          </Pressable>
+        </View>
+
+        <View style={[styles.section, { marginTop: 32 }]}>
+          <Text style={styles.sectionTitle}>Support</Text>
+        </View>
+
+        <View style={styles.companyList}>
           <Pressable
             onPress={() => router.push("/feedback")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
@@ -440,7 +463,13 @@ export default function SettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </Pressable>
-          <View style={styles.menuDivider} />
+        </View>
+
+        <View style={[styles.section, { marginTop: 32 }]}>
+          <Text style={styles.sectionTitle}>Legal</Text>
+        </View>
+
+        <View style={styles.companyList}>
           <Pressable
             onPress={() => router.push("/terms")}
             style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}

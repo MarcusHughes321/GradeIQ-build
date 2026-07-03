@@ -6,6 +6,13 @@ Grade.IQ is a mobile application that uses AI vision technology to estimate Poke
 ## User Preferences
 I want iterative development. Ask before making major changes. I prefer detailed explanations. I prefer simple language. I like functional programming.
 
+### Version bump checklist (always do ALL of these together)
+Whenever I ask to bump the app version, update the "What's New" popup in the SAME change — never bump the version without refreshing it:
+1. `app.json` — `version`, iOS `buildNumber`, Android `versionCode`.
+2. `app/_layout.tsx` — `CURRENT_VERSION` must equal the new `app.json` `version`. This is the gate that makes the popup re-show once per user; if it isn't updated, the popup never triggers on the new release.
+3. `app/whats-new.tsx` — update the `SLIDES` array: set the intro slide subtitle to `Grade.IQ vX.Y.Z` and refresh the slide copy (titles/descriptions/bullets) to describe what actually changed in this release. Draft the highlights yourself from the work done — don't ask unless it's genuinely unclear what to feature.
+Deploy order still applies: publish the server before the client build.
+
 ## System Architecture
 
 ### UI/UX Decisions
