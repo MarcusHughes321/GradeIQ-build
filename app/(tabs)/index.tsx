@@ -130,9 +130,9 @@ function HistoryItem({ item, onDelete, enabledCompanies, hideValues, currencySym
           </View>
         </View>
         <View style={styles.historyGrades}>
-          {enabledCompanies.includes("PSA") && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
-          {enabledCompanies.includes("Beckett") && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
-          {enabledCompanies.includes("Ace") && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
+          {enabledCompanies.includes("PSA") && item.result.psa && <GradeCircle grade={item.result.psa.grade} size={34} label="PSA" />}
+          {enabledCompanies.includes("Beckett") && item.result.beckett && <GradeCircle grade={item.result.beckett.overallGrade} size={34} label="BGS" />}
+          {enabledCompanies.includes("Ace") && item.result.ace && <GradeCircle grade={item.result.ace.overallGrade} size={34} label="ACE" />}
           {enabledCompanies.includes("TAG") && item.result.tag && <GradeCircle grade={item.result.tag.overallGrade} size={34} label="TAG" />}
           {enabledCompanies.includes("CGC") && item.result.cgc && <GradeCircle grade={item.result.cgc.grade} size={34} label="CGC" />}
         </View>
@@ -428,9 +428,9 @@ export default function HomeScreen() {
             cardName: g.result.cardName,
             setName: g.result.setName || g.result.setInfo,
             setNumber: g.result.setNumber,
-            psaGrade: g.result.psa.grade,
-            bgsGrade: g.result.beckett.overallGrade,
-            aceGrade: g.result.ace.overallGrade,
+            psaGrade: g.result.psa?.grade,
+            bgsGrade: g.result.beckett?.overallGrade,
+            aceGrade: g.result.ace?.overallGrade,
             tagGrade: g.result.tag?.overallGrade,
             cgcGrade: g.result.cgc?.grade,
             currency: settings.currency || "GBP",

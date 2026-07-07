@@ -22,7 +22,7 @@ const WELCOME_KEY = "gradeiq_welcome_seen";
 const ONBOARDING_KEY = "gradeiq_onboarding_complete";
 const DISCLAIMER_KEY = "gradeiq_disclaimer_accepted";
 const WHATS_NEW_KEY = "gradeiq_whats_new_version";
-const CURRENT_VERSION = "1.0.28";
+const CURRENT_VERSION = "1.0.29";
 
 function RootLayoutNav() {
   useEffect(() => {

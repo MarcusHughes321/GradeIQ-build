@@ -3,12 +3,76 @@ import type { SavedGrading, GradingResult } from "./types";
 
 const STORAGE_KEY = "cardgrade_history";
 
+// ── Normalize stored grading results ────────────────────────────────────────
+// The AI occasionally omitted company sections (e.g. a result with only
+// psa + beckett), and screens assume all five exist — a missing section
+// crashed the dashboard render loop. The server now guarantees all five on
+// every new/synced result, but rows saved before that fix can still live in
+// AsyncStorage. This fills any missing section from the ones present so no
+// screen can crash on old data. Purely additive: existing values are kept.
+export function normalizeGradingResult(result: any): GradingResult {
+  if (!result || typeof result !== "object") return result;
+
+  const AREAS = ["centering", "corners", "edges", "surface"] as const;
+  const isObj = (v: any) => v && typeof v === "object";
+  const numOr = (v: any, fb: number) => (typeof v === "number" && isFinite(v) ? v : fb);
+
+  const subSrc = [result.beckett, result.tag, result.ace].find(isObj);
+  const scalarGrade =
+    typeof result.psa?.grade === "number" ? result.psa.grade :
+    typeof result.cgc?.grade === "number" ? result.cgc.grade :
+    typeof subSrc?.overallGrade === "number" ? subSrc.overallGrade : 8;
+  const refOverall = numOr(subSrc?.overallGrade, scalarGrade);
+  const refSub: Record<string, number> = {};
+  for (const a of AREAS) refSub[a] = numOr(subSrc?.[a]?.grade, refOverall);
+
+  const estNote = "Estimated from the other companies' grades (the AI response was incomplete).";
+  const makeSubAreas = () => {
+    const o: any = {};
+    for (const a of AREAS) o[a] = { grade: refSub[a], notes: estNote };
+    return o;
+  };
+
+  if (!isObj(result.psa)) {
+    result.psa = { grade: refOverall, centering: estNote, corners: estNote, edges: estNote, surface: estNote, notes: estNote, estimated: true };
+  }
+  if (!isObj(result.beckett)) {
+    result.beckett = { overallGrade: refOverall, ...makeSubAreas(), notes: estNote, estimated: true };
+  }
+  if (!isObj(result.ace)) {
+    result.ace = { overallGrade: refOverall, ...makeSubAreas(), notes: estNote, estimated: true };
+  }
+  if (!isObj(result.tag)) {
+    result.tag = { overallGrade: refOverall, ...makeSubAreas(), notes: estNote, estimated: true };
+  }
+  if (!isObj(result.cgc)) {
+    result.cgc = { grade: refOverall, centering: estNote, corners: estNote, edges: estNote, surface: estNote, notes: estNote, estimated: true };
+  }
+
+  // Repair partial sections (a company object present but a grade or
+  // sub-area missing) so grade math can't crash on them.
+  if (typeof result.psa.grade !== "number") result.psa.grade = refOverall;
+  if (typeof result.cgc.grade !== "number") result.cgc.grade = refOverall;
+  for (const co of [result.beckett, result.ace, result.tag]) {
+    if (typeof co.overallGrade !== "number") co.overallGrade = refOverall;
+    for (const a of AREAS) {
+      if (!isObj(co[a])) co[a] = { grade: refSub[a], notes: estNote };
+      else if (typeof co[a].grade !== "number") co[a].grade = refSub[a];
+    }
+  }
+
+  return result as GradingResult;
+}
+
 export async function getGradings(): Promise<SavedGrading[]> {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEY);
     if (!data) return [];
     const parsed = JSON.parse(data);
     if (!Array.isArray(parsed)) return [];
+    for (const g of parsed) {
+      if (g?.result) g.result = normalizeGradingResult(g.result);
+    }
     return parsed;
   } catch {
     return [];

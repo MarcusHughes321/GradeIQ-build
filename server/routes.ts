@@ -4578,6 +4578,81 @@ function enforceGradingScales(result: any): any {
   return result;
 }
 
+// ── Normalize AI grading results ──────────────────────────────────────────
+// Claude occasionally drops one or more company sections from its response
+// despite the prompt requiring all five (observed in production: a result
+// with only psa+beckett). Older app builds assume psa/beckett/ace always
+// exist and hard-crash when one is missing. This helper fills any gap by
+// synthesizing the missing company from the sections that ARE present.
+// It is purely additive — existing values are never modified — so it is safe
+// to run both before results are persisted AND when serving stored history /
+// pending results (repairing rows saved before this fix on read).
+function normalizeGradingResult(result: any, logContext = ""): any {
+  if (!result || typeof result !== "object") return result;
+
+  const AREAS = ["centering", "corners", "edges", "surface"] as const;
+  const missing: string[] = [];
+  const isObj = (v: any) => v && typeof v === "object";
+  const numOr = (v: any, fb: number) => (typeof v === "number" && isFinite(v) ? v : fb);
+
+  // Reference values from whichever companies exist. Prefer a company that
+  // carries per-area subgrades (beckett/tag/ace), fall back to scalar grades.
+  const subSrc = [result.beckett, result.tag, result.ace].find(isObj);
+  const scalarGrade =
+    typeof result.psa?.grade === "number" ? result.psa.grade :
+    typeof result.cgc?.grade === "number" ? result.cgc.grade :
+    typeof subSrc?.overallGrade === "number" ? subSrc.overallGrade : 8;
+  const refOverall = numOr(subSrc?.overallGrade, scalarGrade);
+  const refSub: Record<string, number> = {};
+  for (const a of AREAS) refSub[a] = numOr(subSrc?.[a]?.grade, refOverall);
+
+  const estNote = "Estimated from the other companies' grades (the AI response was incomplete).";
+  const makeSubAreas = () => {
+    const o: any = {};
+    for (const a of AREAS) o[a] = { grade: refSub[a], notes: estNote };
+    return o;
+  };
+
+  // Synthesize whole missing sections.
+  if (!isObj(result.psa)) {
+    missing.push("psa");
+    result.psa = { grade: refOverall, centering: estNote, corners: estNote, edges: estNote, surface: estNote, notes: estNote, estimated: true };
+  }
+  if (!isObj(result.beckett)) {
+    missing.push("beckett");
+    result.beckett = { overallGrade: refOverall, ...makeSubAreas(), notes: estNote, estimated: true };
+  }
+  if (!isObj(result.ace)) {
+    missing.push("ace");
+    result.ace = { overallGrade: refOverall, ...makeSubAreas(), notes: estNote, estimated: true };
+  }
+  if (!isObj(result.tag)) {
+    missing.push("tag");
+    result.tag = { overallGrade: refOverall, ...makeSubAreas(), notes: estNote, estimated: true };
+  }
+  if (!isObj(result.cgc)) {
+    missing.push("cgc");
+    result.cgc = { grade: refOverall, centering: estNote, corners: estNote, edges: estNote, surface: estNote, notes: estNote, estimated: true };
+  }
+
+  // Repair partial sections (e.g. a company object present but a sub-area or
+  // grade missing) so downstream code like syncCenteringToGrades can't crash.
+  if (typeof result.psa.grade !== "number") result.psa.grade = refOverall;
+  if (typeof result.cgc.grade !== "number") result.cgc.grade = refOverall;
+  for (const co of [result.beckett, result.ace, result.tag]) {
+    if (typeof co.overallGrade !== "number") co.overallGrade = refOverall;
+    for (const a of AREAS) {
+      if (!isObj(co[a])) co[a] = { grade: refSub[a], notes: estNote };
+      else if (typeof co[a].grade !== "number") co[a].grade = refSub[a];
+    }
+  }
+
+  if (missing.length > 0) {
+    console.warn(`[normalize-grading] ${logContext} AI result missing company sections: ${missing.join(", ")} — synthesized from available grades`);
+  }
+  return result;
+}
+
 // ── Startup repair: fix any card_catalog / top_picks rows with blank set_name ─
 async function repairEmptySetNames(): Promise<void> {
   // Hardcoded corrections for sets that historically ended up with blank names
@@ -6358,10 +6433,17 @@ Return ONLY the JSON object. No other text.`;
       // ({ results, totalCards }). Rehydrate the bulk-shaped fields so a poll
       // after a server restart still returns progress/results correctly.
       if (row.type === "bulk" && row.result && Array.isArray(row.result.results)) {
+        for (const item of row.result.results) {
+          if (item?.result) normalizeGradingResult(item.result, `[rehydrate:${row.id}]`);
+        }
         job.results = row.result.results;
         job.totalCards = row.result.totalCards ?? row.result.results.length;
         job.completedCards = row.result.results.length;
         job.result = undefined;
+      } else if (job.result) {
+        // Repair results stored before normalization existed so polls that
+        // rehydrate a pre-fix job can't serve a result missing sections.
+        normalizeGradingResult(job.result, `[rehydrate:${row.id}]`);
       }
       return job;
     } catch {
@@ -6593,6 +6675,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       throw new Error("No JSON found in AI response");
     }
 
+    gradingResult = normalizeGradingResult(gradingResult, logPrefix);
     gradingResult = enforceGradingScales(gradingResult);
     gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
@@ -6859,6 +6942,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
       throw new Error("No JSON found in AI response");
     }
 
+    gradingResult = normalizeGradingResult(gradingResult, logPrefix);
     gradingResult = enforceGradingScales(gradingResult);
     gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
@@ -7071,6 +7155,7 @@ IMPORTANT CARD IDENTIFICATION: Read the card number and set code printed at the 
         return res.status(500).json({ error: "Failed to parse grading results", raw: content });
       }
 
+      gradingResult = normalizeGradingResult(gradingResult, "[regrade]");
       gradingResult = enforceGradingScales(gradingResult);
       gradingResult.defects = sanitizeDefects(gradingResult.defects, gradingResult.frontCardBounds, gradingResult.backCardBounds);
 
@@ -9095,6 +9180,8 @@ RESPONSE FORMAT (JSON only, no markdown):
 
     if (!result.psa?.grade) throw new Error("Invalid crossover result structure");
 
+    normalizeGradingResult(result, logPrefix);
+
     const resolvedSetName = resolveSetName(result.setNumber || "", result.setName || "");
     result.setName = resolvedSetName;
 
@@ -9668,7 +9755,9 @@ RESPONSE FORMAT (JSON only, no markdown):
       }
       const rows = result.rows.map((r: any) => ({
         id: r.local_id,
-        result: r.result_json,
+        // Repair rows stored before result normalization existed (e.g. a
+        // result missing ace/tag/cgc) so old app builds can't crash on them.
+        result: normalizeGradingResult(r.result_json, `[history:${r.local_id}]`),
         // `timestamp` is a BIGINT column, which node-postgres returns as a STRING.
         // Coerce to a real number here so the client can do `new Date(timestamp)`
         // (a string yields "Invalid Date") and numeric sorts work. ms-epoch values
@@ -10262,6 +10351,18 @@ RESPONSE FORMAT (JSON only, no markdown):
          ORDER BY completed_at ASC`,
         [rcUserId || null, stableId || null]
       );
+      // Repair results stored before normalization existed (e.g. missing
+      // ace/tag/cgc sections) so old app builds can't crash on recovery.
+      for (const row of r.rows) {
+        if (!row.result) continue;
+        if (row.type === "bulk" && Array.isArray(row.result.results)) {
+          for (const item of row.result.results) {
+            if (item?.result) normalizeGradingResult(item.result, `[pending:${row.id}]`);
+          }
+        } else {
+          normalizeGradingResult(row.result, `[pending:${row.id}]`);
+        }
+      }
       res.json({ jobs: r.rows });
     } catch (e: any) {
       console.error("[pending-grades]", e.message);

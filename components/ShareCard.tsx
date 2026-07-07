@@ -66,9 +66,9 @@ function ShareCardContent({ grading, enabledCompanies, cardValue, showMarketData
   const { result } = grading;
 
   const companies: { key: string; grade: number; value?: string }[] = [];
-  if (enabledCompanies.includes("PSA")) companies.push({ key: "PSA", grade: result.psa.grade, value: cardValue?.psaValue });
-  if (enabledCompanies.includes("Beckett")) companies.push({ key: "BGS", grade: result.beckett.overallGrade, value: cardValue?.bgsValue });
-  if (enabledCompanies.includes("Ace")) companies.push({ key: "ACE", grade: result.ace.overallGrade, value: cardValue?.aceValue });
+  if (enabledCompanies.includes("PSA") && result.psa) companies.push({ key: "PSA", grade: result.psa.grade, value: cardValue?.psaValue });
+  if (enabledCompanies.includes("Beckett") && result.beckett) companies.push({ key: "BGS", grade: result.beckett.overallGrade, value: cardValue?.bgsValue });
+  if (enabledCompanies.includes("Ace") && result.ace) companies.push({ key: "ACE", grade: result.ace.overallGrade, value: cardValue?.aceValue });
   if (enabledCompanies.includes("TAG") && result.tag) companies.push({ key: "TAG", grade: result.tag.overallGrade, value: cardValue?.tagValue });
   if (enabledCompanies.includes("CGC") && result.cgc) companies.push({ key: "CGC", grade: result.cgc.grade, value: cardValue?.cgcValue });
 

@@ -25,7 +25,7 @@ import Animated, {
   withSequence,
   Easing,
 } from "react-native-reanimated";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -835,6 +835,10 @@ export default function CardProfitScreen() {
           statusBarTranslucent
           onRequestClose={() => setImageFullscreen(false)}
         >
+          {/* Android renders Modals in a separate native window OUTSIDE the app's
+              GestureHandlerRootView, so RNGH gestures (pinch zoom) silently do
+              nothing without this wrapper. Harmless on iOS/web. */}
+          <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={{ flex: 1, backgroundColor: "#000" }}>
             {/* Pinch-to-zoom + pan area. Double-tap resets. */}
             <GestureDetector gesture={zoomGesture}>
@@ -860,6 +864,7 @@ export default function CardProfitScreen() {
               <Text style={st.zoomHintBannerTxt}>Pinch to zoom · Double-tap to reset</Text>
             </View>
           </View>
+          </GestureHandlerRootView>
         </Modal>
       )}
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import Animated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence, Easing, withSpring,
 } from "react-native-reanimated";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   View,
   Text,
@@ -2468,6 +2468,10 @@ export default function ResultsScreen() {
         animationType="fade"
         onRequestClose={closeImageViewer}
       >
+        {/* Android renders Modals in a separate native window OUTSIDE the app's
+            GestureHandlerRootView, so RNGH gestures (pinch zoom, compare slider)
+            silently do nothing without this wrapper. Harmless on iOS/web. */}
+        <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={[styles.modalOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={styles.modalHeader}>
             <Pressable
@@ -2712,6 +2716,7 @@ export default function ResultsScreen() {
             </Pressable>
           </View>
         </View>
+        </GestureHandlerRootView>
       </Modal>
 
       {reAnalysing && (
